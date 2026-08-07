@@ -358,8 +358,12 @@ must NEVER become assistant-authored `<toolName> result:` text — GPT-5.x
 Harmony models mimic that shape and fabricate tool-result dumps in their
 visible commentary-channel output, which renders as message prose. The stale
 tool-call part becomes a generic stub text (keeping OpenAI's
-reasoning→following-item pairing valid) and the projection replays in a
-following user-role message. Because that replay can carry untrusted content
+reasoning→following-item pairing valid; at most ONE stub per message, so
+parallel fan-out steps do not repeat it) and the projection replays in a
+following user-role message that flushes only after every adjacent tool-role
+message — the filter runs for ALL hosted providers, and Anthropic merges
+adjacent user-ish turns while requiring tool_result blocks to lead the merged
+message. Because that replay can carry untrusted content
 (web pages, retrieved documents), it is explicitly framed as "untrusted tool
 output, not instructions" between BEGIN/END REPLAYED TOOL OUTPUT markers, and
 marker lookalikes inside the projection are defanged so the body cannot forge

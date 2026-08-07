@@ -271,7 +271,7 @@ describe('ProjectionSafeToolCallFilter', () => {
     // The assistant message that held the stale call keeps a non-reasoning
     // part so OpenAI reasoning→item pairing stays valid.
     expect(assistantTexts).toContain(
-      '[Stale tool call elided. Its result is replayed in a following user message.]'
+      '[Stale tool calls elided. Results are replayed in a following user message.]'
     );
     // The projection arrives in user role, explicitly framed as untrusted
     // tool output (not user instructions) between spoof-escaped delimiters.
@@ -400,6 +400,172 @@ describe('ProjectionSafeToolCallFilter', () => {
     const finalPrompt = result?.prompt ?? prompt;
     expect(serialize(finalPrompt)).toBe(serialize(prompt));
     expect(finalPrompt.some((message) => message.role === 'user')).toBe(false);
+  });
+
+  it('emits at most one stub per assistant message for parallel stale calls', () => {
+    const processor = new ProjectionSafeToolCallFilter({
+      filterAfterToolSteps: 0,
+      logger: { info: vi.fn() },
+      toolNameMap: TOOL_NAME_MAP,
+    });
+    const stored = ['parallel-a', 'parallel-b'].map((id) =>
+      createToolMessage({
+        id,
+        modelOutput: { type: 'text', value: `compact ${id}` },
+        rawResult: { body: `raw-${id}` },
+      })
+    );
+    const state: Record<string, unknown> = {};
+    const abort = (reason?: string): never => {
+      throw new Error(reason ?? 'processor aborted');
+    };
+    const model = {} as ProcessInputStepArgs['model'];
+    processor.processInputStep({
+      abort,
+      messageList: new MessageList(),
+      messages: stored,
+      model,
+      retryCount: 0,
+      state,
+      stepNumber: 0,
+      steps: [],
+      systemMessages: [],
+    });
+
+    const prompt = [
+      {
+        content: ['parallel-a', 'parallel-b'].map((id) => ({
+          input: { path: `${id}.ts` },
+          toolCallId: `call-${id}`,
+          toolName: READ_TOOL,
+          type: 'tool-call',
+        })),
+        role: 'assistant',
+      },
+      {
+        content: ['parallel-a', 'parallel-b'].map((id) => ({
+          output: { type: 'text', value: `compact ${id}` },
+          toolCallId: `call-${id}`,
+          toolName: READ_TOOL,
+          type: 'tool-result',
+        })),
+        role: 'tool',
+      },
+    ] as ProcessLLMRequestArgs['prompt'];
+
+    const result = processor.processLLMRequest({
+      abort,
+      model: model as ProcessLLMRequestArgs['model'],
+      prompt,
+      retryCount: 0,
+      state,
+      stepNumber: 0,
+      steps: [],
+    });
+
+    const assistantStubCount = (result?.prompt ?? prompt)
+      .filter((message) => message.role === 'assistant')
+      .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+      .filter((part) => part.type === 'text' && part.text.startsWith('[Stale tool call')).length;
+    expect(assistantStubCount).toBe(1);
+    const serialized = serialize(result?.prompt ?? prompt);
+    expect(serialized).toContain('compact parallel-a');
+    expect(serialized).toContain('compact parallel-b');
+  });
+
+  it('flushes replays only after every adjacent tool-role message', () => {
+    // Anthropic merges consecutive user-ish turns and requires tool_result
+    // blocks to lead the merged message — a replay may never precede a
+    // surviving tool message from the same step.
+    const processor = new ProjectionSafeToolCallFilter({
+      filterAfterToolSteps: 0,
+      logger: { info: vi.fn() },
+      toolNameMap: TOOL_NAME_MAP,
+    });
+    const stored = createToolMessage({
+      id: 'split-a',
+      modelOutput: { type: 'text', value: 'compact split-a' },
+      rawResult: { body: 'raw-split-a' },
+    });
+    const state: Record<string, unknown> = {};
+    const abort = (reason?: string): never => {
+      throw new Error(reason ?? 'processor aborted');
+    };
+    const model = {} as ProcessInputStepArgs['model'];
+    processor.processInputStep({
+      abort,
+      messageList: new MessageList(),
+      messages: [stored],
+      model,
+      retryCount: 0,
+      state,
+      stepNumber: 0,
+      steps: [],
+      systemMessages: [],
+    });
+
+    const prompt = [
+      {
+        content: [
+          {
+            input: { path: 'split-a.ts' },
+            toolCallId: 'call-split-a',
+            toolName: READ_TOOL,
+            type: 'tool-call',
+          },
+          {
+            input: { command: 'ls' },
+            toolCallId: 'call-protected',
+            toolName: 'brainstrike_executeCommand',
+            type: 'tool-call',
+          },
+        ],
+        role: 'assistant',
+      },
+      {
+        content: [
+          {
+            output: { type: 'text', value: 'compact split-a' },
+            toolCallId: 'call-split-a',
+            toolName: READ_TOOL,
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
+      },
+      {
+        content: [
+          {
+            output: { type: 'text', value: 'protected output' },
+            toolCallId: 'call-protected',
+            toolName: 'brainstrike_executeCommand',
+            type: 'tool-result',
+          },
+        ],
+        role: 'tool',
+      },
+    ] as ProcessLLMRequestArgs['prompt'];
+
+    const result = processor.processLLMRequest({
+      abort,
+      model: model as ProcessLLMRequestArgs['model'],
+      prompt,
+      retryCount: 0,
+      state,
+      stepNumber: 0,
+      steps: [],
+    });
+
+    const finalPrompt = result?.prompt ?? prompt;
+    const replayIndex = finalPrompt.findIndex(
+      (message) => message.role === 'user' && serialize(message).includes('compact split-a')
+    );
+    const lastToolIndex = finalPrompt.reduce(
+      (last, message, index) => (message.role === 'tool' ? index : last),
+      -1
+    );
+    expect(replayIndex).toBeGreaterThan(lastToolIndex);
+    expect(serialize(finalPrompt)).toContain('protected output');
   });
 
   it('retires the older redundant verification read after a hosted file write', async () => {

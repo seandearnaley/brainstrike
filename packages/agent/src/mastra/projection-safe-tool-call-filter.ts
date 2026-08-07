@@ -101,7 +101,7 @@ const MESSAGE_BOUNDARY = Symbol('message-boundary');
  * tool-result dumps in their visible commentary output.
  */
 const STALE_TOOL_CALL_STUB_TEXT =
-  '[Stale tool call elided. Its result is replayed in a following user message.]';
+  '[Stale tool calls elided. Results are replayed in a following user message.]';
 
 const REPLAY_BEGIN_MARKER = '--- BEGIN REPLAYED TOOL OUTPUT ---';
 const REPLAY_END_MARKER = '--- END REPLAYED TOOL OUTPUT ---';
@@ -508,18 +508,31 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     }
 
     const filteredPrompt: LanguageModelV2Prompt = [];
+    let pendingReplays: string[] = [];
+    const flushReplays = () => {
+      if (pendingReplays.length === 0) {
+        return;
+      }
+      filteredPrompt.push({
+        content: pendingReplays.map((text) => ({ text, type: 'text' as const })),
+        role: 'user',
+      } as LanguageModelV2Message);
+      pendingReplays = [];
+    };
     for (const message of prompt) {
+      // Replays flush only once the step's tool-role messages are exhausted:
+      // Anthropic merges adjacent user-ish turns and requires tool_result
+      // blocks to lead the merged message.
+      if (message.role !== 'tool') {
+        flushReplays();
+      }
       const { message: filtered, replays } = this.filterPromptMessage(message, projections);
       if (filtered) {
         filteredPrompt.push(filtered);
       }
-      if (replays.length > 0) {
-        filteredPrompt.push({
-          content: replays.map((text) => ({ text, type: 'text' as const })),
-          role: 'user',
-        } as LanguageModelV2Message);
-      }
+      pendingReplays.push(...replays);
     }
+    flushReplays();
     return { filteredToolCallCount: projections.size, prompt: filteredPrompt };
   }
 
@@ -532,9 +545,15 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     }
     const content: unknown[] = [];
     const replays: string[] = [];
+    let stubbed = false;
     for (const part of message.content) {
       if (part.type === 'tool-call' && projections.has(part.toolCallId)) {
-        content.push({ text: STALE_TOOL_CALL_STUB_TEXT, type: 'text' });
+        // One stub per message suffices for reasoning→item pairing; parallel
+        // stale calls must not produce N identical text parts.
+        if (!stubbed) {
+          content.push({ text: STALE_TOOL_CALL_STUB_TEXT, type: 'text' });
+          stubbed = true;
+        }
         continue;
       }
       if (part.type === 'tool-result' && projections.has(part.toolCallId)) {
