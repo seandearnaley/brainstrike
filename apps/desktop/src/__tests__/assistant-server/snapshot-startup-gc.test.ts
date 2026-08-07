@@ -80,6 +80,13 @@ function makeFixture(options: FixtureOptions) {
       if (sql.includes('to_regclass')) {
         return { rows: [{ present: options.threadsTablePresent !== false } as T] };
       }
+      // BST-1163: `resolveRewindRunRange` probes the runs table for
+      // `turn_message_id` before choosing its query shape. This fixture has
+      // no linked rows, so answer "absent" and keep the GC's retention floor
+      // on the pre-link `completed_at` query the cases below fake.
+      if (sql.includes('information_schema.columns')) {
+        return { rows: [{ present: false } as T] };
+      }
       if (sql.includes('SELECT DISTINCT thread_id')) {
         return { rows: [...rowsByThread.keys()].map((threadId) => ({ threadId }) as T) };
       }

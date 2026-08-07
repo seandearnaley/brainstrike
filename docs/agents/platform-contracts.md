@@ -111,6 +111,10 @@ FK-less terminal provider-forensics store: clear it before the lazy parent
 run/thread relations in desktop `db:clearAll`, renderer direct clear, and
 renderer factory-reset purge so error text and allowlisted response metadata
 cannot survive a fresh start.
+It also includes `brainstrike_canvas_versions` (migration 082), the FK-less
+version ledger for thread-owned Canvas documents. All three table-enumerating
+reset paths clear it explicitly; thread deletion separately derives its Canvas
+stage from `THREAD_DELETE_SIDECAR_TABLES`.
 
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
@@ -128,7 +132,7 @@ Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
 
 **The SET those three lists clear is owned by the reset-table registry**
 (`packages/db/src/reset-table-registry.ts`, BST-992): all three clear the same
-28-relation set (13 `brainstrike_*` — including the `brainstrike_mind_ops`
+31-relation set (16 `brainstrike_*` — including the `brainstrike_mind_ops`
 op-log, whose tombstones must not outlive the mind they describe (BST-993) —
 + 9 core/indexing + the Mastra six), and
 the web factory reset (`purgeTablesTx`) additionally wipes the six seed-free
@@ -891,9 +895,9 @@ paths — desktop `db-ipc.ts` `OptionalRelationTable` list
 (collector `collectThreadDebugBundleData` + pure formatter
 `formatThreadDebugBundle`, convenience wrapper `buildThreadDebugBundle`),
 consumed through the `DebugBundleProvider` seam
-(`packages/ui/src/assistant-ui-panel/debug-bundle-context.tsx` +
+(`packages/assistant-ui/src/debug-bundle-context.tsx` +
 `packages/app-shell/src/hooks/use-debug-bundle.ts`) by the
-`CopyDebugBundleButton` (`packages/ui/src/assistant-ui-panel/copy-debug-bundle-button.tsx`)
+`CopyDebugBundleButton` (`packages/assistant-ui/src/copy-debug-bundle-button.tsx`)
 on failed assistant messages. That footer offers two deliveries — **Copy**
 (clipboard) and **Download** (a `.md` file on disk, BST-946) — each building
 its OWN bundle: a second click re-runs `buildThreadDebugBundle` rather than
@@ -901,7 +905,7 @@ reusing the first result, so every delivery reflects the data at click time
 and there is no cache to go stale. Download is the realistic transport at this
 size: bundles run up to the 200 KB budget below, past what a chat box or issue
 comment accepts.
-Filename + save live in `packages/ui/src/assistant-ui-panel/debug-bundle-download.ts`
+Filename + save live in `packages/assistant-ui/src/debug-bundle-download.ts`
 (`formatDebugBundleFilename` / `downloadDebugBundleFile`) rather than in the
 component module, which is component-only by react-doctor's
 `only-export-components` contract. The filename is

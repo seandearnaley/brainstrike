@@ -2,6 +2,7 @@ import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge } from '../changes-bridge';
+import { useChangesLiveRefreshStore } from '../changes-live-refresh-store';
 import { useGitInventory } from '../use-git-inventory';
 
 function worktree(overrides: Partial<WorktreeDescriptor> = {}): WorktreeDescriptor {
@@ -46,6 +47,7 @@ function stubBridge(bridge: Partial<ChangesBridge>): void {
     applyRewind: vi.fn(),
     fileDiff: vi.fn(),
     finalizeRewinds: vi.fn(),
+    onInvalidated: vi.fn(() => () => {}),
     redoRewind: vi.fn(),
     resolveView: vi.fn(),
     rewindPreview: vi.fn(),
@@ -55,6 +57,7 @@ function stubBridge(bridge: Partial<ChangesBridge>): void {
 
 afterEach(() => {
   Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
+  useChangesLiveRefreshStore.getState().reset();
 });
 
 describe('useGitInventory', () => {
@@ -163,6 +166,65 @@ describe('useGitInventory', () => {
 
     expect(inventory).toHaveBeenCalledTimes(1);
     expect(result.current.inventory).toEqual(inventoryFixture());
+  });
+
+  it('refetches on ANY accepted invalidation event (BST-1161) — inventory spans every repo', async () => {
+    const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);
+    stubBridge({ inventory });
+
+    renderHook(() => useGitInventory());
+    await waitFor(() => {
+      expect(inventory).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/mystery/.git',
+        repositoryRoot: null,
+      });
+    });
+    await waitFor(() => {
+      expect(inventory).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('a deferred instance that was never asked to load does not refetch on invalidation (BST-1161)', async () => {
+    // The deferral exists so merely MOUNTING the git panel header does not
+    // trigger a repo scan — a push event must not defeat that either. Once the
+    // caller HAS requested a load, later invalidations keep it fresh.
+    const inventory = vi.fn(async () => ({ ok: true, value: inventoryFixture() }) as const);
+    stubBridge({ inventory });
+
+    const { result } = renderHook(() => useGitInventory({ deferInitialLoad: true }));
+    await waitFor(() => {
+      expect(result.current.available).toBe(true);
+    });
+
+    act(() => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 1,
+        gitCommonDir: '/repo/.git',
+        repositoryRoot: '/repo',
+      });
+    });
+    expect(inventory).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(inventory).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useChangesLiveRefreshStore.getState().ingestInvalidation({
+        generation: 2,
+        gitCommonDir: '/repo/.git',
+        repositoryRoot: '/repo',
+      });
+    });
+    await waitFor(() => {
+      expect(inventory).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('ignores a stale in-flight load when a newer refresh supersedes it', async () => {

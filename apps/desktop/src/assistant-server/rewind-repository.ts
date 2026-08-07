@@ -60,9 +60,40 @@ const TERMINAL_RUN_STATUSES = ['cancelled', 'completed', 'failed'] as const;
  * destructive seam the fail-safe direction is refusing a rewind that might have
  * been allowed, never reverting files under a run that is still going.
  *
+ * A row STRANDED in 'running' by a dead process (crash/quit killed both
+ * status writers) would trip this forever; the startup reaper
+ * (`thread-run-startup-reaper.ts`, BST-1162) marks provably-dead rows failed
+ * at the next app start using boot-time evidence, so this refusal only ever
+ * describes runs the current process could actually own — its fail-safe
+ * posture (unknown status = in flight) is untouched.
+ *
  * An absent runs table is `false`, not a fallback: a profile with no runs table
  * has recorded no runs at all, so none of them can be in flight.
  */
+/**
+ * Whether the runs table carries `turn_message_id` (BST-1163). The renderer's
+ * lazy bootstrap is the ONLY thing that adds the column (no numbered
+ * migration), and main-process rewind reads — reachable from the Changes
+ * surface — can land before the renderer's first repository call on an
+ * upgraded install. Referencing the column then raises 42703, and a caught
+ * error inside a transaction leaves it aborted, so it is PROBED via
+ * information_schema (the `job-queue.ts` precedent), never try/caught.
+ * Deliberately NOT latched: the column appears mid-session the moment the
+ * renderer bootstrap runs, and one probe per rewind interaction is cheap.
+ */
+async function runsTurnLinkColumnExists(db: EditCheckpointDatabase): Promise<boolean> {
+  const result = await db.query<{ present: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = $1
+         AND column_name = 'turn_message_id'
+     ) AS present`,
+    [RUNS_TABLE]
+  );
+  return result.rows[0]?.present === true;
+}
+
 export async function hasInFlightThreadRun(
   db: EditCheckpointDatabase,
   threadId: string
@@ -143,7 +174,15 @@ export async function resolveRewindTarget(
 /**
  * Which runs a rewind's file revert covers.
  *
- * THE ANCHOR IS THE TARGET MESSAGE, AND IT IS COMPARED AGAINST `completed_at`.
+ * THE STORED TURN LINK DECIDES FIRST (BST-1163): a run row carrying
+ * `turn_message_id` is in range exactly when its turn's user message is
+ * at-or-after the target in the message total order — turn membership, not
+ * timestamps. Every new run row carries the link (stamped at
+ * `createThreadRun` from the transport's per-leg turn anchor), so the
+ * timestamp rule below is the FALLBACK for pre-link rows and for a link
+ * whose message was hard-deleted by a finalized rewind.
+ *
+ * THE FALLBACK ANCHOR IS THE TARGET MESSAGE, COMPARED AGAINST `completed_at`.
  * A run is in range when it had NOT yet finished at the moment the target
  * message was sent. Both halves of that sentence are load-bearing:
  *
@@ -192,12 +231,43 @@ export async function resolveRewindRunRange(
   if (!(await relationExists(db, RUNS_TABLE))) {
     return { kind: 'none', reason: 'runs-table-absent' };
   }
-  const result = await db.query<{ id: string }>(
-    `SELECT id AS "id" FROM ${RUNS_TABLE}
-     WHERE thread_id = $1 AND (completed_at IS NULL OR completed_at > $2::timestamptz)
-     ORDER BY started_at ASC, id ASC`,
-    [target.threadId, target.createdAt]
-  );
+  // TURN GROUPING (BST-1163): a run carrying `turn_message_id` is in range
+  // exactly when its TURN's user message is at-or-after the target in the
+  // message total order — the same `("createdAt", id)` order
+  // `resolveRewindTarget` tombstones in, so the conversation and file halves
+  // of a rewind agree on the boundary. Timestamps never enter it, which is
+  // what closes the straggler class the `completed_at` rule cannot express
+  // (an earlier turn's leg whose terminal write landed after the target
+  // message — swept into the revert and deleting pre-target work).
+  //
+  // A NULL link (pre-1163 row) — or a link whose message row is gone
+  // (finalized rewind hard-deleted it) — keeps the original `completed_at`
+  // fallback: "had not finished when the target message was sent". Never a
+  // silent drop from the range.
+  const result = (await runsTurnLinkColumnExists(db))
+    ? await db.query<{ id: string }>(
+        `SELECT r.id AS "id"
+         FROM ${RUNS_TABLE} r
+         LEFT JOIN ${MASTRA_MEMORY_TABLES.messages} m
+           ON m.id = r.turn_message_id AND m.thread_id = r.thread_id
+         WHERE r.thread_id = $1
+           AND (
+             CASE WHEN m.id IS NOT NULL
+               THEN (m."createdAt", m.id) >= ($2::timestamptz, $3)
+               ELSE (r.completed_at IS NULL OR r.completed_at > $2::timestamptz)
+             END
+           )
+         ORDER BY r.started_at ASC, r.id ASC`,
+        [target.threadId, target.createdAt, target.messageId]
+      )
+    : // Pre-link table (the column arrives with the renderer bootstrap): the
+      // original completed_at rule, with the column never referenced at all.
+      await db.query<{ id: string }>(
+        `SELECT id AS "id" FROM ${RUNS_TABLE}
+         WHERE thread_id = $1 AND (completed_at IS NULL OR completed_at > $2::timestamptz)
+         ORDER BY started_at ASC, id ASC`,
+        [target.threadId, target.createdAt]
+      );
   const runIds = result.rows.map((row) => row.id);
   const fromRunId = runIds[0];
   if (!fromRunId) {
@@ -220,18 +290,16 @@ export async function resolveRewindRunRange(
  * on this run (the run is still in flight when its own message is persisted, so
  * its `completed_at` is later).
  *
- * KNOWN LIMITATION — a MID-TURN run does not round-trip. A turn is not one run:
- * every tool-approval / askUser resume mints a new row, and no column links a
- * run to the message whose turn it belongs to (a stored link is the seam this
- * would need; timestamps alone cannot separate a resume of turn N from the
- * opening run of turn N+1, which are milliseconds apart in the ambiguous
- * direction). So a resume run resolves to the NEXT turn's message, whose range
- * starts after that run — the rewind then covers LESS than the run the user
- * clicked. That is the safe direction of the asymmetry
- * `resolveRewindRunRange` documents, and the modal shows the resolved range
- * (below), so the user is never shown one range and given another. Rewinding
- * the opening run of the turn covers the resume as well, which is the gesture
- * that does what a user asking to undo a turn means.
+ * THE STORED TURN LINK ANSWERS FIRST (BST-1163): a run row carrying
+ * `turn_message_id` resolves to its OWN turn's message exactly — including
+ * mid-turn resume runs, which the timestamp rule below maps to the NEXT
+ * turn's message (a turn is not one run; timestamps alone cannot separate a
+ * resume of turn N from the opening run of turn N+1). The timestamp rule
+ * remains as the FALLBACK for pre-link rows and for a link whose message a
+ * finalized rewind hard-deleted; for those, the residual mid-turn
+ * under-coverage still applies — the safe direction, and the modal shows the
+ * resolved range (below), so the user is never shown one range and given
+ * another.
  *
  * `null` when the run is not in this thread, when Mastra's message table does
  * not exist yet, or when no message follows the run's start — a run whose
@@ -254,6 +322,27 @@ export async function resolveRewindMessageForRun(
   if (!(await relationExists(db, MASTRA_MEMORY_TABLES.messages))) {
     return null;
   }
+  // THE STORED LINK FIRST (BST-1163): a run row carrying `turn_message_id`
+  // answers exactly, closing the documented mid-turn under-coverage — a
+  // resume run resolves to ITS OWN turn's message rather than the next
+  // turn's. The join verifies the message still exists in this thread; a
+  // link whose message was hard-deleted (finalized rewind) falls back to the
+  // timestamp rule below rather than answering a message the rewind API
+  // would refuse.
+  if (await runsTurnLinkColumnExists(db)) {
+    const linkedResult = await db.query<{ id: string }>(
+      `SELECT r.turn_message_id AS "id"
+       FROM ${RUNS_TABLE} r
+       JOIN ${MASTRA_MEMORY_TABLES.messages} m
+         ON m.id = r.turn_message_id AND m.thread_id = r.thread_id
+       WHERE r.id = $1 AND r.thread_id = $2 AND r.turn_message_id IS NOT NULL`,
+      [runId, threadId]
+    );
+    const linkedMessageId = linkedResult.rows[0]?.id;
+    if (linkedMessageId !== undefined) {
+      return linkedMessageId;
+    }
+  }
   const runResult = await db.query<{ startedAt: string }>(
     `SELECT started_at::text AS "startedAt" FROM ${RUNS_TABLE} WHERE id = $1 AND thread_id = $2`,
     [runId, threadId]
@@ -262,10 +351,15 @@ export async function resolveRewindMessageForRun(
   if (startedAt === undefined) {
     return null;
   }
+  // USER messages only (PR #2291 review): resolving to an assistant snapshot
+  // row would hand the range resolver a boundary that sorts AFTER the same
+  // turn's user-message anchor, making the conversation and file halves
+  // disagree about that turn. Rewind targets are user messages everywhere
+  // else in the flow.
   const messageResult = await db.query<{ id: string }>(
     `SELECT id AS "id"
      FROM ${MASTRA_MEMORY_TABLES.messages}
-     WHERE thread_id = $1 AND "createdAt" > $2::timestamptz
+     WHERE thread_id = $1 AND "createdAt" > $2::timestamptz AND role = 'user'
      ORDER BY "createdAt" ASC, id ASC
      LIMIT 1`,
     [threadId, startedAt]

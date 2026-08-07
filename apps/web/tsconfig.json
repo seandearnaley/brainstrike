@@ -70,6 +70,9 @@
       "path": "../../packages/app-shell"
     },
     {
+      "path": "../../packages/assistant-ui"
+    },
+    {
       "path": "../../packages/agent/tsconfig.build.json"
     },
     {
@@ -95,9 +98,6 @@
     },
     {
       "path": "../../packages/queue"
-    },
-    {
-      "path": "../../packages/server-config"
     },
     {
       "path": "../../packages/settings-ui"

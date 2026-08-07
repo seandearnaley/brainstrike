@@ -105,6 +105,10 @@ import {
   Upload,
 } from 'lucide-react';
 import { type ReactElement, useCallback, useDeferredValue, useMemo, useState } from 'react';
+import {
+  selectGitScopeRefreshNonce,
+  useChangesLiveRefreshStore,
+} from '../changes/changes-live-refresh-store';
 import { ChangesetFileDiffCard } from '../changes/ui/changeset-file-diff-card';
 import { useChangeset } from '../changes/use-changeset';
 import type { GitRepository, GitStatus, GitStatusFile } from './git-bridge';
@@ -539,6 +543,17 @@ export function GitChangesView({
 
   const changeset = useChangeset(panel.activeRootId, pinnedChangeset);
 
+  // Live-refresh reload signal for the mounted diff card (BST-1161, PR #2288
+  // review): the pinned changeset's repositoryRoot comes from `window.git`'s
+  // GitRepository (never realpath'd), so the selector's unknown-key
+  // conservative fallback covers a vocabulary divergence from the inventory's
+  // canonical event key — see selectGitScopeRefreshNonce's doc comment.
+  const gitScopeReloadToken = useChangesLiveRefreshStore((state) =>
+    pinnedChangeset?.kind === 'git-scope'
+      ? selectGitScopeRefreshNonce(state, pinnedChangeset.repositoryRoot)
+      : 0
+  );
+
   // A single-entry list: this panel selects one row at a time, so there is
   // exactly one file for `ChangesetFileDiffCard` to render.
   const selectedEntry = useMemo<ChangedFileEntry | null>(() => {
@@ -722,6 +737,7 @@ export function GitChangesView({
               // for the same latched-card hazard across changesets.
               key={`${bucketOf(selected)}|${selected.path}`}
               loadFileDiff={loadFileDiff}
+              reloadToken={gitScopeReloadToken}
             />
           ) : (
             <div className="grid h-full min-h-0 place-items-center px-8 text-center text-muted-foreground text-sm">

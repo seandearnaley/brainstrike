@@ -9,14 +9,6 @@ const browserProject = createBrowserProject({
 
 const workspaceAliases = [
   {
-    find: /^@brainstrike\/assistant-contract\/(.*)$/,
-    replacement: resolve(import.meta.dirname, '../assistant-contract/src/$1.ts'),
-  },
-  {
-    find: '@brainstrike/assistant-contract',
-    replacement: resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
-  },
-  {
     find: /^@brainstrike\/utils\/(.*)$/,
     replacement: resolve(import.meta.dirname, '../utils/src/$1.ts'),
   },
@@ -114,11 +106,11 @@ export default defineConfig({
         // Pre-bundle the React-dependent deps the browser suite mounts. Without
         // this they are discovered mid-run and re-optimized into a SECOND
         // dependency graph with its own React copy — the renderer then hits
-        // "Cannot read properties of null (reading 'useReducer')" the first time
-        // a virtualized thread mounts.
+        // "Cannot read properties of null (reading 'useReducer')" on first
+        // mount. (@assistant-ui/react left this list with the BST-981 panel
+        // extraction — it is no longer a ui dependency.)
         optimizeDeps: {
           include: [
-            '@assistant-ui/react',
             '@tanstack/react-virtual',
             '@testing-library/jest-dom/vitest',
             '@testing-library/react',

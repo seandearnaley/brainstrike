@@ -55,8 +55,24 @@ export interface GitInventoryServiceDeps {
   readonly fs?: InventoryFs;
   /** Wraps `loadWorkspaceRootsFromDatabase` — this module never touches the DB directly. */
   readonly loadRoots: () => Promise<readonly { id: string; path: string }[]>;
+  /**
+   * Called after each watcher invalidation has marked the cache dirty
+   * (BST-1161). main.ts wires this to the `changes:invalidated` renderer
+   * broadcast; the service itself stays Electron-free. `repositoryRoot` is
+   * resolved from the cached snapshot's identity mapping (identity never
+   * changes on invalidation, so the pre-invalidation cache is a valid map);
+   * `null` when the common dir cannot be mapped (e.g. no snapshot yet). A
+   * throwing listener is logged and never loses the dirty-mark itself.
+   */
+  readonly onInvalidate?: (event: GitInventoryInvalidation) => void;
   /** Hook-free callers only — see `invokeGitHookFree` usage below. Used hook-free. */
   readonly run: GitCommandRunner;
+}
+
+/** What a watcher invalidation was about, for push-to-renderer consumers (BST-1161). */
+export interface GitInventoryInvalidation {
+  readonly gitCommonDir: string;
+  readonly repositoryRoot: string | null;
 }
 
 export interface GitInventorySnapshot extends GitInventory {
@@ -734,8 +750,24 @@ export function createGitInventoryService(
     // fix (see the retired comment this replaced, in git history).
     stopped = false;
     watchers = createGitInventoryWatchers({
-      onInvalidate: () => {
+      onInvalidate: (gitCommonDir) => {
+        // Dirty-mark FIRST: a throwing consumer below must never lose the
+        // invalidation the watcher just reported.
         dirty = true;
+        if (!deps.onInvalidate) {
+          return;
+        }
+        const repositoryRoot =
+          cachedSnapshot?.repositories.find((repo) => repo.identity.gitCommonDir === gitCommonDir)
+            ?.identity.repositoryRoot ?? null;
+        try {
+          deps.onInvalidate({ gitCommonDir, repositoryRoot });
+        } catch (error) {
+          logger.error('git inventory service: onInvalidate consumer threw', {
+            error: toErrorMessage(error),
+            gitCommonDir,
+          });
+        }
       },
       watchDirectory: deps.watchDirectory,
     });

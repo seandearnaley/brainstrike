@@ -315,7 +315,10 @@ export function useAssistantRequestLifecycle({
   );
 
   const prepareRequestData = useCallback(
-    async (abortSignal?: AbortSignal): Promise<Record<string, unknown>> => {
+    async (
+      abortSignal?: AbortSignal,
+      turnAnchorMessageId?: string | null
+    ): Promise<Record<string, unknown>> => {
       const preparationSignal = resolveRequestPreparationSignal(abortSignal);
       preparationSignal.throwIfAborted();
       const memoryContext = requireRequestMemoryContext(requestData);
@@ -342,6 +345,7 @@ export function useAssistantRequestLifecycle({
         resolvedModelName,
         selectedMemoryThreadId,
         selectedProvider,
+        turnMessageId: turnAnchorMessageId ?? null,
       });
       runWhileRequestPreparationActive(preparationSignal, () => {
         activatePreparedRun(runId, activeThreadRootBinding);

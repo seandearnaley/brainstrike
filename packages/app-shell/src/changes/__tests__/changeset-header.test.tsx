@@ -69,9 +69,6 @@ function installGitBridge(): void {
   const bridge: GitBridge = {
     aheadBehind: vi.fn(async () => ok({ ahead: 0, behind: 0, hasUpstream: false, upstream: null })),
     commit: vi.fn(async () => ok({ branch: 'main', commit: 'abc1234' })),
-    commitDiff: vi.fn(async () =>
-      ok({ path: '', staged: false, truncated: false, unifiedDiff: '' })
-    ),
     commitFiles: vi.fn(async () => ok([])),
     diff: vi.fn(async () => ok({ path: '', staged: false, truncated: false, unifiedDiff: '' })),
     fetch: vi.fn(async () => ok({ output: '' })),

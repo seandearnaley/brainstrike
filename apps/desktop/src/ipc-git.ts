@@ -56,12 +56,6 @@ export function registerGitIpcHandlers(
   );
   registry.registerInvoke(
     'git',
-    DESKTOP_IPC_CHANNELS.git.commitDiff,
-    (_event, rootId: unknown, params: { commit: string; originalPath?: string; path: string }) =>
-      handlers.commitDiff(rootId, params)
-  );
-  registry.registerInvoke(
-    'git',
     DESKTOP_IPC_CHANNELS.git.commitFiles,
     (_event, rootId: unknown, params: { commit: string }) => handlers.commitFiles(rootId, params)
   );

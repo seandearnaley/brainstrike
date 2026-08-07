@@ -1,13 +1,15 @@
 import { registerFactoryResetSessionStore } from '@brainstrike/app-state/factory-reset';
+import { resetContextUsageStore } from '@brainstrike/assistant-ui/context-usage-store';
+import { resetFollowUpQueueStore } from '@brainstrike/assistant-ui/follow-up-queue-store';
+import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
-import { resetContextUsageStore } from '@brainstrike/ui/assistant-ui-panel/context-usage-store';
-import { resetFollowUpQueueStore } from '@brainstrike/ui/assistant-ui-panel/follow-up-queue-store';
-import { useRewindComposerStore } from '@brainstrike/ui/assistant-ui-panel/rewind-composer-store';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
+import { useBrowserTabsStore } from './browser-pane/browser-tabs-store';
+import { useChangesLiveRefreshStore } from './changes/changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useChangesStore } from './changes/changes-store';
 import { useRewindStore } from './changes/rewind-store';
@@ -104,6 +106,13 @@ registerFactoryResetSessionStore(() => {
 });
 
 registerFactoryResetSessionStore(() => {
+  // Invalidation nonces name absolute repository paths; the wire-generation
+  // guard also restarts so a post-reset main process re-numbering from 1 is
+  // not dropped (BST-1161).
+  useChangesLiveRefreshStore.getState().reset();
+});
+
+registerFactoryResetSessionStore(() => {
   // An open Conversation Rewind request names a thread/message/run the reset
   // just wiped; leaving it up would show a confirm modal for a conversation
   // that no longer exists.
@@ -114,4 +123,12 @@ registerFactoryResetSessionStore(() => {
   // A pending composer repopulation is the text of a message the reset just
   // deleted — it must not land in a fresh profile's first prompt.
   useRewindComposerStore.getState().consume();
+});
+
+registerFactoryResetSessionStore(() => {
+  // The browser-pane tab mirror (BST-1174). The main-process views + their
+  // `persist:browser-pane` partition are wiped by the desktop userData reset;
+  // this clears the renderer's stale copy of that list so the pane starts
+  // empty in the fresh profile.
+  useBrowserTabsStore.getState().reset();
 });

@@ -67,8 +67,13 @@ import { createLogger } from '@brainstrike/logging';
 import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type ChangesBridge, resolveChangesBridge } from './changes-bridge';
+import {
+  selectGitScopeRefreshNonce,
+  useChangesLiveRefreshStore,
+} from './changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes-navigation-store';
 import { useRewindStore } from './rewind-store';
+import { useChangesLiveRefreshSubscription } from './use-changes-live-refresh';
 
 const logger = createLogger('UseChangeset');
 
@@ -213,6 +218,20 @@ export function useChangeset(
   // pinned run never refetches behind the user's back.
   const liveRefreshNonce = useChangesNavigationStore((state) => state.liveRefreshNonce);
 
+  // EXTERNAL GIT ACTIVITY (BST-1161, spec §6): the main-process git-metadata
+  // watcher pushes `changes:invalidated` when a terminal commit/fetch/worktree
+  // add touches a repository. Only a `git-scope` changeset re-resolves on it —
+  // and only on ITS OWN repository's nonce (an unmapped event counts for every
+  // repo, see the store). Snapshot-sourced changesets pin 0: external git
+  // activity cannot change what a captured turn contains. Same shape as the
+  // two inputs above: a `loadView` dependency, never a second effect.
+  useChangesLiveRefreshSubscription();
+  const gitInvalidationNonce = useChangesLiveRefreshStore((state) =>
+    stableChangeset?.kind === 'git-scope'
+      ? selectGitScopeRefreshNonce(state, stableChangeset.repositoryRoot)
+      : 0
+  );
+
   const loadView = useCallback(async (): Promise<GitResult<ChangesetView> | null> => {
     generationRef.current += 1;
     const generation = generationRef.current;
@@ -231,7 +250,7 @@ export function useChangeset(
       setError(result.ok ? null : result.error);
     }
     return result;
-  }, [bridge, liveRefreshNonce, rewindGeneration, rootId, stableChangeset]);
+  }, [bridge, gitInvalidationNonce, liveRefreshNonce, rewindGeneration, rootId, stableChangeset]);
 
   const refresh = useCallback(async (): Promise<void> => {
     await loadView();

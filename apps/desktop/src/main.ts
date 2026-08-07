@@ -15,10 +15,11 @@ import {
   LogLevel,
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import type { ChangesInvalidationEvent } from '@brainstrike/types';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
-import { registerAssetProtocol, registerAssetProtocolPrivileges } from './asset-protocol';
+import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
 import {
   configureDesktopCommandSessionManager,
@@ -36,9 +37,13 @@ import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
 import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
+import { reapOrphanedThreadRuns } from './assistant-server/thread-run-startup-reaper';
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
+import { createBrowserPaneHost } from './browser/browser-pane-host';
+import { createBrowserIpcHandlers } from './browser-ipc-handlers';
+import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
@@ -79,6 +84,7 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
+import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
@@ -125,6 +131,7 @@ import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
+import { registerPrivilegedSchemes } from './privileged-schemes';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -144,9 +151,10 @@ const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
   process.argv
 );
 
-// MUST run before app.whenReady(): privileged scheme registration is only
-// honored if it happens before the app is ready.
-registerAssetProtocolPrivileges();
+// MUST run before app.whenReady(), and exactly once for ALL privileged
+// schemes: Electron honors a single registerSchemesAsPrivileged call per
+// launch (see privileged-schemes.ts).
+registerPrivilegedSchemes();
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
@@ -507,6 +515,12 @@ const loggingOptions: InitializeLoggingOptions = {
 };
 
 const logger = createLogger('DesktopMain');
+
+// Captured at module evaluation — BEFORE app.whenReady() and therefore before
+// any renderer (the only run-row minter) can exist. The thread-run startup
+// reaper's evidence rule compares run started_at stamps against this instant;
+// see assistant-server/thread-run-startup-reaper.ts.
+const mainProcessStartedAt = new Date();
 configureDesktopCommandSessionManager({ resolver: createDatabaseRootResolver(getDatabase) });
 logger.debug('Main process started');
 const mainLogBuffer = new LogBuffer({ size: 3000 });
@@ -733,6 +747,7 @@ let unregisterFileExportsIpcHandlers: null | (() => void) = null;
 let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
 let unregisterChangesIpcHandlers: null | (() => void) = null;
+let unregisterBrowserIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterContextFilesIpcHandlers: null | (() => void) = null;
 let unregisterSkillsIpcHandlers: null | (() => void) = null;
@@ -1377,6 +1392,10 @@ if (singleInstanceLockAcquired) {
       // the git/read/search tools use — resolving the DB lazily per request.
       registerAssetProtocol(createDatabaseRootResolver(getDatabase));
 
+      // Static Canvas sandbox shell (BST-1173); no DB dependency, serves one
+      // reviewed document with its own CSP header (see canvas-protocol.ts).
+      registerCanvasProtocol();
+
       // BST-1112: cross-workspace git worktree inventory service. Constructed
       // and started HERE, inside app.whenReady() — never at module scope.
       // `start()` kicks off an eager build whose very first step
@@ -1400,11 +1419,35 @@ if (singleInstanceLockAcquired) {
       // `ipc-notes-vault.ts:66-105` for the same private-adapter + inline
       // `DirectoryHandle` pattern.
       const gitInventoryWatcherAdapter = new ElectronFileSystemAdapter();
+      // BST-1161 (spec §6): each watcher invalidation is pushed to every live
+      // renderer as `changes:invalidated` so git-scope changeset views and the
+      // inventory refetch without polling. The monotonic generation lets the
+      // renderer drop stale/duplicate deliveries. Broadcast (ipc-mcp
+      // precedent): the Changes surface and git panel can live in any window.
+      let changesInvalidationGeneration = 0;
+      const broadcastChangesInvalidation = (event: {
+        gitCommonDir: string;
+        repositoryRoot: string | null;
+      }): void => {
+        changesInvalidationGeneration += 1;
+        const payload: ChangesInvalidationEvent = {
+          generation: changesInvalidationGeneration,
+          gitCommonDir: event.gitCommonDir,
+          repositoryRoot: event.repositoryRoot,
+        };
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (window.isDestroyed()) {
+            continue;
+          }
+          window.webContents.send(DESKTOP_IPC_CHANNELS.changes.invalidated, payload);
+        }
+      };
       gitInventoryService = createGitInventoryService({
         loadRoots: async () => {
           const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
           return roots.map((root) => ({ id: root.rootId, path: root.path }));
         },
+        onInvalidate: broadcastChangesInvalidation,
         run: execFileGitRunner,
         // `ElectronFileSystemAdapter.watchDirectory` returns its disposer
         // SYNCHRONOUSLY; `WatchGitCommonDir`'s DI shape is `Promise<() => void>` —
@@ -1451,6 +1494,27 @@ if (singleInstanceLockAcquired) {
       void (async () => {
         try {
           const database = await getDatabase();
+          // BST-1162: unstick rewind's in-flight gate. Rows a previous
+          // process left in 'running' are provably dead (see the reaper's
+          // evidence rule); marking them failed here is what re-enables
+          // Conversation Rewind on their threads. Runs before the snapshot
+          // GC on purpose (its retention floor walks run ranges), but in its
+          // OWN try/catch: a reap failure must neither skip the orphan sweep
+          // and GC below nor report itself under their step name.
+          try {
+            const reapReport = await reapOrphanedThreadRuns(
+              database as unknown as EditCheckpointDatabase,
+              mainProcessStartedAt
+            );
+            if (reapReport.runsTableMissing || reapReport.reaped.length > 0) {
+              logger.info('Startup thread-run reap completed', {
+                reapedRunIds: reapReport.reaped.map((row) => row.id),
+                runsTableMissing: reapReport.runsTableMissing,
+              });
+            }
+          } catch (reapError) {
+            logger.error('Startup thread-run reap failed', { error: reapError });
+          }
           const rootRows = await database.query<{ id: string; path: string }>(
             'SELECT id, path FROM roots'
           );
@@ -1786,6 +1850,21 @@ if (singleInstanceLockAcquired) {
         // listeners + debounce timer on close so they don't accumulate per window.
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
         win.once('closed', disposeWindowStatePersistence);
+
+        // Embedded browser pane (BST-1174): each window owns its OWN pane host
+        // + IPC registration, so a macOS close→dock-reopen cycle (which calls
+        // createMainWindow again without quitting) rebinds the pane to the new
+        // window instead of leaving `window.browser` calls hitting a disposed
+        // host. The manager attaches views to THIS window's contentView.
+        const browserPaneHost = createBrowserPaneHost(win);
+        unregisterBrowserIpcHandlers = registerBrowserIpcHandlers(
+          createBrowserIpcHandlers(browserPaneHost.manager)
+        );
+        win.once('closed', () => {
+          browserPaneHost.dispose();
+          unregisterBrowserIpcHandlers?.();
+          unregisterBrowserIpcHandlers = null;
+        });
         return win;
       };
 
@@ -2080,6 +2159,8 @@ app.on('will-quit', () => {
   }
   unregisterChangesIpcHandlers?.();
   unregisterChangesIpcHandlers = null;
+  unregisterBrowserIpcHandlers?.();
+  unregisterBrowserIpcHandlers = null;
   if (unregisterHooksIpcHandlers) {
     unregisterHooksIpcHandlers();
     unregisterHooksIpcHandlers = null;

@@ -42,6 +42,15 @@ vi.mock('electron', () => ({
     defaultSession: {
       webRequest: { onHeadersReceived: vi.fn() },
     },
+    // Browser pane (BST-1174) resolves its own partition; a factory reset
+    // clears it. Provide an inert partition session so those paths run.
+    fromPartition: vi.fn(() => ({
+      clearStorageData: vi.fn(async () => undefined),
+      on: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
+      webRequest: { onHeadersReceived: vi.fn() },
+    })),
   },
   shell: {
     openPath: vi.fn().mockResolvedValue(''),

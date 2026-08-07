@@ -29,6 +29,7 @@ function installChangesBridge(
     fileDiff: vi.fn(),
     finalizeRewinds: spy as unknown as ChangesBridge['finalizeRewinds'],
     inventory: vi.fn(),
+    onInvalidated: vi.fn(() => () => {}),
     redoRewind: vi.fn(),
     resolveView: vi.fn(),
     rewindPreview: vi.fn(),

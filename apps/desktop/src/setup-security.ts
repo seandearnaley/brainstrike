@@ -1,5 +1,6 @@
 import { createLogger } from '@brainstrike/logging';
 import { app, session } from 'electron';
+import { CANVAS_PROTOCOL_SCHEME } from './canvas-protocol';
 import { getCSP } from './csp-utils';
 
 const logger = createLogger('DesktopSecurity');
@@ -8,6 +9,7 @@ export const desktopSecurityLogger = logger;
 // Type definitions for Electron's webRequest
 interface WebRequestDetails {
   responseHeaders?: Record<string, string[]>;
+  url?: string;
 }
 
 type WebRequestCallback = (response: { responseHeaders: Record<string, string[]> }) => void;
@@ -23,6 +25,16 @@ export function setupSecurity() {
 
   session.defaultSession.webRequest.onHeadersReceived(
     (details: WebRequestDetails, callback: WebRequestCallback) => {
+      // The Canvas sandbox shell (brainstrike-canvas:) owns its headers: the
+      // canvas-protocol handler serves the reviewed sandbox CSP on every
+      // response. Stamping the app policy here would re-impose
+      // X-Frame-Options: DENY (making the shell unframeable) and attach a CSP
+      // the nested srcdoc would inherit — silently breaking inline canvas
+      // scripts in production only. See canvas-protocol.ts (BST-1173).
+      if (details.url?.startsWith(`${CANVAS_PROTOCOL_SCHEME}:`)) {
+        callback({ responseHeaders: { ...details.responseHeaders } });
+        return;
+      }
       callback({
         responseHeaders: {
           ...details.responseHeaders,

@@ -36,6 +36,8 @@ import { createLogger } from '@brainstrike/logging';
 import type { GitInventory } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveChangesBridge } from './changes-bridge';
+import { useChangesLiveRefreshStore } from './changes-live-refresh-store';
+import { useChangesLiveRefreshSubscription } from './use-changes-live-refresh';
 
 const logger = createLogger('UseGitInventory');
 
@@ -87,8 +89,20 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const generationRef = useRef(0);
+  // True once ANY load has been requested (mount-time or a gesture's
+  // `refresh()`). Gates push-driven refetches for deferred callers — see the
+  // mount effect below.
+  const loadRequestedRef = useRef(false);
+
+  // EXTERNAL GIT ACTIVITY (BST-1161, spec §6): the inventory spans every
+  // repository, so ANY accepted `changes:invalidated` event re-reads it. A
+  // `refresh` dependency (same discipline as `use-changeset.ts`'s inputs), so
+  // the mount effect below re-fires on each accepted event.
+  useChangesLiveRefreshSubscription();
+  const anyInvalidationNonce = useChangesLiveRefreshStore((state) => state.anyInvalidationNonce);
 
   const refresh = useCallback(async (): Promise<void> => {
+    loadRequestedRef.current = true;
     generationRef.current += 1;
     const generation = generationRef.current;
     if (!bridge) {
@@ -127,10 +141,15 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
         setLoading(false);
       }
     }
-  }, [bridge]);
+  }, [anyInvalidationNonce, bridge]);
 
   useEffect(() => {
-    if (deferInitialLoad) {
+    // A deferred caller that has never requested a load stays unloaded even
+    // across push invalidations — the deferral exists so merely mounting the
+    // surface costs no repo scan, and a push event must not defeat it. Once a
+    // load HAS been requested, invalidations (which re-create `refresh` via
+    // `anyInvalidationNonce`) keep the loaded inventory fresh.
+    if (deferInitialLoad && !loadRequestedRef.current) {
       return;
     }
     void refresh();

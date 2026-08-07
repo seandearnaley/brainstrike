@@ -55,6 +55,7 @@ export default [
       'apps/desktop/src/**/*.{js,jsx,ts,tsx}',
       'apps/web/src/**/*.{js,jsx,ts,tsx}',
       'packages/app-shell/src/**/*.{js,jsx,ts,tsx}',
+      'packages/assistant-ui/src/**/*.{js,jsx,ts,tsx}',
       'packages/db/src/**/*.{js,jsx,ts,tsx}',
       'packages/file-import/src/**/*.{js,jsx,ts,tsx}',
       'packages/notes-vault/src/**/*.{js,jsx,ts,tsx}',

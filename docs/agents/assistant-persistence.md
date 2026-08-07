@@ -245,14 +245,14 @@ contracts keep reloaded threads identical to live ones:
    own: the virtualized tier has no library initialize step and anchors to the
    newest message itself, without animation, and only when the reader was not
    already scrolled up — same section. The stance is pinned by the BST-896 and
-   BST-897 cases in `packages/ui/src/__tests__/assistant-ui-panel-architecture.test.ts`.
+   BST-897 cases in `packages/assistant-ui/src/__tests__/assistant-ui-panel-architecture.test.ts`.
 
 Approval/suspend ACTION messages are deliberately NEVER a Mastra row: the
 "Approved <tool>." / "Approved the plan." user message the notices append is
 UI/transport bookkeeping (its `runConfig` drives the resume; its metadata
 marker drives the notice outcome locking + chip rendering). Neither resume
 path passes messages to Mastra, and the shared transport
-(`packages/ui/src/assistant-ui-panel/data-stream-runtime.ts` +
+(`packages/assistant-ui/src/data-stream-runtime.ts` +
 `approval-action-message.ts`) excludes action-marked messages from every
 outbound payload and ships `messages: []` on the action legs. Consequences:
 the echo is absent after reload (restart-safe rediscovery owns the
@@ -265,7 +265,7 @@ if a Mastra writer ever starts persisting the echo, extend the exclusion at
 that writer and update this section.
 
 Image attachments (composer → model → persistence → reload):
-- The composer's attachment adapter (packages/ui assistant-ui-panel/
+- The composer's attachment adapter (packages/assistant-ui/src/
   attachment-adapter.ts) accepts IMAGES ONLY and enforces the shared caps in
   `@brainstrike/assistant-contract` assistant-attachments (allowlisted media
   types; 5MB/image; 4/message; 10MB combined) — the SAME module the server
@@ -440,7 +440,7 @@ Layers:
    `apps/desktop/src/renderer/components/settings/page-content.tsx`) —
    master + per-event toggles, surfaces a "blocked by your browser/OS"
    message when permission is denied/unsupported.
-4. **Trigger source** (`packages/ui/src/assistant-ui-panel/run-lifecycle-notifications.ts`) —
+4. **Trigger source** (`packages/assistant-ui/src/run-lifecycle-notifications.ts`) —
    pure selectors (`selectTerminalRunEvents`, `selectOpenToolApprovalRequests`)
    scan thread messages for `run.finished`/`run.failed`
    (`ASSISTANT_RUN_EVENT_DATA_NAME`) and tool-approval-required
@@ -471,8 +471,8 @@ Layers:
 
 When changing this flow, update this section and the paired tests
 (`packages/app-state/src/__tests__/notification-*.test.ts(x)`,
-`packages/ui/src/assistant-ui-panel/__tests__/run-lifecycle-notifications.test.ts`,
-`packages/ui/src/assistant-ui-panel/__tests__/run-lifecycle-notifications-hydration.test.tsx`,
+`packages/assistant-ui/src/__tests__/run-lifecycle-notifications.test.ts`,
+`packages/assistant-ui/src/__tests__/run-lifecycle-notifications-hydration.test.tsx`,
 `packages/app-shell/src/__tests__/use-assistant-run-notifications.test.ts`).
 
 ---
@@ -483,7 +483,7 @@ Report R3 v1 — the QUEUE half of mastra-code's steer/followUp pair. The
 composer input already stays enabled during a run (only Send unmounts); this
 adds a `QueueFollowUpButton` in the RUNNING branch (composer-input.tsx
 `queueControl` seam), a per-thread zustand FIFO
-(`packages/ui/src/assistant-ui-panel/follow-up-queue-store.ts`), removable
+(`packages/assistant-ui/src/follow-up-queue-store.ts`), removable
 "queued" chips above the composer, and a render-nothing
 `FollowUpQueueBridge` that dispatches ONE queued message per run end via
 `aui.thread().append(...)` (the same programmatic-send seam the
@@ -515,8 +515,8 @@ Settled semantics (v1 — revisit only with the steering stage):
   explicit v2 follow-up and lives in the agent loop, not this UI seam.
 
 When changing this flow, update this section and the paired tests
-(`packages/ui/src/assistant-ui-panel/__tests__/follow-up-queue-store.test.ts`,
-`packages/ui/src/assistant-ui-panel/__tests__/follow-up-queue.behavior.test.tsx`
+(`packages/assistant-ui/src/__tests__/follow-up-queue-store.test.ts`,
+`packages/assistant-ui/src/__tests__/follow-up-queue.behavior.test.tsx`
 — the behavior suite runs a REAL assistant-ui local runtime, no mocked state).
 
 ---
@@ -534,7 +534,7 @@ packages/assistant-contract/src/context-budget.ts — throws, never clamps). Tha
 3. the instruction budget note (`buildContextBudgetNote`, appended per-request at Agent construction).
 
 Runtime invariants:
-- Usage store (packages/ui/src/assistant-ui-panel/context-usage-store.ts) is session-lived, NOT
+- Usage store (packages/assistant-ui/src/context-usage-store.ts) is session-lived, NOT
   persisted; key = `selectedMemoryThreadId ?? 'active'` — the writer (`handleUsage` in the app-shell
   wrapper) and the reader (`ContextUsageMeter`, via the panel's `threadKey` prop) MUST use the same key.
 - Both turn paths report usage: hosted via the data-stream `message-finish` tap
@@ -550,7 +550,7 @@ Runtime invariants:
   provenance must never lie — wire-format usage is
   `{inputTokens, outputTokens, contextInputTokens?, contextOutputTokens?, billedCostUsd?}`
   (e2e mocks must use the token field names).
-- Estimator v2 (BST-940, `packages/ui/src/assistant-ui-panel/context-estimate.ts`):
+- Estimator v2 (BST-940, `packages/assistant-ui/src/context-estimate.ts`):
   `estimateConversationTokens` walks EVERY message part — text, reasoning, tool args + results
   (per-tool attribution), attachment counts — with the shared chars/4 heuristic, memoized per
   settled message object in a WeakMap. The v1 text-only walk read coding threads absurdly low
@@ -694,7 +694,7 @@ Do NOT confuse these with `brainstrike_assistant_run_outcomes`, which IS
 migration-backed (062, registered in both runners) *and* mirrored in the
 bootstrap SQL.
 
-The desktop MAIN process has THREE writers against these relations, none of
+The desktop MAIN process has FOUR writers against these relations, none of
 which creates them (all in `apps/desktop/src/assistant-server/run-persistence.ts`, all reached
 through injected handles rather than a module-level import —
 `recordDesktopAssistantRunEvent` and `completeDesktopAssistantThreadRun` take a
@@ -710,6 +710,7 @@ handle (BST-972 A1/A2) — and all gated on `if (runId)`):
 | `recordDesktopAssistantRunEvent` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
 | `recordDesktopAssistantHookRunOutcome` | `INSERT … SELECT FROM brainstrike_assistant_thread_runs` | THROWS (deliberate) |
 | `completeDesktopAssistantThreadRun` | `UPDATE brainstrike_assistant_thread_runs` | 0 rows, silent no-op |
+| `reapOrphanedThreadRuns` (BST-1162, startup only) | `UPDATE … WHERE status = 'running' AND started_at < bootedAt` | `to_regclass` probe → `runsTableMissing: true`, no-op |
 
 That is safe, and the reason is **runId provenance — NOT startup ordering**:
 
@@ -742,7 +743,16 @@ propagates it:
 - `recordDesktopAssistantThreadRunStatus` (same module) wraps
   `completeDesktopAssistantThreadRun` in a `try/catch` that only logs. A
   `42P01` on the run-status `UPDATE` is SWALLOWED; the run row simply never
-  reaches a terminal status.
+  reaches a terminal status. Rows stranded in `'running'` this way (or by a
+  crash/quit killing both status writers) are recovered at the NEXT app
+  start by `reapOrphanedThreadRuns`
+  (`apps/desktop/src/assistant-server/thread-run-startup-reaper.ts`, wired
+  into main.ts's startup fire-and-forget sweep, BST-1162): boot-time
+  evidence (`started_at < mainProcessStartedAt` — no renderer exists before
+  whenReady, so a row this boot minted can never match) marks them `failed`
+  with a visible error, un-sticking `hasInFlightThreadRun`'s rewind gate
+  without weakening it — live runs and unknown statuses still refuse.
+  Paired test: `thread-run-startup-reaper.integration.test.ts`.
 
 Neither carve-out is a regression introduced alongside this ruling, and neither
 is currently worth runtime machinery — but they are why the provenance invariant
@@ -870,7 +880,24 @@ finalizes the rewind.
   `rewind_id` batch" an exact inverse. A second rewind re-covering an already
   hidden message keeps the ORIGINAL batch's row (`ON CONFLICT DO NOTHING`), so
   undoing the newer rewind cannot resurrect what the older one hid.
-- **THE FILE-REVERT RANGE ANCHORS THE TARGET MESSAGE AGAINST `completed_at`**
+- **THE FILE-REVERT RANGE PREFERS THE STORED RUN↔TURN LINK** (BST-1163):
+  `brainstrike_assistant_thread_runs.turn_message_id` (nullable; bootstrap
+  CREATE + idempotent `ADD COLUMN IF NOT EXISTS` upgrade, NO numbered
+  migration) records the user message whose turn each run belongs to. It is
+  stamped at `createThreadRun` — the transport resolves the per-leg turn
+  anchor (`resolveTurnAnchorMessageId` in `data-stream-runtime.ts`: the last
+  REAL user message, approval action echoes excluded) and threads it through
+  `prepareRequest`/`prepareRequestData`, so initial sends AND
+  approval/suspend resume legs stamp the SAME id. `resolveRewindRunRange`
+  puts a linked run in range exactly when its turn message is at-or-after
+  the target in the message total order, and `resolveRewindMessageForRun`
+  answers a linked run's own turn message exactly (closing the documented
+  mid-turn under-coverage). NULL-link rows (pre-link, or a link whose
+  message a finalized rewind deleted) keep the `completed_at` fallback
+  below. Paired tests: `rewind-turn-link.integration.test.ts` +
+  `assistant-thread-run-turn-link.integration.test.ts`.
+
+  **THE FALLBACK ANCHORS THE TARGET MESSAGE AGAINST `completed_at`**
   (`resolveRewindRunRange`): a run is in range when it had not yet finished at
   the moment the target message was sent. **A TURN IS NOT ONE RUN** — every
   tool-approval / askUser resume mints another `brainstrike_assistant_thread_runs`
@@ -885,11 +912,10 @@ finalizes the rewind.
   BEFORE its own user message is persisted, so `started_at` cannot order them,
   but the run always ends later. NULL `completed_at` counts as in range and is
   unreachable from `applyRewind` (`hasInFlightThreadRun` refuses first).
-  **Run -> message is the inverse that does NOT round-trip**: no column links a
-  run to the message whose turn it belongs to, so `resolveRewindMessageForRun`
-  maps a MID-TURN run to the next turn's message and the rewind covers less than
-  that run. Under-revert is the safe direction and the modal shows the resolved
-  range; closing it needs a stored run<->turn link, not another timestamp rule.
+  **Run -> message round-trips through the stored link** for every post-link
+  row; only NULL-link fallback rows retain the old mid-turn under-coverage
+  (`resolveRewindMessageForRun` maps such a resume run to the next turn's
+  message — the safe direction, and the modal shows the resolved range).
 - **A REWIND IS INVISIBLE WITHOUT A RE-HYDRATION BUMP.** Every read path below
   excludes tombstoned messages, but the live assistant thread is not a read
   path — it is assistant-ui in-memory state, hydrated ONCE by
@@ -1037,6 +1063,35 @@ sentinels in `clear-data.integration.test.tsx` and
 in either order), the `changes:finalizeRewinds` cases in
 `rewind-ipc-handlers.integration.test.ts`, and the two renderer-trigger suites
 named in `assistant-runtime.md`.
+
+## CANVAS DOCUMENT VERSIONS (BST-1173)
+
+Persisted Canvas HTML is application-owned, local-first state in
+`brainstrike_canvas_versions` (migration 082 in BOTH runners plus the
+byte-identical app-shell bootstrap mirror). Rows sharing `canvas_id` form one
+document and the greatest integer `version` is current. Row ids and canvas ids
+are app-side uuidv7 values; timestamps are read as `created_at::text`; and
+`created_by` is CHECK-constrained to `assistant | user` and validated again on
+repository reads. There are no foreign keys because the numbered runner uses a
+bare schema.
+
+`THREAD_DELETE_SIDECAR_TABLES` owns Canvas cleanup for all three thread-delete
+implementations, while the reset registry owns all three table-enumerating
+clear paths. The desktop repository creates version 1, reads/list latest rows,
+and writes a new version for every update or rewrite. Exact updates require
+`oldString` to occur once: zero and multiple matches return `no_match` and
+`ambiguous_match` structured failures, respectively; missing canvases return
+`not_found`. Stored-vocabulary drift throws visibly as corruption.
+
+`brainstrike.manageCanvas` exposes `create`, `update`, `rewrite`, and `list` to
+the assistant. Runtime thread/resource identity is mandatory and missing
+identity returns a structured failure. This slice intentionally adds no Canvas
+tab or other Canvas UI.
+
+Paired tests: `migration-082-canvas-documents.test.ts`,
+`canvas-repository.test.ts`, `manage-canvas-tool.test.ts`, the Canvas sidecar
+case in `assistant-memory-repository.integration.test.ts`, and the reset
+registry/clear sentinels.
 
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 

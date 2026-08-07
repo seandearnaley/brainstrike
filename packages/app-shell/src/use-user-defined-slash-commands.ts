@@ -5,10 +5,10 @@ import {
   type UserSlashCommandRoot,
   type UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
+import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { resolveUserCommandsBridge } from './user-commands-bridge';

@@ -116,6 +116,47 @@ declare global {
       list: () => Promise<AssistantPersonasListResult>;
     };
     /**
+     * Embedded browser pane bridge (BST-1174). Desktop-only; absent on web.
+     * MUST stay in sync with `BrowserBridge` in
+     * `@brainstrike/app-shell` `browser-pane/browser-bridge.ts` — a method
+     * present on one side only disables the whole pane surface via
+     * `resolveBrowserBridge()`.
+     */
+    browser?: {
+      createTab: (url?: string) => Promise<string>;
+      closeTab: (tabId: string) => Promise<void>;
+      selectTab: (tabId: string) => Promise<void>;
+      navigate: (tabId: string, url: string) => Promise<void>;
+      goBack: (tabId: string) => Promise<void>;
+      goForward: (tabId: string) => Promise<void>;
+      reload: (tabId: string) => Promise<void>;
+      setBounds: (rect: { height: number; width: number; x: number; y: number }) => Promise<void>;
+      setOccluded: (occluded: boolean) => Promise<void>;
+      listTabs: () => Promise<
+        ReadonlyArray<{
+          active: boolean;
+          canGoBack: boolean;
+          canGoForward: boolean;
+          tabId: string;
+          title: string;
+          url: string;
+        }>
+      >;
+      /** One-way main→renderer tab-state pushes. Returns unsubscribe. */
+      onTabsChanged: (
+        listener: (
+          tabs: ReadonlyArray<{
+            active: boolean;
+            canGoBack: boolean;
+            canGoForward: boolean;
+            tabId: string;
+            title: string;
+            url: string;
+          }>
+        ) => void
+      ) => () => void;
+    };
+    /**
      * Desktop-only changeset diff bridge (BST-1113/BST-1114). Resolves any
      * `Changeset` (agent-run / run-range / git-scope) to an eager
      * `ChangesetView` and loads per-file `StructuredFileDiff`s lazily.
@@ -152,6 +193,13 @@ declare global {
         threadId: string;
       }) => Promise<GitResult<AssistantRewindFinalization>>;
       inventory: () => Promise<GitResult<GitInventory>>;
+      /**
+       * Live-refresh push subscription (BST-1161, spec §6): external git
+       * activity on a repository. Returns the unsubscribe function.
+       */
+      onInvalidated: (
+        callback: (event: import('@brainstrike/types').ChangesInvalidationEvent) => void
+      ) => () => void;
       /** Conversation Rewind: undo the newest rewind, one level, until finalization. */
       redoRewind: (payload: {
         acknowledgeConflicts?: boolean;
@@ -328,10 +376,6 @@ declare global {
         rootId: string,
         params: { description?: string; summary: string }
       ) => Promise<GitResult<GitCommitResult>>;
-      commitDiff: (
-        rootId: string,
-        params: { commit: string; originalPath?: string; path: string }
-      ) => Promise<GitResult<GitDiff>>;
       commitFiles: (
         rootId: string,
         params: { commit: string }

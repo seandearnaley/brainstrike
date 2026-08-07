@@ -14,6 +14,7 @@ const EXPECTED_DESKTOP_NATIVE_TOOL_IDS = [
   'brainstrike.listEmbeddingSpaces',
   'brainstrike.listWorkspaceContext',
   'brainstrike.lspInspect',
+  'brainstrike.manageCanvas',
   'brainstrike.manageTaskList',
   'brainstrike.manageCommandSession',
   'brainstrike.queryEmbeddingSpace',
@@ -71,6 +72,34 @@ describe('native tool input schema catalog', () => {
     ).toBe(true);
     expect(schema.safeParse({ cursor, path: '/src/main.ts' }).success).toBe(false);
     expect(schema.safeParse({ cursor, root: 'other-root' }).success).toBe(false);
+  });
+
+  it('validates the manageCanvas action union without accepting cross-action fields', () => {
+    const schema = toolSchemas.NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.manageCanvas'];
+
+    expect(
+      schema.safeParse({ action: 'create', html: '<p>Hello</p>', title: 'Draft' }).success
+    ).toBe(true);
+    expect(
+      schema.safeParse({
+        action: 'update',
+        canvasId: 'canvas-1',
+        newString: 'new',
+        oldString: 'old',
+      }).success
+    ).toBe(true);
+    expect(schema.safeParse({ action: 'rewrite', canvasId: 'canvas-1', html: '' }).success).toBe(
+      true
+    );
+    expect(schema.safeParse({ action: 'list' }).success).toBe(true);
+    expect(
+      schema.safeParse({ action: 'create', canvasId: 'not-allowed', html: '', title: 'x' }).success
+    ).toBe(false);
+    expect(
+      schema.safeParse({ action: 'update', canvasId: 'canvas-1', oldString: 'old' }).success
+    ).toBe(false);
+    expect(schema.safeParse({ action: 'list', title: 'not-allowed' }).success).toBe(false);
+    expect(schema.safeParse({ action: 'unknown' }).success).toBe(false);
   });
 
   it('keeps command-session inspection separate from execute-risk management', () => {

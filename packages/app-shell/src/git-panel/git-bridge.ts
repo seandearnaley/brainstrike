@@ -54,10 +54,6 @@ export interface GitBridge {
     rootId: string,
     params: { description?: string; summary: string }
   ) => Promise<GitResult<GitCommitResult>>;
-  commitDiff: (
-    rootId: string,
-    params: { commit: string; originalPath?: string; path: string }
-  ) => Promise<GitResult<GitDiff>>;
   commitFiles: (
     rootId: string,
     params: { commit: string }
@@ -92,7 +88,6 @@ export interface GitBridge {
 const GIT_BRIDGE_REQUIRED_METHOD_SET = {
   aheadBehind: true,
   commit: true,
-  commitDiff: true,
   commitFiles: true,
   diff: true,
   fetch: true,

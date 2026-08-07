@@ -108,6 +108,45 @@ describe('setupSecurity', () => {
     });
   });
 
+  it('exempts brainstrike-canvas: responses — the protocol handler owns their headers (BST-1173)', () => {
+    // Stamping here would (a) re-impose X-Frame-Options: DENY, making the
+    // Canvas shell unframeable, and (b) attach the app CSP to the shell, which
+    // the inner srcdoc would INHERIT — silently breaking inline canvas scripts
+    // in production only. The canvas-protocol handler already serves the
+    // reviewed sandbox CSP on every response, so pass its headers through.
+    vi.mocked(getCSP).mockReturnValue('app-csp-policy');
+
+    setupSecurity();
+
+    const onHeadersReceived = vi.mocked(session.defaultSession.webRequest.onHeadersReceived);
+    const handler = onHeadersReceived.mock.calls[0]?.[0];
+
+    const details = {
+      id: 1,
+      method: 'GET',
+      referrer: '',
+      resourceType: 'subFrame',
+      responseHeaders: {
+        'Content-Security-Policy': ['canvas-sandbox-policy'],
+        'Content-Type': ['text/html; charset=utf-8'],
+      },
+      statusCode: 200,
+      statusLine: 'HTTP/1.1 200 OK',
+      timestamp: Date.now(),
+      url: 'brainstrike-canvas://shell/',
+    } as any;
+    const callback = vi.fn();
+
+    handler?.(details, callback);
+
+    expect(callback).toHaveBeenCalledWith({
+      responseHeaders: {
+        'Content-Security-Policy': ['canvas-sandbox-policy'],
+        'Content-Type': ['text/html; charset=utf-8'],
+      },
+    });
+  });
+
   it('should handle missing responseHeaders', () => {
     const mockCSP = 'test-csp-policy';
     vi.mocked(getCSP).mockReturnValue(mockCSP);

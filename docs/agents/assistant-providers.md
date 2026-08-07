@@ -487,7 +487,7 @@
 - Reasoning-control placement: effort/level selection and the primary Thinking
   toggle live in the always-visible ComposerEffortControl chip beside the
   model picker in the composer control dock (packages/ui/src/
-  assistant-ui-panel/composer-effort-control.tsx, backed by
+  packages/assistant-ui/src/composer-effort-control.tsx, backed by
   reasoning-effort-controls.tsx). The chip's trigger doubles as the readout
   ("Effort High" / "Thinking Off") so the active reasoning config is legible
   without opening anything (BST-948); the model menu itself is selection-only.
@@ -1209,6 +1209,14 @@ Adding or renaming a native tool must update the canonical catalog first, then
 the exact metadata/schema maps, live desktop registry, exports, and conditional
 model-facing guidance. The parity tests fail on stale, missing, or extra keys;
 there is no fallback alias or partially registered tool.
+
+`brainstrike.manageCanvas` is desktop-only because its source of truth is the
+client-local `brainstrike_canvas_versions` ledger. It is a deferred workspace
+tool with an `action` discriminated union (`create`, `update`, `rewrite`,
+`list`) and explicit `read` risk: updates are DB-backed, versioned, and
+reversible, not workspace-file edits, so they must not enter the live Changes
+refresh stream. Web has no remote fallback. Conditional instructions advertise
+the verbs only when the tool is registered.
 
 `brainstrike.queryDiagnostics` is a desktop-only, explicit `read`-risk native
 tool over `brainstrike_diagnostic_events`. Its `mode` is required:

@@ -3,7 +3,7 @@
  * docs/agents/assistant-persistence.md "ASSISTANT RUN NOTIFICATIONS"). This is the ONLY layer that
  * reads live browser state (`document.hasFocus`/`visibilityState`,
  * `Notification.permission`) and the notification preferences store — the
- * UI package (`@brainstrike/ui/assistant-ui-panel`) only reports raw run
+ * UI package (`@brainstrike/assistant-ui`) only reports raw run
  * events/approval requests up via callback props, mirroring the existing
  * `onUsage` seam.
  *

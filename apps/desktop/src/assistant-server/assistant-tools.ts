@@ -12,6 +12,7 @@ import {
   type ListEmbeddingSetsInput,
   type ListWorkspaceContextInput,
   type LspInspectInput,
+  type ManageCanvasInput,
   type ManageCommandSessionInput,
   type ManageTaskListInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
@@ -65,6 +66,7 @@ import { runGrepSearch } from './grep-search-tool';
 import { runHybridSearch } from './hybrid-search-tool';
 import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
 import { runFindWorkspaceSymbol, runLspInspect } from './lsp-inspection-tools';
+import { runManageCanvas } from './manage-canvas-tool';
 import { runManageTaskList } from './manage-task-list-tool';
 import { runQueryDiagnostics } from './query-diagnostics-tool';
 import { projectQuerySelfModelOutput } from './query-self-model-projection';
@@ -636,6 +638,23 @@ export function buildDesktopAssistantTools(
             },
           }),
           [NATIVE_TOOL_ID.submitPlan]: createSubmitPlanTool(),
+          [NATIVE_TOOL_ID.manageCanvas]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCanvas],
+            execute: async (input: ToolExecuteInput<ManageCanvasInput>) => {
+              const resolvedInput = parseToolExecuteInput(
+                NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas],
+                input
+              ) as ManageCanvasInput;
+              try {
+                return await runManageCanvas(resolvedInput, runtimeData);
+              } catch (error) {
+                logToolFailure('manageCanvas failed', error, resolvedInput);
+                throw error;
+              }
+            },
+            id: NATIVE_TOOL_ID.manageCanvas,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas],
+          },
           [NATIVE_TOOL_ID.manageTaskList]: {
             description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageTaskList],
             execute: async (input: ToolExecuteInput<ManageTaskListInput>) => {

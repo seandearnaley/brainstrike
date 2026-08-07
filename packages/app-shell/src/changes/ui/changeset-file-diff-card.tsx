@@ -76,6 +76,15 @@ export interface ChangesetFileDiffCardProps {
     path: string,
     rootId: string | null
   ) => Promise<GitResult<StructuredFileDiff>>;
+  /**
+   * Live-refresh reload signal (BST-1161, PR #2288 review): a changed value
+   * re-runs the load on a card whose FIRST load already started, so a
+   * re-resolved view cannot leave an already-rendered diff body showing
+   * pre-invalidation content. A card that never intersected stays lazy — its
+   * eventual first load fetches fresh content anyway. Hosts with immutable
+   * content (the History tab's commit diffs) simply omit it.
+   */
+  readonly reloadToken?: number;
 }
 
 const DEFAULT_BODY_CLASS_NAME = 'h-[420px] min-h-0';
@@ -212,6 +221,7 @@ export function ChangesetFileDiffCard({
   className,
   entry,
   loadFileDiff,
+  reloadToken,
 }: ChangesetFileDiffCardProps): ReactElement {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<LoadState>({ kind: 'idle' });
@@ -271,6 +281,21 @@ export function ChangesetFileDiffCard({
     observer.observe(node);
     return () => observer.disconnect();
   }, [runLoad]);
+
+  // Reload on a live-refresh tick — see the `reloadToken` prop doc comment.
+  // Ref-compared (not a bare effect dep) so a `runLoad` identity change alone
+  // never re-fires it, and gated on `hasStartedRef` so an offscreen card
+  // stays lazy.
+  const lastReloadTokenRef = useRef(reloadToken);
+  useEffect(() => {
+    if (lastReloadTokenRef.current === reloadToken) {
+      return;
+    }
+    lastReloadTokenRef.current = reloadToken;
+    if (hasStartedRef.current) {
+      void runLoad();
+    }
+  }, [reloadToken, runLoad]);
 
   const retry = useCallback(() => {
     void runLoad();

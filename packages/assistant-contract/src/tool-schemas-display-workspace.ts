@@ -66,6 +66,57 @@ export const WORKSPACE_TOOL_SCHEMAS = {
     toolId: 'brainstrike.listWorkspaceContext',
   },
 
+  'brainstrike.manageCanvas': {
+    description:
+      'Create, list, or write a new version of an HTML Canvas document persisted for the current thread.',
+    parameters: [
+      {
+        description:
+          'Operation: create a document, update one exact unique substring, rewrite all HTML, or list current documents',
+        enumValues: ['create', 'update', 'rewrite', 'list'],
+        name: 'action',
+        required: true,
+        type: 'enum',
+      },
+      {
+        description: 'Canvas document id; required for update and rewrite',
+        minLength: 1,
+        name: 'canvasId',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Canvas title; required for create',
+        minLength: 1,
+        name: 'title',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Complete HTML; required for create and rewrite',
+        name: 'html',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Exact substring that must occur once; required for update',
+        minLength: 1,
+        name: 'oldString',
+        required: false,
+        type: 'string',
+      },
+      {
+        description: 'Replacement substring; required for update and may be empty',
+        name: 'newString',
+        required: false,
+        type: 'string',
+      },
+    ],
+    returns:
+      'Create/update/rewrite returns canvasId and new version; list returns each canvas latest version. Missing or non-unique matches return a structured error.',
+    toolId: 'brainstrike.manageCanvas',
+  },
+
   'brainstrike.readWorkspaceContext': {
     description:
       'Read selected or explicit workspace files under bounded file, per-file, and token limits. Use after semantic retrieval when exact source is needed.',

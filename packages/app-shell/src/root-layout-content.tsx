@@ -4,6 +4,12 @@ import {
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
+import {
+  type ChangesReviewContextValue,
+  ChangesReviewProvider,
+  type RewindContextValue,
+  RewindProvider,
+} from '@brainstrike/assistant-ui';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import { RootDataDeletionProvider, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
@@ -19,12 +25,6 @@ import {
   PanelLayoutProvider,
   type PanelLayoutState,
 } from '@brainstrike/ui';
-import {
-  type ChangesReviewContextValue,
-  ChangesReviewProvider,
-  type RewindContextValue,
-  RewindProvider,
-} from '@brainstrike/ui/assistant-ui-panel';
 import {
   EmbeddingRuntimeProvider,
   IndexingActivityCoordinator,
@@ -150,6 +150,18 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
 
 export interface RootLayoutContentProps {
   /**
+   * Optional embedded browser pane surface (BST-1174), presence-gated on the
+   * desktop `window.browser` bridge (absent on web — no stub). Its own
+   * component reports native-view bounds/occlusion.
+   */
+  readonly browserPageContent?: ReactNode;
+  /**
+   * Optional Canvas surface (BST-1173), presence-gated like
+   * `changesPageContent`. Each app constructs it with its platform-specific
+   * shell URL; available on both targets.
+   */
+  readonly canvasPanelContent?: ReactNode;
+  /**
    * Optional Changes surface (desktop-only). Supplied by the desktop wrapper
    * when the `window.changes` bridge is present; web never constructs it
    * (capability gating, not an isElectron check). Rendered as a tab INSIDE
@@ -202,6 +214,7 @@ export interface RootLayoutContentProps {
 }
 
 const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
+  '/browser': 'browser',
   '/git': 'git',
   '/notes': 'notes',
   '/settings': 'settings',
@@ -444,6 +457,7 @@ function ContextExplorerSurface({
 }
 
 const ExplorerAppSurface = memo(function ExplorerAppSurface({
+  canvasPanelContent,
   changesPageContent,
   contextExplorerPanelContent,
   contextExplorerPageContent,
@@ -453,6 +467,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   preloadDatabaseTabOnMount,
   visible,
 }: {
+  readonly canvasPanelContent?: ReactNode;
   readonly changesPageContent?: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
@@ -500,6 +515,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
         }
         workspaceContent={
           <WorkspacePanelTabs
+            canvasPanelContent={canvasPanelContent}
             changesPageContent={changesPageContent}
             contextExplorerContent={
               <ContextExplorerSurface
@@ -515,6 +531,8 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 });
 
 export function RootLayoutContent({
+  browserPageContent,
+  canvasPanelContent,
   changesPageContent,
   contextExplorerPageContent,
   contextExplorerPanelContent,
@@ -660,6 +678,7 @@ export function RootLayoutContent({
                       onChange={handlePanelLayoutChange}
                     >
                       <ExplorerAppSurface
+                        canvasPanelContent={canvasPanelContent}
                         changesPageContent={changesPageContent}
                         contextExplorerPageContent={contextExplorerPageContent}
                         contextExplorerPanelContent={contextExplorerPanelContent}
@@ -703,6 +722,15 @@ export function RootLayoutContent({
                     mountedTabs={mountedTabs}
                     shellTab={shellTab}
                     tab="notes"
+                  />
+                  {/* Embedded browser pane (BST-1174). The native
+                    WebContentsView follows this route's show/hide via the
+                    surface's own occlusion reporting — see BrowserPaneContent. */}
+                  <KeepMountedRoute
+                    content={browserPageContent}
+                    mountedTabs={mountedTabs}
+                    shellTab={shellTab}
+                    tab="browser"
                   />
                 </SearchEmbedderProvider>
               </EmbeddingRuntimeProvider>

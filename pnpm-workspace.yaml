@@ -20,9 +20,9 @@ cleanupUnusedCatalogs: true
 # (verified). Column-0 comments above a block survive.
 catalog:
   '@anthropic-ai/sandbox-runtime': 0.0.67
-  '@assistant-ui/react': '~0.14.26'
+  '@assistant-ui/react': '~0.15.8'
   '@assistant-ui/react-data-stream': ^0.12.18
-  '@assistant-ui/react-markdown': ^0.14.5
+  '@assistant-ui/react-markdown': ^0.14.8
   '@assistant-ui/styles': ^0.3.7
   '@babel/core': ^8.0.1
   '@babel/plugin-transform-runtime': ^8.0.1
@@ -133,16 +133,30 @@ allowBuilds:
   sharp: true
   '@parcel/watcher': false
 # These exact versions are pinned exceptions to any future minimumReleaseAge
-# policy (none is configured today, so this is currently a no-op).
+# policy (none is configured today, so this list is currently a no-op).
 # @mastra/core@1.57.0 + @mastra/memory@1.26.0 were published 2026-08-05
 # (~1-2 days before these pins). Verified via npm registry metadata: both
 # carry GitHub Actions OIDC provenance attestations from the canonical
 # mastra-ai/mastra repo and match the 'latest' dist-tag. (The interim
 # ~1.55.0 hold below the 1.56 approval rework was lifted 2026-08-07 by
 # adapting the BST-1097 approval flow to the new idiom — see
-# docs/dependency-updates-breaking-changes.md.) Remove entries once the
-# versions age past whatever minimumReleaseAge floor is eventually
-# configured.
+# docs/dependency-updates-breaking-changes.md.)
+# @assistant-ui/*@(react 0.15.8 / core 0.3.7 / store 0.3.5 / tap 0.9.10) +
+# assistant-stream@0.3.34: the 0.15 upgrade set, published 2026-08-06 (<24h
+# before this pin). Provenance verified 2026-08-06: tap and assistant-stream
+# carry GitHub Actions OIDC provenance; react/core/store were published
+# manually by the canonical lead maintainer (yonom) with no attestation — a
+# deviation from the project's usual OIDC publishes that upstream's own
+# changelog explains ("0.15.8 = republish of 0.15.6; registry staged-version
+# conflicts blocked 0.15.6/0.15.7; contents identical"), with all versions
+# pointing at the canonical assistant-ui/assistant-ui repo and matching
+# 'latest' dist-tags. Remove entries once the versions age past whatever
+# minimumReleaseAge floor is eventually configured.
 minimumReleaseAgeExclude:
+  - '@assistant-ui/core@0.3.7'
+  - '@assistant-ui/react@0.15.8'
+  - '@assistant-ui/store@0.3.5'
+  - '@assistant-ui/tap@0.9.10'
   - '@mastra/core@1.57.0'
   - '@mastra/memory@1.26.0'
+  - assistant-stream@0.3.34
