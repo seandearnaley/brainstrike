@@ -59,10 +59,12 @@
     "./rewind-composer-store": {
       "types": "./dist/rewind-composer-store.d.ts",
       "import": "./dist/rewind-composer-store.js"
-    }
+    },
+    "./styles.css": "./styles.css"
   },
   "files": [
-    "dist"
+    "dist",
+    "styles.css"
   ],
   "main": "dist/index.js",
   "module": "dist/index.js",

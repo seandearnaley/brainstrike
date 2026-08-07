@@ -191,6 +191,10 @@ export default defineConfig({
         replacement: path.resolve(__dirname, '../../packages/ui/styles.css'),
       },
       {
+        find: '@brainstrike/assistant-ui/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/assistant-ui/styles.css'),
+      },
+      {
         find: '@brainstrike/ui/globals.css',
         replacement: path.resolve(__dirname, '../../packages/ui/src/globals.css'),
       },

@@ -65,6 +65,10 @@ const OVERRIDES = new Map([
   // UI package — measured L 93.27% | F 94.86% | B 84.94% | S 93.33%.
   // Recalibrated 2026-08 after assistant-ui extraction (BST-981).
   ['@brainstrike/ui', { branches: 83, functions: 93, lines: 92, statements: 92 }],
+  // Assistant UI feature package — measured 2026-08 at extraction (BST-981):
+  // L 90.39% | F 92.20% | B 82.97% | S 90.49%. Pinned so the moved panel code
+  // keeps a floor near what ui's override held it to, not the workspace default.
+  ['@brainstrike/assistant-ui', { branches: 81, functions: 91, lines: 89, statements: 89 }],
   // Token cache — elevated after token-utils-lite branch/path coverage improvements
   ['@brainstrike/token-cache', { branches: 62, functions: 92, lines: 92, statements: 82 }],
   // Queue thresholds ratcheted in 2026-03 after workerpool adapter control-flow/telemetry coverage additions.
