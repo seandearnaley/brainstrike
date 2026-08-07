@@ -216,8 +216,12 @@ export function readExclusionEntries(repoRoot) {
       throw new Error(
         'verify-minimum-release-age-exclusions.mjs could not parse this line inside the pnpm-workspace.yaml ' +
           `minimumReleaseAgeExclude: block:\n  ${rawLine}\n` +
-          'Only simple `- name@version` list items (optionally quoted) are supported. Teach ' +
-          'readExclusionEntries() the new shape rather than letting the entry escape the guard.'
+          'Only simple `- name@version` list items (optionally quoted) are supported — including no trailing ' +
+          'inline comment, which is the most likely cause here given how heavily commented this file is. Put ' +
+          `the rationale in the "reason" field of ${EXCLUSION_LEDGER_PATH} instead: it survives, whereas an ` +
+          'indented comment in this block is DELETED whenever pnpm rewrites pnpm-workspace.yaml (see the note ' +
+          'at the top of that file). Otherwise, teach readExclusionEntries() the new shape rather than letting ' +
+          'the entry escape the guard.'
       );
     }
     entries.push(validateExclusionEntry(item[1] ?? item[2] ?? item[3], rawLine));
@@ -399,11 +403,18 @@ function assertMaxAgeClearsFloor(repoRoot) {
  *  - kind 'future-publish-date'   — a `publishedAt` after `now`, which would
  *    make the entry un-expirable. Nothing published in the future exists.
  *
- * @param {{ repoRoot: string, now?: Date }} options
+ * `entries` defaults to reading them here, and exists so main() can report the
+ * entry count without parsing pnpm-workspace.yaml a second time. The default is
+ * evaluated lazily, so every other caller is unaffected.
+ *
+ * @param {{ repoRoot: string, now?: Date, entries?: string[] }} options
  */
-export function findExclusionProblems({ repoRoot, now = new Date() }) {
+export function findExclusionProblems({
+  repoRoot,
+  now = new Date(),
+  entries = readExclusionEntries(repoRoot),
+}) {
   assertMaxAgeClearsFloor(repoRoot);
-  const entries = readExclusionEntries(repoRoot);
   const ledger = readExclusionLedger(repoRoot);
   const problems = [];
 
@@ -476,10 +487,14 @@ function describeProblem(problem) {
 export function main(options = {}) {
   const repoRoot = options.repoRoot ?? REPO_ROOT;
   const now = options.now ?? new Date();
-  const problems = findExclusionProblems({ now, repoRoot });
+  // Parsed once and threaded through: the success message reports the entry
+  // count, and re-reading pnpm-workspace.yaml for it would be a second parse of
+  // a file that could have changed in between.
+  const entries = readExclusionEntries(repoRoot);
+  const problems = findExclusionProblems({ entries, now, repoRoot });
 
   if (problems.length === 0) {
-    const count = readExclusionEntries(repoRoot).length;
+    const count = entries.length;
     console.log(
       `verify-minimum-release-age-exclusions: OK (${count} minimumReleaseAgeExclude entr${count === 1 ? 'y' : 'ies'}` +
         `, none older than ${MAX_EXCLUSION_AGE_DAYS} days)`

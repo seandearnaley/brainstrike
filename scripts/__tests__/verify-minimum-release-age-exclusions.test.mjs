@@ -352,6 +352,23 @@ test('the real repo configures no minimumReleaseAge floor (the premise of the 30
   assert.equal(readMinimumReleaseAgeFloorDays(repoRoot), null);
 });
 
+test('a trailing inline comment throws, and the message says where the reason belongs', () => {
+  // Failing loud is right, but the surrounding file is heavily commented, so
+  // this is a natural thing for a maintainer to write. The message has to point
+  // at the ledger's reason field — and note that a comment here would be erased
+  // by pnpm's own rewrites anyway.
+  withFixture(
+    {
+      exclusionsYaml: "minimumReleaseAgeExclude:\n  - 'left-pad@1.3.0' # needed early\n",
+      ledger: {},
+    },
+    (dir) => {
+      assert.throws(() => readExclusionEntries(dir), /trailing\s+inline comment/);
+      assert.throws(() => readExclusionEntries(dir), /"reason" field/);
+    }
+  );
+});
+
 test('the empty flow sequence is the accepted steady state', () => {
   withFixture({ exclusionsYaml: 'minimumReleaseAgeExclude: []\n', ledger: {} }, (dir) => {
     assert.deepEqual(readExclusionEntries(dir), []);
