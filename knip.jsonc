@@ -227,13 +227,6 @@
         "config": "tsconfig.json"
       }
     },
-    "packages/server-config": {
-      "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
-      "typescript": {
-        "config": "tsconfig.json"
-      }
-    },
     "packages/test-utils": {
       "entry": [
         "src/test-timeouts.ts", // Used by vitest configs across the monorepo

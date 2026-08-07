@@ -18,7 +18,6 @@
     "@brainstrike/notes-vault": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/queue": "workspace:*",
-    "@brainstrike/server-config": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/settings-ui": "workspace:*",
     "@brainstrike/ui": "workspace:*",

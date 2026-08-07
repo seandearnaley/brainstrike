@@ -152,9 +152,6 @@
       "@brainstrike/file-system/path-validation": [
         "./packages/file-system/src/path-validation.ts"
       ],
-      "@brainstrike/server-config": [
-        "./packages/server-config/src"
-      ],
       "@brainstrike/test-utils": [
         "./packages/test-utils/src"
       ],
@@ -292,9 +289,6 @@
     },
     {
       "path": "./packages/file-system"
-    },
-    {
-      "path": "./packages/server-config"
     },
     {
       "path": "./packages/test-utils/tsconfig.references.json"

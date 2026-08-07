@@ -97,9 +97,6 @@
       "path": "../../packages/queue"
     },
     {
-      "path": "../../packages/server-config"
-    },
-    {
       "path": "../../packages/settings-ui"
     },
     {
