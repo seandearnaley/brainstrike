@@ -158,8 +158,9 @@ export function isRediscoveredToolSuspend(value: unknown): value is Rediscovered
 /**
  * The resume action appended by the suspend notice. `resumeData` is the
  * branch-specific shape ({@link SubmitPlanDecision} for submitPlan, an
- * {@link AskUserAnswer} for askUser) and crosses the wire as `unknown`; Mastra
- * validates it against the tool's `resumeSchema` on resume.
+ * {@link AskUserResumeData} envelope for askUser — a bare {@link AskUserAnswer}
+ * only from a run suspended before the envelope migration) and crosses the wire
+ * as `unknown`; Mastra validates it against the tool's `resumeSchema` on resume.
  */
 export interface AssistantToolResumeAction {
   resumeData: unknown;

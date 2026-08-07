@@ -555,6 +555,96 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     await dbB.close();
   });
 
+  it("ASK-GATED askUser: the user's answer reaches execute() through the {answer} envelope — the scenario the envelope migration exists for", async () => {
+    // THE proof for the envelope migration. Under read:'ask' the permission
+    // gate clones askUser with requireApproval, so @mastra/core 1.56+ re-checks
+    // approval on the RESUME leg too and the transport attaches the
+    // `approved: true` rider. Every other askUser test here runs UN-gated (no
+    // permissionPolicy ⇒ no rider), so none of them exercise this path, and
+    // the mock rider test in mastra-tool-approval-chunks.spec.ts can only see
+    // what we hand to resumeStream, not Mastra's verdict on it.
+    //
+    // The assertion is deliberately at the EXECUTOR (toolSuccessOutputs), never
+    // final text: the scripted model emits its text whether the tool saw the
+    // answer, a denial, or a re-raised suspension, which is exactly how a
+    // vacuous green ships.
+    const database = new PGlite();
+    const { memory, storage } = await makeMemory(database);
+    const thread = { resourceId: 'resource-ask-gated', threadId: 'thread-ask-gated' } as const;
+    const policy = {
+      policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'ask' },
+      riskByTool: buildNativeToolRiskMap(),
+      yolo: false,
+    } as const;
+
+    modelHolder.current = createTurnCountedToolCallModel({
+      finalText: 'Thanks.',
+      input: JSON.stringify({ question: 'Which city?' }),
+      toolCallId: 'call-ask-gated',
+      toolName: 'brainstrike_askUser',
+    });
+
+    const runOptions = {
+      memory,
+      runtime: {
+        apiKey: 'test-key',
+        memory: { resourceId: thread.resourceId, threadId: thread.threadId },
+        permissionPolicy: policy,
+        provider: 'openai',
+      },
+      storage,
+      tools: { 'brainstrike.askUser': createAskUserTool() },
+    } as const;
+
+    // ── Phase 1: the pre-execution approval gate fires (askUser is risk
+    //    'read', which this policy gates to 'ask') — execute() has not run. ──
+    const approvalChunks = await drainYielding(
+      await streamMastraAgent(
+        [{ id: 'u-ask-gated', parts: [{ text: 'ask me', type: 'text' }], role: 'user' }],
+        runOptions
+      )
+    );
+    const approval = findApprovalChunk(approvalChunks);
+    expect(approval?.toolName).toBe('brainstrike.askUser');
+    expect(findSuspendChunk(approvalChunks)).toBeUndefined();
+
+    // ── Phase 2: approve → execute() runs → askUser raises its own pause. ──
+    const suspendChunks = await drainYielding(
+      await streamMastraToolApprovalAction(
+        {
+          action: 'approve',
+          runId: approval?.runId ?? '',
+          toolCallId: approval?.toolCallId ?? '',
+          toolName: 'brainstrike.askUser',
+        },
+        { ...runOptions, requireToolApproval: true }
+      )
+    );
+    const suspend = findSuspendChunk(suspendChunks);
+    expect(suspend?.toolName).toBe('brainstrike.askUser');
+    expect(suspend?.suspendPayload).toMatchObject({ question: 'Which city?' });
+
+    // ── Phase 3: answer it with the envelope. The tool must RETURN the answer,
+    //    not be denied and not be re-invoked as a fresh call (which would
+    //    re-ask the same question forever). ──
+    const answerChunks = await drainYielding(
+      await streamMastraToolResumeAction(
+        {
+          resumeData: { answer: 'San Francisco' },
+          runId: suspend?.runId ?? '',
+          toolCallId: suspend?.toolCallId ?? '',
+          toolName: 'brainstrike.askUser',
+        },
+        runOptions
+      )
+    );
+    expect(toolSuccessOutputs(answerChunks)).toContain('San Francisco');
+    // Not denied, and not re-asked: a fresh invocation would raise the pause again.
+    expect(findSuspendChunk(answerChunks)).toBeUndefined();
+
+    await database.close();
+  });
+
   it('RESTART (BST-1084): listSuspendedMastraRuns rediscovers a suspend() pause WITH its payload, and a FRESH runtime resumes it', async () => {
     // The suspend-side twin of the approval RESTART proof. Phase 1 suspends an
     // askUser over `database`. Phase 2 simulates a process restart — a

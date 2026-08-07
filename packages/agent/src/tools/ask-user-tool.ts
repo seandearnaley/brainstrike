@@ -25,9 +25,16 @@ const AskUserAnswerSchema = z.union([z.string(), z.array(z.string())]);
  * 1.56+ `approved: true` rider when askUser is ask-gated. The bare
  * string/string[] arm is LEGACY compat for resuming runs suspended before the
  * envelope migration; remove it once no pre-migration snapshots can remain.
+ *
+ * The rider is DECLARED rather than left to zod's strip, matching
+ * `RunPythonNetworkResumeSchema`: this schema is what Mastra advertises to the
+ * client as the pause's `resumeSchema`, so an undeclared rider would publish a
+ * shape the transport does not actually send — and the declaration is what
+ * keeps the arm safe if it is ever tightened to `.strict()`, where an
+ * undeclared `approved` flips from silently stripped to a hard resume failure.
  */
 const AskUserResumeSchema = z.union([
-  z.object({ answer: AskUserAnswerSchema }),
+  z.object({ answer: AskUserAnswerSchema, approved: z.literal(true).optional() }),
   AskUserAnswerSchema,
 ]);
 
