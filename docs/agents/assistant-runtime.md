@@ -245,7 +245,7 @@ Only a non-empty raw value outside the SDK/Brainstrike union becomes the
 internal `'unrecognized'` sentinel, emits `run.failed`, surfaces the explicit
 "unrecognized finish reason" message, and persists `thread_runs` as failed.
 Before data-stream serialization, internal `absent` becomes assistant-stream
-0.3.25's completed wire value `unknown`; internal `unrecognized` becomes the
+0.3.34's completed wire value (behavior verified at 0.3.25, unchanged by the 0.3.34 lockstep bump) `unknown`; internal `unrecognized` becomes the
 terminal wire value `error`. Intermediate steps start as `absent`, never as the
 SDK-owned `unknown`. Keep these internal sentinels out of the legacy data-stream
 protocol and never infer provider failure from the AI SDK `unknown` value.
@@ -464,7 +464,7 @@ while a text/reasoning part is streaming and flushes them at the next boundary
 emit them mid-part (proof: data-stream-text-continuity.spec.ts).
 
 Open tool-call args streams have the SAME contract with a harder failure mode
-(BST-962): assistant-stream 0.3.25's `DataStreamDecoder` closes the ACTIVE
+(BST-962): assistant-stream 0.3.34's `DataStreamDecoder` closes the ACTIVE
 call's argsText controller on every frame in its `TOOL_CALL_ARGS_CLOSING_CHUNKS`
 set (`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/`aui-text-delta`/`aui-reasoning-delta`/
 `aui-data`), so ANY such frame between a call's `b` and its `9` makes the next
@@ -496,7 +496,7 @@ args, so only the tracked id moves forward (see `openArgsCallId` doc comment).
 Proof: the BST-962 describe block in data-stream-text-continuity.spec.ts,
 including the `expectDecoderSafeArgsStream` invariant sweep. The renderer's
 data-stream runtime also defers assistant-stream's decoded `message-finish` until
-decoder flush: assistant-stream 0.3.25 emits that marker before its trailing
+decoder flush: assistant-stream 0.3.34 emits that marker before its trailing
 `part-finish`, and exposing completion early lets an immediate next turn abort a
 still-draining text controller. Aborted runs propagate the authoritative abort
 reason without surfacing cancellation teardown as a new assistant error; server
@@ -552,7 +552,7 @@ activity UI, but user expansion must show accumulated text before, during, and
 after intervening tool calls; the active icon clears only on a real terminal
 part.
 
-Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.25's
+Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.34's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,
 tool-call sub-streams) whose settlement paths (`setResponse`, detached
 part-finish continuations) enqueue with NO cancellation guard — if downstream
@@ -806,6 +806,18 @@ it the message components.
   fires the outer store's `scrollToBottom` after appending; a reader who
   scrolled up is never yanked. Do not "simplify" this away as redundant with
   the library's own resize re-stick — that path loses the clamp-ordering race.
+- **Stick-to-bottom currently depends on a VENDORED PATCH to the library**
+  (`patches/@assistant-ui__react@0.15.8.patch`, pinned exact in the catalog).
+  Unpatched, @assistant-ui/react 0.15.x tears down and reconstructs the
+  viewport's ResizeObserver on every `isRunning` flip (an unstable inline ref
+  callback cascading through `useComposedRefs`), so pinned follow silently
+  unpins on every send. The explicit BST-1039 re-pin above is NOT sufficient
+  cover — the unpatched regression fires at run START, before any dispatch.
+  Do not bump `@assistant-ui/react` without first re-running
+  `follow-up-queue-repin.browser.test.tsx` against the UNPATCHED target
+  version; green there means the patch can be dropped with the bump. Full
+  diagnosis: docs/dependency-updates-breaking-changes.md (Assistant UI 0.15
+  section).
 
 Paired tests: `packages/ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
 (real Chromium: pinned/unpinned button states, click-to-bottom, growth below vs

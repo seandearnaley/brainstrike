@@ -24,8 +24,11 @@ import {
   AssistantMessageAccumulator,
   DataStreamDecoder,
   toGenericMessages,
-  // This runtime is pinned to assistant-stream 0.3.25 because tool result
-  // streaming is still exported behind the unstable API surface.
+  // assistant-stream is pinned in lockstep with @assistant-ui/core's own
+  // range (0.3.34 as of the 0.15.8 upgrade): two coexisting assistant-stream
+  // instances make this import's `Tool` type structurally incompatible with
+  // the one inside @assistant-ui/core. Tool result streaming is still exported
+  // behind the unstable API surface.
   unstable_toolResultStream,
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';

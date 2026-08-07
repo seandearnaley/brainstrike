@@ -184,9 +184,12 @@ const AttachmentPasteFrame = ({ children }: { children: ReactNode }) => {
     }
     event.preventDefault();
     for (const file of files) {
-      aui.composer.addAttachment(file).catch(() => {
-        /* reported via composer.attachmentAddError */
-      });
+      aui
+        .composer()
+        .addAttachment(file)
+        .catch(() => {
+          /* reported via composer.attachmentAddError */
+        });
     }
   };
 

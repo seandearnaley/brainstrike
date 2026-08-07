@@ -311,16 +311,14 @@ vi.mock('@assistant-ui/react', () => {
     // Drives the render-tier choice (BST-897); an empty thread stays static.
     unstable_useThreadMessageIds: () => [],
     useAssistantDataUI: (dataUI: unknown) => useAssistantDataUIMock(dataUI),
-    useAttachment: () => ({ content: undefined, file: undefined, name: 'attachment' }),
     useAui: () => ({
       chainOfThought: () => ({
         setCollapsed: setCollapsedMock,
       }),
-      composer: () => ({ setText: vi.fn() }),
+      composer: () => ({ addAttachment: async () => undefined, setText: vi.fn() }),
     }),
     useAuiEvent: () => undefined,
     useAuiState: <T,>(selector: (state: MockAuiState) => T) => selector(mockAuiState),
-    useComposerRuntime: () => ({ addAttachment: async () => undefined }),
     useLocalRuntime: (adapter: unknown) => useLocalRuntimeMock(adapter),
     useMessagePartReasoning: () => ({
       status: { type: 'complete' as const },

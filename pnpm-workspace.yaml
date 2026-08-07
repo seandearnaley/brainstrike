@@ -169,10 +169,16 @@ minimumReleaseAgeExclude:
 # run's content changed — the fresh observer misses the growth window and the
 # browser's scrollTop clamp is misread as a user scroll, silently unpinning
 # stick-to-bottom on every send; BST-1039's browser test catches exactly this).
-# Root cause proven by trace + this 5-line stabilization flipping
-# follow-up-queue-repin.browser.test.tsx red->green. Remove when upstream
-# stabilizes the ref (check useThreadViewportAutoScroll in the release notes /
-# source before bumping past 0.15.8), and re-run the BST-1039 browser test
-# against the unpatched version to confirm.
+# Root cause proven by trace + this stabilization flipping
+# follow-up-queue-repin.browser.test.tsx red->green. The patch touches the
+# ONLY compiled copy of the hook: 0.15.8's dist is module-per-file ESM (no
+# .cjs twin, no bundled duplicate — dist/index.js imports the same file), and
+# the lockfile resolves every dependent, including react-markdown's
+# peer-suffixed instance, to the patched copy. The listener reads handleScroll
+# through a ref written in a layout effect (not during render) so discarded
+# concurrent renders never leak a closure. Remove when upstream stabilizes the
+# ref (check useThreadViewportAutoScroll in the release notes / source before
+# bumping past 0.15.8), and re-run the BST-1039 browser test against the
+# unpatched version to confirm.
 patchedDependencies:
   '@assistant-ui/react@0.15.8': patches/@assistant-ui__react@0.15.8.patch
