@@ -20,7 +20,7 @@ export type ToolExecuteInput<T> = { context: T } | T;
 
 /**
  * Minimal structural view of Mastra's 2nd `execute` argument
- * (`ToolExecutionContext`, verified against @mastra/core@1.50.0 `tools/types.d.ts`).
+ * (`ToolExecutionContext`, verified against @mastra/core@1.55.0 `tools/types.d.ts`).
  * Mastra exposes the tool-call id in TWO documented locations, depending on how
  * the tool was registered: a `createTool` instance running under an agent gets
  * `agent.toolCallId` (`agent?: AgentToolExecutionContext`), while a plain tool
