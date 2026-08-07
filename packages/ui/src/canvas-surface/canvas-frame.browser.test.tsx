@@ -93,6 +93,30 @@ describe('CanvasFrame in a real browser', () => {
     );
   });
 
+  it('clamps oversized relay text even when canvas content bypasses the prelude', async () => {
+    // Post straight to the shell (window.parent), skipping the prelude's own
+    // clamp — the TRUSTED shell must rebuild and clamp before forwarding.
+    mount(
+      '<script>window.parent.postMessage({ type: "brainstrike-canvas:relay:console", level: "log", text: "y".repeat(50000) }, "*"); console.log("SENT_HUGE");</script>'
+    );
+    await waitForConsoleText('SENT_HUGE');
+    const huge = consoleEvents.find((event) => event.text.startsWith('yyy'));
+    expect(huge).toBeDefined();
+    expect(huge?.text.length).toBeLessThanOrEqual(8000);
+  });
+
+  it('never forwards a forged ready message from canvas content (no render loop)', async () => {
+    mount(
+      '<script>console.log("BOOTED"); window.parent.postMessage({ type: "brainstrike-canvas:ready" }, "*"); window.parent.postMessage({ type: "brainstrike-canvas:render", html: "<p>evil</p>" }, "*");</script>'
+    );
+    await waitForConsoleText('BOOTED');
+    // A forged ready forwarded with the shell nonce would make the host
+    // re-send the render command and re-execute the document. Give any such
+    // loop time to happen, then require exactly one boot.
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(consoleEvents.filter((event) => event.text === 'BOOTED')).toHaveLength(1);
+  });
+
   it('re-renders replaced content cleanly (version switching)', async () => {
     const { rerender } = mount('<script>console.log("VERSION_1")</script>');
     await waitForConsoleText('VERSION_1');

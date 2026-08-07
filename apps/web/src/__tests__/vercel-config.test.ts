@@ -45,6 +45,16 @@ function readVercelConfig(): VercelConfig {
   ) as VercelConfig;
 }
 
+/**
+ * The app-wide rule EXCLUDES the Canvas shell via negative lookahead, so
+ * exactly one CSP rule matches any given path. This removes the dependency on
+ * Vercel's undocumented behavior for duplicate header keys across matching
+ * rules — if both CSPs were emitted, browsers would intersect them, which is
+ * precisely the failure the canvas per-path policy exists to prevent
+ * (review finding on PR #2290).
+ */
+const APP_SHELL_SOURCE = String.raw`/((?!canvas-frame\.html$).*)`;
+
 const REVALIDATE = 'public, max-age=0, must-revalidate';
 const IMMUTABLE = 'public, max-age=31536000, immutable';
 
@@ -76,7 +86,7 @@ function headerValueOf(rule: VercelHeaderRule, key: string): string | undefined 
 describe('vercel.json production headers', () => {
   it('ships the exact reviewed production CSP on every route', () => {
     const config = readVercelConfig();
-    const appShellRule = config.headers?.find((rule) => rule.source === '/(.*)');
+    const appShellRule = config.headers?.find((rule) => rule.source === APP_SHELL_SOURCE);
 
     expect(appShellRule).toBeDefined();
     expect(headerValueOf(appShellRule as VercelHeaderRule, 'Content-Security-Policy')).toBe(
@@ -87,13 +97,14 @@ describe('vercel.json production headers', () => {
   it('serves the Canvas shell with the sandbox CSP, ordered to win over the app-wide rule (BST-1173)', () => {
     const config = readVercelConfig();
     const sources = (config.headers ?? []).map((rule) => rule.source);
-    const appShellIndex = sources.indexOf('/(.*)');
+    const appShellIndex = sources.indexOf(APP_SHELL_SOURCE);
     const canvasIndex = sources.indexOf('/canvas-frame.html');
 
     expect(canvasIndex).toBeGreaterThanOrEqual(0);
-    // Later matching rule wins for the same header key; the canvas CSP must
-    // replace the app CSP (whose frame-ancestors 'none' would make the shell
-    // unframeable and whose script-src would break inline canvas scripts).
+    // The app-shell rule's negative lookahead makes the two rules DISJOINT —
+    // the canvas path must match exactly one rule, so no reliance on Vercel's
+    // duplicate-header-key behavior. Ordering pinned anyway for readability.
+    expect(APP_SHELL_SOURCE).toContain('canvas-frame');
     expect(canvasIndex).toBeGreaterThan(appShellIndex);
 
     const canvasRule = (config.headers ?? [])[canvasIndex] as VercelHeaderRule;

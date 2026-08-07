@@ -71,6 +71,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * The shell clamps relayed text to {@link CANVAS_RELAY_MAX_TEXT} before
+ * forwarding, so anything longer at the host is by definition forged or a
+ * shell bug — reject it rather than clamp again.
+ */
+function isBoundedRelayText(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= CANVAS_RELAY_MAX_TEXT;
+}
+
+/**
  * Validate a message received by the HOST from the shell iframe. The caller
  * must additionally verify `event.source` is the shell iframe's
  * `contentWindow`; this guard covers shape + nonce.
@@ -87,11 +96,11 @@ export function isCanvasFrameInboundMessage(
       return true;
     case CANVAS_FRAME_MESSAGE_TYPES.relayConsole:
       return (
-        typeof data['text'] === 'string' &&
+        isBoundedRelayText(data['text']) &&
         CANVAS_CONSOLE_LEVELS.includes(data['level'] as CanvasConsoleLevel)
       );
     case CANVAS_FRAME_MESSAGE_TYPES.relayError:
-      return typeof data['text'] === 'string';
+      return isBoundedRelayText(data['text']);
     default:
       return false;
   }
@@ -125,6 +134,21 @@ export function getCanvasSandboxContentSecurityPolicy(): string {
 export const CANVAS_FRAME_SHELL_PATH = '/canvas-frame.html';
 
 /**
+ * Hard cap on relayed console/error text, enforced IN THE TRUSTED SHELL (the
+ * prelude's copy of the clamp runs in the untrusted realm and is bypassable by
+ * posting to the shell directly). The host validator rejects anything longer
+ * as malformed.
+ */
+export const CANVAS_RELAY_MAX_TEXT = 8000;
+
+/**
+ * Total relay messages the shell forwards per rendered document. The last
+ * budget slot is spent on an explicit truncation notice so exhaustion is
+ * visible, never silent.
+ */
+export const CANVAS_RELAY_BUDGET = 500;
+
+/**
  * Console/error relay prelude injected into the srcdoc BEFORE canvas content.
  * Runs in the same realm as canvas code, so canvas code can trivially "forge"
  * console events — that is fine: console data is untrusted display data. What
@@ -150,7 +174,7 @@ function embedAsJsString(value: string): string {
 
 const PRELUDE_SOURCE = `(() => {
   'use strict';
-  const MAX_TEXT = 8000;
+  const MAX_TEXT = ${CANVAS_RELAY_MAX_TEXT};
   const serialize = (value) => {
     if (typeof value === 'string') { return value; }
     try { return JSON.stringify(value) ?? String(value); } catch { return String(value); }
@@ -201,15 +225,23 @@ iframe { display: block; border: 0; width: 100%; height: 100%; background: trans
   'use strict';
   const RENDER = 'brainstrike-canvas:render';
   const READY = 'brainstrike-canvas:ready';
-  const RELAY_PREFIX = 'brainstrike-canvas:relay:';
+  const RELAY_CONSOLE = 'brainstrike-canvas:relay:console';
+  const RELAY_ERROR = 'brainstrike-canvas:relay:error';
+  const LEVELS = ['debug', 'error', 'info', 'log', 'warn'];
+  const MAX_TEXT = ${CANVAS_RELAY_MAX_TEXT};
+  const MAX_RELAYS = ${CANVAS_RELAY_BUDGET};
   const CSP = ${JSON.stringify(csp)};
   const PRELUDE = ${embedAsJsString(`<script>${PRELUDE_SOURCE}${SCRIPT_CLOSE}`)};
   const nonce = new URLSearchParams(location.hash.slice(1)).get('nonce') ?? '';
   let inner = null;
+  let relayBudget = 0;
+  let hasReceivedRender = false;
   const post = (message) => {
     window.parent.postMessage(Object.assign({}, message, { nonce: nonce }), '*');
   };
   const render = (html, theme) => {
+    hasReceivedRender = true;
+    relayBudget = MAX_RELAYS;
     if (inner) {
       inner.remove();
       inner = null;
@@ -226,6 +258,31 @@ iframe { display: block; border: 0; width: 100%; height: 100%; background: trans
     document.body.append(frame);
     inner = frame;
   };
+  // Relay messages come FROM THE UNTRUSTED REALM. This trusted shell is the
+  // enforcement point: rebuild every message from validated parts (never
+  // forward attacker-shaped objects), clamp text here — the prelude's own
+  // clamp is bypassable — and budget total relays per rendered document so a
+  // flood cannot reach host React state.
+  const relay = (data) => {
+    if (relayBudget <= 0) {
+      return;
+    }
+    let message = null;
+    if (data.type === RELAY_CONSOLE && LEVELS.indexOf(data.level) !== -1 && typeof data.text === 'string') {
+      message = { level: data.level, text: data.text.slice(0, MAX_TEXT), type: RELAY_CONSOLE };
+    } else if (data.type === RELAY_ERROR && typeof data.text === 'string') {
+      message = { text: data.text.slice(0, MAX_TEXT), type: RELAY_ERROR };
+    }
+    if (!message) {
+      return;
+    }
+    relayBudget -= 1;
+    if (relayBudget === 0) {
+      post({ text: 'canvas output truncated: relay budget exhausted', type: RELAY_ERROR });
+      return;
+    }
+    post(message);
+  };
   window.addEventListener('message', (event) => {
     const data = event.data;
     if (!data || typeof data.type !== 'string') {
@@ -237,11 +294,24 @@ iframe { display: block; border: 0; width: 100%; height: 100%; background: trans
       }
       return;
     }
-    if (inner && event.source === inner.contentWindow && data.type.startsWith(RELAY_PREFIX)) {
-      post(data);
+    if (inner && event.source === inner.contentWindow) {
+      relay(data);
     }
   });
+  // Re-announce readiness until the host's first render command arrives: the
+  // host attaches its listener in a React effect, and this document (served
+  // from an in-memory protocol response) can parse before that listener
+  // exists. A lost one-shot READY would otherwise leave the pane blank.
   post({ type: READY });
+  let announceAttempts = 0;
+  const announceTimer = setInterval(() => {
+    announceAttempts += 1;
+    if (hasReceivedRender || announceAttempts >= 40) {
+      clearInterval(announceTimer);
+      return;
+    }
+    post({ type: READY });
+  }, 250);
 })();
 </script>
 </body>

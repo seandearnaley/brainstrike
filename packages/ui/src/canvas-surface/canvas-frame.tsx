@@ -5,7 +5,7 @@ import {
   type CanvasTheme,
   isCanvasFrameInboundMessage,
 } from '@brainstrike/platform-utils';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { cn } from '../lib/utils';
 
 export interface CanvasConsoleEvent {
@@ -17,12 +17,27 @@ export interface CanvasErrorEvent {
   readonly text: string;
 }
 
+export interface CanvasShellTimeoutEvent {
+  readonly shellSrc: string;
+  readonly timeoutMs: number;
+}
+
+const DEFAULT_SHELL_READY_TIMEOUT_MS = 8000;
+
 export interface CanvasFrameProps {
   readonly className?: string;
   /** Untrusted assistant-generated document body. Never rendered outside the sandbox. */
   readonly html: string;
   readonly onConsoleEvent?: (event: CanvasConsoleEvent) => void;
   readonly onErrorEvent?: (event: CanvasErrorEvent) => void;
+  /**
+   * Called when the shell fails to announce readiness within
+   * `shellReadyTimeoutMs` (shell request failed, protocol unavailable, CSP
+   * refused execution). Fires at most once per silent period; a late ready
+   * still recovers the frame.
+   */
+  readonly onShellTimeout?: (event: CanvasShellTimeoutEvent) => void;
+  readonly shellReadyTimeoutMs?: number;
   /**
    * URL of the trusted Canvas shell document — `brainstrike-canvas://shell/`
    * on desktop, `/canvas-frame.html` on web. The shell MUST be served with the
@@ -48,6 +63,8 @@ export function CanvasFrame({
   html,
   onConsoleEvent,
   onErrorEvent,
+  onShellTimeout,
+  shellReadyTimeoutMs = DEFAULT_SHELL_READY_TIMEOUT_MS,
   shellSrc,
   theme,
 }: CanvasFrameProps) {
@@ -57,10 +74,32 @@ export function CanvasFrame({
   // recovery) replays the current content instead of losing it.
   const [readyGeneration, setReadyGeneration] = useState(0);
 
-  const callbacksRef = useRef({ onConsoleEvent, onErrorEvent });
-  callbacksRef.current = { onConsoleEvent, onErrorEvent };
-
+  const callbacksRef = useRef({ onConsoleEvent, onErrorEvent, onShellTimeout });
   useEffect(() => {
+    callbacksRef.current = { onConsoleEvent, onErrorEvent, onShellTimeout };
+  }, [onConsoleEvent, onErrorEvent, onShellTimeout]);
+
+  // NO SILENT FALLBACKS: if the shell never announces ready (request failed,
+  // protocol unregistered, CSP refused execution), a blank frame must not hang
+  // forever — report the bounded handshake failure to the consumer.
+  useEffect(() => {
+    if (readyGeneration > 0) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      callbacksRef.current.onShellTimeout?.({ shellSrc, timeoutMs: shellReadyTimeoutMs });
+    }, shellReadyTimeoutMs);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [readyGeneration, shellReadyTimeoutMs, shellSrc]);
+
+  // useLayoutEffect (not useEffect): the iframe starts loading at commit and
+  // the desktop shell is served from an in-memory protocol response, so its
+  // READY can fire before a passive (post-paint) effect attaches this
+  // listener. Layout effects run synchronously before the browser resumes;
+  // the shell additionally re-announces READY until a render command arrives.
+  useLayoutEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const shellWindow = iframeRef.current?.contentWindow;
       if (!shellWindow || event.source !== shellWindow) {

@@ -2,6 +2,8 @@ export {
   CANVAS_CONSOLE_LEVELS,
   CANVAS_FRAME_MESSAGE_TYPES,
   CANVAS_FRAME_SHELL_PATH,
+  CANVAS_RELAY_BUDGET,
+  CANVAS_RELAY_MAX_TEXT,
   type CanvasConsoleLevel,
   type CanvasConsoleRelayMessage,
   type CanvasErrorRelayMessage,

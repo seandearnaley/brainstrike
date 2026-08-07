@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   CANVAS_FRAME_MESSAGE_TYPES,
+  CANVAS_RELAY_BUDGET,
+  CANVAS_RELAY_MAX_TEXT,
   getCanvasSandboxContentSecurityPolicy,
   isCanvasFrameInboundMessage,
   renderCanvasFrameShellHtml,
@@ -86,6 +88,27 @@ describe('renderCanvasFrameShellHtml', () => {
     expect(shell).toContain('event.source === window.parent');
   });
 
+  it('relays only from the inner frame, rebuilding validated messages (never forwarding attacker objects)', () => {
+    // The relay branch is the enforcement point against the untrusted realm:
+    // source-checked to the inner frame, exact-type validated (a forged
+    // brainstrike-canvas:ready must never be forwarded with the shell nonce),
+    // text clamped in THIS trusted realm, and budgeted per rendered document.
+    expect(shell).toContain('event.source === inner.contentWindow');
+    expect(shell).not.toContain('post(data)');
+    expect(shell).toContain('data.text.slice(0, MAX_TEXT)');
+    expect(shell).toContain(`const MAX_TEXT = ${CANVAS_RELAY_MAX_TEXT}`);
+    expect(shell).toContain(`const MAX_RELAYS = ${CANVAS_RELAY_BUDGET}`);
+    expect(shell).toContain('relay budget exhausted');
+  });
+
+  it('re-announces readiness until the first render command arrives', () => {
+    // The host attaches its listener in a React effect; the desktop shell is
+    // served from an in-memory protocol response and can parse first. A
+    // one-shot READY would race and leave the pane permanently blank.
+    expect(shell).toContain('hasReceivedRender');
+    expect(shell).toContain('setInterval');
+  });
+
   it('is deterministic (static shell, no per-render state)', () => {
     expect(renderCanvasFrameShellHtml()).toBe(shell);
   });
@@ -145,6 +168,33 @@ describe('isCanvasFrameInboundMessage', () => {
     expect(
       isCanvasFrameInboundMessage(
         { nonce: NONCE, text: 42, type: CANVAS_FRAME_MESSAGE_TYPES.relayError },
+        NONCE
+      )
+    ).toBe(false);
+  });
+
+  it('rejects relay text exceeding the shell clamp — anything longer is forged or a shell bug', () => {
+    const atLimit = 'x'.repeat(CANVAS_RELAY_MAX_TEXT);
+    expect(
+      isCanvasFrameInboundMessage(
+        { nonce: NONCE, text: atLimit, type: CANVAS_FRAME_MESSAGE_TYPES.relayError },
+        NONCE
+      )
+    ).toBe(true);
+    expect(
+      isCanvasFrameInboundMessage(
+        { nonce: NONCE, text: `${atLimit}x`, type: CANVAS_FRAME_MESSAGE_TYPES.relayError },
+        NONCE
+      )
+    ).toBe(false);
+    expect(
+      isCanvasFrameInboundMessage(
+        {
+          level: 'log',
+          nonce: NONCE,
+          text: `${atLimit}x`,
+          type: CANVAS_FRAME_MESSAGE_TYPES.relayConsole,
+        },
         NONCE
       )
     ).toBe(false);

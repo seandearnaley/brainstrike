@@ -33,25 +33,24 @@ export const CANVAS_PROTOCOL_SCHEME = 'brainstrike-canvas';
 export const CANVAS_SHELL_URL = `${CANVAS_PROTOCOL_SCHEME}://shell/`;
 
 /**
- * Register the scheme's privileges. MUST run before `app.whenReady()`.
- * `bypassCSP` stays false: the scheme participates in CSP like any origin —
- * the renderer's `frame-src brainstrike-canvas:` allowlist is what admits it.
+ * Privilege descriptor for the scheme. Registered via the SINGLE
+ * `protocol.registerSchemesAsPrivileged` call in `privileged-schemes.ts` —
+ * Electron only honors ONE such call per launch, so no module may call it
+ * directly. `bypassCSP` stays false: the scheme participates in CSP like any
+ * origin — the renderer's `frame-src brainstrike-canvas:` allowlist is what
+ * admits it.
  */
-export function registerCanvasProtocolPrivileges(): void {
-  protocol.registerSchemesAsPrivileged([
-    {
-      privileges: {
-        bypassCSP: false,
-        corsEnabled: false,
-        secure: true,
-        standard: false,
-        stream: false,
-        supportFetchAPI: false,
-      },
-      scheme: CANVAS_PROTOCOL_SCHEME,
-    },
-  ]);
-}
+export const CANVAS_PROTOCOL_PRIVILEGE = {
+  privileges: {
+    bypassCSP: false,
+    corsEnabled: false,
+    secure: true,
+    standard: false,
+    stream: false,
+    supportFetchAPI: false,
+  },
+  scheme: CANVAS_PROTOCOL_SCHEME,
+} as const;
 
 /** Exported separately so tests can exercise routing without Electron. */
 export function createCanvasProtocolHandler(): (request: Request) => Response {

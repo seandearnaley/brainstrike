@@ -1,5 +1,5 @@
 import { CANVAS_FRAME_MESSAGE_TYPES } from '@brainstrike/platform-utils';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CanvasFrame } from '../canvas-frame';
 
@@ -124,6 +124,60 @@ describe('CanvasFrame', () => {
       expect(onConsoleEvent).toHaveBeenCalledWith({ level: 'warn', text: 'careful' });
       expect(onErrorEvent).toHaveBeenCalledWith({ text: 'kaboom' });
     });
+  });
+
+  it('reports a bounded handshake failure when the shell never becomes ready', async () => {
+    vi.useFakeTimers();
+    try {
+      const onShellTimeout = vi.fn();
+      render(
+        <CanvasFrame
+          html="<p>hi</p>"
+          onShellTimeout={onShellTimeout}
+          shellReadyTimeoutMs={5000}
+          shellSrc={SHELL_SRC}
+          theme="light"
+        />
+      );
+      vi.advanceTimersByTime(4999);
+      expect(onShellTimeout).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(2);
+      expect(onShellTimeout).toHaveBeenCalledWith({
+        shellSrc: SHELL_SRC,
+        timeoutMs: 5000,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels the handshake timeout once the shell announces ready', async () => {
+    vi.useFakeTimers();
+    try {
+      const onShellTimeout = vi.fn();
+      render(
+        <CanvasFrame
+          html="<p>hi</p>"
+          onShellTimeout={onShellTimeout}
+          shellReadyTimeoutMs={5000}
+          shellSrc={SHELL_SRC}
+          theme="light"
+        />
+      );
+      const frame = getFrame();
+      // act(): the ready handler's state update must commit (and the timeout
+      // effect's cleanup must run) before the clock advances.
+      act(() => {
+        dispatchFrameMessage(frame.contentWindow, {
+          nonce: nonceOf(frame),
+          type: CANVAS_FRAME_MESSAGE_TYPES.ready,
+        });
+      });
+      vi.advanceTimersByTime(20_000);
+      expect(onShellTimeout).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('re-sends the current content when the shell re-announces ready (frame reload)', async () => {

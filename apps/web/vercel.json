@@ -13,7 +13,7 @@
   },
   "headers": [
     {
-      "source": "/(.*)",
+      "source": "/((?!canvas-frame\\.html$).*)",
       "headers": [
         {
           "key": "Content-Security-Policy",
