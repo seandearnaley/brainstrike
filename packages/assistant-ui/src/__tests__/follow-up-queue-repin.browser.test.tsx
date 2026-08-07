@@ -4,8 +4,8 @@ import {
   type ThreadMessageLike,
   ThreadPrimitive,
   useAui,
+  useAuiState,
   useLocalRuntime,
-  useMessage,
   useThreadViewportStore,
 } from '@assistant-ui/react';
 import { useEffect } from 'react';
@@ -69,8 +69,8 @@ const TallMessage = () => (
  * pinned in production, and the harness needs the same signal.
  */
 const GrowingAssistantMessage = () => {
-  const text = useMessage((message) =>
-    message.content.map((part) => (part.type === 'text' ? part.text : '')).join('')
+  const text = useAuiState((s) =>
+    s.message.content.map((part) => (part.type === 'text' ? part.text : '')).join('')
   );
   // Real text nodes, not a style height: the library's content observer
   // deliberately ignores style-attribute mutations, so growth must arrive the

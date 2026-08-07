@@ -20,9 +20,9 @@ cleanupUnusedCatalogs: true
 # (verified). Column-0 comments above a block survive.
 catalog:
   '@anthropic-ai/sandbox-runtime': 0.0.67
-  '@assistant-ui/react': '~0.14.26'
+  '@assistant-ui/react': 0.15.8
   '@assistant-ui/react-data-stream': ^0.12.18
-  '@assistant-ui/react-markdown': ^0.14.5
+  '@assistant-ui/react-markdown': ^0.14.8
   '@assistant-ui/styles': ^0.3.7
   '@babel/core': ^8.0.1
   '@babel/plugin-transform-runtime': ^8.0.1
@@ -132,14 +132,47 @@ allowBuilds:
   puppeteer: true
   sharp: true
   '@parcel/watcher': false
-# These two exact versions are pinned exceptions to any future minimumReleaseAge
-# policy: @mastra/memory@1.22.1's tool-approval 'output-denied' state handling
-# (the fix this repo's upgrade specifically needed, see docs/dependency-updates-
-# breaking-changes.md) shipped alongside @mastra/core@1.50.0,
-# published <24h before this pin. Verified via npm registry metadata: both carry
-# GitHub Actions OIDC provenance from the canonical mastra-ai/mastra repo, a
-# maintainer list consistent with prior releases, and match the 'latest' dist-tag.
-# Remove this exclude once these versions age past whatever minimumReleaseAge
-# floor is configured (none is configured today, so this is currently a no-op).
+# These exact versions are pinned exceptions to any future minimumReleaseAge
+# policy (none is configured today, so this list is currently a no-op).
+# @mastra/core@1.50.0: @mastra/memory@1.22.1's tool-approval 'output-denied'
+# state handling (the fix this repo's upgrade specifically needed, see
+# docs/dependency-updates-breaking-changes.md) shipped alongside it, published
+# <24h before this pin. Verified via npm registry metadata: GitHub Actions OIDC
+# provenance from the canonical mastra-ai/mastra repo, a maintainer list
+# consistent with prior releases, matches the 'latest' dist-tag.
+# @assistant-ui/*@(react 0.15.8 / core 0.3.7 / store 0.3.5 / tap 0.9.10) +
+# assistant-stream@0.3.34: the 0.15 upgrade set, published 2026-08-06 (<24h
+# before this pin). Provenance verified 2026-08-06: tap and assistant-stream
+# carry GitHub Actions OIDC provenance; react/core/store were published
+# manually by the canonical lead maintainer (yonom) with no attestation — a
+# deviation from the project's usual OIDC publishes that upstream's own
+# changelog explains ("0.15.8 = republish of 0.15.6; registry staged-version
+# conflicts blocked 0.15.6/0.15.7; contents identical"), with all versions
+# pointing at the canonical assistant-ui/assistant-ui repo and matching
+# 'latest' dist-tags. Remove entries once the versions age past whatever
+# minimumReleaseAge floor is eventually configured.
 minimumReleaseAgeExclude:
   - '@mastra/core@1.50.0'
+  - '@assistant-ui/core@0.3.7'
+  - '@assistant-ui/react@0.15.8'
+  - '@assistant-ui/store@0.3.5'
+  - '@assistant-ui/tap@0.9.10'
+  - assistant-stream@0.3.34
+# @assistant-ui/react is pinned EXACT (no ~/^ in the catalog entry above) while
+# this patch exists: pnpm applies a patch only to its exact keyed version, so a
+# floated 0.15.9 would silently ship UNPATCHED — the exact pin turns that into
+# a deliberate bump that must revisit the patch. The patch stabilizes
+# useThreadViewportAutoScroll's scroll-listener ref callback (identity was
+# recreated on every render; 0.15 added an isRunning subscription to the hook,
+# so every run start/end re-render detached and re-attached ALL viewport refs
+# via useComposedRefs, reconstructing the ResizeObserver in the same commit the
+# run's content changed — the fresh observer misses the growth window and the
+# browser's scrollTop clamp is misread as a user scroll, silently unpinning
+# stick-to-bottom on every send; BST-1039's browser test catches exactly this).
+# Root cause proven by trace + this 5-line stabilization flipping
+# follow-up-queue-repin.browser.test.tsx red->green. Remove when upstream
+# stabilizes the ref (check useThreadViewportAutoScroll in the release notes /
+# source before bumping past 0.15.8), and re-run the BST-1039 browser test
+# against the unpatched version to confirm.
+patchedDependencies:
+  '@assistant-ui/react@0.15.8': patches/@assistant-ui__react@0.15.8.patch

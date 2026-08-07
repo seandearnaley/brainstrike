@@ -357,6 +357,37 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 
 ---
 
+## Assistant UI (`@assistant-ui/react` 0.14.26 → 0.15.8, `@assistant-ui/react-markdown` 0.14.5 → 0.14.8, `assistant-stream` 0.3.25 → 0.3.34) — completed, WITH A PNPM PATCH
+
+**Status:** `@assistant-ui/react` bumped `~0.14.26` → **exact `0.15.8`** (see below for why the pin is exact), `@assistant-ui/react-markdown` `^0.14.5` → `^0.14.8` (its `@assistant-ui/react` peer range flips to `^0.15.0` at 0.14.8 — the two must move together), and the repo's `assistant-stream` pins (`packages/ui`, `packages/agent`) `0.3.25` → `0.3.34` in lockstep with `@assistant-ui/core@0.3.7`'s own `^0.3.34` dependency. Landed 2026-08-06 on `chore/deps-assistant-ui-0.15`.
+
+**v0.15 breaking changes that actually hit this repo** (official guide: [Migration to v0.15](https://www.assistant-ui.com/docs/migrations/v0-15); the removed-hook surface here was tiny because the v0.14 migration already moved most code to the unified `useAui`/`useAuiState` API):
+
+- `useAttachment` removed → `useAuiState((s) => s.attachment)` (2 call sites in `packages/ui/src/assistant-ui-panel/composer-attachments.tsx`).
+- `useComposerRuntime` removed → `useAui()` + `aui.composer.addAttachment(...)` (`composer-input.tsx`'s `AttachmentPasteFrame`).
+- `useMessage` removed → `useAuiState((s) => s.message...)` (`follow-up-queue-repin.browser.test.tsx`'s growing-message harness).
+- **Dual `assistant-stream` instances break the `Tool` type**: `@assistant-ui/core@0.3.x` resolves its own `assistant-stream@^0.3.34` while the repo pinned `0.3.25` — two structurally different `Tool` types coexist and `unstable_toolResultStream(context.tools ?? {}, ...)` in `data-stream-runtime.ts` fails to type-check. Fix is the lockstep pin bump, not a cast. (The 0.3.25/0.3.33 instances still in the lockfile belong to `@assistant-ui/react-data-stream@0.12.18`, which nothing in this repo imports — inert.)
+- TS2883 portability: `CHAIN_OF_THOUGHT_TOOL_COMPONENTS` in `todo-progress.tsx` now needs an explicit type annotation (`by_name: Record<string, ToolCallMessagePartComponent>; Fallback: ToolCallMessagePartComponent`) because its inferred type references a non-exported `ReadonlyJSONObject` path inside the pnpm store.
+- `aui.thread()` call sites (5) still type-check on 0.15 (the accessor remains callable) and were left as-is; the property form (`aui.thread`) is the documented forward direction if upstream drops the callable form in the next major.
+
+**UPSTREAM REGRESSION found by this repo's BST-1039 browser test, shipped here with a pnpm patch:** on every `isRunning` flip (run start AND run end), 0.15 silently unpins stick-to-bottom for a bottom-pinned thread — the reply streams below the fold and the jump chip appears with no user act, on effectively every send. Reproduced deterministically by `packages/ui/src/__tests__/follow-up-queue-repin.browser.test.tsx` (fails on 0.15.0, 0.15.4, and 0.15.8; passes on 0.14.26).
+
+- **Root cause (proven by observer-instrumented trace):** 0.15's `useThreadViewportAutoScroll` added an `isRunning` subscription (`useAuiState((s) => s.thread.isRunning)`, used by the new top-anchor logic). The hook's `scrollRef = useManagedRef((el) => {...})` takes an **inline callback whose identity changes every render**; `useManagedRef` memoizes on that identity, so the returned ref changes too, and `useComposedRefs(resizeRef, scrollRef, divRef)` cascades — React detaches and re-attaches ALL viewport refs, tearing down and reconstructing the content `ResizeObserver` (`useOnResizeContent`) mid-commit. On 0.14 this instability was latent (the hook had no reason to re-render at run transitions); on 0.15 the re-render now lands in the exact commit where run-start/run-end content changes. A freshly constructed RO delivers its first observation at end-of-frame — AFTER the browser dispatches the scroll event from the content-growth clamp — so `handleScroll` reads the clamp with no in-flight-scroll bookkeeping armed, flips `isAtBottom` false, and auto-follow never re-sticks (trace: new RO pair constructed at run start → mutation commits → scroll event at stale `scrollTop` → `isAtBottom -> false` → RO's late initial fire is a no-op because the store already says unpinned).
+- **The patch** (`patches/@assistant-ui__react@0.15.8.patch`, wired via `patchedDependencies` in `pnpm-workspace.yaml`): stabilizes the scroll-listener ref callback (hoists it into a `useCallback([], ...)` that reads the current `handleScroll` through a ref), so the composed viewport ref keeps a single identity and the ResizeObserver survives run transitions. Verified: the BST-1039 test flips red → green with ONLY this change; full `packages/ui` browser suite (44 tests) green 3× consecutively, plus the unit suites of every consumer (`ui` 2109, `agent` 1628, `app-shell` 1733, `web` 392, `desktop` 2341) and a workspace-wide type-check.
+- **Why a patch, not a pin-back:** unlike the react-helmet-async dedup regression (architectural, no local fix), this is a 5-line, provable ref-identity stabilization guarded by an existing contract test, and 0.15 is where all fixes now land (0.14 is a dead track). The catalog pin is EXACT `0.15.8` so a floated patch-bump can never silently ship unpatched (pnpm applies a patch only to its exact keyed version).
+- **Remove the patch when** upstream stabilizes the ref callback identity in `useThreadViewportAutoScroll` — before any bump past 0.15.8, run `pnpm vitest run --project browser src/__tests__/follow-up-queue-repin.browser.test.tsx` (from `packages/ui`) against the UNPATCHED target version; green means the patch can be dropped with the bump.
+- Known cosmetic residue on 0.15 (unrelated to the patch): the tap 0.9.10 scheduler emits React "flushSync was called from inside a lifecycle method" console warnings during streaming, and vitest-browser logs occasional "ResizeObserver loop completed with undelivered notifications" — both library-internal, no test asserts on them.
+
+**Release-provenance note:** 0.15.6/0.15.7/0.15.8 were published manually by the lead maintainer (no OIDC attestation, unlike the project's usual GitHub Actions publishes) within ~30 minutes on 2026-08-06, out of order. Upstream's changelog explains: 0.15.8 is a republish of 0.15.6 after registry staged-version conflicts blocked 0.15.6/0.15.7. Details recorded next to the `minimumReleaseAgeExclude` entries in `pnpm-workspace.yaml`.
+
+**Pointers**
+
+- [Migration to v0.15](https://www.assistant-ui.com/docs/migrations/v0-15)
+- [`@assistant-ui/react` CHANGELOG](https://github.com/assistant-ui/assistant-ui/blob/main/packages/react/CHANGELOG.md)
+- Follow-up: report the ref-instability regression upstream (assistant-ui/assistant-ui) with the trace + patch from this repo.
+
+---
+
 ## Turborepo (`turbo` 2.8.x → 2.9.x)
 
 **Why it matters:** Minor releases add features and sometimes deprecations ahead of v3.

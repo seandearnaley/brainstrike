@@ -1,0 +1,30 @@
+diff --git a/dist/primitives/thread/useThreadViewportAutoScroll.js b/dist/primitives/thread/useThreadViewportAutoScroll.js
+index d811689b869963ec95095a2a09339696bdb6681c..0e78447bb8937fe76b15c4f50e7be4560d202316 100644
+--- a/dist/primitives/thread/useThreadViewportAutoScroll.js
++++ b/dist/primitives/thread/useThreadViewportAutoScroll.js
+@@ -72,17 +72,21 @@ const useThreadViewportAutoScroll = ({ autoScroll, scrollToBottomOnRunStart = tr
+ 		else if (autoScroll && !(isRunning && hasActiveTopAnchor()) && threadViewportStore.getState().isAtBottom) scrollToBottom("instant");
+ 		handleScroll();
+ 	});
+-	const scrollRef = useManagedRef((el) => {
++	const handleScrollRef = useRef(handleScroll);
++	handleScrollRef.current = handleScroll;
++	const scrollRefCb = useCallback((el) => {
++		const onScroll = () => handleScrollRef.current();
+ 		const cancelPendingScrollToBottom = () => {
+ 			scrollingToBottomBehaviorRef.current = null;
+ 		};
+-		el.addEventListener("scroll", handleScroll);
++		el.addEventListener("scroll", onScroll);
+ 		el.addEventListener("pointerdown", cancelPendingScrollToBottom);
+ 		return () => {
+-			el.removeEventListener("scroll", handleScroll);
++			el.removeEventListener("scroll", onScroll);
+ 			el.removeEventListener("pointerdown", cancelPendingScrollToBottom);
+ 		};
+-	});
++	}, []);
++	const scrollRef = useManagedRef(scrollRefCb);
+ 	useLayoutEffect(() => {
+ 		if (!scrollToBottomOnInitialize) return;
+ 		if (!hasMessages) {
