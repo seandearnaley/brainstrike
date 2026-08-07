@@ -116,6 +116,44 @@ declare global {
       list: () => Promise<AssistantPersonasListResult>;
     };
     /**
+     * Embedded browser pane bridge (BST-1174). Desktop-only; absent on web.
+     * MUST stay in sync with `BrowserBridge` in
+     * `@brainstrike/app-shell` `browser-pane/browser-bridge.ts` — a method
+     * present on one side only disables the whole pane surface via
+     * `resolveBrowserBridge()`.
+     */
+    browser?: {
+      createTab: (url?: string) => Promise<string>;
+      closeTab: (tabId: string) => Promise<void>;
+      selectTab: (tabId: string) => Promise<void>;
+      navigate: (tabId: string, target: string) => Promise<void>;
+      setBounds: (rect: { height: number; width: number; x: number; y: number }) => Promise<void>;
+      setOccluded: (occluded: boolean) => Promise<void>;
+      listTabs: () => Promise<
+        ReadonlyArray<{
+          active: boolean;
+          canGoBack: boolean;
+          canGoForward: boolean;
+          tabId: string;
+          title: string;
+          url: string;
+        }>
+      >;
+      /** One-way main→renderer tab-state pushes. Returns unsubscribe. */
+      onTabsChanged: (
+        listener: (
+          tabs: ReadonlyArray<{
+            active: boolean;
+            canGoBack: boolean;
+            canGoForward: boolean;
+            tabId: string;
+            title: string;
+            url: string;
+          }>
+        ) => void
+      ) => () => void;
+    };
+    /**
      * Desktop-only changeset diff bridge (BST-1113/BST-1114). Resolves any
      * `Changeset` (agent-run / run-range / git-scope) to an eager
      * `ChangesetView` and loads per-file `StructuredFileDiff`s lazily.

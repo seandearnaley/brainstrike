@@ -41,6 +41,8 @@ import { reapOrphanedThreadRuns } from './assistant-server/thread-run-startup-re
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
+import { createBrowserPaneHost } from './browser/browser-pane-host';
+import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
@@ -82,6 +84,7 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
+import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
@@ -744,6 +747,7 @@ let unregisterFileExportsIpcHandlers: null | (() => void) = null;
 let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
 let unregisterChangesIpcHandlers: null | (() => void) = null;
+let unregisterBrowserIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterContextFilesIpcHandlers: null | (() => void) = null;
 let unregisterSkillsIpcHandlers: null | (() => void) = null;
@@ -2015,6 +2019,20 @@ if (singleInstanceLockAcquired) {
         schedulePowerResume();
       });
 
+      // Embedded browser pane (BST-1174): construct the WebContentsView host
+      // bound to the visible window, register its IPC domain, and tear both
+      // down when the window closes. The manager attaches views to
+      // mainWindow.contentView, so it must be created AFTER the window exists.
+      const browserPaneHost = createBrowserPaneHost(mainWindow);
+      unregisterBrowserIpcHandlers = registerBrowserIpcHandlers(
+        createBrowserIpcHandlers(browserPaneHost.manager)
+      );
+      mainWindow.once('closed', () => {
+        browserPaneHost.dispose();
+        unregisterBrowserIpcHandlers?.();
+        unregisterBrowserIpcHandlers = null;
+      });
+
       // Window focus/blur: throttle IPC traffic when backgrounded
       mainWindow.on('blur', () => {
         logger.info('window:blur');
@@ -2140,6 +2158,8 @@ app.on('will-quit', () => {
   }
   unregisterChangesIpcHandlers?.();
   unregisterChangesIpcHandlers = null;
+  unregisterBrowserIpcHandlers?.();
+  unregisterBrowserIpcHandlers = null;
   if (unregisterHooksIpcHandlers) {
     unregisterHooksIpcHandlers();
     unregisterHooksIpcHandlers = null;

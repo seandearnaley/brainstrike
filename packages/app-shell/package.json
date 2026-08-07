@@ -71,6 +71,10 @@
       "types": "./dist/assistant-memory-repository.d.ts",
       "import": "./dist/assistant-memory-repository.js"
     },
+    "./browser-pane/availability": {
+      "types": "./dist/browser-pane/availability.d.ts",
+      "import": "./dist/browser-pane/availability.js"
+    },
     "./changes": {
       "types": "./dist/changes/index.d.ts",
       "import": "./dist/changes/index.js"
