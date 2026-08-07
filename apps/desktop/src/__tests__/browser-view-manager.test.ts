@@ -65,6 +65,7 @@ function createFakeView(id: number): FakeView {
         list.push(listener);
         listeners.set(event, list);
       },
+      reload: vi.fn(),
       setWindowOpenHandler: (handler) => {
         openHandler = handler;
       },
@@ -94,6 +95,9 @@ function setup() {
     onTabsChanged,
     partition: 'persist:browser-pane-test',
   });
+  // A view is only shown at a non-zero rect, so most visibility assertions need
+  // bounds already reported. Seed a default; tests that care set their own.
+  manager.setBounds({ height: 300, width: 400, x: 0, y: 0 });
   return { added, created, manager, onTabsChanged, removed };
 }
 
@@ -263,17 +267,68 @@ describe('BrowserViewManager', () => {
     expect(manager.closeTab(manager.listTabs()[0]?.tabId ?? '')).toBe(true);
   });
 
-  it('navigates: loads urls, and only goes back/forward when history allows', () => {
+  it('navigate loads urls ONLY — "back"/"forward" are searched, not history commands', () => {
     const { created, manager } = setup();
     const tabId = manager.createTab('a.com');
     manager.navigate(tabId, 'other.com');
     expect(created[0]?.calls.loaded.at(-1)).toBe('https://other.com');
-
+    // Typing "back" in the URL bar must search, not move history.
     manager.navigate(tabId, 'back');
+    expect(created[0]?.calls.loaded.at(-1)).toBe('https://duckduckgo.com/?q=back');
+    expect(created[0]?.webContents.goBack).not.toHaveBeenCalled();
+  });
+
+  it('goBack/goForward only move history when it allows; reload preserves both stacks', () => {
+    const { created, manager } = setup();
+    const tabId = manager.createTab('a.com');
+
+    manager.goBack(tabId);
     expect(created[0]?.webContents.goBack).not.toHaveBeenCalled();
     created[0]!.navState.back = true;
-    manager.navigate(tabId, 'back');
+    manager.goBack(tabId);
     expect(created[0]?.webContents.goBack).toHaveBeenCalledTimes(1);
+
+    manager.goForward(tabId);
+    expect(created[0]?.webContents.goForward).not.toHaveBeenCalled();
+    created[0]!.navState.forward = true;
+    manager.goForward(tabId);
+    expect(created[0]?.webContents.goForward).toHaveBeenCalledTimes(1);
+
+    // reload() calls webContents.reload (keeps history), never a fresh loadURL.
+    const loadsBefore = created[0]?.calls.loaded.length ?? 0;
+    manager.reload(tabId);
+    expect(created[0]?.webContents.reload).toHaveBeenCalledTimes(1);
+    expect(created[0]?.calls.loaded.length).toBe(loadsBefore);
+
+    // All history ops return false for an unknown tab.
+    expect(manager.goBack('nope')).toBe(false);
+    expect(manager.goForward('nope')).toBe(false);
+    expect(manager.reload('nope')).toBe(false);
+  });
+
+  it('never reveals the active view at a zero rect (bounds not yet reported)', () => {
+    const created: FakeView[] = [];
+    let counter = 0;
+    const manager = new BrowserViewManager({
+      createView: () => {
+        const view = createFakeView(created.length + 1);
+        created.push(view);
+        return view;
+      },
+      hostWindow: {
+        contentView: { addChildView: () => undefined, removeChildView: () => undefined },
+      },
+      mintTabId: () => `tab-${++counter}`,
+      onTabsChanged: () => undefined,
+      partition: 'persist:test',
+    });
+    // No setBounds yet → the view must stay hidden, not paint at 0×0.
+    manager.createTab('a.com');
+    expect(created[0]?.calls.visible.at(-1)).toBe(false);
+    manager.setBounds({ height: 200, width: 300, x: 0, y: 0 });
+    expect(created[0]?.calls.visible.at(-1)).toBe(true);
+    // Bounds applied BEFORE the reveal (last bounds call precedes last visible).
+    expect(created[0]?.calls.bounds.at(-1)).toEqual({ height: 200, width: 300, x: 0, y: 0 });
   });
 
   it('closing the active tab activates the most recent remaining tab', () => {

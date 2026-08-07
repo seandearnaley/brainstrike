@@ -27,8 +27,11 @@ export type BrowserResult<T = void> =
 export interface BrowserManagerLike {
   closeTab(tabId: string): boolean;
   createTab(url?: string): string;
+  goBack(tabId: string): boolean;
+  goForward(tabId: string): boolean;
   listTabs(): readonly BrowserTabState[];
-  navigate(tabId: string, target: string): boolean;
+  navigate(tabId: string, url: string): boolean;
+  reload(tabId: string): boolean;
   selectTab(tabId: string): boolean;
   setBounds(rect: PaneRect): void;
   setOccluded(occluded: boolean): void;
@@ -37,8 +40,11 @@ export interface BrowserManagerLike {
 export interface BrowserIpcHandlers {
   closeTab(tabId: unknown): BrowserResult;
   createTab(url: unknown): BrowserResult<string>;
+  goBack(tabId: unknown): BrowserResult;
+  goForward(tabId: unknown): BrowserResult;
   listTabs(): BrowserResult<readonly BrowserTabState[]>;
-  navigate(tabId: unknown, target: unknown): BrowserResult;
+  navigate(tabId: unknown, url: unknown): BrowserResult;
+  reload(tabId: unknown): BrowserResult;
   selectTab(tabId: unknown): BrowserResult;
   setBounds(rect: unknown): BrowserResult;
   setOccluded(occluded: unknown): BrowserResult;
@@ -85,20 +91,18 @@ function validateRect(value: unknown): PaneRect | null {
   return { height: height as number, width: width as number, x: x as number, y: y as number };
 }
 
-/** `back`/`forward` are literals; anything else must be a non-empty URL string. */
-function validateNavigateTarget(value: unknown): string | null {
-  return isNonEmptyString(value) ? value : null;
-}
-
 export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIpcHandlers {
+  const tabAction = (tabId: unknown, verb: string, run: (id: string) => boolean): BrowserResult => {
+    if (!isNonEmptyString(tabId)) {
+      return fail(`${verb} requires a non-empty tabId`);
+    }
+    // A well-formed but UNKNOWN tab id is a real desync, not a success —
+    // surface it (NO SILENT FALLBACKS) so the renderer can resync.
+    return run(tabId) ? ok(undefined) : fail(`unknown tab: ${tabId}`);
+  };
   return {
     closeTab(tabId) {
-      if (!isNonEmptyString(tabId)) {
-        return fail('closeTab requires a non-empty tabId');
-      }
-      // A well-formed but UNKNOWN tab id is a real desync, not a success —
-      // surface it (NO SILENT FALLBACKS) so the renderer can resync.
-      return manager.closeTab(tabId) ? ok(undefined) : fail(`unknown tab: ${tabId}`);
+      return tabAction(tabId, 'closeTab', (id) => manager.closeTab(id));
     },
     createTab(url) {
       if (url !== undefined && typeof url !== 'string') {
@@ -106,24 +110,26 @@ export function createBrowserIpcHandlers(manager: BrowserManagerLike): BrowserIp
       }
       return ok(manager.createTab(url));
     },
+    goBack(tabId) {
+      return tabAction(tabId, 'goBack', (id) => manager.goBack(id));
+    },
+    goForward(tabId) {
+      return tabAction(tabId, 'goForward', (id) => manager.goForward(id));
+    },
     listTabs() {
       return ok(manager.listTabs());
     },
-    navigate(tabId, target) {
-      if (!isNonEmptyString(tabId)) {
-        return fail('navigate requires a non-empty tabId');
+    navigate(tabId, url) {
+      if (!isNonEmptyString(url)) {
+        return fail('navigate requires a url string');
       }
-      const validTarget = validateNavigateTarget(target);
-      if (!validTarget) {
-        return fail('navigate requires a url or "back"/"forward"');
-      }
-      return manager.navigate(tabId, validTarget) ? ok(undefined) : fail(`unknown tab: ${tabId}`);
+      return tabAction(tabId, 'navigate', (id) => manager.navigate(id, url));
+    },
+    reload(tabId) {
+      return tabAction(tabId, 'reload', (id) => manager.reload(id));
     },
     selectTab(tabId) {
-      if (!isNonEmptyString(tabId)) {
-        return fail('selectTab requires a non-empty tabId');
-      }
-      return manager.selectTab(tabId) ? ok(undefined) : fail(`unknown tab: ${tabId}`);
+      return tabAction(tabId, 'selectTab', (id) => manager.selectTab(id));
     },
     setBounds(rect) {
       const validated = validateRect(rect);

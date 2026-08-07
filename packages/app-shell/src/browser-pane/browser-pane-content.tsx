@@ -1,4 +1,5 @@
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import { createLogger } from '@brainstrike/logging';
 import { Button, Input } from '@brainstrike/ui';
 import { ArrowLeft, ArrowRight, Plus, RotateCw, X } from 'lucide-react';
 import { type FormEvent, type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
@@ -22,6 +23,8 @@ import { selectActiveBrowserTab, useBrowserTabsStore } from './browser-tabs-stor
  * (Smaller transient overlays — toasts, popovers, page context menus — are a
  * documented follow-up; see the ui-conventions native-layer note.)
  */
+const logger = createLogger('BrowserPane');
+
 export function BrowserPaneContent(): ReactElement {
   const bridge = resolveBrowserBridge();
   const paneRef = useRef<HTMLDivElement | null>(null);
@@ -50,11 +53,16 @@ export function BrowserPaneContent(): ReactElement {
       return;
     }
     const unsubscribe = bridge.onTabsChanged(setTabs);
-    void bridge.listTabs().then((seed) => {
-      if (useBrowserTabsStore.getState().tabs.length === 0) {
-        setTabs(seed);
-      }
-    });
+    bridge
+      .listTabs()
+      .then((seed) => {
+        if (useBrowserTabsStore.getState().tabs.length === 0) {
+          setTabs(seed);
+        }
+      })
+      // Best-effort seed, but a rejected round-trip must be attributable, not
+      // an anonymous unhandled rejection.
+      .catch((error: unknown) => logger.error('Browser pane tab seed failed', { error }));
     return unsubscribe;
   }, [bridge, setTabs]);
 
@@ -99,6 +107,16 @@ export function BrowserPaneContent(): ReactElement {
     };
   }, [bridge, occluded]);
 
+  // On unmount, force-occlude: a WebContentsView paints above ALL DOM, so a
+  // pane that unmounts while visible would leave the native view painted over
+  // (and swallowing clicks on) whatever replaces it. Runs only on teardown.
+  useEffect(
+    () => () => {
+      void bridge?.setOccluded(true);
+    },
+    [bridge]
+  );
+
   const handleNavigate = useCallback(
     (event: FormEvent) => {
       event.preventDefault();
@@ -134,9 +152,11 @@ export function BrowserPaneContent(): ReactElement {
               key={tab.tabId}
             >
               <button
+                aria-selected={tab.active}
                 className="min-w-0 truncate"
                 data-testid={`browser-tab-${tab.tabId}`}
                 onClick={() => bridge.selectTab(tab.tabId)}
+                role="tab"
                 type="button"
               >
                 {tab.title || tab.url || 'New Tab'}
@@ -156,7 +176,7 @@ export function BrowserPaneContent(): ReactElement {
           aria-label="New tab"
           data-testid="browser-new-tab"
           onClick={() => bridge.createTab()}
-          size="icon"
+          size="icon-sm"
           variant="ghost"
         >
           <Plus className="size-3.5" />
@@ -166,8 +186,8 @@ export function BrowserPaneContent(): ReactElement {
         <Button
           aria-label="Back"
           disabled={!activeTab?.canGoBack}
-          onClick={() => activeTab && bridge.navigate(activeTab.tabId, 'back')}
-          size="icon"
+          onClick={() => activeTab && bridge.goBack(activeTab.tabId)}
+          size="icon-sm"
           variant="ghost"
         >
           <ArrowLeft className="size-3.5" />
@@ -175,8 +195,8 @@ export function BrowserPaneContent(): ReactElement {
         <Button
           aria-label="Forward"
           disabled={!activeTab?.canGoForward}
-          onClick={() => activeTab && bridge.navigate(activeTab.tabId, 'forward')}
-          size="icon"
+          onClick={() => activeTab && bridge.goForward(activeTab.tabId)}
+          size="icon-sm"
           variant="ghost"
         >
           <ArrowRight className="size-3.5" />
@@ -184,8 +204,8 @@ export function BrowserPaneContent(): ReactElement {
         <Button
           aria-label="Reload"
           disabled={!activeTab}
-          onClick={() => activeTab && bridge.navigate(activeTab.tabId, activeTab.url)}
-          size="icon"
+          onClick={() => activeTab && bridge.reload(activeTab.tabId)}
+          size="icon-sm"
           variant="ghost"
         >
           <RotateCw className="size-3.5" />

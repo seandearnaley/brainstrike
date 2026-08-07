@@ -10,6 +10,8 @@ let tabsListener: ((tabs: readonly BrowserTab[]) => void) | null = null;
 const bridge = {
   closeTab: vi.fn(() => Promise.resolve()),
   createTab: vi.fn(() => Promise.resolve('tab-new')),
+  goBack: vi.fn(() => Promise.resolve()),
+  goForward: vi.fn(() => Promise.resolve()),
   listTabs: vi.fn(() => Promise.resolve([] as BrowserTab[])),
   navigate: vi.fn(() => Promise.resolve()),
   onTabsChanged: vi.fn((listener: (tabs: readonly BrowserTab[]) => void) => {
@@ -18,6 +20,7 @@ const bridge = {
       tabsListener = null;
     };
   }),
+  reload: vi.fn(() => Promise.resolve()),
   selectTab: vi.fn(() => Promise.resolve()),
   setBounds: vi.fn(() => Promise.resolve()),
   setOccluded: vi.fn(() => Promise.resolve()),
@@ -94,6 +97,34 @@ describe('BrowserPaneContent', () => {
 
     useCommandPaletteStore.setState({ isOpen: true });
     await waitFor(() => expect(bridge.setOccluded).toHaveBeenCalledWith(true));
+  });
+
+  it('occludes the native view when the Settings modal opens (pane DOM still laid out)', async () => {
+    // settingsOpen is the one occlusion source that can be true while the
+    // browser route is active — the rect stays non-zero, so only the explicit
+    // signal (not a zero-rect) hides the view. Guards against a future refactor
+    // that derives occlusion from the rect alone.
+    render(<BrowserPaneContent />);
+    await waitFor(() => expect(bridge.setBounds).toHaveBeenCalled());
+    bridge.setOccluded.mockClear();
+
+    usePanelLayoutStore.getState().setSettingsOpen(true);
+    await waitFor(() => expect(bridge.setOccluded).toHaveBeenCalledWith(true));
+  });
+
+  it('drives back/forward/reload through the dedicated history actions, not navigate', async () => {
+    render(<BrowserPaneContent />);
+    act(() => {
+      tabsListener?.([tab({ active: true, canGoBack: true, canGoForward: true, tabId: 'a' })]);
+    });
+    fireEvent.click(await screen.findByLabelText('Back'));
+    fireEvent.click(screen.getByLabelText('Forward'));
+    fireEvent.click(screen.getByLabelText('Reload'));
+    expect(bridge.goBack).toHaveBeenCalledWith('a');
+    expect(bridge.goForward).toHaveBeenCalledWith('a');
+    expect(bridge.reload).toHaveBeenCalledWith('a');
+    // navigate must NOT receive 'back'/'forward'/the url for these.
+    expect(bridge.navigate).not.toHaveBeenCalled();
   });
 
   it('occludes the native view when this route is not the active shell tab', async () => {

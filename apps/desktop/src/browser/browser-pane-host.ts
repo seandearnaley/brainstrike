@@ -62,6 +62,7 @@ function createPaneView(partition: string): BrowserPaneView {
     on: (event, listener) => {
       (webContents.on as (e: string, l: (...args: unknown[]) => void) => void)(event, listener);
     },
+    reload: () => webContents.reload(),
     setWindowOpenHandler: (handler) => webContents.setWindowOpenHandler(handler),
   };
   return {
@@ -113,9 +114,31 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
     partition: BROWSER_PANE_PARTITION,
   });
 
+  // When the VISIBLE renderer itself navigates/reloads (Reload menu, crash
+  // recovery, or a factory reset's `window.location.reload()`), the old
+  // BrowserPaneContent is gone and cannot re-report occlusion or re-adopt its
+  // tabs. Dispose every tab so (a) no orphaned WebContentsView keeps painting
+  // over the fresh renderer's Explorer route, and (b) a factory reset actually
+  // clears open tabs, not just the renderer mirror + session storage. The
+  // fresh renderer re-seeds from an empty list.
+  const onHostNavigation = (
+    _event: Electron.Event,
+    _url: string,
+    isInPlace: boolean,
+    isMainFrame: boolean
+  ) => {
+    if (isMainFrame && !isInPlace) {
+      manager.dispose();
+    }
+  };
+  hostWindow.webContents.on('did-start-navigation', onHostNavigation);
+
   logger.info('Browser pane host created');
   return {
     dispose() {
+      if (!hostWindow.isDestroyed()) {
+        hostWindow.webContents.off('did-start-navigation', onHostNavigation);
+      }
       manager.dispose();
     },
     manager,

@@ -126,7 +126,10 @@ declare global {
       createTab: (url?: string) => Promise<string>;
       closeTab: (tabId: string) => Promise<void>;
       selectTab: (tabId: string) => Promise<void>;
-      navigate: (tabId: string, target: string) => Promise<void>;
+      navigate: (tabId: string, url: string) => Promise<void>;
+      goBack: (tabId: string) => Promise<void>;
+      goForward: (tabId: string) => Promise<void>;
+      reload: (tabId: string) => Promise<void>;
       setBounds: (rect: { height: number; width: number; x: number; y: number }) => Promise<void>;
       setOccluded: (occluded: boolean) => Promise<void>;
       listTabs: () => Promise<

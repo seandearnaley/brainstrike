@@ -15,6 +15,14 @@ function fakeManager(): BrowserManagerLike & { readonly calls: string[] } {
       calls.push(`create:${url ?? ''}`);
       return 'tab-1';
     },
+    goBack: (tabId) => {
+      calls.push(`back:${tabId}`);
+      return known(tabId);
+    },
+    goForward: (tabId) => {
+      calls.push(`forward:${tabId}`);
+      return known(tabId);
+    },
     listTabs: () => {
       calls.push('list');
       return [
@@ -30,6 +38,10 @@ function fakeManager(): BrowserManagerLike & { readonly calls: string[] } {
     },
     navigate: (tabId, target) => {
       calls.push(`nav:${tabId}:${target}`);
+      return known(tabId);
+    },
+    reload: (tabId) => {
+      calls.push(`reload:${tabId}`);
       return known(tabId);
     },
     selectTab: (tabId) => {
@@ -70,13 +82,24 @@ describe('createBrowserIpcHandlers — validation at the boundary', () => {
     expect(handlers.navigate('no-such-tab', 'x.com')).toMatchObject({ ok: false });
   });
 
-  it('navigate requires a tabId and a non-empty target', () => {
+  it('navigate requires a tabId and a non-empty url (no back/forward literals)', () => {
     const manager = fakeManager();
     const handlers = createBrowserIpcHandlers(manager);
     expect(handlers.navigate('tab-1', '')).toMatchObject({ ok: false });
-    expect(handlers.navigate('', 'back')).toMatchObject({ ok: false });
-    expect(handlers.navigate('tab-1', 'back')).toEqual({ ok: true, value: undefined });
-    expect(manager.calls).toEqual(['nav:tab-1:back']);
+    expect(handlers.navigate('', 'x.com')).toMatchObject({ ok: false });
+    expect(handlers.navigate('tab-1', 'x.com')).toEqual({ ok: true, value: undefined });
+    expect(manager.calls).toEqual(['nav:tab-1:x.com']);
+  });
+
+  it('goBack/goForward/reload route to the manager and reject unknown ids', () => {
+    const manager = fakeManager();
+    const handlers = createBrowserIpcHandlers(manager);
+    expect(handlers.goBack('tab-1')).toEqual({ ok: true, value: undefined });
+    expect(handlers.goForward('tab-1')).toEqual({ ok: true, value: undefined });
+    expect(handlers.reload('tab-1')).toEqual({ ok: true, value: undefined });
+    expect(handlers.goBack('nope')).toMatchObject({ ok: false });
+    expect(handlers.reload(7)).toMatchObject({ ok: false });
+    expect(manager.calls).toEqual(['back:tab-1', 'forward:tab-1', 'reload:tab-1', 'back:nope']);
   });
 
   it('accepts x/y being negative (partially offscreen pane) but rejects negative width/height', () => {

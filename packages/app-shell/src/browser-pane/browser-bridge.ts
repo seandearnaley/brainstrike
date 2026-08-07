@@ -35,11 +35,15 @@ export interface BrowserBridge {
   closeTab: (tabId: string) => Promise<void>;
   /** Open a new tab (optionally at `url`); resolves the new tabId. */
   createTab: (url?: string) => Promise<string>;
+  goBack: (tabId: string) => Promise<void>;
+  goForward: (tabId: string) => Promise<void>;
   listTabs: () => Promise<readonly BrowserTab[]>;
-  /** `url`, or the literals `'back'` / `'forward'`. */
-  navigate: (tabId: string, target: string) => Promise<void>;
+  /** Load a URL/search into the tab. History is separate (goBack/goForward). */
+  navigate: (tabId: string, url: string) => Promise<void>;
   /** Subscribe to tab-state changes (nav/title/list). Returns unsubscribe. */
   onTabsChanged: (listener: (tabs: readonly BrowserTab[]) => void) => () => void;
+  /** Reload preserving both history stacks (not a fresh navigation). */
+  reload: (tabId: string) => Promise<void>;
   selectTab: (tabId: string) => Promise<void>;
   /** Report the pane's on-screen rect (renderer ResizeObserver → main). */
   setBounds: (rect: BrowserPaneRect) => Promise<void>;
@@ -52,9 +56,12 @@ export interface BrowserBridge {
 const BROWSER_BRIDGE_REQUIRED_METHOD_SET = {
   closeTab: true,
   createTab: true,
+  goBack: true,
+  goForward: true,
   listTabs: true,
   navigate: true,
   onTabsChanged: true,
+  reload: true,
   selectTab: true,
   setBounds: true,
   setOccluded: true,
