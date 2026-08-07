@@ -176,6 +176,7 @@ async function purgeDeadThread(
   deps: SnapshotStartupGcDeps,
   accumulator: GcAccumulator,
   liveRootsById: ReadonlyMap<string, string>,
+  accessibleByRootId: ReadonlyMap<string, boolean>,
   threadId: string
 ): Promise<void> {
   const roots = await deps.snapshotRepository.rootsForThread(threadId);
@@ -185,10 +186,11 @@ async function purgeDeadThread(
     if (livePath === undefined) {
       continue;
     }
-    // Unreachable root path: skip the ref prune (recorded once by
-    // reconcileRootRepo, which sweeps every live root). The refs become
-    // ref-only residue the next sweep reclaims when the root is back.
-    if (!(await (deps.isRootPathAccessible ?? isPathAccessible)(livePath))) {
+    // Unreachable root path (probed ONCE per sweep): skip the ref prune
+    // (recorded once by reconcileRootRepo, which sweeps every live root). The
+    // refs become ref-only residue the next sweep reclaims when the root is
+    // back.
+    if (accessibleByRootId.get(root.rootId) !== true) {
       continue;
     }
     try {
@@ -369,6 +371,7 @@ async function reconcileRootRepo(
   accumulator: GcAccumulator,
   historyPrunedRoots: string[],
   root: { readonly path: string; readonly rootId: string },
+  accessibleByRootId: ReadonlyMap<string, boolean>,
   liveThreadIds: ReadonlySet<string>,
   boundariesByRoot: ReadonlyMap<string, ReadonlyMap<string, string>>
 ): Promise<void> {
@@ -376,8 +379,8 @@ async function reconcileRootRepo(
   // row like the 2026-08-07 "mock-project" residue) is an EXPECTED condition:
   // skip with visibility and touch nothing — the volume may come back. Only
   // an ACCESSIBLE root whose shadow repo still fails to open is a failure.
-  const accessible = await (deps.isRootPathAccessible ?? isPathAccessible)(root.path);
-  if (!accessible) {
+  // Probed ONCE per sweep (up front), so both consumers see the same answer.
+  if (accessibleByRootId.get(root.rootId) !== true) {
     accumulator.skippedInaccessibleRoots.push({ path: root.path, rootId: root.rootId });
     return;
   }
@@ -470,13 +473,22 @@ export async function runSnapshotStartupGc(
       ? new Set<string>()
       : await listLiveThreadIds(deps.db, ledgerThreadIds);
   const liveRootsById = new Map(deps.liveRoots.map((root) => [root.rootId, root.path]));
+  // Probe every live root's path accessibility ONCE, up front and in
+  // parallel — both purgeDeadThread and reconcileRootRepo consume the same
+  // answer, so a root cannot flip accessible→inaccessible mid-sweep.
+  const probe = deps.isRootPathAccessible ?? isPathAccessible;
+  const accessibleByRootId = new Map<string, boolean>(
+    await Promise.all(
+      deps.liveRoots.map(async (root) => [root.rootId, await probe(root.path)] as const)
+    )
+  );
 
   for (const threadId of ledgerThreadIds) {
     try {
       if (liveThreadIds.has(threadId)) {
         await trimThreadRing(deps, accumulator, threadId, ring);
       } else {
-        await purgeDeadThread(deps, accumulator, liveRootsById, threadId);
+        await purgeDeadThread(deps, accumulator, liveRootsById, accessibleByRootId, threadId);
       }
     } catch (error) {
       accumulator.failures.push(
@@ -493,6 +505,7 @@ export async function runSnapshotStartupGc(
       accumulator,
       historyPrunedRoots,
       root,
+      accessibleByRootId,
       liveThreadIds,
       boundariesByRoot
     );

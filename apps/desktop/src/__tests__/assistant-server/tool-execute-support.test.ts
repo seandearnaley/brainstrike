@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { parseToolExecuteInput, readToolCallId } from '../../assistant-server/tool-execute-support';
 
 describe('parseToolExecuteInput', () => {
-  const schema = z.object({ id: z.string(), n: z.number() }).strict();
+  const schema = z.strictObject({ id: z.string(), n: z.number() });
 
   it('returns the parsed value for valid input', () => {
     expect(parseToolExecuteInput(schema, { id: 'a', n: 1 })).toEqual({ id: 'a', n: 1 });
