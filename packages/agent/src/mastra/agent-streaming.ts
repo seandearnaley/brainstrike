@@ -1984,11 +1984,13 @@ async function createToolResumeIteratorFromRuntime({
     // passes through untouched.
     //
     // Scope: plain-OBJECT payloads only. Spreading a string/array resume
-    // (askUser's bare answer shape) would mangle it into an index map, so a
-    // non-object payload is passed through unchanged — and if the tool is
-    // ask-gated, that resume may hit the framework's denial. Loud, not
-    // silent: the warn below names the tool and the fix (an object resume
-    // envelope). Pinned by unit tests in mastra-tool-approval-chunks.spec.ts.
+    // (the LEGACY pre-envelope askUser answer shape — the notice now sends
+    // the `{answer}` envelope, AskUserResumeData) would mangle it into an
+    // index map, so a non-object payload is passed through unchanged — and if
+    // the tool is ask-gated, that legacy resume may hit the framework's
+    // denial. Loud, not silent: the warn below names the tool and the fix (an
+    // object resume envelope). Pinned by unit tests in
+    // mastra-tool-approval-chunks.spec.ts.
     const isPlainObjectResume =
       typeof action.resumeData === 'object' &&
       action.resumeData !== null &&

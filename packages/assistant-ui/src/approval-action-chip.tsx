@@ -92,17 +92,8 @@ function readAnswerText(resumeData: unknown): string | null {
   return null;
 }
 
-function readSuspendChip(marker: unknown): ApprovalActionChipProps | null {
-  if (!isAssistantToolResumeAction(marker)) {
-    return null;
-  }
-  // The suspend notice produces exactly these resumeData shapes: a submitPlan
-  // decision record, or an askUser answer (free-text string / string array).
-  // Anything else is unrecognized — fall through to the bubble.
-  if (isRecord(marker.resumeData)) {
-    return readPlanDecisionChip(marker.resumeData);
-  }
-  const answer = readAnswerText(marker.resumeData);
+function readAnswerChip(answerValue: unknown): ApprovalActionChipProps | null {
+  const answer = readAnswerText(answerValue);
   if (answer === null) {
     return null;
   }
@@ -111,6 +102,21 @@ function readSuspendChip(marker: unknown): ApprovalActionChipProps | null {
       ? `${sliceCodePoints(answer, ANSWER_LABEL_CHAR_CAP)}…`
       : answer;
   return { label: `Answered: ${truncated}`, tone: 'answer' };
+}
+
+function readSuspendChip(marker: unknown): ApprovalActionChipProps | null {
+  if (!isAssistantToolResumeAction(marker)) {
+    return null;
+  }
+  // The suspend notice produces exactly these resumeData shapes: a submitPlan
+  // decision record, or an askUser `{answer}` envelope (AskUserResumeData).
+  // The bare string/string[] arm below is the LEGACY pre-envelope askUser
+  // answer, kept so persisted pre-migration action messages still chip.
+  // Anything else is unrecognized — fall through to the bubble.
+  if (isRecord(marker.resumeData)) {
+    return readPlanDecisionChip(marker.resumeData) ?? readAnswerChip(marker.resumeData['answer']);
+  }
+  return readAnswerChip(marker.resumeData);
 }
 
 /**

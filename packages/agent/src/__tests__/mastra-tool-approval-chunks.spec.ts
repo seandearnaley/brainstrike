@@ -858,10 +858,76 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     });
   });
 
-  it('passes a NON-OBJECT resume payload through untouched even for an ask-gated tool — never mangled into an index map', async () => {
-    // askUser's resume is a bare string/array; spreading it would corrupt it.
-    // The rider is skipped (loud warn at the transport), and the payload
-    // reaches Mastra byte-identical.
+  it("attaches the rider to an ask-gated askUser's {answer} ENVELOPE resume — the shape the notice sends", async () => {
+    // The envelope migration exists exactly for this: askUser's canonical
+    // resume is now a plain object, so gating the 'read' category (or askUser
+    // per-tool) to 'ask' no longer strands its answers behind Mastra's
+    // per-leg re-check denial.
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-4',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { question: 'Proceed?' },
+            toolCallId: 'tool-call-rider-4',
+            toolName: 'brainstrike_askUser',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { answer: 'yes, proceed' },
+        runId: 'run-rider-4',
+        toolCallId: 'tool-call-rider-4',
+        toolName: 'brainstrike.askUser',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'ask' },
+            riskByTool: { 'brainstrike.askUser': 'read' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.askUser': {
+            execute: async () => ({}),
+            id: 'brainstrike.askUser',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toEqual({
+      answer: 'yes, proceed',
+      approved: true,
+    });
+  });
+
+  it('LEGACY compat: passes a NON-OBJECT resume payload through untouched even for an ask-gated tool — never mangled into an index map', async () => {
+    // The bare string/array is the PRE-ENVELOPE askUser answer shape, still
+    // possible when resuming a run suspended before the {answer} envelope
+    // migration. Spreading it would corrupt it: the rider is skipped (loud
+    // warn at the transport), and the payload reaches Mastra byte-identical.
     const storage = { id: 'workflow-storage' };
     setSuspendedRuns([
       {

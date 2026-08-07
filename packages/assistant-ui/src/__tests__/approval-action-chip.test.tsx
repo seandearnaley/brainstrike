@@ -102,13 +102,28 @@ describe('readApprovalActionChipProps (suspend marker — plan/askUser resumes)'
     ).toEqual({ label: 'Rejected the plan (with feedback)', tone: 'decline' });
   });
 
-  it('reads a free-text askUser answer into an answer-tone chip', () => {
+  it('reads a free-text askUser {answer} envelope into an answer-tone chip', () => {
     expect(
-      readApprovalActionChipProps(suspendMessage('San Francisco', 'Answered: San Francisco'))
+      readApprovalActionChipProps(
+        suspendMessage({ answer: 'San Francisco' }, 'Answered: San Francisco')
+      )
     ).toEqual({ label: 'Answered: San Francisco', tone: 'answer' });
   });
 
-  it('reads a multi-select askUser answer (string array) into an answer-tone chip', () => {
+  it('reads a multi-select askUser {answer} envelope (string array) into an answer-tone chip', () => {
+    expect(
+      readApprovalActionChipProps(
+        suspendMessage({ answer: ['alpha', 'beta'] }, 'Answered: alpha, beta')
+      )
+    ).toEqual({ label: 'Answered: alpha, beta', tone: 'answer' });
+  });
+
+  it('LEGACY compat: still chips a bare pre-envelope askUser answer (string / string array)', () => {
+    // Persisted action messages from before the envelope migration keep the
+    // bare shape forever; they must keep rendering as chips, not bubbles.
+    expect(
+      readApprovalActionChipProps(suspendMessage('San Francisco', 'Answered: San Francisco'))
+    ).toEqual({ label: 'Answered: San Francisco', tone: 'answer' });
     expect(
       readApprovalActionChipProps(suspendMessage(['alpha', 'beta'], 'Answered: alpha, beta'))
     ).toEqual({ label: 'Answered: alpha, beta', tone: 'answer' });
@@ -116,16 +131,19 @@ describe('readApprovalActionChipProps (suspend marker — plan/askUser resumes)'
 
   it('truncates a long answer', () => {
     const longAnswer = 'x'.repeat(200);
-    const props = readApprovalActionChipProps(suspendMessage(longAnswer));
+    const props = readApprovalActionChipProps(suspendMessage({ answer: longAnswer }));
     expect(props?.tone).toBe('answer');
     expect(props?.label.endsWith('…')).toBe(true);
     expect(props?.label.length).toBeLessThan(100);
   });
 
   it('falls through to the bubble (null) for malformed resumeData — never chips on a guess', () => {
-    // A record without a recognized plan action, and a non-string/array scalar:
-    // neither may hide the user-visible text behind a wrong chip.
+    // A record with neither a recognized plan action nor a valid {answer}
+    // envelope, and a non-string/array scalar: neither may hide the
+    // user-visible text behind a wrong chip.
     expect(readApprovalActionChipProps(suspendMessage({ weird: true }))).toBeNull();
+    expect(readApprovalActionChipProps(suspendMessage({ answer: 42 }))).toBeNull();
+    expect(readApprovalActionChipProps(suspendMessage({ answer: '' }))).toBeNull();
     expect(readApprovalActionChipProps(suspendMessage(42))).toBeNull();
     expect(readApprovalActionChipProps(suspendMessage(['ok', 7]))).toBeNull();
     expect(readApprovalActionChipProps(suspendMessage(''))).toBeNull();

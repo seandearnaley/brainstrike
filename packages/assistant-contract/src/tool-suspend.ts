@@ -274,8 +274,22 @@ export interface AskUserPayload {
   selectionMode?: AskUserSelectionMode;
 }
 
-/** Free-text/single-select resume with a string; multi-select with a string[]. */
+/** Free-text/single-select answers are a string; multi-select a string[]. */
 export type AskUserAnswer = string | string[];
+
+/**
+ * The resume envelope for `askUser`. An OBJECT on purpose: under @mastra/core
+ * 1.56+ the suspend-resume transport must attach the `approved: true` rider to
+ * an ask-gated tool's resume, and the rider only attaches to plain-object
+ * payloads (`createToolResumeIteratorFromRuntime`, agent-streaming.ts) — a bare
+ * string/array resume left ask-gated askUser answers exposed to the framework's
+ * denial. The bare {@link AskUserAnswer} is the LEGACY pre-envelope shape: the
+ * tool still accepts it so runs suspended before the migration remain
+ * resumable, but the suspend notice only ever sends this envelope.
+ */
+export interface AskUserResumeData {
+  answer: AskUserAnswer;
+}
 
 /**
  * The Gate A approval pause payload (BST-1097). `run_python` raises its own

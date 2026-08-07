@@ -446,8 +446,9 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     await database.close();
   });
 
-  it('askUser SUSPENDS then resumes with a free-text answer, and again with a multi-select array', async () => {
-    // Free-text.
+  it('askUser SUSPENDS then resumes with a free-text {answer} envelope, and again with a LEGACY multi-select array', async () => {
+    // Free-text, via the canonical {answer} envelope (what the notice sends):
+    // proves REAL Mastra resumeSchema validation admits the envelope arm.
     const dbA = new PGlite();
     const memA = await makeMemory(dbA);
     const threadA = { resourceId: 'resource-ask-1', threadId: 'thread-ask-1' } as const;
@@ -479,7 +480,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     const freeResume = await drainYielding(
       await streamMastraToolResumeAction(
         {
-          resumeData: 'San Francisco',
+          resumeData: { answer: 'San Francisco' },
           runId: askSuspend?.runId ?? '',
           toolCallId: askSuspend?.toolCallId ?? '',
         },
@@ -498,7 +499,9 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     expect(toolSuccessOutputs(freeResume)).toContain('San Francisco');
     await dbA.close();
 
-    // Multi-select array → comma-joined.
+    // Multi-select array → comma-joined — resumed with the LEGACY bare
+    // string[] shape on purpose: proves real Mastra validation still admits
+    // the pre-envelope arm, so runs suspended before the migration resume.
     const dbB = new PGlite();
     const memB = await makeMemory(dbB);
     const threadB = { resourceId: 'resource-ask-2', threadId: 'thread-ask-2' } as const;
@@ -638,7 +641,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     const resumeChunks = await drainYielding(
       await streamMastraToolResumeAction(
         {
-          resumeData: 'EU West',
+          resumeData: { answer: 'EU West' },
           runId: rediscovered?.runId ?? '',
           toolCallId: rediscovered?.toolCallId ?? '',
           toolName: rediscovered?.toolName ?? '',
@@ -1457,7 +1460,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     await drainYielding(
       await streamMastraToolResumeAction(
         {
-          resumeData: 'San Francisco',
+          resumeData: { answer: 'San Francisco' },
           runId: askSuspend?.runId ?? '',
           toolCallId: askSuspend?.toolCallId ?? '',
         },
