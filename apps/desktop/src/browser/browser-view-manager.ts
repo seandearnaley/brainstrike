@@ -44,6 +44,7 @@ export interface PaneWebContents {
   readonly id: number;
   loadURL(url: string): Promise<void>;
   on(event: string, listener: (...args: unknown[]) => void): void;
+  reload(): void;
   setWindowOpenHandler(handler: (details: { url: string }) => { action: 'allow' | 'deny' }): void;
 }
 
@@ -143,25 +144,55 @@ export class BrowserViewManager {
     return true;
   }
 
-  /** @returns `false` when `tabId` names no open tab. */
-  navigate(tabId: string, target: string): boolean {
+  /**
+   * Load `url` (or a search) into the tab. This is URL-ONLY — history is a
+   * separate concern ({@link goBack}/{@link goForward}), so typing "back" in a
+   * URL bar searches for the word rather than moving history.
+   * @returns `false` when `tabId` names no open tab.
+   */
+  navigate(tabId: string, url: string): boolean {
     const tab = this.tabs.get(tabId);
     if (!tab) {
       return false;
     }
-    if (target === 'back') {
-      if (tab.view.webContents.canGoBack()) {
-        tab.view.webContents.goBack();
-      }
-      return true;
+    this.load(tab.view, normalizeUrl(url));
+    return true;
+  }
+
+  /** @returns `false` when `tabId` names no open tab. */
+  goBack(tabId: string): boolean {
+    const tab = this.tabs.get(tabId);
+    if (!tab) {
+      return false;
     }
-    if (target === 'forward') {
-      if (tab.view.webContents.canGoForward()) {
-        tab.view.webContents.goForward();
-      }
-      return true;
+    if (tab.view.webContents.canGoBack()) {
+      tab.view.webContents.goBack();
     }
-    this.load(tab.view, normalizeUrl(target));
+    return true;
+  }
+
+  /** @returns `false` when `tabId` names no open tab. */
+  goForward(tabId: string): boolean {
+    const tab = this.tabs.get(tabId);
+    if (!tab) {
+      return false;
+    }
+    if (tab.view.webContents.canGoForward()) {
+      tab.view.webContents.goForward();
+    }
+    return true;
+  }
+
+  /**
+   * Reload the tab, preserving BOTH history stacks (a fresh `loadURL` would
+   * truncate the forward stack). @returns `false` when `tabId` is unknown.
+   */
+  reload(tabId: string): boolean {
+    const tab = this.tabs.get(tabId);
+    if (!tab) {
+      return false;
+    }
+    tab.view.webContents.reload();
     return true;
   }
 
@@ -211,6 +242,15 @@ export class BrowserViewManager {
     }
     this.tabs.clear();
     this.activeTabId = null;
+    // Reset geometry to a SAFE hidden state. This manager instance is REUSED
+    // across a renderer reload / factory reset (dispose runs, then the same
+    // manager serves the fresh renderer). Retaining the pre-dispose nonzero
+    // `bounds`/`occluded` would let a tab created before the new renderer
+    // reports geometry reveal a native view at the STALE rect, painting over
+    // unrelated chrome. Zero rect + occluded keeps `showActive` hidden until
+    // real bounds/occlusion arrive.
+    this.bounds = ZERO_RECT;
+    this.occluded = true;
     // Tell the renderer the pane is now empty, so a disposed-then-recreated
     // host never leaves phantom tabs in the strip.
     this.emitTabs();
@@ -219,29 +259,33 @@ export class BrowserViewManager {
   private setActiveTab(tabId: string): void {
     this.activeTabId = tabId;
     for (const tab of this.tabs.values()) {
-      const isActive = tab.tabId === tabId;
-      // Inactive tabs are always invisible; the active tab is visible unless
-      // occluded by a modal.
-      tab.view.setVisible(isActive && !this.occluded);
-      if (isActive) {
-        tab.view.setBounds(this.bounds);
+      if (tab.tabId === tabId) {
+        this.showActive(tab.view);
+      } else {
+        tab.view.setVisible(false);
       }
     }
     this.emitTabs();
   }
 
   private applyActiveVisibility(): void {
-    if (!this.activeTabId) {
-      return;
+    const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
+    if (active) {
+      this.showActive(active.view);
     }
-    const active = this.tabs.get(this.activeTabId);
-    if (!active) {
-      return;
+  }
+
+  /**
+   * Position THEN reveal, and never reveal at a zero rect: showing before
+   * setBounds paints the view at its stale/zero position for one frame, and a
+   * zero rect (occluded, or bounds not yet reported) must stay hidden.
+   */
+  private showActive(view: BrowserPaneView): void {
+    const visible = !this.occluded && this.bounds.width > 0 && this.bounds.height > 0;
+    if (visible) {
+      view.setBounds(this.bounds);
     }
-    active.view.setVisible(!this.occluded);
-    if (!this.occluded) {
-      active.view.setBounds(this.bounds);
-    }
+    view.setVisible(visible);
   }
 
   private wireView(tabId: string, view: BrowserPaneView): void {

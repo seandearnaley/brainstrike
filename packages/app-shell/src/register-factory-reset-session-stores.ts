@@ -8,6 +8,7 @@ import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-sele
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
+import { useBrowserTabsStore } from './browser-pane/browser-tabs-store';
 import { useChangesLiveRefreshStore } from './changes/changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useChangesStore } from './changes/changes-store';
@@ -122,4 +123,12 @@ registerFactoryResetSessionStore(() => {
   // A pending composer repopulation is the text of a message the reset just
   // deleted — it must not land in a fresh profile's first prompt.
   useRewindComposerStore.getState().consume();
+});
+
+registerFactoryResetSessionStore(() => {
+  // The browser-pane tab mirror (BST-1174). The main-process views + their
+  // `persist:browser-pane` partition are wiped by the desktop userData reset;
+  // this clears the renderer's stale copy of that list so the pane starts
+  // empty in the fresh profile.
+  useBrowserTabsStore.getState().reset();
 });

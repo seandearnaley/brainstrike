@@ -24,8 +24,17 @@ export function registerBrowserIpcHandlers(handlers: BrowserIpcHandlers): () => 
   registry.registerInvoke('browser', channels.selectTab, (_event, tabId: unknown) =>
     handlers.selectTab(tabId)
   );
-  registry.registerInvoke('browser', channels.navigate, (_event, tabId: unknown, target: unknown) =>
-    handlers.navigate(tabId, target)
+  registry.registerInvoke('browser', channels.navigate, (_event, tabId: unknown, url: unknown) =>
+    handlers.navigate(tabId, url)
+  );
+  registry.registerInvoke('browser', channels.goBack, (_event, tabId: unknown) =>
+    handlers.goBack(tabId)
+  );
+  registry.registerInvoke('browser', channels.goForward, (_event, tabId: unknown) =>
+    handlers.goForward(tabId)
+  );
+  registry.registerInvoke('browser', channels.reload, (_event, tabId: unknown) =>
+    handlers.reload(tabId)
   );
   registry.registerInvoke('browser', channels.setBounds, (_event, rect: unknown) =>
     handlers.setBounds(rect)

@@ -19,8 +19,11 @@ export const DESKTOP_IPC_CHANNELS = {
   browser: {
     closeTab: 'browser:closeTab',
     createTab: 'browser:createTab',
+    goBack: 'browser:goBack',
+    goForward: 'browser:goForward',
     listTabs: 'browser:listTabs',
     navigate: 'browser:navigate',
+    reload: 'browser:reload',
     selectTab: 'browser:selectTab',
     setBounds: 'browser:setBounds',
     setOccluded: 'browser:setOccluded',

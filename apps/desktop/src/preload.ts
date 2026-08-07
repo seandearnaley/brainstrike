@@ -114,6 +114,9 @@ const BROWSER_CREATE_TAB_CHANNEL = 'browser:createTab' as const;
 const BROWSER_CLOSE_TAB_CHANNEL = 'browser:closeTab' as const;
 const BROWSER_SELECT_TAB_CHANNEL = 'browser:selectTab' as const;
 const BROWSER_NAVIGATE_CHANNEL = 'browser:navigate' as const;
+const BROWSER_GO_BACK_CHANNEL = 'browser:goBack' as const;
+const BROWSER_GO_FORWARD_CHANNEL = 'browser:goForward' as const;
+const BROWSER_RELOAD_CHANNEL = 'browser:reload' as const;
 const BROWSER_SET_BOUNDS_CHANNEL = 'browser:setBounds' as const;
 const BROWSER_SET_OCCLUDED_CHANNEL = 'browser:setOccluded' as const;
 const BROWSER_LIST_TABS_CHANNEL = 'browser:listTabs' as const;
@@ -1321,10 +1324,14 @@ if (shouldExposeBridge('browser')) {
       ipcRenderer.invoke(BROWSER_CLOSE_TAB_CHANNEL, tabId).then(unwrapBrowserResult<void>),
     createTab: (url?: string) =>
       ipcRenderer.invoke(BROWSER_CREATE_TAB_CHANNEL, url).then(unwrapBrowserResult<string>),
+    goBack: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_GO_BACK_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    goForward: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_GO_FORWARD_CHANNEL, tabId).then(unwrapBrowserResult<void>),
     listTabs: () =>
       ipcRenderer.invoke(BROWSER_LIST_TABS_CHANNEL).then(unwrapBrowserResult<unknown[]>),
-    navigate: (tabId: string, target: string) =>
-      ipcRenderer.invoke(BROWSER_NAVIGATE_CHANNEL, tabId, target).then(unwrapBrowserResult<void>),
+    navigate: (tabId: string, url: string) =>
+      ipcRenderer.invoke(BROWSER_NAVIGATE_CHANNEL, tabId, url).then(unwrapBrowserResult<void>),
     // One-way main→renderer tab-state pushes (browser:tabsChanged). Subscribe-
     // returns-unsubscribe, mirroring changes.onInvalidated / fs.onWatchEvent.
     onTabsChanged: (callback: (tabs: unknown[]) => void) => {
@@ -1334,6 +1341,8 @@ if (shouldExposeBridge('browser')) {
         ipcRenderer.removeListener(BROWSER_TABS_CHANGED_EVENT, listener);
       };
     },
+    reload: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_RELOAD_CHANNEL, tabId).then(unwrapBrowserResult<void>),
     selectTab: (tabId: string) =>
       ipcRenderer.invoke(BROWSER_SELECT_TAB_CHANNEL, tabId).then(unwrapBrowserResult<void>),
     setBounds: (rect: { height: number; width: number; x: number; y: number }) =>
