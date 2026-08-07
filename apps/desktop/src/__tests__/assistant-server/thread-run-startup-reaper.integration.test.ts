@@ -19,6 +19,7 @@ import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpo
 import { hasInFlightThreadRun } from '../../assistant-server/rewind-repository';
 import {
   ORPHANED_THREAD_RUN_ERROR,
+  REAP_CLOCK_SKEW_MARGIN_MS,
   reapOrphanedThreadRuns,
 } from '../../assistant-server/thread-run-startup-reaper';
 import {
@@ -80,6 +81,24 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     await insertRun(db, {
       id: 'run-live',
       startedAt: '2026-01-02T00:00:00.005Z',
+      status: 'running',
+    });
+
+    const report = await reapOrphanedThreadRuns(asHandle(db), BOOTED_AT);
+
+    expect(report.reaped).toEqual([]);
+    expect(await hasInFlightThreadRun(asHandle(db), THREAD_ID)).toBe(true);
+  });
+
+  it('leaves a running row inside the clock-skew margin alone — a backward NTP step must not reap a live run (PR #2292 review)', async () => {
+    const db = await makeFixtureDb('reaper-skew-margin');
+    // Started 30s "before" boot: indistinguishable from a live run minted
+    // after a small backward clock correction, so it stays refused rather
+    // than reaped. Real orphans are minutes-to-days old and clear the margin.
+    const withinMargin = new Date(BOOTED_AT.getTime() - REAP_CLOCK_SKEW_MARGIN_MS / 2);
+    await insertRun(db, {
+      id: 'run-skewed-live',
+      startedAt: withinMargin.toISOString(),
       status: 'running',
     });
 

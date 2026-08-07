@@ -1494,15 +1494,22 @@ if (singleInstanceLockAcquired) {
           // process left in 'running' are provably dead (see the reaper's
           // evidence rule); marking them failed here is what re-enables
           // Conversation Rewind on their threads. Runs before the snapshot
-          // GC on purpose: the GC's retention floor walks run ranges.
-          const reapReport = await reapOrphanedThreadRuns(
-            database as unknown as EditCheckpointDatabase,
-            mainProcessStartedAt
-          );
-          if (reapReport.reaped.length > 0) {
-            logger.info('Startup thread-run reap completed', {
-              reapedRunIds: reapReport.reaped.map((row) => row.id),
-            });
+          // GC on purpose (its retention floor walks run ranges), but in its
+          // OWN try/catch: a reap failure must neither skip the orphan sweep
+          // and GC below nor report itself under their step name.
+          try {
+            const reapReport = await reapOrphanedThreadRuns(
+              database as unknown as EditCheckpointDatabase,
+              mainProcessStartedAt
+            );
+            if (reapReport.runsTableMissing || reapReport.reaped.length > 0) {
+              logger.info('Startup thread-run reap completed', {
+                reapedRunIds: reapReport.reaped.map((row) => row.id),
+                runsTableMissing: reapReport.runsTableMissing,
+              });
+            }
+          } catch (reapError) {
+            logger.error('Startup thread-run reap failed', { error: reapError });
           }
           const rootRows = await database.query<{ id: string; path: string }>(
             'SELECT id, path FROM roots'
