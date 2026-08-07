@@ -16,6 +16,29 @@ type Listener = (...args: unknown[]) => void;
 
 let nextId = 1;
 
+/** Canned CDP responses the fake `webContents.debugger` replays (BST-1176). */
+const CDP_CANNED: Record<string, unknown> = {
+  'Accessibility.getFullAXTree': {
+    nodes: [{ backendDOMNodeId: 9, name: { value: 'Go' }, nodeId: '1', role: { value: 'button' } }],
+  },
+  'Runtime.evaluate': { result: { value: 'PAGE TEXT' } },
+};
+
+function fakeDebugger() {
+  let attached = false;
+  return {
+    attach: vi.fn(() => {
+      attached = true;
+    }),
+    detach: vi.fn(() => {
+      attached = false;
+    }),
+    isAttached: () => attached,
+    on: vi.fn(),
+    sendCommand: vi.fn((method: string) => Promise.resolve(CDP_CANNED[method] ?? {})),
+  };
+}
+
 class FakeWebContents {
   readonly id = nextId++;
   readonly navigationHistory = {
@@ -24,6 +47,7 @@ class FakeWebContents {
     goBack: () => undefined,
     goForward: () => undefined,
   };
+  readonly debugger = fakeDebugger();
   getTitle = () => 'Fake';
   getURL = () => 'about:blank';
   loadURL = vi.fn(() => Promise.resolve());
@@ -31,6 +55,7 @@ class FakeWebContents {
   close = vi.fn();
   setWindowOpenHandler = vi.fn();
   on = vi.fn();
+  once = vi.fn();
 }
 
 class FakeWebContentsView {
@@ -126,5 +151,31 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
     host.dispose();
     disposeActiveBrowserPaneViews();
     expect(host.manager.listTabs()).toHaveLength(0); // already disposed by host.dispose, not resurrected
+  });
+});
+
+describe('createBrowserPaneHost — CDP driver (BST-1176)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('exposes a driver that reads the active tab over its in-process debugger', async () => {
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { window } = fakeHostWindow();
+    const host = createBrowserPaneHost(window as never);
+    host.manager.createTab('https://example.com');
+
+    const page = await host.driver.getPageText(100);
+    expect(page.text).toBe('PAGE TEXT');
+
+    const snapshot = await host.driver.snapshot({ filter: 'all', maxChars: 1000 });
+    expect(snapshot.refs).toEqual({ e1: 9 }); // ref → backendDOMNodeId from the canned AX tree
+  });
+
+  it('driver rejects when no tab is active (no silent no-op)', async () => {
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { window } = fakeHostWindow();
+    const host = createBrowserPaneHost(window as never);
+    await expect(host.driver.getPageText(100)).rejects.toThrow('No active browser tab');
   });
 });
