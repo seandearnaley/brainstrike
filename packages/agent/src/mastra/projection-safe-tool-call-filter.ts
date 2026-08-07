@@ -93,6 +93,20 @@ interface FilterState {
 
 const MESSAGE_BOUNDARY = Symbol('message-boundary');
 
+/**
+ * Replacement text for a stale assistant tool-call part. Keeps the assistant
+ * message non-empty so OpenAI's reasoning→following-item pairing stays valid,
+ * without naming the tool or carrying result content: assistant-authored
+ * `<toolName> result:` text taught GPT-5.x Harmony models to fabricate
+ * tool-result dumps in their visible commentary output.
+ */
+const STALE_TOOL_CALL_STUB_TEXT =
+  '[Stale tool call elided. Its result is replayed in a following user message.]';
+
+function formatStaleToolResultReplay(toolName: string, projection: string): string {
+  return `[Replayed context] Result of the assistant's earlier ${toolName} tool call:\n${projection}`;
+}
+
 export interface ProjectionSafeToolCallFilterOptions {
   readonly filterAfterToolSteps?: number;
   readonly logger?: FilterLogger;
@@ -454,53 +468,64 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     safeIds: ReadonlySet<string>
   ): { filteredToolCallCount: number; prompt: LanguageModelV2Prompt } {
     const { calls, results } = collectPromptToolParts(prompt, safeIds);
-    const filterableIds = new Set<string>();
+    const projections = new Map<string, string>();
     for (const toolCallId of safeIds) {
-      if (calls.has(toolCallId) && results.has(toolCallId)) {
-        filterableIds.add(toolCallId);
+      const result = results.get(toolCallId);
+      if (!(calls.has(toolCallId) && result)) {
+        continue;
+      }
+      const projection = this.modelOutputToText(result.output);
+      if (projection) {
+        projections.set(toolCallId, formatStaleToolResultReplay(result.toolName, projection));
       }
     }
-    if (filterableIds.size === 0) {
+    if (projections.size === 0) {
       return { filteredToolCallCount: 0, prompt };
     }
 
     const filteredPrompt: LanguageModelV2Prompt = [];
     for (const message of prompt) {
-      const filtered = this.filterPromptMessage(message, filterableIds, results);
+      const { message: filtered, replays } = this.filterPromptMessage(message, projections);
       if (filtered) {
         filteredPrompt.push(filtered);
       }
+      if (replays.length > 0) {
+        filteredPrompt.push({
+          content: replays.map((text) => ({ text, type: 'text' as const })),
+          role: 'user',
+        } as LanguageModelV2Message);
+      }
     }
-    return { filteredToolCallCount: filterableIds.size, prompt: filteredPrompt };
+    return { filteredToolCallCount: projections.size, prompt: filteredPrompt };
   }
 
   private filterPromptMessage(
     message: LanguageModelV2Message,
-    filterableIds: ReadonlySet<string>,
-    results: ReadonlyMap<string, LanguageModelV2ToolResultPart>
-  ): LanguageModelV2Message | undefined {
+    projections: ReadonlyMap<string, string>
+  ): { message: LanguageModelV2Message | undefined; replays: string[] } {
     if (!Array.isArray(message.content)) {
-      return message;
+      return { message, replays: [] };
     }
     const content: unknown[] = [];
+    const replays: string[] = [];
     for (const part of message.content) {
-      if (part.type === 'tool-call' && filterableIds.has(part.toolCallId)) {
-        const result = results.get(part.toolCallId);
-        const projection = result ? this.modelOutputToText(result.output) : undefined;
-        content.push(
-          projection ? { text: `${part.toolName} result:\n${projection}`, type: 'text' } : part
-        );
+      if (part.type === 'tool-call' && projections.has(part.toolCallId)) {
+        content.push({ text: STALE_TOOL_CALL_STUB_TEXT, type: 'text' });
         continue;
       }
-      if (part.type === 'tool-result' && filterableIds.has(part.toolCallId)) {
+      if (part.type === 'tool-result' && projections.has(part.toolCallId)) {
+        const replay = projections.get(part.toolCallId);
+        if (replay) {
+          replays.push(replay);
+        }
         continue;
       }
       content.push(part);
     }
     if (content.length === 0) {
-      return;
+      return { message: undefined, replays };
     }
-    return { ...message, content } as LanguageModelV2Message;
+    return { message: { ...message, content } as LanguageModelV2Message, replays };
   }
 
   private modelOutputToText(output: LanguageModelV2ToolResultOutput): string | undefined {

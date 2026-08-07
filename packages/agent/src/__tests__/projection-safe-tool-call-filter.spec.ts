@@ -224,6 +224,69 @@ describe('ProjectionSafeToolCallFilter', () => {
     expect(output).toContain('Continue with the next two reads.');
   });
 
+  it('replays stale results as user-role context, never as assistant-authored result text', async () => {
+    // BST-615 follow-up: assistant-authored `<toolName> result:` text taught
+    // GPT-5.x (Harmony commentary channel) to fabricate tool-result dumps in
+    // its own visible output (run-9136 debug bundle, 2026-08-07).
+    const processor = new ProjectionSafeToolCallFilter({ toolNameMap: TOOL_NAME_MAP });
+    const messages = [
+      createToolMessage({
+        id: 'old',
+        modelOutput: { type: 'text', value: 'compact old result' },
+        rawResult: { body: 'raw-old-sentinel' },
+      }),
+      createTextMessage('user-between', 'Continue with the next read.'),
+      createToolMessage({
+        id: 'recent',
+        modelOutput: { type: 'text', value: 'compact recent result' },
+        rawResult: { body: 'raw-recent' },
+      }),
+    ];
+
+    const { output } = await filterMessages(processor, messages, 'memory');
+
+    const assistantTexts: string[] = [];
+    const userTexts: string[] = [];
+    for (const message of output) {
+      if (!Array.isArray(message.content)) {
+        continue;
+      }
+      for (const part of message.content) {
+        if (part.type !== 'text') {
+          continue;
+        }
+        if (message.role === 'assistant') {
+          assistantTexts.push(part.text);
+        } else if (message.role === 'user') {
+          userTexts.push(part.text);
+        }
+      }
+    }
+
+    // The projection must never masquerade as assistant-authored speech.
+    for (const text of assistantTexts) {
+      expect(text).not.toContain(`${READ_TOOL} result:`);
+      expect(text).not.toContain('compact old result');
+    }
+    // The assistant message that held the stale call keeps a non-reasoning
+    // part so OpenAI reasoning→item pairing stays valid.
+    expect(assistantTexts).toContain(
+      '[Stale tool call elided. Its result is replayed in a following user message.]'
+    );
+    // The projection arrives as clearly framed replayed context in user role.
+    expect(userTexts).toContain(
+      `[Replayed context] Result of the assistant's earlier ${READ_TOOL} tool call:\ncompact old result`
+    );
+    // The replay precedes the next real user message, preserving step order.
+    const serialized = serialize(output);
+    expect(serialized.indexOf('compact old result')).toBeLessThan(
+      serialized.indexOf('Continue with the next read.')
+    );
+    // The recent step stays verbatim as a real tool-call/result pair.
+    expect(serialized).toContain('call-recent');
+    expect(serialized).toContain('compact recent result');
+  });
+
   it('retires the older redundant verification read after a hosted file write', async () => {
     const processor = new ProjectionSafeToolCallFilter({ toolNameMap: TOOL_NAME_MAP });
     const generatedHtml = '<main>Conference schedule</main>'.padEnd(17_060, ' ');

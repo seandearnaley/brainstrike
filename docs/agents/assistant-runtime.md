@@ -353,6 +353,19 @@ the write and newest verification result; later protected state/working-memory
 tools do not consume that recent-read window. Local, Ollama, and LM Studio runs
 omit it.
 
+Replacement shape (settled 2026-08-07, run-9136 debug bundle): a filtered pair
+must NEVER become assistant-authored `<toolName> result:` text — GPT-5.x
+Harmony models mimic that shape and fabricate tool-result dumps in their
+visible commentary-channel output, which renders as message prose. The stale
+tool-call part becomes a generic stub text (keeping OpenAI's
+reasoning→following-item pairing valid) and the projection replays in a
+following user-role message framed as `[Replayed context]`. A pair whose
+projection cannot be textualized stays verbatim on BOTH sides — never a
+dropped result under a kept call, which OpenAI rejects as an unpaired
+`function_call`. `projection-safe-tool-call-filter.spec.ts` and the
+stale-read reload case in `mastra-memory-persistence.integration.spec.ts`
+pin this shape.
+
 The adjacent `RunTokenDiagnostics` path is measurement-only. It observes final
 tool definitions and already-bounded model projections, then emits one
 content-free `mastra_agent_token_measurement` log with the explicit
