@@ -13,6 +13,13 @@ import { resolveAssistantAuthHeaders, resolveAssistantBaseUrl } from './use-assi
 
 const MAX_VISIBLE_ERROR_CHARS = 300;
 
+/**
+ * Stable identity for the in-flight lookup. Rebuilding this literal per render
+ * changed `lookup`'s identity every render, which invalidated every downstream
+ * `useMemo` that depends on it.
+ */
+const LOADING_LOOKUP: OpenRouterModelMetadataLookup = { state: 'loading' };
+
 function toVisibleError(error: unknown): string {
   const message = error instanceof Error ? error.message : 'OpenRouter metadata request failed';
   return message.slice(0, MAX_VISIBLE_ERROR_CHARS);
@@ -89,7 +96,7 @@ export function useOpenRouterModelMetadata({
   const lookup: OpenRouterModelMetadataLookup | undefined = requestKey
     ? result?.requestKey === requestKey
       ? result.lookup
-      : { state: 'loading' }
+      : LOADING_LOOKUP
     : undefined;
   const budgetModelDef = useMemo<SelectedModelBudgetDef | undefined>(() => {
     if (!(selectedModelDef && lookup?.state === 'resolved')) {
