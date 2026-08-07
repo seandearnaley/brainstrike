@@ -17,7 +17,7 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "catalog:",
-    "@mastra/core": "~1.55.0",
+    "@mastra/core": "^1.57.0",
     "@mastra/memory": "1.26.0",
     "@modelcontextprotocol/sdk": "catalog:",
     "fastest-levenshtein": "^1.0.16",

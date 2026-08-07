@@ -41,12 +41,10 @@
  */
 
 import {
-  isSelfApprovingNativeTool,
   type PermissionToolGateSnapshot,
   resolvePermissionDecision,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
-import { hasSuspendSchema } from './plan-mode-tool-gate';
 import { sanitizeToolName } from './tool-sanitizer';
 
 export type { PermissionToolGateSnapshot };
@@ -259,40 +257,15 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
     // move together: a kept ask tool without the flag would run unprompted (a
     // security bug, not a fallback).
     //
-    // EXCEPTION — SELF-APPROVING suspending tools (BST-1097): a tool that also
-    // suspends must NOT carry the flag (Mastra re-checks it on the tool's own
-    // suspend-resume leg and denies a resume with no `approved` key), so it
-    // raises Gate A itself from execute() via the in-tool approval suspension.
-    // It is kept UNCLONED but still recorded in askToolIds/askTools — the
-    // approval chunk's risk metadata and the no-storage fail-safe both key on
-    // that record. If its registered form lost the suspendSchema it cannot
-    // raise Gate A at all, so it is fail-safe OMITTED (running it would be
-    // unprompted execution; re-arming the flag would re-create the dead end).
+    // SUSPENDING tools (run_python's Gate B, askUser, submitPlan) take the
+    // SAME clone since the @mastra/core 1.56 approval rework: the framework's
+    // pre-execution gate is now the ONLY Gate A (the old in-tool approval
+    // suspension is consumed by the framework and can never see its answer —
+    // the BST-1097 1.56 interception). The flag+suspension combination is
+    // viable because the resume transport attaches the `approved: true`
+    // rider Mastra's per-leg re-check demands (agent-streaming.ts,
+    // createToolResumeIteratorFromRuntime).
     if (decision === 'ask') {
-      if (isSelfApprovingNativeTool(originalName)) {
-        if (!hasSuspendSchema(tool)) {
-          logger.warn(
-            "Self-approving tool gated to 'ask' has no suspendSchema; omitting (fail-safe)",
-            {
-              code: 'permission_tool_gate_self_approving_missing_suspend_schema',
-              riskCategory,
-              sanitizedId,
-              tool: originalName,
-            }
-          );
-          continue;
-        }
-        filtered[sanitizedId] = tool;
-        askToolIds.add(sanitizedId);
-        askTools.set(sanitizedId, { originalName, riskCategory });
-        logger.info("Tool gated to 'ask'; raises its own approval suspension (self-approving)", {
-          code: 'permission_tool_gate_ask_self_approving',
-          riskCategory,
-          sanitizedId,
-          tool: originalName,
-        });
-        continue;
-      }
       filtered[sanitizedId] = withRequireApproval(tool);
       askToolIds.add(sanitizedId);
       askTools.set(sanitizedId, { originalName, riskCategory });
@@ -311,15 +284,18 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
 }
 
 /**
- * The Gate A decision a SELF-APPROVING suspending tool consults inside
- * `execute()` (BST-1097). Resolves the SAME permission decision the gate
- * computes for that tool — same resolver, same risk lookup — so the tool and
- * the gate cannot disagree:
+ * The Gate A decision run_python consults inside `execute()` for its
+ * DIRECT-invocation guard (BST-1097; since the @mastra/core 1.56 approval
+ * rework the in-run Gate A is the framework's pre-execution `requireApproval`
+ * clone above, so inside an agent run this decision arms nothing). Resolves
+ * the SAME permission decision the gate computes for that tool — same
+ * resolver, same risk lookup — so the tool and the gate cannot disagree:
  *
  * - No snapshot (enforcement off) → `'allow'`: the permission engine gates
  *   nothing, exactly as it gates nothing for flag-based ask tools.
  * - `'allow'` (policy / per-tool override / session grant / yolo) → `'allow'`.
- * - `'ask'` → `'ask'`: the tool raises the approval suspension.
+ * - `'ask'` → `'ask'`: a direct invocation (no suspension channel, no
+ *   framework gate) refuses rather than running unprompted.
  * - `'deny'` → `'ask'` (fail-safe): a denied tool never enters the gated map,
  *   so inside an agent run this is unreachable; on a DIRECT invocation the
  *   safe direction is to require confirmation, and with no suspension channel

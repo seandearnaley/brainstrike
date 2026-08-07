@@ -651,12 +651,12 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     });
   });
 
-  it('exempts a self-approving ask tool from the resume gate under an ENFORCED policy — while ordinary ask tools stay gated (BST-1097)', async () => {
-    // Under an enforced ask set the self-approving tool raises Gate A inside
-    // execute(); re-gating it here would make Mastra consume the {approved}
-    // resume before the tool sees it (an unfinishable approval loop). The
-    // exemption is scoped to THIS posture — the explicit-global case above
-    // pins the opposite direction.
+  it('re-gates EVERY enforced ask-set tool on the resume leg — run_python included (BST-1097, 1.56+ idiom)', async () => {
+    // Since the @mastra/core 1.56 approval rework there is no self-approving
+    // exemption: run_python is an ordinary ask-set tool whose Gate A is the
+    // permission gate's requireApproval clone, so re-gating it on a resumed
+    // leg matches the framework's own idiom — the approval is consumed
+    // pre-execution and the tool runs once, never a loop.
     const storage = { id: 'workflow-storage' };
     setMockStreamParts([
       { textDelta: 'ok', type: 'text-delta' },
@@ -703,10 +703,12 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
         | undefined
     )?.requireToolApproval as (ctx: { toolName: string }) => boolean;
     expect(typeof enforcedGate).toBe('function');
-    // Self-approving + in the enforced ask set → exempt (self-gates in-tool).
-    expect(enforcedGate({ toolName: 'brainstrike_runPython' })).toBe(false);
+    // run_python is an ordinary ask-set tool now — gated like everything else.
+    expect(enforcedGate({ toolName: 'brainstrike_runPython' })).toBe(true);
     // Ordinary ask tool on the same leg stays gated.
     expect(enforcedGate({ toolName: 'workspace_writeFile' })).toBe(true);
+    // Mastra-internal working-memory bookkeeping stays exempt (D4).
+    expect(enforcedGate({ toolName: 'updateWorkingMemory' })).toBe(false);
   });
 
   it('keeps a suspended-tool resume stream ID independent from its persisted ID', async () => {

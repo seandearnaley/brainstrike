@@ -1031,20 +1031,20 @@ Flow (desktop assistant server → agent runtime):
    gates the tool map BEFORE the immutable `Agent` is built: `'deny'`→omit;
    `'allow'`→keep unchanged; `'ask'`→keep a CLONE with Mastra's PER-TOOL
    `requireApproval: true` and record in `askToolIds`.
-   EXCEPTION — SELF-APPROVING suspending tools (`SELF_APPROVING_NATIVE_TOOL_IDS`,
-   today `brainstrike.runPython`; BST-1097): an `'ask'` decision keeps the tool
-   UNCLONED (no flag, ever) but still records it in `askToolIds`/`askTools`.
-   Mastra re-evaluates the static flag on EVERY leg — including the resume
-   answering the tool's OWN `suspend()` pause, whose data has no `approved`
-   key — so the flag turned run_python's Gate B allow into "Tool call was not
-   approved by the user". Such a tool raises Gate A itself inside `execute()`
-   via `suspend(payload, {requireToolApproval: true})` (the SAME
-   `tool-call-approval` chunk, so the whole step-4 chain below is unchanged),
-   with the decision injected at the composition root through
+   SUSPENDING tools included (`brainstrike.runPython`; BST-1097, mechanism
+   re-based at the @mastra/core ^1.57 adoption — the old SELF-APPROVING
+   exception and its registry are gone): an `'ask'` decision takes the SAME
+   `requireApproval` clone as every other ask tool — the framework's
+   pre-execution approval is Gate A. The 1.56 approval rework made the old
+   self-raised in-tool suspension unworkable (the framework consumes the
+   `{approved}` resume before the tool can read it — an unfinishable loop)
+   and simultaneously made the clone safe: the suspend-resume transport
+   attaches the `approved: true` rider Mastra's per-leg re-check demands, so
+   the tool's OWN `suspend()` pause (Gate B) stays resumable under the flag.
    `resolveSelfApprovalDecision` (exported beside the gate — same resolver,
-   same risk lookup, cannot drift). A self-approving `'ask'` tool whose
-   registered form lost its suspendSchema is fail-safe OMITTED (it could not
-   raise the gate, and keeping it would run it unprompted).
+   same risk lookup, cannot drift) is still injected at the composition root,
+   now ONLY for the direct-invocation guard: an `'ask'` call outside an agent
+   run refuses rather than running unprompted.
 3. PER-TOOL, not global: marking each ask tool with `requireApproval` (Mastra
    >=1.37) makes Mastra suspend ONLY when that tool is actually called — allowed
    `read`/`mcp` tools in the same run still run free. We deliberately do NOT force

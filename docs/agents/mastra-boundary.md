@@ -9,7 +9,7 @@ each deferred to. The historical audit those tickets cite now lives at
 `docs/archive/mastra-agent-system-docs-catch-up-2026-05-29.md` (moved by BST-750,
 #1963); it recorded the deferral, never a decision.
 
-Verified against `@mastra/core@1.55.0` and `@mastra/memory@1.26.0` — the only
+Verified against `@mastra/core@1.57.0` and `@mastra/memory@1.26.0` — the only
 installed `@mastra/*` packages (`@mastra/schema-compat` is transitive).
 
 ## SCOPE AND STATUS
@@ -486,9 +486,9 @@ MCP failure to a reasonless `ERROR` via a bare `catch`. (The stale
 `@mastra/core@1.50.0` `minimumReleaseAgeExclude` entry this section used to flag
 was removed with the 1.57 upgrade.)
 
-## 1.51 → 1.55 UPGRADE NOTES (2026-08-06) — and the 1.56 CEILING
+## 1.51 → 1.57 UPGRADE NOTES (2026-08-06/07)
 
-Re-verified on `@mastra/core@1.55.0` + `@mastra/memory@1.26.0`: the R1 no-server
+Re-verified on `@mastra/core@1.57.0` + `@mastra/memory@1.26.0`: the R1 no-server
 guard (`scripts/__tests__/mastra-boundary-contract.test.mjs`, 6/6) and both
 stream-contract guards (`mastra-stream-chunk-contract.mjs`,
 `verify-mastra-schema-init-order.mjs`) pass unchanged. Compile-time surface
@@ -503,15 +503,19 @@ changes hit and fixed in this range:
   with `'execute' in tool` first (`apps/desktop/src/ipc-tools.ts`,
   `capture-on-edit.integration.test.ts`).
 
-**`@mastra/core` is pinned `~1.55.0` — patches only, never a caret.** 1.56.0's
-approval-recovery work intercepts resumes of in-tool approval suspensions
-(`suspend(…, { requireToolApproval: true })`, the BST-1097 Gate A mechanism in
-`run-python-tool.ts`): approve is consumed by the framework and the tool
-re-runs with NO resume data (Gate A re-asks in a loop), decline returns
-Mastra's generic denial instead of the tool-owned typed `declined` result.
-Bisect-proven (15/15 suspend-resume integration tests at 1.55.0; 2 fail at
-1.56.0+). Full diagnosis, the unpin condition, and a verified-but-unshipped
-transport redesign sketch live in
-`docs/dependency-updates-breaking-changes.md`'s Mastra section — run
-`packages/agent`'s `mastra-tool-suspend-resume.integration.spec.ts` against any
-candidate version before raising the pin.
+**The 1.56 approval rework and the BST-1097 adaptation.** 1.56 made the
+framework consume `{approved}` resumes of ANY approval-gated call before the
+tool can read them, which killed the old self-raised in-tool Gate A (approve
+looped forever re-asking; decline became Mastra's generic denial). Rather than
+holding below 1.56, the repo adopted the new idiom (settled with the user,
+2026-08-07): run_python's Gate A is now the permission gate's ordinary
+`requireApproval` clone (pre-execution approval), its Gate B plain suspension
+stays resumable because the suspend-resume transport attaches the
+`approved: true` rider Mastra's per-leg re-check demands, declines stream no
+tool result (the approval card's Declined state owns the UX, like every other
+ask tool), and the direct-invocation guard stays in-tool. The old
+self-approving registry (`SELF_APPROVING_NATIVE_TOOL_IDS`) is deleted. Full
+narrative + test map: docs/dependency-updates-breaking-changes.md (Mastra
+section) and docs/agents/code-execution.md (Gate A section). The 15-test
+`mastra-tool-suspend-resume.integration.spec.ts` remains the canary for any
+future approval-semantics drift.
