@@ -452,6 +452,13 @@ export function createAssistantThreadRunPromise(args: {
   resolvedModelName: string | undefined;
   selectedMemoryThreadId: string | undefined;
   selectedProvider: SupportedProvider | null;
+  /**
+   * The turn's triggering user message (BST-1163) — the transport resolves it
+   * from thread state per leg (action echoes excluded), so initial sends AND
+   * approval/suspend resumes stamp the SAME id. `null` when the transport has
+   * no real user message in hand; never fabricated here.
+   */
+  turnMessageId: string | null;
 }): Promise<string | undefined> {
   if (!(args.assistantThreadRepository && args.memoryResourceId && args.selectedMemoryThreadId)) {
     throw new Error('Assistant run records require an active memory thread.');
@@ -470,6 +477,7 @@ export function createAssistantThreadRunPromise(args: {
       resourceId: args.memoryResourceId,
       runtimeKind: toAssistantThreadRuntimeKind(providerDefinition.runtime),
       threadId: args.selectedMemoryThreadId,
+      turnMessageId: args.turnMessageId,
       ...(args.modelSettings ? { modelSettings: { ...args.modelSettings } } : {}),
       ...(args.providerOptions ? { providerOptions: { ...args.providerOptions } } : {}),
     })

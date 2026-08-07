@@ -31,7 +31,10 @@ interface UseAssistantServerRunSessionOptions {
     | undefined;
   readonly prepareLocalModel?: ((abortSignal?: AbortSignal) => Promise<void>) | undefined;
   readonly prepareRequestData?:
-    | ((abortSignal?: AbortSignal) => Promise<Record<string, unknown> | undefined>)
+    | ((
+        abortSignal?: AbortSignal,
+        turnAnchorMessageId?: string | null
+      ) => Promise<Record<string, unknown> | undefined>)
     | undefined;
   readonly threadKey?: string | undefined;
 }
@@ -44,7 +47,8 @@ interface AssistantServerRunSessionController {
   readonly onReplayError: (error: Error) => void;
   readonly onResponse: (response: Response) => void;
   readonly prepareRequest: (
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    turnAnchorMessageId?: string | null
   ) => Promise<Record<string, unknown> | undefined>;
   readonly prepareRequestWarmup?: ((abortSignal: AbortSignal) => Promise<void>) | undefined;
   readonly replayRetryToken: number;
@@ -105,7 +109,10 @@ export function useAssistantServerRunSession({
   );
 
   const prepareRequest = useCallback(
-    async (abortSignal?: AbortSignal): Promise<Record<string, unknown> | undefined> => {
+    async (
+      abortSignal?: AbortSignal,
+      turnAnchorMessageId?: string | null
+    ): Promise<Record<string, unknown> | undefined> => {
       if (preparedRequestRef.current) {
         throw new Error('Cannot start a hosted assistant run while another run is in progress.');
       }
@@ -116,7 +123,7 @@ export function useAssistantServerRunSession({
       }
       const preparationSignal = abortSignal ?? new AbortController().signal;
       preparationSignal.throwIfAborted();
-      const data = await prepareRequestData?.(preparationSignal);
+      const data = await prepareRequestData?.(preparationSignal, turnAnchorMessageId ?? null);
       if (preparationSignal.aborted) {
         const reason = preparationSignal.reason;
         const timedOut = reason instanceof AssistantRequestPreparationTimeoutError;

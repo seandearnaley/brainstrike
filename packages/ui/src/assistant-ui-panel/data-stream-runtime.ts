@@ -67,7 +67,10 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   activeRunSession?: AssistantActiveRunSession;
   api: string;
   body?:
-    | ((abortSignal: AbortSignal) => Promise<Record<string, unknown> | undefined>)
+    | ((
+        abortSignal: AbortSignal,
+        context: PrepareRequestBodyContext
+      ) => Promise<Record<string, unknown> | undefined>)
     | Record<string, unknown>;
   credentials?: RequestCredentials;
   headers?: ((abortSignal: AbortSignal) => Promise<HeadersValue>) | HeadersValue;
@@ -158,10 +161,42 @@ function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('The assistant request was aborted.', 'AbortError');
 }
 
+/** Per-run context handed to a function-form `body` provider. */
+export interface PrepareRequestBodyContext {
+  /**
+   * The id of the turn's triggering user message — the last REAL user message
+   * in the thread, with approval/suspend action echoes excluded (they are UI
+   * bookkeeping with no durable row). Every leg of one turn (initial send,
+   * approval/suspend resumes) resolves the SAME id, which is what lets
+   * `createThreadRun` persist a run↔turn link (BST-1163). `null` when the
+   * thread has no real user message.
+   */
+  readonly turnAnchorMessageId: string | null;
+}
+
+/**
+ * The turn anchor for a run leg — see
+ * {@link PrepareRequestBodyContext.turnAnchorMessageId}. Mirrors the desktop
+ * server's `resolveTurnAnchorMessageId` (snapshot-turn-boundaries.ts) with the
+ * renderer-side extra of skipping action echoes, which never reach the server.
+ */
+export function resolveTurnAnchorMessageId(messages: readonly ThreadMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (candidate?.role === 'user' && !isApprovalActionMessage(candidate)) {
+      return candidate.id;
+    }
+  }
+  return null;
+}
+
+const NO_BODY_CONTEXT: PrepareRequestBodyContext = { turnAnchorMessageId: null };
+
 function prepareRequestInputs(
   options: Pick<BrainstrikeDataStreamRuntimeOptions, 'body' | 'headers'>,
   callerSignal: AbortSignal,
-  timeoutMs: number
+  timeoutMs: number,
+  bodyContext: PrepareRequestBodyContext = NO_BODY_CONTEXT
 ): Promise<{
   readonly headersValue: HeadersValue | undefined;
   readonly rawBodyValue: Record<string, unknown> | undefined;
@@ -225,7 +260,7 @@ function prepareRequestInputs(
         preparationController.signal.throwIfAborted();
         const rawBodyValue =
           typeof options.body === 'function'
-            ? await options.body(preparationController.signal)
+            ? await options.body(preparationController.signal, bodyContext)
             : options.body;
         preparationController.signal.throwIfAborted();
         return { headersValue, rawBodyValue };
@@ -1297,7 +1332,8 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
       const { headersValue, rawBodyValue } = await prepareRequestInputs(
         this.options,
         abortSignal,
-        requestPreparationTimeoutMs
+        requestPreparationTimeoutMs,
+        { turnAnchorMessageId: resolveTurnAnchorMessageId(messages) }
       );
       const bodyValue = rawBodyValue as Record<string, unknown> | undefined;
       assertSupportedAssistantUiRequestContext(
