@@ -23,7 +23,7 @@ import {
   type SortingState,
   useTable,
 } from '@tanstack/react-table';
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import {
   ALL_CODES_VALUE,
   ALL_SOURCES_VALUE,
@@ -435,7 +435,7 @@ function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogVi
 export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) {
   const [viewerState, dispatch] = useReducer(logViewerReducer, initialLogViewerState);
   const [selectedRecord, setSelectedRecord] = useState<LogRecord | null>(null);
-  const rowCacheRef = useRef(new WeakMap<LogRecord, LogRecordRow>());
+  const [rowCache] = useState(() => new WeakMap<LogRecord, LogRecordRow>());
   const [searchHaystackCache] = useState(createLogSearchHaystackCache);
   const {
     logRecords,
@@ -538,7 +538,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
         codeFilter,
         timeStart,
         timeEnd,
-        rowCacheRef.current,
+        rowCache,
         searchHaystackCache
       )
     );
@@ -547,6 +547,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     globalFilter,
     logLevelFilter,
     logRecords,
+    rowCache,
     scopeFilter,
     sourceFilter,
     timeEnd,
@@ -554,10 +555,10 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     timeStart,
   ]);
 
-  const tableData = useMemo<LogRecordRow[]>(() => {
-    const rowCache = rowCacheRef.current;
-    return filteredRecords.map((record) => getLogRecordRow(record, rowCache));
-  }, [filteredRecords]);
+  const tableData = useMemo<LogRecordRow[]>(
+    () => filteredRecords.map((record) => getLogRecordRow(record, rowCache)),
+    [filteredRecords, rowCache]
+  );
 
   const handleShowDetails = useCallback((record: LogRecord) => {
     setSelectedRecord(record);
