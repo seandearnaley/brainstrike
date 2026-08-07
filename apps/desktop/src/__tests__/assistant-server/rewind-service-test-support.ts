@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_runs (
   model text NOT NULL,
   runtime_kind text NOT NULL,
   status text NOT NULL,
+  error text,
   started_at timestamptz NOT NULL,
   completed_at timestamptz,
   created_at timestamptz NOT NULL,

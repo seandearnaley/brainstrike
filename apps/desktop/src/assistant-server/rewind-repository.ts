@@ -60,6 +60,13 @@ const TERMINAL_RUN_STATUSES = ['cancelled', 'completed', 'failed'] as const;
  * destructive seam the fail-safe direction is refusing a rewind that might have
  * been allowed, never reverting files under a run that is still going.
  *
+ * A row STRANDED in 'running' by a dead process (crash/quit killed both
+ * status writers) would trip this forever; the startup reaper
+ * (`thread-run-startup-reaper.ts`, BST-1162) marks provably-dead rows failed
+ * at the next app start using boot-time evidence, so this refusal only ever
+ * describes runs the current process could actually own — its fail-safe
+ * posture (unknown status = in flight) is untouched.
+ *
  * An absent runs table is `false`, not a fallback: a profile with no runs table
  * has recorded no runs at all, so none of them can be in flight.
  */
