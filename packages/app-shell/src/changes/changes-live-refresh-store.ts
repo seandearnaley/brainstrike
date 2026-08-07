@@ -77,13 +77,34 @@ export const useChangesLiveRefreshStore = create<ChangesLiveRefreshState>((set) 
 }));
 
 /**
- * The refetch nonce for one repository's `git-scope` changeset views: its own
- * accepted-event count plus every unmapped event (see the store doc comment
- * for why unmapped events count for every repo).
+ * The refetch nonce for one repository's `git-scope` changeset views.
+ *
+ * A repositoryRoot that has appeared in at least one event is a KNOWN key:
+ * its nonce is its own accepted-event count plus every unmapped event (see
+ * the store doc comment for why unmapped events count for every repo).
+ *
+ * A repositoryRoot the store has NEVER seen follows `anyInvalidationNonce`
+ * instead — deliberately conservative (PR #2288 review). Event keys carry the
+ * inventory's CANONICAL realpath'd main-worktree path, but not every
+ * `git-scope` changeset does: the git panel pins `GitRepository.repositoryRoot`
+ * straight out of `git worktree list`, never realpath'd
+ * (`git-changes-view.tsx`), so through a symlink the two vocabularies diverge
+ * and a string-equality lookup would silently NEVER refresh that surface —
+ * the exact staleness class this channel exists to remove. Unknown-key
+ * consumers therefore refetch on every event: an extra refetch is just work,
+ * silent staleness is a defect. Once events for the same string arrive, the
+ * key is known and precision applies.
  */
 export function selectGitScopeRefreshNonce(
-  state: Pick<ChangesLiveRefreshState, 'nonceByRepositoryRoot' | 'unmappedInvalidationNonce'>,
+  state: Pick<
+    ChangesLiveRefreshState,
+    'anyInvalidationNonce' | 'nonceByRepositoryRoot' | 'unmappedInvalidationNonce'
+  >,
   repositoryRoot: string
 ): number {
-  return (state.nonceByRepositoryRoot[repositoryRoot] ?? 0) + state.unmappedInvalidationNonce;
+  const ownNonce = state.nonceByRepositoryRoot[repositoryRoot];
+  if (ownNonce === undefined) {
+    return state.anyInvalidationNonce;
+  }
+  return ownNonce + state.unmappedInvalidationNonce;
 }

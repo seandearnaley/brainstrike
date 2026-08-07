@@ -31,6 +31,10 @@
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type { Changeset, GitInventory } from '@brainstrike/types';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  selectGitScopeRefreshNonce,
+  useChangesLiveRefreshStore,
+} from '../changes-live-refresh-store';
 import { useChangesNavigationStore } from '../changes-navigation-store';
 import { useChangesStore } from '../changes-store';
 import { useChangeset } from '../use-changeset';
@@ -125,6 +129,17 @@ export function ChangesSurface(): ReactElement {
 
   const { error, fileDiff, refresh, view } = useChangeset(resolutionRootId, changeset);
 
+  // Live-refresh reload signal for already-rendered diff cards (BST-1161,
+  // PR #2288 review): `useChangeset` re-resolves the VIEW on this nonce, but
+  // mounted cards latch their first load — threading the same nonce as each
+  // card's `reloadToken` reloads their bodies too. 0 (never changes) for
+  // snapshot changesets, exactly like the hook's own input.
+  const gitScopeReloadToken = useChangesLiveRefreshStore((state) =>
+    changeset?.kind === 'git-scope'
+      ? selectGitScopeRefreshNonce(state, changeset.repositoryRoot)
+      : 0
+  );
+
   const handleRetry = useCallback(() => {
     void refresh();
   }, [refresh]);
@@ -200,6 +215,7 @@ export function ChangesSurface(): ReactElement {
               changesetKind={changeset.kind}
               files={renderedFiles}
               loadFileDiff={fileDiff}
+              reloadToken={gitScopeReloadToken}
             />
           </div>
         </div>

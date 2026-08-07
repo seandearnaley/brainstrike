@@ -13,9 +13,12 @@
  * Bridge-gated like everything else on this domain: no bridge (web, or a
  * malformed preload) means no subscription, and the store simply never ticks.
  */
+import { createLogger } from '@brainstrike/logging';
 import { useEffect } from 'react';
 import { resolveChangesBridge } from './changes-bridge';
 import { useChangesLiveRefreshStore } from './changes-live-refresh-store';
+
+const logger = createLogger('ChangesLiveRefresh');
 
 let subscriberCount = 0;
 let unsubscribeFromBridge: (() => void) | null = null;
@@ -30,9 +33,21 @@ export function acquireChangesLiveRefreshSubscription(): () => void {
   if (subscriberCount === 1) {
     const bridge = resolveChangesBridge();
     if (bridge) {
-      unsubscribeFromBridge = bridge.onInvalidated((event) => {
-        useChangesLiveRefreshStore.getState().ingestInvalidation(event);
-      });
+      // Guarded (PR #2288 review): this runs inside a useEffect body, so a
+      // throw here would skip React's cleanup and strand the count above
+      // zero with no live subscription — wedging the channel silently for
+      // the session. Log LOUDLY instead; once every holder releases, the
+      // next acquire retries a fresh subscribe.
+      try {
+        unsubscribeFromBridge = bridge.onInvalidated((event) => {
+          useChangesLiveRefreshStore.getState().ingestInvalidation(event);
+        });
+      } catch (error) {
+        logger.error('changes live-refresh: bridge subscription failed; push refresh disabled', {
+          error,
+        });
+        unsubscribeFromBridge = null;
+      }
     }
   }
   let released = false;
