@@ -145,6 +145,39 @@ When adding a new tool:
     their purpose, limitations and usage. If the tool proxies to an external  
     service, document rate limits and fallback behaviour.
 
+### `brainstrike.manageCanvas` tool (schema here, executed in desktop)
+
+Single tool with an `action` discriminated union — `create`, `update`,
+`rewrite`, `list` — persisting versioned Canvas documents
+(`brainstrike_canvas_versions`, migration 082) that the Canvas surface renders
+in the sandboxed CanvasFrame (BST-1173). The Zod schema lives in
+`src/tools/schemas-workspace.ts` (provider envelope is a strict root object
+delegating to the canonical union; root `oneOf` is rejected by the provider
+contract). Execution lives in `apps/desktop/src/assistant-server/manage-canvas-tool.ts`.
+
+Purpose and semantics:
+
+- `create {title, html}` mints a canvas (uuidv7) at version 1.
+- `update {canvasId, oldString, newString}` requires `oldString` to occur
+  EXACTLY once in the latest version; `no_match`/`ambiguous_match` are
+  structured failures. Writes a new version row — history is immutable.
+- `rewrite {canvasId, html}` replaces content as a new version.
+- `list {}` returns summaries only (never `html`), newest-first, capped at 50
+  with an explicit `truncated` flag.
+
+Limitations / invariants:
+
+- Desktop-only (web has no tool runtime; excluded from `WebNativeToolId`).
+- Mutations are hard-scoped to the calling thread: `threadId` comes from
+  runtime memory, never model input, and a cross-thread canvas id resolves to
+  the same uniform `not_found` as a nonexistent one (no existence oracle).
+- Concurrent updates race on `UNIQUE (canvas_id, version)`; the loser gets a
+  structured, retryable `version_conflict`.
+- `html`/`oldString`/`newString` are capped at 8 MB (schema-level DoS guard,
+  same as workspace-file content fields); titles at 500 chars.
+- Risk category is `edit` — durable writes must not be available in plan mode
+  or default-allowed under permission enforcement.
+
 ### `brainstrike.runPython` tool
 
 Desktop-only deferred tool (BST-1067; Gate B network escalation BST-1070)

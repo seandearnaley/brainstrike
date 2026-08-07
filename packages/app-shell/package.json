@@ -7,6 +7,7 @@
     "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.0.0",
     "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.0.0",
     "@brainstrike/assistant-contract": "workspace:*",
+    "@brainstrike/assistant-ui": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/db-explorer": "workspace:*",
@@ -70,6 +71,14 @@
       "types": "./dist/assistant-memory-repository.d.ts",
       "import": "./dist/assistant-memory-repository.js"
     },
+    "./browser-pane/availability": {
+      "types": "./dist/browser-pane/availability.d.ts",
+      "import": "./dist/browser-pane/availability.js"
+    },
+    "./browser-pane/browser-pane-content": {
+      "types": "./dist/browser-pane/browser-pane-content.d.ts",
+      "import": "./dist/browser-pane/browser-pane-content.js"
+    },
     "./changes": {
       "types": "./dist/changes/index.d.ts",
       "import": "./dist/changes/index.js"
@@ -121,6 +130,10 @@
     "./terminal-panel/availability": {
       "types": "./dist/terminal-panel/availability.d.ts",
       "import": "./dist/terminal-panel/availability.js"
+    },
+    "./canvas/canvas-panel": {
+      "types": "./dist/canvas/canvas-panel.d.ts",
+      "import": "./dist/canvas/canvas-panel.js"
     },
     "./root-layout-content": {
       "types": "./dist/root-layout-content.d.ts",

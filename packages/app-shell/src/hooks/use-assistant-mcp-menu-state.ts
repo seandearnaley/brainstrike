@@ -1,7 +1,4 @@
-import type {
-  AssistantToolMenuConfig,
-  AssistantToolMenuItem,
-} from '@brainstrike/ui/assistant-ui-panel';
+import type { AssistantToolMenuConfig, AssistantToolMenuItem } from '@brainstrike/assistant-ui';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import {
   buildMcpMenuItems,

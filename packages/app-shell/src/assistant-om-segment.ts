@@ -34,7 +34,7 @@
  *   - no OM row yet               → 'empty'     — NOT a throw, NOT zeros.
  *   - malformed OM row            → 'error'     (strict parser throws, caught here) — NEVER fabricated 0.
  */
-import type { OmAwaitingObserverReason, OmMeterState } from '@brainstrike/ui/assistant-ui-panel';
+import type { OmAwaitingObserverReason, OmMeterState } from '@brainstrike/assistant-ui';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
 
 export type { OmAwaitingObserverReason, OmMeterState };

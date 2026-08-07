@@ -1,5 +1,5 @@
+import type { DebugBundleBinding } from '@brainstrike/assistant-ui';
 import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
-import type { DebugBundleBinding } from '@brainstrike/ui/assistant-ui-panel';
 import { useMemo } from 'react';
 import { buildThreadDebugBundle } from '../diagnostics/debug-bundle';
 

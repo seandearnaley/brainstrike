@@ -42,6 +42,7 @@ const EXPECTED_DEFERRED_NAMESPACES = {
   web: ['brainstrike.webExtract', 'brainstrike.webSearch'],
   workspace: [
     'brainstrike.deleteWorkspaceFile',
+    'brainstrike.manageCanvas',
     'brainstrike.manageTaskList',
     'brainstrike.renameWorkspaceFile',
   ],

@@ -1098,7 +1098,7 @@ describe('PgliteMemoryStore', () => {
     // A STANDALONE store legitimately lacks the app-owned sidecar tables
     // (the bare-delete test above proves the probes tolerate absence). On a
     // migrated application database they all exist — model that here with
-    // the two tables this test asserts on.
+    // the tables this test asserts on.
     await db.exec(`
       CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_placements (
         thread_id   text PRIMARY KEY,
@@ -1116,6 +1116,18 @@ describe('PgliteMemoryStore', () => {
         resource_id TEXT,
         occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      CREATE TABLE IF NOT EXISTS brainstrike_canvas_versions (
+        id text PRIMARY KEY,
+        canvas_id text NOT NULL,
+        thread_id text NOT NULL,
+        resource_id text NOT NULL,
+        title text NOT NULL,
+        html text NOT NULL,
+        version integer NOT NULL CHECK (version >= 1),
+        created_by text NOT NULL CHECK (created_by IN ('assistant', 'user')),
+        created_at timestamptz NOT NULL DEFAULT NOW(),
+        UNIQUE (canvas_id, version)
+      );
     `);
     await store.saveThread({
       thread: {
@@ -1131,6 +1143,12 @@ describe('PgliteMemoryStore', () => {
         (thread_id, resource_id, group_id, rank)
        VALUES ('thread-sidecar-delete', 'workspace-a', null, 'a0')`
     );
+    await db.query(
+      `INSERT INTO brainstrike_canvas_versions
+        (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
+       VALUES ('canvas-version-delete', 'canvas-delete', 'thread-sidecar-delete',
+        'workspace-a', 'Delete me', '<p>Delete me</p>', 1, 'assistant')`
+    );
 
     await store.deleteThread({ threadId: 'thread-sidecar-delete' });
 
@@ -1139,6 +1157,11 @@ describe('PgliteMemoryStore', () => {
        WHERE thread_id = 'thread-sidecar-delete'`
     );
     expect(placements.rows[0]?.count).toBe('0');
+    const canvases = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM brainstrike_canvas_versions
+       WHERE thread_id = 'thread-sidecar-delete'`
+    );
+    expect(canvases.rows[0]?.count).toBe('0');
     const ops = await db.query<{ entity_kind: string; op: string; resource_id: string | null }>(
       `SELECT entity_kind, op, resource_id FROM brainstrike_mind_ops
        WHERE entity_id = 'thread-sidecar-delete'`

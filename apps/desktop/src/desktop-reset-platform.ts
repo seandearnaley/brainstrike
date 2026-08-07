@@ -1,3 +1,5 @@
+import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
+import { clearBrowserPaneSession } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 
 export interface DesktopResetRuntime {
@@ -90,6 +92,15 @@ export function createDesktopFactoryResetHandler({
         },
         stopBackgroundRuntimes: async () => {
           await stopDesktopResetRuntimes(runtimes);
+          // Browser pane (BST-1174). Order matters: CLOSE the live
+          // `WebContentsView`s first, THEN clear the partition. A still-running
+          // view can rewrite cookies/localStorage into `persist:browser-pane`
+          // between the clear and the reset's reload, leaving site state behind
+          // (codex P1) — disposing the views makes the storage quiescent before
+          // we wipe it. The partition itself is also deleted on disk with the
+          // userData directory below.
+          disposeActiveBrowserPaneViews();
+          await clearBrowserPaneSession();
         },
         userDataPath,
       });

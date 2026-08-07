@@ -151,13 +151,15 @@ describe('CanvasFrame', () => {
     }
   });
 
-  it('cancels the handshake timeout once the shell announces ready', async () => {
+  it('cancels the handshake timeout once the shell announces ready, and reports recovery', async () => {
     vi.useFakeTimers();
     try {
+      const onShellReady = vi.fn();
       const onShellTimeout = vi.fn();
       render(
         <CanvasFrame
           html="<p>hi</p>"
+          onShellReady={onShellReady}
           onShellTimeout={onShellTimeout}
           shellReadyTimeoutMs={5000}
           shellSrc={SHELL_SRC}
@@ -175,6 +177,9 @@ describe('CanvasFrame', () => {
       });
       vi.advanceTimersByTime(20_000);
       expect(onShellTimeout).not.toHaveBeenCalled();
+      // Consumers clear their timeout banner on this signal — it must fire on
+      // EVERY ready, including a late one after a timeout already reported.
+      expect(onShellReady).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

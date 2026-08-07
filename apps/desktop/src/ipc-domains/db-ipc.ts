@@ -774,6 +774,9 @@ export function registerDatabaseIpcHandlers(
             // bookkeeping for threads this clear destroys. No FK, so clear
             // explicitly per the FACTORY RESET CONTRACT.
             await clearOptionalRelation(tx, 'brainstrike_workspace_snapshots');
+            // Versioned Canvas documents (migration 082, BST-1173): no FK, so
+            // clear their thread-owned content explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_canvas_versions');
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');

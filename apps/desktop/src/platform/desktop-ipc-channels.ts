@@ -13,6 +13,22 @@ export const DESKTOP_IPC_CHANNELS = {
     revertEntry: 'assistant-checkpoint:revert-entry',
     revertRun: 'assistant-checkpoint:revert-run',
   },
+  // Embedded browser pane (BST-1174). Invoke channels drive the main-process
+  // BrowserViewManager; `tabsChanged` is a one-way main→renderer push (like
+  // changes.invalidated) and is NEVER registered on the invoke registry.
+  browser: {
+    closeTab: 'browser:closeTab',
+    createTab: 'browser:createTab',
+    goBack: 'browser:goBack',
+    goForward: 'browser:goForward',
+    listTabs: 'browser:listTabs',
+    navigate: 'browser:navigate',
+    reload: 'browser:reload',
+    selectTab: 'browser:selectTab',
+    setBounds: 'browser:setBounds',
+    setOccluded: 'browser:setOccluded',
+    tabsChanged: 'browser:tabsChanged',
+  },
   changes: {
     applyRewind: 'changes:applyRewind',
     fileDiff: 'changes:fileDiff',

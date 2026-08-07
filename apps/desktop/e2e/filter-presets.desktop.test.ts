@@ -530,7 +530,7 @@ async function installFilteredEmptyFolderFixture(
 
 async function selectMockRoot(window: Page): Promise<void> {
   const selectRootButton = window
-    .getByRole('button', { name: /add folder to workspace|browse/i })
+    .getByRole('button', { name: /add folder to workspace|^browse$/i })
     .first();
   await expect(selectRootButton).toBeVisible({ timeout: 10_000 });
   await clickElectronControl(selectRootButton);

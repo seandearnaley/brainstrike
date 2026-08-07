@@ -14,9 +14,9 @@ heavier shared surfaces other packages compose.
 Detailed invariants live in `docs/agents/` at the repo root — read the matching
 doc before changing these areas:
 
-- `src/assistant-ui-panel/` — chat thread UI, error boundary, run-lifecycle
-  notifications, context-usage store, tool cards / checkpoint revert →
-  `docs/agents/assistant-runtime.md`, `docs/agents/assistant-persistence.md`
+- Assistant panel feature code moved to `packages/assistant-ui`; this package
+  retains the shared primitives it composes → `docs/agents/assistant-runtime.md`,
+  `docs/agents/assistant-persistence.md`
 - `src/tree-table/` — canonical treegrid (`TreeTableViewport` is the sole
   two-axis scroll owner; WAI-ARIA treegrid semantics) → `docs/agents/ui-conventions.md`
 - `src/context-menu/` — Radix wrapper for the shared context-action system

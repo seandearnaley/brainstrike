@@ -121,6 +121,10 @@ component_management:
     name: pkg-types
     paths:
       - packages/types/**
+  - component_id: pkg-assistant-ui
+    name: pkg-assistant-ui
+    paths:
+      - packages/assistant-ui/**
   - component_id: pkg-ui
     name: pkg-ui
     paths:

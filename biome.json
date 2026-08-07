@@ -228,6 +228,7 @@
       "includes": [
         "apps/web/**",
         "packages/ui/**",
+        "packages/assistant-ui/**",
         "packages/file-explorer-ui/**",
         "packages/file-explorer-hooks/**",
         "packages/app-shell/**",
@@ -276,6 +277,7 @@
     {
       "includes": [
         "packages/ui/src/**",
+        "packages/assistant-ui/src/**",
         "packages/file-explorer-ui/src/loading-overlay.tsx"
       ],
       "linter": {
@@ -525,13 +527,13 @@
         "packages/queue/src/__tests__/remote-telemetry-sink.test.ts",
         "packages/settings-ui/src/settings/tools/__tests__/unified-tools-settings.test.tsx",
         "packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx",
-        "packages/ui/src/__tests__/assistant-ui-panel.test.tsx",
-        "packages/ui/src/__tests__/data-stream-runtime.test.ts",
+        "packages/assistant-ui/src/__tests__/assistant-ui-panel.test.tsx",
+        "packages/assistant-ui/src/__tests__/data-stream-runtime.test.ts",
         "packages/ui/src/__tests__/ide-layout.test.tsx",
-        "packages/ui/src/__tests__/local-runtime-adapter.test.ts",
+        "packages/assistant-ui/src/__tests__/local-runtime-adapter.test.ts",
         "packages/ui/src/__tests__/tree-table.test.tsx",
-        "packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx",
-        "packages/ui/src/assistant-ui-panel/data-stream-runtime.ts",
+        "packages/assistant-ui/src/assistant-ui-panel.tsx",
+        "packages/assistant-ui/src/data-stream-runtime.ts",
         "packages/ui/src/collection-browser/use-collection-tree.ts",
         "packages/ui/src/layout/ide-layout.tsx",
         "packages/ui/src/tree-table/tree-table.tsx",

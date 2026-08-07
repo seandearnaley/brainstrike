@@ -1,10 +1,10 @@
 import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory-reset';
-import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
-import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import {
   resetContextUsageStore,
   useContextUsageStore,
-} from '@brainstrike/ui/assistant-ui-panel/context-usage-store';
+} from '@brainstrike/assistant-ui/context-usage-store';
+import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
+import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

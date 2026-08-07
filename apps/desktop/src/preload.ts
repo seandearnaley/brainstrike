@@ -109,6 +109,18 @@ const CHANGES_APPLY_REWIND_CHANNEL = 'changes:applyRewind' as const;
 const CHANGES_REDO_REWIND_CHANNEL = 'changes:redoRewind' as const;
 const CHANGES_FINALIZE_REWINDS_CHANNEL = 'changes:finalizeRewinds' as const;
 const CHANGES_INVALIDATED_EVENT = 'changes:invalidated' as const;
+// Embedded browser pane (BST-1174).
+const BROWSER_CREATE_TAB_CHANNEL = 'browser:createTab' as const;
+const BROWSER_CLOSE_TAB_CHANNEL = 'browser:closeTab' as const;
+const BROWSER_SELECT_TAB_CHANNEL = 'browser:selectTab' as const;
+const BROWSER_NAVIGATE_CHANNEL = 'browser:navigate' as const;
+const BROWSER_GO_BACK_CHANNEL = 'browser:goBack' as const;
+const BROWSER_GO_FORWARD_CHANNEL = 'browser:goForward' as const;
+const BROWSER_RELOAD_CHANNEL = 'browser:reload' as const;
+const BROWSER_SET_BOUNDS_CHANNEL = 'browser:setBounds' as const;
+const BROWSER_SET_OCCLUDED_CHANNEL = 'browser:setOccluded' as const;
+const BROWSER_LIST_TABS_CHANNEL = 'browser:listTabs' as const;
+const BROWSER_TABS_CHANGED_EVENT = 'browser:tabsChanged' as const;
 const HOOKS_GET_PROJECT_HOOKS_FOR_REVIEW_CHANNEL = 'hooks:get-project-hooks-for-review' as const;
 const HOOKS_RESOLVE_TRUSTED_ROOT_IDS_CHANNEL = 'hooks:resolve-trusted-root-ids' as const;
 const CONTEXT_FILES_SCAN_CHANNEL = 'context-files:scan' as const;
@@ -1289,6 +1301,54 @@ if (shouldExposeBridge('changes')) {
       ipcRenderer.invoke(CHANGES_RESOLVE_VIEW_CHANNEL, rootId, changeset),
     rewindPreview: (payload: { threadId: string } & ({ messageId: string } | { runId: string })) =>
       ipcRenderer.invoke(CHANGES_REWIND_PREVIEW_CHANNEL, payload),
+  });
+}
+
+// Embedded browser pane bridge (BST-1174). Every invoke returns the main-side
+// `{ ok, value } | { ok: false, error }` result; the bridge UNWRAPS it and
+// throws on `ok: false` — the renderer only ever passes well-formed args, so a
+// rejection is a programming error worth surfacing, never a silent no-op.
+if (shouldExposeBridge('browser')) {
+  const unwrapBrowserResult = <T>(result: unknown): T => {
+    if (typeof result === 'object' && result !== null && 'ok' in result) {
+      const typed = result as { ok: boolean; value?: T; error?: string };
+      if (typed.ok) {
+        return typed.value as T;
+      }
+      throw new Error(`browser bridge call failed: ${typed.error ?? 'unknown error'}`);
+    }
+    throw new Error('browser bridge returned a malformed result');
+  };
+  contextBridge.exposeInMainWorld('browser', {
+    closeTab: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_CLOSE_TAB_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    createTab: (url?: string) =>
+      ipcRenderer.invoke(BROWSER_CREATE_TAB_CHANNEL, url).then(unwrapBrowserResult<string>),
+    goBack: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_GO_BACK_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    goForward: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_GO_FORWARD_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    listTabs: () =>
+      ipcRenderer.invoke(BROWSER_LIST_TABS_CHANNEL).then(unwrapBrowserResult<unknown[]>),
+    navigate: (tabId: string, url: string) =>
+      ipcRenderer.invoke(BROWSER_NAVIGATE_CHANNEL, tabId, url).then(unwrapBrowserResult<void>),
+    // One-way main→renderer tab-state pushes (browser:tabsChanged). Subscribe-
+    // returns-unsubscribe, mirroring changes.onInvalidated / fs.onWatchEvent.
+    onTabsChanged: (callback: (tabs: unknown[]) => void) => {
+      const listener = (_event: unknown, tabs: unknown[]) => callback(tabs);
+      ipcRenderer.on(BROWSER_TABS_CHANGED_EVENT, listener);
+      return () => {
+        ipcRenderer.removeListener(BROWSER_TABS_CHANGED_EVENT, listener);
+      };
+    },
+    reload: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_RELOAD_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    selectTab: (tabId: string) =>
+      ipcRenderer.invoke(BROWSER_SELECT_TAB_CHANNEL, tabId).then(unwrapBrowserResult<void>),
+    setBounds: (rect: { height: number; width: number; x: number; y: number }) =>
+      ipcRenderer.invoke(BROWSER_SET_BOUNDS_CHANNEL, rect).then(unwrapBrowserResult<void>),
+    setOccluded: (occluded: boolean) =>
+      ipcRenderer.invoke(BROWSER_SET_OCCLUDED_CHANNEL, occluded).then(unwrapBrowserResult<void>),
   });
 }
 

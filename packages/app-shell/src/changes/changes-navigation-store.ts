@@ -92,7 +92,7 @@ export interface ChangesActiveThreadIdentity {
 }
 
 /** Which tab of the workspace panel is active — see this file's doc comment. */
-export type WorkspacePanelTab = 'changes' | 'context-explorer';
+export type WorkspacePanelTab = 'canvas' | 'changes' | 'context-explorer';
 
 export interface ChangesNavigationState {
   /** The changeset the surface is showing, or `null` before anything is picked. */
@@ -106,6 +106,19 @@ export interface ChangesNavigationState {
    * handoff) — never derived from a prop inside `WorkspacePanelTabs` itself.
    */
   readonly activeWorkspacePanelTab: WorkspacePanelTab;
+  /**
+   * Monotonic counter the Canvas panel re-queries on (BST-1173). Bumped by
+   * `requestCanvasRefresh` when a `manageCanvas` completion crosses the
+   * edit-activity stream — same re-resolve-not-push design as
+   * {@link ChangesNavigationState.liveRefreshNonce}.
+   */
+  readonly canvasRefreshNonce: number;
+  /**
+   * Same sticky mount contract as {@link ChangesNavigationState.changesTabMounted}
+   * for the Canvas tab (BST-1173) — the canvas iframe must not reload on
+   * every tab switch. Sticky: `true` once shown, cleared only by `reset()`.
+   */
+  readonly canvasTabMounted: boolean;
   /**
    * Once the Changes tab has been shown at least once, its content stays
    * mounted (mirrors the old `KeepMountedRoute` contract for the top-level
@@ -128,6 +141,12 @@ export interface ChangesNavigationState {
    */
   readonly liveRefreshNonce: number;
   /**
+   * Switch the workspace panel to the Canvas tab. External entry points only
+   * (BST-1173) — e.g. a "canvas updated" affordance near the assistant turn.
+   * Same unconditional-write reasoning as {@link ChangesNavigationState.openChangeset}.
+   */
+  readonly openCanvasPanel: () => void;
+  /**
    * Show `changeset` on the Changes surface AND switch the workspace panel
    * to the Changes tab. Used ONLY by external entry points — today the
    * assistant turn footer's "→ Review" link (BST-1114 smoke feedback:
@@ -144,6 +163,8 @@ export interface ChangesNavigationState {
    * value is simply a no-op re-render, not a bug).
    */
   readonly openChangeset: (changeset: Changeset) => void;
+  /** Ask the Canvas panel to re-query because a canvas mutation completed. */
+  readonly requestCanvasRefresh: () => void;
   /**
    * Show `changeset` on the Changes surface, WITHOUT switching the workspace
    * panel tab. Used by the surface's own internal source picker — it only
@@ -201,14 +222,21 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
   activeChangeset: null,
   activeThreadIdentity: null,
   activeWorkspacePanelTab: 'context-explorer',
+  canvasRefreshNonce: 0,
+  canvasTabMounted: false,
   changesTabMounted: false,
   handoffThreadIdentity: null,
   isOnLastTurn: false,
   liveRefreshNonce: 0,
+  openCanvasPanel: () => {
+    set({ activeWorkspacePanelTab: 'canvas', canvasTabMounted: true });
+  },
   openChangeset: (changeset) => {
     get().requestChangeset(changeset);
     set({ activeWorkspacePanelTab: 'changes', changesTabMounted: true });
   },
+  requestCanvasRefresh: () =>
+    set((state) => ({ canvasRefreshNonce: state.canvasRefreshNonce + 1 })),
   requestChangeset: (changeset) =>
     set(
       changeset.kind === 'agent-run'
@@ -238,6 +266,8 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
       activeChangeset: null,
       activeThreadIdentity: null,
       activeWorkspacePanelTab: 'context-explorer',
+      canvasRefreshNonce: 0,
+      canvasTabMounted: false,
       changesTabMounted: false,
       handoffThreadIdentity: null,
       isOnLastTurn: false,
@@ -278,6 +308,7 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
   setActiveWorkspacePanelTab: (tab) =>
     set((state) => ({
       activeWorkspacePanelTab: tab,
+      canvasTabMounted: state.canvasTabMounted || tab === 'canvas',
       changesTabMounted: state.changesTabMounted || tab === 'changes',
     })),
 }));

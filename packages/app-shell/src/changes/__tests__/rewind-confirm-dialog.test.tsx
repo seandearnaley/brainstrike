@@ -17,6 +17,7 @@ import type {
   AssistantRewindRedoResult,
   AssistantRewindResult,
 } from '@brainstrike/assistant-contract';
+import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import {
@@ -31,7 +32,6 @@ import type {
   WatcherRootHealthEvent,
 } from '@brainstrike/types';
 import { ActionRegistryProvider, resetToastStore, Toaster } from '@brainstrike/ui';
-import { useRewindComposerStore } from '@brainstrike/ui/assistant-ui-panel/rewind-composer-store';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
