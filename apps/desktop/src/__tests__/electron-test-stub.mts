@@ -91,10 +91,19 @@ export const screen = {
   getPrimaryDisplay: () => ({ workArea: { height: 1080, width: 1920, x: 0, y: 0 } }),
 };
 
+const makePartitionSession = () => ({
+  clearStorageData: () => Promise.resolve(),
+  on: makeFn(),
+  setPermissionCheckHandler: makeFn(),
+  setPermissionRequestHandler: makeFn(),
+  webRequest: { onHeadersReceived: makeFn() },
+});
+
 export const session = {
   defaultSession: {
     webRequest: { onHeadersReceived: makeFn() },
   },
+  fromPartition: () => makePartitionSession(),
 };
 
 export const Menu = {

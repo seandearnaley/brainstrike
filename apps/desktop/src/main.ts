@@ -41,6 +41,8 @@ import { reapOrphanedThreadRuns } from './assistant-server/thread-run-startup-re
 import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
+import { createBrowserPaneHost } from './browser/browser-pane-host';
+import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
@@ -82,6 +84,7 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
+import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
@@ -744,6 +747,7 @@ let unregisterFileExportsIpcHandlers: null | (() => void) = null;
 let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
 let unregisterChangesIpcHandlers: null | (() => void) = null;
+let unregisterBrowserIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterContextFilesIpcHandlers: null | (() => void) = null;
 let unregisterSkillsIpcHandlers: null | (() => void) = null;
@@ -1846,6 +1850,21 @@ if (singleInstanceLockAcquired) {
         // listeners + debounce timer on close so they don't accumulate per window.
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
         win.once('closed', disposeWindowStatePersistence);
+
+        // Embedded browser pane (BST-1174): each window owns its OWN pane host
+        // + IPC registration, so a macOS close→dock-reopen cycle (which calls
+        // createMainWindow again without quitting) rebinds the pane to the new
+        // window instead of leaving `window.browser` calls hitting a disposed
+        // host. The manager attaches views to THIS window's contentView.
+        const browserPaneHost = createBrowserPaneHost(win);
+        unregisterBrowserIpcHandlers = registerBrowserIpcHandlers(
+          createBrowserIpcHandlers(browserPaneHost.manager)
+        );
+        win.once('closed', () => {
+          browserPaneHost.dispose();
+          unregisterBrowserIpcHandlers?.();
+          unregisterBrowserIpcHandlers = null;
+        });
         return win;
       };
 
@@ -2140,6 +2159,8 @@ app.on('will-quit', () => {
   }
   unregisterChangesIpcHandlers?.();
   unregisterChangesIpcHandlers = null;
+  unregisterBrowserIpcHandlers?.();
+  unregisterBrowserIpcHandlers = null;
   if (unregisterHooksIpcHandlers) {
     unregisterHooksIpcHandlers();
     unregisterHooksIpcHandlers = null;
