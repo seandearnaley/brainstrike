@@ -136,7 +136,6 @@
       "packages": [
         "@brainstrike/assistant-contract",
         "@brainstrike/assistant-wire",
-        "@brainstrike/commands",
         "@brainstrike/context-actions",
         "@brainstrike/e2e-test-utils",
         "@brainstrike/file-system",
@@ -164,8 +163,6 @@
         "@brainstrike/config",
         "@brainstrike/platform-utils",
         "@brainstrike/secure-fs-native",
-        "@brainstrike/server-config",
-        "@brainstrike/tailwind-config",
         "@brainstrike/windows-job-native"
       ],
       "mayDependOn": []

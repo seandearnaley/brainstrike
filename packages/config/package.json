@@ -16,12 +16,14 @@
     "./biome": "./biome/biome.json",
     "./biome/base": "./biome/biome.json",
     "./tsconfig/*": "./tsconfig/*.json",
+    "./tailwind": "./tailwind/tailwind.config.js",
     "./playwright-environment": "./src/playwright-environment.ts",
     "./vitest-browser": "./src/vitest-browser.ts"
   },
   "files": [
     "biome/biome.json",
-    "tsconfig"
+    "tsconfig",
+    "tailwind"
   ],
   "license": "ISC",
   "main": "index.js",
@@ -32,11 +34,5 @@
     "test": "vitest run",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
-  },
-  "turbo": {
-    "outputs": [
-      "tsconfig/**",
-      "biome/**"
-    ]
   }
 }

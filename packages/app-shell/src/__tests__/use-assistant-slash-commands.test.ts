@@ -1,5 +1,5 @@
-import type { Command, CommandContext } from '@brainstrike/commands';
 import type { ContextTarget } from '@brainstrike/context-actions';
+import type { Command, CommandContext } from '@brainstrike/context-actions/commands';
 import {
   addLogListener,
   configureLogger,

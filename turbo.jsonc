@@ -318,7 +318,6 @@
         "@brainstrike/ui#dev", // Run the 'dev' script from the @brainstrike/ui package
         "@brainstrike/file-explorer-hooks#dev", // Run the 'dev' script from the @brainstrike/file-explorer-hooks package
         "@brainstrike/test-utils#dev", // Run the 'dev' script from the @brainstrike/test-utils package
-        "@brainstrike/server-config#dev", // Run the 'dev' script from the @brainstrike/server-config package
         "@brainstrike/app-shell#dev", // Run the 'dev' script from the @brainstrike/app-shell package
         "@brainstrike/file-explorer-ui#dev", // Run the 'dev' script from the @brainstrike/file-explorer-ui package
         "@brainstrike/file-system#dev", // Run the 'dev' script from the @brainstrike/file-system package

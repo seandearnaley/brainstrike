@@ -125,8 +125,8 @@
       "@brainstrike/context-actions": [
         "./packages/context-actions/src"
       ],
-      "@brainstrike/commands": [
-        "./packages/commands/src"
+      "@brainstrike/context-actions/commands": [
+        "./packages/context-actions/src/commands/index.ts"
       ],
       "@brainstrike/pipeline": [
         "./packages/pipeline/src"
@@ -151,9 +151,6 @@
       ],
       "@brainstrike/file-system/path-validation": [
         "./packages/file-system/src/path-validation.ts"
-      ],
-      "@brainstrike/server-config": [
-        "./packages/server-config/src"
       ],
       "@brainstrike/test-utils": [
         "./packages/test-utils/src"
@@ -285,9 +282,6 @@
       "path": "./packages/context-actions"
     },
     {
-      "path": "./packages/commands"
-    },
-    {
       "path": "./packages/pipeline"
     },
     {
@@ -295,9 +289,6 @@
     },
     {
       "path": "./packages/file-system"
-    },
-    {
-      "path": "./packages/server-config"
     },
     {
       "path": "./packages/test-utils/tsconfig.references.json"

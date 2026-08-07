@@ -340,11 +340,7 @@
       }
     },
     {
-      "includes": [
-        "**/tailwind.config.js",
-        "**/tailwind.config.ts",
-        "packages/tailwind-config/**"
-      ],
+      "includes": ["**/tailwind.config.js", "**/tailwind.config.ts"],
       "linter": {
         "rules": {
           "style": {

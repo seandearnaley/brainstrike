@@ -1,5 +1,5 @@
-import type { CommandContext } from '@brainstrike/commands';
 import type { ContextTarget } from '@brainstrike/context-actions';
+import type { CommandContext } from '@brainstrike/context-actions/commands';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildAppCommandContext, createAppCommandRegistry } from '../command-registry';
 import { buildAppActionRegistryParts } from '../context-action-registry';

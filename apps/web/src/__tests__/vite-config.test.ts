@@ -164,11 +164,16 @@ describe('web vite config alias contract', () => {
     expect(config).not.toContain('resolveVendorChunk');
     expect(config).not.toContain("return 'vendor'");
 
-    // context-actions/commands resolve to SOURCE via the shared registry
-    // (same TDZ-avoidance guarantee desktop's mirror test pins directly).
-    for (const pkg of ['context-actions', 'commands'] as const) {
-      const resolved = resolveThroughAliases(`@brainstrike/${pkg}`, registryEntries);
-      expect(resolved).toBe(path.resolve(PACKAGES_DIR, `${pkg}/src/index.ts`));
+    // The context-action system (root + './commands' subpath) resolves to
+    // SOURCE via the shared registry (same TDZ-avoidance guarantee desktop's
+    // mirror test pins directly).
+    const systemEntrypoints = [
+      ['@brainstrike/context-actions', 'context-actions/src/index.ts'],
+      ['@brainstrike/context-actions/commands', 'context-actions/src/commands/index.ts'],
+    ] as const;
+    for (const [specifier, sourcePath] of systemEntrypoints) {
+      const resolved = resolveThroughAliases(specifier, registryEntries);
+      expect(resolved).toBe(path.resolve(PACKAGES_DIR, sourcePath));
       expect(resolved).not.toMatch(/dist/);
     }
   });

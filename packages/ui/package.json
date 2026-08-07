@@ -9,7 +9,6 @@
     "@assistant-ui/styles": "catalog:",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
-    "@brainstrike/commands": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/logging": "workspace:*",

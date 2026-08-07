@@ -27,7 +27,6 @@ const OVERRIDES = new Map([
   ['@brainstrike/desktop', { branches: 60, functions: 70, lines: 90, statements: 70 }],
   // Configuration and utility package thresholds recalibrated in 2026-03.
   ['@brainstrike/config', { branches: 80, functions: 98, lines: 98, statements: 98 }],
-  ['@brainstrike/tailwind-config', { branches: 0, functions: 0, lines: 10, statements: 10 }],
   ['@brainstrike/types', { branches: 0, functions: 50, lines: 20, statements: 20 }],
   // File system — measured 2026-03: L 88.65% | F 89.52% | B 71.18% | S 78.31%
   // Ratcheted after utils-browser and path-validation branch test additions.

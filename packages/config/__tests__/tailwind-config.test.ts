@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import baseConfig from '../tailwind.config';
+import baseConfig from '../tailwind/tailwind.config';
 
 describe('tailwind configuration', () => {
   it('exports without throwing', () => {

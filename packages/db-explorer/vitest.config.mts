@@ -73,7 +73,9 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, '../pipeline/src'),
       },
       {
-        find: '@brainstrike/context-actions',
+        // Anchored: a bare-string find would also capture the
+        // './commands' subpath export, which the registry spread resolves.
+        find: /^@brainstrike\/context-actions$/,
         replacement: resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
       {

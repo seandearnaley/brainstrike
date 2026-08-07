@@ -5,7 +5,7 @@ import {
   logEnvironmentConfig,
   validateEnvironmentConfig,
 } from '@brainstrike/config/playwright-environment';
-import { DEFAULT_PORT, getBaseUrl } from '@brainstrike/server-config';
+import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
 import { defineConfig } from '@playwright/test';
 
 // Environment variable names
@@ -23,8 +23,16 @@ const config = getEnvironmentConfig();
 const useFullBrowserCoverage = !!process.env[fullBrowserCoverageEnv];
 
 // Default to the server config port (8080) since that's where our dev server runs
-const baseURL = process.env[baseUrlEnv] || getBaseUrl(DEFAULT_PORT);
-const serverURL = getBaseUrl(DEFAULT_PORT);
+// Web dev-server port: PORT env override, defaulting to the 8080 range to
+// avoid common conflicts (formerly @brainstrike/server-config).
+const DEFAULT_PORT = parsePositiveIntegerConfig({
+  defaultValue: 8080,
+  maxValue: 65_535,
+  name: 'PORT',
+  rawValue: process.env['PORT'],
+});
+const baseURL = process.env[baseUrlEnv] || `http://localhost:${DEFAULT_PORT}`;
+const serverURL = `http://localhost:${DEFAULT_PORT}`;
 
 // Log environment detection for debugging
 logEnvironmentConfig('Web', config, baseURL);

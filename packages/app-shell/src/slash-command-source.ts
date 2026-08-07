@@ -1,4 +1,8 @@
-import type { Command, CommandContext, CommandRegistry } from '@brainstrike/commands';
+import type {
+  Command,
+  CommandContext,
+  CommandRegistry,
+} from '@brainstrike/context-actions/commands';
 import type { ScopedLogger } from '@brainstrike/logging';
 
 /**
