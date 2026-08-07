@@ -1027,10 +1027,13 @@ const DataStreamRuntimeChat = ({
     ...(serverRunSession.prepareRequestWarmup
       ? { prepareRequestWarmup: serverRunSession.prepareRequestWarmup }
       : {}),
-    body: async (abortSignal: AbortSignal, context: { turnAnchorMessageId: string | null }) => {
+    body: async (abortSignal: AbortSignal, context?: { turnAnchorMessageId: string | null }) => {
       const preparedRequestData = await serverRunSession.prepareRequest(
         abortSignal,
-        context.turnAnchorMessageId
+        // Absent context (a caller predating the BST-1163 signature, incl.
+        // direct test invocation) is an honest "no anchor known", never a
+        // fabricated id.
+        context?.turnAnchorMessageId ?? null
       );
       return {
         data: {

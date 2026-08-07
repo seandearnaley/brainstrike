@@ -880,7 +880,24 @@ finalizes the rewind.
   `rewind_id` batch" an exact inverse. A second rewind re-covering an already
   hidden message keeps the ORIGINAL batch's row (`ON CONFLICT DO NOTHING`), so
   undoing the newer rewind cannot resurrect what the older one hid.
-- **THE FILE-REVERT RANGE ANCHORS THE TARGET MESSAGE AGAINST `completed_at`**
+- **THE FILE-REVERT RANGE PREFERS THE STORED RUN↔TURN LINK** (BST-1163):
+  `brainstrike_assistant_thread_runs.turn_message_id` (nullable; bootstrap
+  CREATE + idempotent `ADD COLUMN IF NOT EXISTS` upgrade, NO numbered
+  migration) records the user message whose turn each run belongs to. It is
+  stamped at `createThreadRun` — the transport resolves the per-leg turn
+  anchor (`resolveTurnAnchorMessageId` in `data-stream-runtime.ts`: the last
+  REAL user message, approval action echoes excluded) and threads it through
+  `prepareRequest`/`prepareRequestData`, so initial sends AND
+  approval/suspend resume legs stamp the SAME id. `resolveRewindRunRange`
+  puts a linked run in range exactly when its turn message is at-or-after
+  the target in the message total order, and `resolveRewindMessageForRun`
+  answers a linked run's own turn message exactly (closing the documented
+  mid-turn under-coverage). NULL-link rows (pre-link, or a link whose
+  message a finalized rewind deleted) keep the `completed_at` fallback
+  below. Paired tests: `rewind-turn-link.integration.test.ts` +
+  `assistant-thread-run-turn-link.integration.test.ts`.
+
+  **THE FALLBACK ANCHORS THE TARGET MESSAGE AGAINST `completed_at`**
   (`resolveRewindRunRange`): a run is in range when it had not yet finished at
   the moment the target message was sent. **A TURN IS NOT ONE RUN** — every
   tool-approval / askUser resume mints another `brainstrike_assistant_thread_runs`
@@ -895,11 +912,10 @@ finalizes the rewind.
   BEFORE its own user message is persisted, so `started_at` cannot order them,
   but the run always ends later. NULL `completed_at` counts as in range and is
   unreachable from `applyRewind` (`hasInFlightThreadRun` refuses first).
-  **Run -> message is the inverse that does NOT round-trip**: no column links a
-  run to the message whose turn it belongs to, so `resolveRewindMessageForRun`
-  maps a MID-TURN run to the next turn's message and the rewind covers less than
-  that run. Under-revert is the safe direction and the modal shows the resolved
-  range; closing it needs a stored run<->turn link, not another timestamp rule.
+  **Run -> message round-trips through the stored link** for every post-link
+  row; only NULL-link fallback rows retain the old mid-turn under-coverage
+  (`resolveRewindMessageForRun` maps such a resume run to the next turn's
+  message — the safe direction, and the modal shows the resolved range).
 - **A REWIND IS INVISIBLE WITHOUT A RE-HYDRATION BUMP.** Every read path below
   excludes tombstoned messages, but the live assistant thread is not a read
   path — it is assistant-ui in-memory state, hydrated ONCE by
