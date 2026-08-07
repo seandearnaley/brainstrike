@@ -551,6 +551,27 @@ the current card. `use-git-panel.ts`'s `loadDiff` (the old
 `loadCommitFiles`. Guarded by `git-panel.test.tsx`'s `'never lets a late
 historical diff replace the current commit diff'`.
 
+**Canvas tab tenancy in the changes-navigation store (BST-1173).** The
+workspace panel gained a third tab, and `changes-navigation-store` — which
+already owned the generic panel-tab state — now also owns the Canvas surface's
+navigation facts: `WorkspacePanelTab` includes `'canvas'`, `canvasTabMounted`
+mirrors `changesTabMounted`'s sticky keep-mounted contract (the sandboxed
+iframe must not reload on tab switches), `openCanvasPanel()` is the external
+entry point (same unconditional-write reasoning as `openChangeset`), and
+`canvasRefreshNonce` / `requestCanvasRefresh()` is the Canvas panel's
+re-resolve trigger — the same re-resolve-not-push design as
+`liveRefreshNonce`, bumped by `use-wrapper-rewind-wiring`'s
+`handleRunEditActivity` when a completed edit-activity event's tool name
+denormalizes to `brainstrike.manageCanvas` (canvas mutations are edit-risk, so
+they already ride that stream; the canvas bump is unthrottled and then falls
+through to the guarded Changes refresh). All of these reset with the store's
+existing factory-reset registration. `WorkspacePanelTabs`' capability gate is
+now PER-TAB: any subset of {Changes, Canvas} may be present; chrome renders
+only when more than one tab exists. Web passes NO `canvasPanelContent` —
+nothing can write `brainstrike_canvas_versions` there (desktop-only tool, no
+sync) and a permanently-empty tab would violate the omit-don't-stub
+convention.
+
 **Worktree dropdown** (`git-workbench-header.tsx`): each entry publishes a
 `git-scope` changeset (`scope: { kind: 'uncommitted' }`) via
 `useChangesNavigationStore.openChangeset` — which itself sets

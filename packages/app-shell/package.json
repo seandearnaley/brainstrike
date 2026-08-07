@@ -123,6 +123,10 @@
       "types": "./dist/terminal-panel/availability.d.ts",
       "import": "./dist/terminal-panel/availability.js"
     },
+    "./canvas/canvas-panel": {
+      "types": "./dist/canvas/canvas-panel.d.ts",
+      "import": "./dist/canvas/canvas-panel.js"
+    },
     "./root-layout-content": {
       "types": "./dist/root-layout-content.d.ts",
       "import": "./dist/root-layout-content.js"

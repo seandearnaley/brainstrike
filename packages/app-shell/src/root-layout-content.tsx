@@ -150,6 +150,12 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
 
 export interface RootLayoutContentProps {
   /**
+   * Optional Canvas surface (BST-1173), presence-gated like
+   * `changesPageContent`. Each app constructs it with its platform-specific
+   * shell URL; available on both targets.
+   */
+  readonly canvasPanelContent?: ReactNode;
+  /**
    * Optional Changes surface (desktop-only). Supplied by the desktop wrapper
    * when the `window.changes` bridge is present; web never constructs it
    * (capability gating, not an isElectron check). Rendered as a tab INSIDE
@@ -444,6 +450,7 @@ function ContextExplorerSurface({
 }
 
 const ExplorerAppSurface = memo(function ExplorerAppSurface({
+  canvasPanelContent,
   changesPageContent,
   contextExplorerPanelContent,
   contextExplorerPageContent,
@@ -453,6 +460,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   preloadDatabaseTabOnMount,
   visible,
 }: {
+  readonly canvasPanelContent?: ReactNode;
   readonly changesPageContent?: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
@@ -500,6 +508,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
         }
         workspaceContent={
           <WorkspacePanelTabs
+            canvasPanelContent={canvasPanelContent}
             changesPageContent={changesPageContent}
             contextExplorerContent={
               <ContextExplorerSurface
@@ -515,6 +524,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
 });
 
 export function RootLayoutContent({
+  canvasPanelContent,
   changesPageContent,
   contextExplorerPageContent,
   contextExplorerPanelContent,
@@ -660,6 +670,7 @@ export function RootLayoutContent({
                       onChange={handlePanelLayoutChange}
                     >
                       <ExplorerAppSurface
+                        canvasPanelContent={canvasPanelContent}
                         changesPageContent={changesPageContent}
                         contextExplorerPageContent={contextExplorerPageContent}
                         contextExplorerPanelContent={contextExplorerPanelContent}

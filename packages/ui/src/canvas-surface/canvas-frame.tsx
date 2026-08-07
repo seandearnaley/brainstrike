@@ -31,6 +31,12 @@ export interface CanvasFrameProps {
   readonly onConsoleEvent?: (event: CanvasConsoleEvent) => void;
   readonly onErrorEvent?: (event: CanvasErrorEvent) => void;
   /**
+   * Called whenever the shell announces readiness — including a LATE ready
+   * after `onShellTimeout` already fired. Consumers surfacing the timeout must
+   * clear that state here (the frame recovers by contract).
+   */
+  readonly onShellReady?: () => void;
+  /**
    * Called when the shell fails to announce readiness within
    * `shellReadyTimeoutMs` (shell request failed, protocol unavailable, CSP
    * refused execution). Fires at most once per silent period; a late ready
@@ -63,6 +69,7 @@ export function CanvasFrame({
   html,
   onConsoleEvent,
   onErrorEvent,
+  onShellReady,
   onShellTimeout,
   shellReadyTimeoutMs = DEFAULT_SHELL_READY_TIMEOUT_MS,
   shellSrc,
@@ -74,10 +81,10 @@ export function CanvasFrame({
   // recovery) replays the current content instead of losing it.
   const [readyGeneration, setReadyGeneration] = useState(0);
 
-  const callbacksRef = useRef({ onConsoleEvent, onErrorEvent, onShellTimeout });
+  const callbacksRef = useRef({ onConsoleEvent, onErrorEvent, onShellReady, onShellTimeout });
   useEffect(() => {
-    callbacksRef.current = { onConsoleEvent, onErrorEvent, onShellTimeout };
-  }, [onConsoleEvent, onErrorEvent, onShellTimeout]);
+    callbacksRef.current = { onConsoleEvent, onErrorEvent, onShellReady, onShellTimeout };
+  }, [onConsoleEvent, onErrorEvent, onShellReady, onShellTimeout]);
 
   // NO SILENT FALLBACKS: if the shell never announces ready (request failed,
   // protocol unregistered, CSP refused execution), a blank frame must not hang
@@ -112,6 +119,7 @@ export function CanvasFrame({
       switch (message.type) {
         case CANVAS_FRAME_MESSAGE_TYPES.ready:
           setReadyGeneration((generation) => generation + 1);
+          callbacksRef.current.onShellReady?.();
           return;
         case CANVAS_FRAME_MESSAGE_TYPES.relayConsole:
           callbacksRef.current.onConsoleEvent?.({ level: message.level, text: message.text });
