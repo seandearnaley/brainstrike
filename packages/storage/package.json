@@ -8,6 +8,7 @@
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
+    "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "catalog:",

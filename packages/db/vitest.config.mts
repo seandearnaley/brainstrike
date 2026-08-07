@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
+import { withBoundedTraceChunkNames } from '../config/src/vitest-browser.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -144,18 +145,23 @@ export default defineConfig({
             enabled: true,
             headless: true,
             instances: [{ browser: 'chromium' }],
-            provider: playwright({
-              launchOptions: {
-                args: process.env['CI']
-                  ? [
-                      '--no-sandbox',
-                      '--disable-dev-shm-usage',
-                      '--disable-setuid-sandbox',
-                      '--disable-features=VizDisplayCompositor',
-                    ]
-                  : [],
-              },
-            }),
+            // withBoundedTraceChunkNames: long test names otherwise overflow
+            // the 255-byte attachment filename and the ENAMETOOLONG masks the
+            // real failure (see @brainstrike/config's vitest-browser).
+            provider: withBoundedTraceChunkNames(
+              playwright({
+                launchOptions: {
+                  args: process.env['CI']
+                    ? [
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-setuid-sandbox',
+                        '--disable-features=VizDisplayCompositor',
+                      ]
+                    : [],
+                },
+              })
+            ),
             // Capture screenshots on failure for quick visual debugging
             screenshotFailures: true,
             // Playwright trace: capture only for failing tests in CI

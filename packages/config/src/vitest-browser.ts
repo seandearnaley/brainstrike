@@ -48,24 +48,62 @@ const resolveIsCI = (config?: BrowserTestConfig): boolean =>
 /**
  * Vitest builds the Playwright trace chunk name from the full sanitized test
  * name, unbounded, and later copies the trace into `.vitest-attachments` as
- * `<sanitized relative trace path>-<40-char sha1>.zip`. Long describe/test
- * names push that basename past the 255-byte filesystem limit, so the copy
- * dies with ENAMETOOLONG and masks the real test failure
+ * `<sanitized package-relative trace path>-<40-char sha1>.zip`. Long
+ * describe/test names push that basename past the 255-byte filesystem limit,
+ * so the copy dies with ENAMETOOLONG and masks the real test failure
  * (https://github.com/vitest-dev/vitest/issues/9168, unfixed as of 4.1.10).
  *
- * 80 chars leaves ~120 bytes of headroom in the attachment basename for the
- * repo's test-directory prefixes after the hash and extension are added.
+ * The real invariant is a budget on the DIRECTORY PREFIX, not on the chunk
+ * name. The attachment basename is
+ *
+ *   sanitize(`<dir>/__traces__/<testfile>/<project>-`) + <chunk name>
+ *     + `-trace-zip` (10) + `-` (1) + sha1 (40) + `.zip` (4)
+ *
+ * so 255 bytes allows `chunk + prefix <= 200`. At 80 bytes of chunk name the
+ * sanitized prefix must stay under 120 bytes; the repo's deepest browser test
+ * today (assistant-ui's assistant-thread-virtualization) sits at 85, i.e. 220
+ * bytes total with 35 to spare. A longer test filename or a deeper directory
+ * eats that headroom, so the budget is enforced against the real tree by
+ * scripts/__tests__/browser-trace-name-budget.test.mjs rather than trusted.
  */
-export const MAX_TRACE_CHUNK_NAME_LENGTH = 80;
+export const MAX_TRACE_CHUNK_NAME_BYTES = 80;
 
+const utf8 = new TextEncoder();
+
+const byteLength = (value: string): number => utf8.encode(value).length;
+
+/** Truncates on a code-point boundary so a bounded name is never mojibake. */
+function truncateToBytes(value: string, maxBytes: number): string {
+  let bytes = 0;
+  let truncated = '';
+  for (const codePoint of value) {
+    const size = byteLength(codePoint);
+    if (bytes + size > maxBytes) {
+      break;
+    }
+    bytes += size;
+    truncated += codePoint;
+  }
+  return truncated;
+}
+
+/**
+ * Bounded in BYTES, not UTF-16 code units. Vitest's `getTraceName` sanitizes
+ * with `/[^a-z0-9]/gi` (which drops every non-ASCII code unit, including the
+ * `i`-flag folding traps U+212A and U+017F), so today's input is always ASCII
+ * and the two measures agree — but the limit this protects is a filesystem
+ * byte limit, and depending on an upstream regex to keep it that way is the
+ * same class of silent coupling this whole module exists to remove.
+ */
 export function boundTraceChunkName(name: string): string {
-  if (name.length <= MAX_TRACE_CHUNK_NAME_LENGTH) {
+  if (byteLength(name) <= MAX_TRACE_CHUNK_NAME_BYTES) {
     return name;
   }
   // The truncated tail carries the retry/repeat counters, so a hash of the
   // full name keeps bounded names unique across retries.
   const digest = createHash('sha1').update(name).digest('hex').slice(0, 10);
-  return `${name.slice(0, MAX_TRACE_CHUNK_NAME_LENGTH - digest.length - 1)}-${digest}`;
+  const prefix = truncateToBytes(name, MAX_TRACE_CHUNK_NAME_BYTES - digest.length - 1);
+  return `${prefix}-${digest}`;
 }
 
 export type TraceChunkCommand = (
@@ -107,7 +145,17 @@ export function bindTraceChunkNameBounding(browser: TraceChunkCommandRegistry): 
 
 type PlaywrightProviderDefinition = ReturnType<typeof playwright>;
 
-function withBoundedTraceChunkNames(
+/**
+ * Wraps a playwright provider definition so its trace chunk names are bounded.
+ * `createBrowserProject` applies this for you — call it directly only from a
+ * browser project that builds its own `playwright()` provider (packages/db and
+ * packages/storage), otherwise that project keeps the ENAMETOOLONG exposure.
+ *
+ * Assumes the provider definition is a plain object: the spread below copies
+ * own enumerable properties only, so a future class instance or accessor on
+ * the definition would be dropped silently.
+ */
+export function withBoundedTraceChunkNames(
   definition: PlaywrightProviderDefinition
 ): PlaywrightProviderDefinition {
   return {

@@ -6,10 +6,12 @@ import {
   boundTraceChunkName,
   createBrowserProject,
   createPlaywrightOptions,
-  MAX_TRACE_CHUNK_NAME_LENGTH,
+  MAX_TRACE_CHUNK_NAME_BYTES,
   playwright,
   type TraceChunkCommand,
 } from '../src/vitest-browser';
+
+const byteLength = (value: string): number => new TextEncoder().encode(value).length;
 
 const ENV_KEYS = ['CI', 'GITHUB_ACTIONS'] as const;
 const originalEnv: Record<(typeof ENV_KEYS)[number], string | undefined> = {
@@ -148,7 +150,7 @@ describe('boundTraceChunkName', () => {
     const name = 'a'.repeat(400);
     const bounded = boundTraceChunkName(name);
 
-    expect(bounded).toHaveLength(MAX_TRACE_CHUNK_NAME_LENGTH);
+    expect(bounded).toHaveLength(MAX_TRACE_CHUNK_NAME_BYTES);
     expect(bounded.startsWith(name.slice(0, 40))).toBe(true);
     expect(boundTraceChunkName(name)).toBe(bounded);
   });
@@ -161,23 +163,46 @@ describe('boundTraceChunkName', () => {
     expect(firstAttempt).not.toBe(retryAttempt);
   });
 
+  it('bounds by encoded bytes rather than UTF-16 code units', () => {
+    // 80 CJK characters are within the limit by `.length` but are 240 bytes on
+    // disk. Vitest's own sanitizer makes this unreachable today; the bound is
+    // still expressed in the unit the filesystem actually enforces.
+    const bounded = boundTraceChunkName('描'.repeat(80));
+
+    expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_TRACE_CHUNK_NAME_BYTES);
+  });
+
+  it('never truncates through a code point', () => {
+    // A 4-byte astral code point straddling the cut must be dropped whole,
+    // not split into a lone surrogate.
+    const bounded = boundTraceChunkName('😀'.repeat(60));
+
+    expect(byteLength(bounded)).toBeLessThanOrEqual(MAX_TRACE_CHUNK_NAME_BYTES);
+    // A lone surrogate would round-trip through UTF-8 as U+FFFD.
+    const roundTripped = new TextDecoder().decode(new TextEncoder().encode(bounded));
+    expect(roundTripped).toBe(bounded);
+    expect(bounded).not.toContain('�');
+  });
+
   it('keeps the attachment destination basename within the 255-byte filesystem limit for the observed CI failure', () => {
-    // The exact test name that broke CI run 31192787928 (PR #2296): the
-    // attachment destination is the sanitized relative trace path plus a
-    // 40-char sha1 and the extension, mirroring vitest's resolveTestAttachment.
+    // The exact test name that broke CI run 31192787928 (PR #2296). The model
+    // below mirrors vitest's resolveTestAttachment + sanitizeFilePath and
+    // reproduces the destination in that CI log byte for byte (259).
     const observedChunkName =
       'follow-up-queue-dispatch-keeps-stick-to-bottom-pinned--BST-1039--queue-flush-at-run-end-does-not-unpin-a-bottom-pinned-thread-0-0';
     const destinationBasename = (chunkName: string): string => {
       const tracePath = `src/__tests__/__traces__/follow-up-queue-repin.browser.test.tsx/browser--chromium--${chunkName}.trace.zip`;
-      const sanitized = tracePath.replace(/[^a-z0-9]/gi, '-');
+      // vitest's sanitizeFilePath collapses runs of special characters.
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: mirrors vitest verbatim
+      const sanitized = tracePath.replace(/[\x00-\x2C\x2E\x2F\x3A-\x40\x5B-\x60\x7B-\x7F]+/g, '-');
       const hash = createHash('sha1').update(tracePath).digest('hex');
       return `${sanitized}-${hash}.zip`;
     };
 
-    expect(destinationBasename(observedChunkName).length).toBeGreaterThan(255);
-    expect(destinationBasename(boundTraceChunkName(observedChunkName)).length).toBeLessThanOrEqual(
-      255
-    );
+    expect(byteLength(destinationBasename(observedChunkName))).toBe(259);
+    expect(
+      byteLength(destinationBasename(boundTraceChunkName(observedChunkName)))
+    ).toBeLessThanOrEqual(255);
   });
 });
 
