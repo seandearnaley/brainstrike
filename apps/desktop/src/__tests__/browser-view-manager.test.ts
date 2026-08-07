@@ -362,6 +362,37 @@ describe('BrowserViewManager', () => {
     );
   });
 
+  it('a failing host attach leaves NO phantom tab behind (live-regression guard)', () => {
+    // When attaching the native view throws (the 2026-08-07 conversion-failure
+    // regression), the half-created tab must not stay registered — a later
+    // listTabs() resync would paint a dead tab with no native view behind it
+    // ("it just created a new tab and nothing else").
+    const created: FakeView[] = [];
+    const manager = new BrowserViewManager({
+      createView: () => {
+        const view = createFakeView(created.length + 1);
+        created.push(view);
+        return view;
+      },
+      hostWindow: {
+        contentView: {
+          addChildView: () => {
+            throw new TypeError('conversion failure');
+          },
+          removeChildView: () => undefined,
+        },
+      },
+      mintTabId: () => 'tab-1',
+      onTabsChanged: vi.fn(),
+      partition: 'persist:browser-pane-test',
+    });
+
+    expect(() => manager.createTab('https://example.com')).toThrow('conversion failure');
+    expect(manager.listTabs()).toEqual([]);
+    // The orphaned view's page process must not keep running either.
+    expect(created[0]?.calls.closed).toBe(true);
+  });
+
   it('dispose destroys every view and detaches it', () => {
     const { manager, removed } = setup();
     manager.createTab('a.com');

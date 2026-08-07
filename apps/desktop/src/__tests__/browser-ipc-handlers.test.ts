@@ -144,6 +144,29 @@ describe('createBrowserIpcHandlers — validation at the boundary', () => {
     expect(result.ok && result.value).toHaveLength(1);
   });
 
+  it('converts an executor THROW into a structured failure (never an invoke rejection)', () => {
+    // Live regression 2026-08-07: manager.createTab threw (native attach
+    // failure) and the raw TypeError propagated to the renderer as an
+    // "Error invoking remote method" rejection. The contract is structured
+    // results in BOTH directions — validation failures AND executor throws.
+    const manager = fakeManager();
+    const throwing: typeof manager = {
+      ...manager,
+      createTab: () => {
+        throw new TypeError('conversion failure');
+      },
+      navigate: () => {
+        throw new Error('boom');
+      },
+    };
+    const handlers = createBrowserIpcHandlers(throwing);
+    expect(handlers.createTab('https://x')).toMatchObject({
+      error: expect.stringContaining('conversion failure'),
+      ok: false,
+    });
+    expect(handlers.navigate('tab-1', 'x.com')).toMatchObject({ ok: false });
+  });
+
   it('never throws for malformed input — always a structured result', () => {
     const handlers = createBrowserIpcHandlers(fakeManager());
     for (const call of [

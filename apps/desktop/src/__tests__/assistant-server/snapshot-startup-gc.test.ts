@@ -174,6 +174,9 @@ function makeFixture(options: FixtureOptions) {
 
   const deps: SnapshotStartupGcDeps = {
     db,
+    // The fixture root path is virtual; force it accessible so reconcile paths
+    // run. Inaccessible-root behavior is exercised by overriding this probe.
+    isRootPathAccessible: async () => true,
     liveRoots: [{ path: '/tmp/root-1', rootId: 'root-1' }],
     snapshotRepository: repository,
     snapshotService: service,
@@ -381,6 +384,30 @@ describe('runSnapshotStartupGc', () => {
     expect(report.refOnlyPruned).toEqual([{ rootId: 'root-1', threadId: 'thread-ghost' }]);
     expect(fixture.prunedThreads).toEqual([{ rootId: 'root-1', threadId: 'thread-ghost' }]);
     expect(fixture.prunedHistories).toEqual([{ boundaries: [OID_B], rootId: 'root-1' }]);
+  });
+
+  it('skips (not fails) a live root whose path is inaccessible — no per-boot error-spam', async () => {
+    // Live 2026-08-07: a stale root row ("mock-project", ENOENT) made
+    // ensureShadowRepo fail into `failures` → logger.error EVERY startup,
+    // forever. An unreachable root (deleted dir, unmounted volume) is a skip
+    // with visibility, not a recurring error — and NOTHING may be deleted for
+    // it (the volume may come back).
+    const fixture = makeFixture({
+      boundaries: [],
+      liveThreads: [],
+      refsByRoot: { 'root-1': ['thread-residue'] },
+      rowsByThread: {},
+    });
+    const report = await runSnapshotStartupGc({
+      ...fixture.deps,
+      isRootPathAccessible: async () => false,
+    });
+
+    expect(report.skippedInaccessibleRoots).toEqual([{ path: '/tmp/root-1', rootId: 'root-1' }]);
+    expect(report.failures).toEqual([]);
+    // The repo is never touched: no shadow-repo open, no ref pruning.
+    expect(fixture.service.ensureShadowRepo).not.toHaveBeenCalled();
+    expect(fixture.prunedThreads).toEqual([]);
   });
 
   it('collects per-item failures without aborting the sweep (visible, non-fatal)', async () => {

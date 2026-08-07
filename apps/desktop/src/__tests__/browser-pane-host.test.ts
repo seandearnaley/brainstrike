@@ -154,6 +154,32 @@ describe('createBrowserPaneHost — dispose on renderer reload', () => {
   });
 });
 
+describe('createBrowserPaneHost — native view identity', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('passes the REAL WebContentsView instance to addChildView/removeChildView, never the wrapper', async () => {
+    // Production regression (2026-08-07 live logs): the manager's plain-object
+    // wrapper was cast `as unknown as WebContentsView` into the native
+    // `contentView.addChildView`, which rejects non-View objects at the
+    // binding layer ("Error processing argument at index 0, conversion
+    // failure") — createTab threw in the real app while every fake-based test
+    // stayed green. The identity contract below is the guard: what reaches
+    // the host window MUST be the constructed WebContentsView itself.
+    const { createBrowserPaneHost } = await import('../browser/browser-pane-host');
+    const { attached, window } = fakeHostWindow();
+    const host = createBrowserPaneHost(window as never);
+
+    const tabId = host.manager.createTab('https://example.com');
+    expect(attached).toHaveLength(1);
+    expect(attached[0]).toBeInstanceOf(FakeWebContentsView);
+
+    host.manager.closeTab(tabId);
+    expect(attached).toHaveLength(0); // removeChildView matched the same instance
+  });
+});
+
 describe('createBrowserPaneHost — CDP driver (BST-1176)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

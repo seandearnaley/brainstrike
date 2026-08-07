@@ -58,6 +58,7 @@
  * dead and mass-delete), reports `threadsTableMissing`, and does nothing —
  * refusing loudly beats guessing on a destructive seam.
  */
+import { access } from 'node:fs/promises';
 import {
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
   WORKSPACE_SNAPSHOTS_TABLE,
@@ -74,11 +75,24 @@ import {
 
 const THREADS_TABLE = 'mastra_threads';
 
+/** Production probe backing {@link SnapshotStartupGcDeps.isRootPathAccessible}. */
+function isPathAccessible(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    () => false
+  );
+}
+
 /** The plan's retention ring: newest 50 turns per thread. */
 export const DEFAULT_SNAPSHOT_TURN_RING = 50;
 
 export interface SnapshotStartupGcDeps {
   readonly db: EditCheckpointDatabase;
+  /**
+   * Probe for a root path's existence before opening its shadow repo.
+   * Injectable for tests; production defaults to `fs.access`.
+   */
+  readonly isRootPathAccessible?: (path: string) => Promise<boolean>;
   /** Connected workspace roots (every `roots` row — disconnect ≠ delete). */
   readonly liveRoots: readonly { readonly path: string; readonly rootId: string }[];
   readonly snapshotRepository: SnapshotRepository;
@@ -98,6 +112,15 @@ export interface SnapshotStartupGcReport {
   readonly refOnlyPruned: readonly { readonly rootId: string; readonly threadId: string }[];
   /** Per-thread ring trims: how many ledger rows fell off the ring. */
   readonly ringTrimmed: readonly { readonly deletedRows: number; readonly threadId: string }[];
+  /**
+   * Live roots whose PATH was unreachable (deleted directory, unmounted
+   * volume): their shadow repos were left untouched and the caller logs a
+   * single warn — this is an expected condition, never a per-boot error.
+   */
+  readonly skippedInaccessibleRoots: readonly {
+    readonly path: string;
+    readonly rootId: string;
+  }[];
   /** True = `mastra_threads` is absent while snapshot rows exist; nothing was
    * touched (see the module doc comment). */
   readonly threadsTableMissing: boolean;
@@ -108,6 +131,7 @@ interface GcAccumulator {
   readonly failures: string[];
   readonly refOnlyPruned: { rootId: string; threadId: string }[];
   readonly ringTrimmed: { deletedRows: number; threadId: string }[];
+  readonly skippedInaccessibleRoots: { path: string; rootId: string }[];
   /** Root ids needing a pruneHistory pass. */
   readonly touchedRoots: Set<string>;
 }
@@ -159,6 +183,12 @@ async function purgeDeadThread(
   for (const root of roots) {
     const livePath = liveRootsById.get(root.rootId);
     if (livePath === undefined) {
+      continue;
+    }
+    // Unreachable root path: skip the ref prune (recorded once by
+    // reconcileRootRepo, which sweeps every live root). The refs become
+    // ref-only residue the next sweep reclaims when the root is back.
+    if (!(await (deps.isRootPathAccessible ?? isPathAccessible)(livePath))) {
       continue;
     }
     try {
@@ -342,6 +372,15 @@ async function reconcileRootRepo(
   liveThreadIds: ReadonlySet<string>,
   boundariesByRoot: ReadonlyMap<string, ReadonlyMap<string, string>>
 ): Promise<void> {
+  // An unreachable root path (deleted directory, unmounted volume, a stale
+  // row like the 2026-08-07 "mock-project" residue) is an EXPECTED condition:
+  // skip with visibility and touch nothing — the volume may come back. Only
+  // an ACCESSIBLE root whose shadow repo still fails to open is a failure.
+  const accessible = await (deps.isRootPathAccessible ?? isPathAccessible)(root.path);
+  if (!accessible) {
+    accumulator.skippedInaccessibleRoots.push({ path: root.path, rootId: root.rootId });
+    return;
+  }
   let handle: ShadowRepoHandle;
   try {
     handle = await deps.snapshotService.ensureShadowRepo({
@@ -393,6 +432,7 @@ export async function runSnapshotStartupGc(
     failures: [],
     refOnlyPruned: [],
     ringTrimmed: [],
+    skippedInaccessibleRoots: [],
     touchedRoots: new Set(),
   };
   const historyPrunedRoots: string[] = [];
@@ -408,6 +448,7 @@ export async function runSnapshotStartupGc(
         historyPrunedRoots: [],
         refOnlyPruned: [],
         ringTrimmed: [],
+        skippedInaccessibleRoots: [],
         threadsTableMissing: false,
       };
     }
@@ -419,6 +460,7 @@ export async function runSnapshotStartupGc(
       historyPrunedRoots: [],
       refOnlyPruned: [],
       ringTrimmed: [],
+      skippedInaccessibleRoots: [],
       threadsTableMissing: true,
     };
   }
@@ -462,6 +504,7 @@ export async function runSnapshotStartupGc(
     historyPrunedRoots,
     refOnlyPruned: accumulator.refOnlyPruned,
     ringTrimmed: accumulator.ringTrimmed,
+    skippedInaccessibleRoots: accumulator.skippedInaccessibleRoots,
     threadsTableMissing: false,
   };
 }

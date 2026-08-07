@@ -17,37 +17,38 @@ const ROOT_WRITE_GUARD_DESCRIPTION =
 const CANVAS_HTML_MAX = 8_000_000;
 const CANVAS_TITLE_MAX = 500;
 
+// Branches deliberately STRIP (zod default) rather than `.strict()`:
+// `action` fully determines semantics, and real models bundle fields from
+// other actions (observed live with gpt-5.6, 2026-08-07 — a valid `create`
+// carrying redundant canvasId/oldString/newString was rejected, breaking the
+// feature and burning retry tokens). Cross-action extras among the six
+// DECLARED envelope keys are harmless; genuinely unknown keys (hallucinated
+// API) are still rejected by the `.strict()` provider envelope below.
 const ManageCanvasActionInputSchema = z.discriminatedUnion('action', [
-  z
-    .object({
-      action: z.literal('create'),
-      html: z.string().max(CANVAS_HTML_MAX).describe('Initial HTML content for version 1'),
-      title: z.string().min(1).max(CANVAS_TITLE_MAX).describe('Canvas document title'),
-    })
-    .strict(),
-  z
-    .object({
-      action: z.literal('update'),
-      canvasId: z.string().min(1).describe('Canvas document id'),
-      newString: z
-        .string()
-        .max(CANVAS_HTML_MAX)
-        .describe('Replacement HTML substring; empty deletes the match'),
-      oldString: z
-        .string()
-        .min(1)
-        .max(CANVAS_HTML_MAX)
-        .describe('Exact HTML substring that must occur exactly once in the latest version'),
-    })
-    .strict(),
-  z
-    .object({
-      action: z.literal('rewrite'),
-      canvasId: z.string().min(1).describe('Canvas document id'),
-      html: z.string().max(CANVAS_HTML_MAX).describe('Complete HTML content for the new version'),
-    })
-    .strict(),
-  z.object({ action: z.literal('list') }).strict(),
+  z.object({
+    action: z.literal('create'),
+    html: z.string().max(CANVAS_HTML_MAX).describe('Initial HTML content for version 1'),
+    title: z.string().min(1).max(CANVAS_TITLE_MAX).describe('Canvas document title'),
+  }),
+  z.object({
+    action: z.literal('update'),
+    canvasId: z.string().min(1).describe('Canvas document id'),
+    newString: z
+      .string()
+      .max(CANVAS_HTML_MAX)
+      .describe('Replacement HTML substring; empty deletes the match'),
+    oldString: z
+      .string()
+      .min(1)
+      .max(CANVAS_HTML_MAX)
+      .describe('Exact HTML substring that must occur exactly once in the latest version'),
+  }),
+  z.object({
+    action: z.literal('rewrite'),
+    canvasId: z.string().min(1).describe('Canvas document id'),
+    html: z.string().max(CANVAS_HTML_MAX).describe('Complete HTML content for the new version'),
+  }),
+  z.object({ action: z.literal('list') }),
 ]);
 
 export type ManageCanvasInput = z.infer<typeof ManageCanvasActionInputSchema>;
