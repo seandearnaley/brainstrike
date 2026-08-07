@@ -113,6 +113,8 @@ describe('resolveToolRiskCategory', () => {
         'brainstrike.stringReplaceWorkspaceFile',
         'brainstrike.deleteWorkspaceFile',
         'brainstrike.renameWorkspaceFile',
+        // Canvas mutations persist durable state → 'edit' (PR #2294 review).
+        'brainstrike.manageCanvas',
         // The shell tool is the first 'execute'-risk native tool.
         'brainstrike.executeCommand',
         'brainstrike.manageCommandSession',
@@ -140,6 +142,8 @@ describe('buildNativeToolRiskMap', () => {
     'brainstrike.stringReplaceWorkspaceFile',
     'brainstrike.deleteWorkspaceFile',
     'brainstrike.renameWorkspaceFile',
+    // Canvas mutations persist durable state → 'edit' (PR #2294 review).
+    'brainstrike.manageCanvas',
   ];
 
   it('maps every native tool id to its resolved risk category', () => {

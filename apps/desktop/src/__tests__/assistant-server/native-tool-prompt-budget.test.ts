@@ -541,7 +541,11 @@ describe('desktop native tool provider prompt budget', () => {
       // 2166 (the banded assertions above; move the recorded figures WITH any
       // deliberate raise, per the trade-record practice).
       eagerToolCount: 34,
-      manageCanvasDefinitionTokens: 210,
+      // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
+      // html/oldString/newString (+500-char titles) serialize into the
+      // provider schema, and the description now states that `list` returns
+      // summaries, never content. Both are deliberate hardening spends.
+      manageCanvasDefinitionTokens: 234,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
