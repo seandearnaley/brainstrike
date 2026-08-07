@@ -4,7 +4,12 @@ export interface AssistantAuthBridge {
   getAuth?: () => Promise<{ token: string; url: string } | { startupError: string } | null>;
 }
 
-/** Resolves the per-boot desktop auth header; web uses same-origin requests. */
+/**
+ * Resolves the auth headers every assistant-server request must carry. The
+ * desktop bridge's `getAuth` supplies the per-boot token (see
+ * `ASSISTANT_AUTH_HEADER_NAME` in @brainstrike/assistant-contract); web builds
+ * have no bridge and get an empty object (same-origin `/api` needs none).
+ */
 export async function resolveAssistantAuthHeaders(): Promise<Record<string, string>> {
   if (typeof window === 'undefined') {
     return {};

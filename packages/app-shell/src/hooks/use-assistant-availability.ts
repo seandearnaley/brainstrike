@@ -246,12 +246,6 @@ export async function resolveAssistantBaseUrl(): Promise<string> {
 }
 
 /**
- * Resolves the auth headers every assistant-server request must carry. The
- * desktop bridge's `getAuth` supplies the per-boot token (see
- * `ASSISTANT_AUTH_HEADER_NAME` in @brainstrike/assistant-contract); web builds
- * have no bridge and get an empty object (same-origin `/api` needs none).
- */
-/**
  * Returns the startup failure message when the desktop main process reported
  * the assistant server never started; undefined otherwise (incl. web builds).
  */

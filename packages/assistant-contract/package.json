@@ -2,13 +2,13 @@
   "name": "@brainstrike/assistant-contract",
   "version": "0.1.0",
   "dependencies": {
-    "@assistant-ui/react": "catalog:",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
+    "@assistant-ui/react": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",

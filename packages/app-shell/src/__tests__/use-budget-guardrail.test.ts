@@ -5,7 +5,8 @@ const { useDailySpendMock } = vi.hoisted(() => ({
   useDailySpendMock: vi.fn(),
 }));
 
-vi.mock('@brainstrike/assistant-data/cost-tracking', () => ({
+vi.mock('@brainstrike/assistant-data/cost-tracking', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/assistant-data/cost-tracking')>()),
   useDailySpend: useDailySpendMock,
 }));
 

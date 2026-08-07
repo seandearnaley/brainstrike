@@ -13,7 +13,9 @@ export default defineConfig({
       exclude: ['**/__tests__/**', '**/*.d.ts', '**/dist/**', '**/index.ts'],
       include: ['src/**/*.{ts,tsx}'],
     },
-    environment: 'happy-dom',
+    // jsdom + unstubGlobals match app-shell, where these suites lived — the
+    // move stays behavior-preserving down to the DOM implementation.
+    environment: 'jsdom',
     exclude: ['node_modules', 'dist'],
     globals: true,
     // The PGlite integration suites ran with these ceilings in app-shell;
@@ -25,5 +27,6 @@ export default defineConfig({
     pool: 'threads',
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     testTimeout: 30_000,
+    unstubGlobals: true,
   },
 });
