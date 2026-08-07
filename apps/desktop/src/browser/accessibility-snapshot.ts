@@ -109,6 +109,119 @@ function renderLine(node: AxSnapshotNode, depth: number, refKey: string | undefi
     : { line };
 }
 
+/** Iterative DFS pre-order node list (no recursion; deep-tree safe). */
+function preOrderNodes(
+  roots: readonly AxSnapshotNode[],
+  byId: Map<string, AxSnapshotNode>
+): AxSnapshotNode[] {
+  const order: AxSnapshotNode[] = [];
+  const seen = new Set<string>();
+  const stack = [...roots];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || seen.has(node.nodeId)) {
+      continue;
+    }
+    seen.add(node.nodeId);
+    order.push(node);
+    for (const id of node.childIds ?? []) {
+      const child = byId.get(id);
+      if (child && !seen.has(child.nodeId)) {
+        stack.push(child);
+      }
+    }
+  }
+  return order;
+}
+
+function hasKeptChild(
+  node: AxSnapshotNode,
+  byId: Map<string, AxSnapshotNode>,
+  keep: ReadonlySet<string>
+): boolean {
+  return (node.childIds ?? []).some((id) => {
+    const child = byId.get(id);
+    return Boolean(child && !child.ignored && keep.has(child.nodeId));
+  });
+}
+
+/**
+ * The set of node ids that are interactive OR have an interactive descendant —
+ * i.e. the nodes to keep under `filter: 'interactive'`. Iterative + O(n): a
+ * reverse pre-order pass (descendants before ancestors) fills the set without
+ * recursion, so a deep attacker-controlled tree can't overflow the stack.
+ */
+function collectInteractiveNodes(
+  roots: readonly AxSnapshotNode[],
+  byId: Map<string, AxSnapshotNode>
+): Set<string> {
+  const preOrder = preOrderNodes(roots, byId);
+  const keep = new Set<string>();
+  for (let i = preOrder.length - 1; i >= 0; i -= 1) {
+    const node = preOrder[i];
+    if (node && (isInteractive(node) || hasKeptChild(node, byId, keep))) {
+      keep.add(node.nodeId);
+    }
+  }
+  return keep;
+}
+
+interface WalkFrame {
+  readonly depth: number;
+  readonly node: AxSnapshotNode;
+}
+
+/** Push a node's children onto the DFS stack in REVERSE so they pop in order. */
+function pushChildFrames(
+  stack: WalkFrame[],
+  node: AxSnapshotNode,
+  byId: Map<string, AxSnapshotNode>,
+  depth: number
+): void {
+  const childIds = node.childIds ?? [];
+  for (let i = childIds.length - 1; i >= 0; i -= 1) {
+    const childId = childIds[i];
+    const child = childId === undefined ? undefined : byId.get(childId);
+    if (child) {
+      stack.push({ depth, node: child });
+    }
+  }
+}
+
+/** Iterative DFS pre-order line build (no recursion; deep-tree safe). */
+function buildLines(
+  roots: readonly AxSnapshotNode[],
+  byId: Map<string, AxSnapshotNode>,
+  shouldShow: (node: AxSnapshotNode) => boolean
+): BuiltLine[] {
+  const built: BuiltLine[] = [];
+  const visited = new Set<string>();
+  let refCounter = 0;
+  const stack: WalkFrame[] = [];
+  for (let i = roots.length - 1; i >= 0; i -= 1) {
+    const node = roots[i];
+    if (node) {
+      stack.push({ depth: 0, node });
+    }
+  }
+  while (stack.length > 0) {
+    const frame = stack.pop();
+    if (!frame || visited.has(frame.node.nodeId)) {
+      continue;
+    }
+    const { node, depth } = frame;
+    visited.add(node.nodeId);
+    const show = shouldShow(node);
+    if (show) {
+      const refKey =
+        isInteractive(node) && node.backendDOMNodeId !== undefined ? `e${++refCounter}` : undefined;
+      built.push(renderLine(node, depth, refKey));
+    }
+    pushChildFrames(stack, node, byId, show ? depth + 1 : depth);
+  }
+  return built;
+}
+
 export function formatAccessibilitySnapshot(
   nodes: readonly AxSnapshotNode[],
   options: SnapshotOptions
@@ -122,66 +235,18 @@ export function formatAccessibilitySnapshot(
   }
   const roots = nodes.filter((node) => !childOf.has(node.nodeId));
 
-  // Memoized so `filter: 'interactive'` stays O(n), not O(n·depth): a real page
-  // returns thousands of AX nodes and this runs on the main process. The
-  // tentative `false` both seeds the memo and breaks cycles (a back-edge to an
-  // in-progress node contributes nothing).
-  const interactiveDescendantMemo = new Map<string, boolean>();
-  const hasInteractiveDescendant = (node: AxSnapshotNode): boolean => {
-    const cached = interactiveDescendantMemo.get(node.nodeId);
-    if (cached !== undefined) {
-      return cached;
-    }
-    interactiveDescendantMemo.set(node.nodeId, false);
-    let result = isInteractive(node);
-    if (!result) {
-      for (const id of node.childIds ?? []) {
-        const child = byId.get(id);
-        if (child && !child.ignored && hasInteractiveDescendant(child)) {
-          result = true;
-          break;
-        }
-      }
-    }
-    interactiveDescendantMemo.set(node.nodeId, result);
-    return result;
-  };
-
+  // `interactive` keeps only nodes that are interactive or contain one; both
+  // this and the line build below are iterative so a deep tree can't overflow
+  // the main-process stack.
+  const keep = options.filter === 'interactive' ? collectInteractiveNodes(roots, byId) : null;
   const shouldShow = (node: AxSnapshotNode): boolean => {
     if (node.ignored || roleOf(node).length === 0) {
       return false;
     }
-    if (options.filter === 'all') {
-      return true;
-    }
-    return isInteractive(node) || hasInteractiveDescendant(node);
+    return keep === null || keep.has(node.nodeId);
   };
 
-  const built: BuiltLine[] = [];
-  let refCounter = 0;
-  const visited = new Set<string>();
-  const walk = (node: AxSnapshotNode, depth: number): void => {
-    if (visited.has(node.nodeId)) {
-      return;
-    }
-    visited.add(node.nodeId);
-    const show = shouldShow(node);
-    if (show) {
-      const refKey =
-        isInteractive(node) && node.backendDOMNodeId !== undefined ? `e${++refCounter}` : undefined;
-      built.push(renderLine(node, depth, refKey));
-    }
-    const childDepth = show ? depth + 1 : depth;
-    for (const id of node.childIds ?? []) {
-      const child = byId.get(id);
-      if (child) {
-        walk(child, childDepth);
-      }
-    }
-  };
-  for (const root of roots) {
-    walk(root, 0);
-  }
+  const built = buildLines(roots, byId, shouldShow);
 
   // Accumulate whole lines under the char budget; drops come off the end, so
   // kept refs stay a contiguous e1..eK prefix.

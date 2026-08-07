@@ -20,7 +20,12 @@ import type {
 } from './browser-driver';
 
 interface AxTreeResult {
-  readonly nodes?: readonly AxSnapshotNode[];
+  readonly nodes?: readonly unknown[];
+}
+
+/** A well-formed AX node minimally has a string `nodeId`. */
+function isAxNode(node: unknown): node is AxSnapshotNode {
+  return typeof (node as { nodeId?: unknown } | null)?.nodeId === 'string';
 }
 
 interface CaptureScreenshotResult {
@@ -40,11 +45,17 @@ export class DebuggerBrowserDriver implements BrowserDriver {
     await session.send('Accessibility.enable');
     const tree = await session.send<AxTreeResult>('Accessibility.getFullAXTree');
     // NO SILENT FALLBACKS: a malformed reply (protocol skew, broken transport)
-    // must surface as a capability failure, never a plausible "empty page".
-    if (!Array.isArray(tree?.nodes)) {
+    // must surface as a capability failure, never a plausible "empty page" —
+    // validate the array AND every element's shape (a `[{}]` would otherwise
+    // format as a valid empty snapshot).
+    const nodes = tree?.nodes;
+    if (!Array.isArray(nodes)) {
       throw new Error('CDP Accessibility.getFullAXTree returned no nodes array');
     }
-    return formatAccessibilitySnapshot(tree.nodes, options);
+    if (!nodes.every(isAxNode)) {
+      throw new Error('CDP Accessibility.getFullAXTree returned a malformed node');
+    }
+    return formatAccessibilitySnapshot(nodes, options);
   }
 
   async screenshot(options?: { readonly region?: PaneRegion }): Promise<DriverScreenshot> {

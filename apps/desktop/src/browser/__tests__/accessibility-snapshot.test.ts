@@ -97,6 +97,25 @@ describe('formatAccessibilitySnapshot', () => {
     expect(result.refs).toEqual({ e1: 3 });
   });
 
+  it('handles a very deeply nested tree iteratively (no RangeError)', () => {
+    const depth = 20_000; // recursion would overflow the main-process stack here
+    const nodes: AxSnapshotNode[] = [];
+    for (let i = 1; i <= depth; i += 1) {
+      const isLeaf = i === depth;
+      nodes.push(
+        node({
+          childIds: isLeaf ? [] : [String(i + 1)],
+          nodeId: String(i),
+          role: { value: isLeaf ? 'button' : 'generic' },
+          ...(isLeaf ? { backendDOMNodeId: 7, name: { value: 'Deep' } } : {}),
+        })
+      );
+    }
+    expect(() =>
+      formatAccessibilitySnapshot(nodes, { filter: 'interactive', maxChars: 50_000 })
+    ).not.toThrow();
+  });
+
   it('truncates at maxChars and flags it', () => {
     const nodes: AxSnapshotNode[] = [
       node({ childIds: ['2', '3'], nodeId: '1', role: { value: 'RootWebArea' } }),

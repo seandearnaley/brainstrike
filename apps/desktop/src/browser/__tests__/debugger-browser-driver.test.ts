@@ -67,6 +67,13 @@ describe('DebuggerBrowserDriver', () => {
     ).rejects.toThrow('did not return page text');
   });
 
+  it('throws on a malformed AX node element (not just a missing array)', async () => {
+    const session = new FakeCdpSession({ 'Accessibility.getFullAXTree': { nodes: [{}] } });
+    await expect(driverWith(session).snapshot({ filter: 'all', maxChars: 100 })).rejects.toThrow(
+      'malformed node'
+    );
+  });
+
   it('accepts a genuinely empty page (empty string is valid, not malformed)', async () => {
     const session = new FakeCdpSession({ 'Runtime.evaluate': { result: { value: '' } } });
     const result = await driverWith(session).getPageText(10);
