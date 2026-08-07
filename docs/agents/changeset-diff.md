@@ -418,7 +418,7 @@ service could not map counts for every repo, conservatively) — snapshot
 changesets (`agent-run`/`run-range`) never refetch on git activity. The
 watcher's 300ms/2000ms debounce is the only batching; the store adds no
 extra throttle. The "agent-run changesets refresh on `onRunFinished`" acceptance
-criterion is similarly not wired to the real UI today:
+criterion, by contrast, is STILL not wired to the real UI today:
 `assistant-ui-panel-wrapper.tsx` does call `useChangeset(mainRootId,
 null).refresh` from `handleRunFinished`/`handleRunFailed`, but its own
 comment states the changeset is "hardcoded null" pending a real selection
