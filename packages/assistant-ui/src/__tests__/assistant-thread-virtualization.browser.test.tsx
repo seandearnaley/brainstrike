@@ -14,6 +14,7 @@ import {
   THREAD_VIRTUALIZATION_THRESHOLD,
   ThreadMessagesRegion,
 } from '../assistant-thread-messages';
+import { ThreadScrollFollowProvider } from '../thread-scroll-follow';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 
@@ -98,19 +99,21 @@ function ThreadHarness({ messages }: { messages: readonly HarnessMessage[] }) {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <div className="assistant-ui-panel">
-        <div
-          className="bs-thread"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: VIEWPORT_HEIGHT_PX,
-            width: 420,
-          }}
-        >
-          <ThreadMessagesRegion components={STAND_IN_COMPONENTS} />
+      <ThreadScrollFollowProvider>
+        <div className="assistant-ui-panel">
+          <div
+            className="bs-thread"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: VIEWPORT_HEIGHT_PX,
+              width: 420,
+            }}
+          >
+            <ThreadMessagesRegion components={STAND_IN_COMPONENTS} />
+          </div>
         </div>
-      </div>
+      </ThreadScrollFollowProvider>
     </AssistantRuntimeProvider>
   );
 }

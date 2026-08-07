@@ -24,17 +24,18 @@
  * failed/cancelled runs (a transition-based seam cannot distinguish them);
  * the chip's remove control is the user's veto while the run is active.
  */
-import { useAui, useAuiState, useThreadViewportStore } from '@assistant-ui/react';
+import { useAui, useAuiState } from '@assistant-ui/react';
 import { createLogger } from '@brainstrike/logging';
 import { ListPlusIcon, Redo2Icon, XIcon } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { followUpQueueKey, useFollowUpQueueStore } from './follow-up-queue-store';
+import { useThreadScrollFollow } from './thread-scroll-follow';
 
 const logger = createLogger('FollowUpQueue');
 
 export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
   const aui = useAui();
-  const viewportStore = useThreadViewportStore();
+  const follow = useThreadScrollFollow();
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const isHistoryLoading = useAuiState((state) => state.thread.isLoading);
   const queueKey = followUpQueueKey(threadKey);
@@ -81,7 +82,7 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
     // the guard covers a synchronous throw from the runtime binding. A run
     // that STARTS and then fails is a normal run.failed, not a dispatch
     // failure — it is not requeued.
-    const wasPinned = viewportStore.getState().isAtBottom;
+    const wasPinned = follow.getIsAtBottom();
     try {
       aui.thread().append({
         content: [{ text: item.text, type: 'text' }],
@@ -96,18 +97,18 @@ export function useFollowUpQueueDispatch(threadKey: string | undefined): void {
       // Dispatch IS a send, and sending pins the thread. Beyond intent,
       // this closes a real race (BST-1039): the dequeue above unmounts the
       // chip row, the composer shrinks, and the browser's scrollTop clamp
-      // can be misread as a user scroll by the library's auto-scroll
+      // can be misread as a user scroll by the follow engine's scroll
       // bookkeeping — silently unpinning follow with no user act. The
       // explicit request re-arms that bookkeeping through the clamp window.
       // Readers who scrolled up are never yanked: wasPinned is captured
       // before the flush. OUTSIDE the try: a scroll failure must never
       // requeue an already-sent message (duplicate send). No behavior
-      // option — the outer→inner forwarding drops it, and the default
-      // routes through CSS scroll-behavior (see THREAD SCROLLING in
+      // option — the engine's scrollToBottom deliberately omits it, so the
+      // default routes through CSS scroll-behavior (see THREAD SCROLLING in
       // docs/agents/assistant-runtime.md).
-      viewportStore.getState().scrollToBottom();
+      follow.scrollToBottom();
     }
-  }, [aui, isHistoryLoading, isRunning, queueKey, queueLength, viewportStore]);
+  }, [aui, follow, isHistoryLoading, isRunning, queueKey, queueLength]);
 }
 
 /** Render-nothing leaf owning the run-end dispatch subscription. */

@@ -6,12 +6,19 @@ import {
   // call is missed — the component then crashes with "Rendered fewer hooks".
   // See __tests__/fast-refresh-hook-aliasing.test.ts.
   unstable_useThreadMessageIds as useThreadMessageIds,
-  useThreadViewport,
 } from '@assistant-ui/react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDownIcon } from 'lucide-react';
-import { type ComponentProps, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import {
+  type ComponentProps,
+  type ReactNode,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { AssistantThreadStateProvider } from './assistant-thread-state-context';
+import { useThreadFollowIsAtBottom, useThreadScrollFollow } from './thread-scroll-follow';
 
 /**
  * TWO-TIER THREAD RENDERER (BST-897)
@@ -24,8 +31,10 @@ import { AssistantThreadStateProvider } from './assistant-thread-state-context';
  *   Off-screen rows are skipped by the browser via `content-visibility: auto`
  *   (see overrides.css), which keeps find-in-page, text selection, screen
  *   readers and anchor links working — the reason this is the DEFAULT tier.
- *   The library owns scrolling here: `autoScroll` follows streaming growth
- *   while pinned and disengages the moment the user scrolls up (BST-896).
+ *   The REPO owns scrolling here (thread-scroll-follow.tsx): the follow
+ *   engine sticks to streaming growth while pinned and disengages the moment
+ *   the user scrolls up (BST-896). The library's viewport auto-scroll is
+ *   deliberately out of the loop — it broke twice upstream (0.14.28, 0.15.x).
  *
  * TIER 2 — "virtual" (at or above the threshold).
  *   The message list becomes an end-anchored TanStack virtualizer, so the
@@ -124,7 +133,7 @@ const prefersReducedMotion = (): boolean =>
  * rule, which is independent of this attribute.
  */
 export const ThreadScrollRegion = ({ children }: { children: ReactNode }) => {
-  const isAtBottom = useThreadViewport((state) => state.isAtBottom);
+  const isAtBottom = useThreadFollowIsAtBottom();
 
   return (
     <div className="bs-thread-scroll-region" data-pinned={isAtBottom ? 'true' : undefined}>
@@ -149,25 +158,23 @@ export interface ThreadVirtualScrollSignals {
 /**
  * Floating "jump to latest" affordance (BST-896, re-homed by BST-897).
  *
- * Without a virtualizer the BEHAVIOUR is entirely the library primitive's:
- * `ThreadPrimitive.ScrollToBottom` reads the viewport store's `isAtBottom` and
- * renders itself DISABLED while the thread is pinned at the bottom
- * (overrides.css then fades it out), otherwise it scrolls to the latest
- * message — which re-engages auto-follow. Passing `virtualScroll` selects the
- * tier-2 behaviour instead; both render identical chrome.
+ * Without a virtualizer the behaviour comes from the repo's follow engine
+ * (thread-scroll-follow.tsx): DISABLED while the thread is pinned at the
+ * bottom (overrides.css then fades it out), otherwise it scrolls to the
+ * latest message — which re-engages follow. Passing `virtualScroll` selects
+ * the tier-2 behaviour instead; all three render identical chrome.
  *
- * NO explicit `behavior` on the primitive: an explicit option would bypass CSS
- * `scroll-behavior` and therefore also bypass the global `prefers-reduced-motion`
- * override in globals.css. The default routes through the store's `'auto'`,
- * which defers to CSS (library `smooth`, forced to `auto` under reduced motion).
- * It would be inert anyway — the outer→inner viewport forwarding drops the
- * behavior option. Tier 2 is the documented exception (see prefersReducedMotion).
+ * NO explicit `behavior` on the tier-1 jump: an explicit option would bypass
+ * CSS `scroll-behavior` and therefore also bypass the global
+ * `prefers-reduced-motion` override in globals.css — the engine's
+ * `scrollToBottom()` deliberately omits it. Tier 2 is the documented
+ * exception (see prefersReducedMotion).
  *
  * MOUNT SITE matters: it renders inside `.bs-thread-scroll-region` as a SIBLING
  * of the scroller, never inside it, so it stays anchored above the composer
- * instead of scrolling away with the messages. That works outside the viewport
- * element because `AssistantRuntimeProvider` mounts an outer viewport store that
- * mirrors `isAtBottom` up and forwards `scrollToBottom` down.
+ * instead of scrolling away with the messages. That works outside the scroller
+ * element because the follow engine lives in ThreadScrollFollowProvider
+ * context above both.
  */
 export const ThreadScrollToBottom = ({
   virtualScroll,
@@ -187,10 +194,27 @@ export const ThreadScrollToBottom = ({
     );
   }
 
+  return <ThreadStaticScrollToBottom />;
+};
+
+/**
+ * Tier-1 jump button on the repo-owned follow engine: DISABLED while pinned
+ * (overrides.css fades it out), otherwise scrolls to the latest message and
+ * re-engages follow — the same contract the library primitive used to
+ * provide, now against `thread-scroll-follow.tsx`.
+ */
+const ThreadStaticScrollToBottom = () => {
+  const follow = useThreadScrollFollow();
+  const isAtBottom = useThreadFollowIsAtBottom();
   return (
-    <ThreadPrimitive.ScrollToBottom {...JUMP_TO_LATEST_PROPS}>
+    <button
+      disabled={isAtBottom}
+      onClick={() => follow.scrollToBottom()}
+      type="button"
+      {...JUMP_TO_LATEST_PROPS}
+    >
       <ArrowDownIcon aria-hidden="true" />
-    </ThreadPrimitive.ScrollToBottom>
+    </button>
   );
 };
 
@@ -219,10 +243,42 @@ export const ThreadMessagesRegion = ({
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  // Pinnedness as the LIBRARY sees it. The DOM cannot answer this at swap time
-  // (see the anchor effect), so the static tier's own signal is recorded while
-  // it is still the truth.
-  const isAtBottom = useThreadViewport((state) => state.isAtBottom);
+  // Pinnedness as the FOLLOW ENGINE sees it. The DOM cannot answer this at
+  // swap time (see the anchor effect), so the static tier's own signal is
+  // recorded while it is still the truth.
+  const follow = useThreadScrollFollow();
+  const isAtBottom = useThreadFollowIsAtBottom();
+
+  // ONE SCROLL OWNER per tier: the follow engine attaches only on the static
+  // tier; on tier 2 the virtualizer writes scrollTop and the engine idles
+  // with no element. Identity changes only on [follow, tier] — never per
+  // render — which is the stable-lifecycle guarantee the extracted engine
+  // exists to provide (see thread-scroll-follow.tsx).
+  const scrollerRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      viewportRef.current = el;
+      if (!el || tier !== 'static') {
+        return;
+      }
+      return follow.attach(el);
+    },
+    [follow, tier]
+  );
+
+  // Thread-switch jump (parity with the library's scrollToBottomOnThreadSwitch,
+  // static tier only): switching conversations opens at the newest message.
+  // Initial mount deliberately does NOT jump — reopening a thread restores its
+  // position (docs/agents/assistant-persistence.md).
+  const switchKeyRef = useRef(threadKey);
+  useLayoutEffect(() => {
+    if (switchKeyRef.current === threadKey) {
+      return;
+    }
+    switchKeyRef.current = threadKey;
+    if (tier === 'static') {
+      follow.jumpToBottomInstant();
+    }
+  }, [follow, threadKey, tier]);
 
   // Anything rendered ABOVE the virtual list inside the scroller (the disabled
   // notice) offsets every item; `scrollMargin` is how the virtualizer accounts
@@ -349,7 +405,7 @@ export const ThreadMessagesRegion = ({
      * and layout constraints live in overrides.css (with !important) instead.
      */
     <ThreadScrollRegion>
-      <ThreadPrimitive.Viewport
+      <div
         aria-atomic="false"
         // Every insertion into a live region is an announcement. On the static
         // tier the only insertions are new messages, so "polite" reads them out
@@ -359,19 +415,16 @@ export const ThreadMessagesRegion = ({
         // not ask for, drowning the ones they did. Off is the lesser loss until
         // a dedicated new-message live region exists (see assistant-runtime.md).
         aria-live={tier === 'static' ? 'polite' : 'off'}
-        // ONE SCROLL OWNER: on tier 2 the virtualizer writes scrollTop, so
-        // every library-driven scroll is switched off — two owners would
-        // fight over the same element.
-        autoScroll={tier === 'static'}
+        // A PLAIN div, not ThreadPrimitive.Viewport: the library's viewport
+        // (and its auto-scroll/viewport-store machinery) is deliberately out
+        // of the loop on BOTH tiers — tier 1 scrolling is owned by the repo's
+        // follow engine (thread-scroll-follow.tsx), tier 2 by the
+        // virtualizer. The class stays `aui-thread-viewport` so the library's
+        // stylesheet and overrides.css keep applying unchanged.
         className="aui-thread-viewport"
         data-testid="assistant-ui-viewport"
         data-thread-render-tier={tier}
-        ref={viewportRef}
-        // Reload-hydration contract (docs/agents/assistant-persistence.md):
-        // reopening a thread restores its position, never jumps.
-        scrollToBottomOnInitialize={false}
-        scrollToBottomOnRunStart={false}
-        scrollToBottomOnThreadSwitch={tier === 'static'}
+        ref={scrollerRef}
       >
         {disabledReason && (
           <p aria-live="polite" className="px-4 py-3 text-muted-foreground text-xs">
@@ -425,7 +478,7 @@ export const ThreadMessagesRegion = ({
             <ThreadPrimitive.Messages components={components} />
           )}
         </AssistantThreadStateProvider>
-      </ThreadPrimitive.Viewport>
+      </div>
       <ThreadScrollToBottom
         virtualScroll={
           tier === 'virtual'

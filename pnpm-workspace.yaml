@@ -20,7 +20,7 @@ cleanupUnusedCatalogs: true
 # (verified). Column-0 comments above a block survive.
 catalog:
   '@anthropic-ai/sandbox-runtime': 0.0.67
-  '@assistant-ui/react': 0.15.8
+  '@assistant-ui/react': '~0.15.8'
   '@assistant-ui/react-data-stream': ^0.12.18
   '@assistant-ui/react-markdown': ^0.14.8
   '@assistant-ui/styles': ^0.3.7
@@ -158,27 +158,3 @@ minimumReleaseAgeExclude:
   - '@assistant-ui/store@0.3.5'
   - '@assistant-ui/tap@0.9.10'
   - assistant-stream@0.3.34
-# @assistant-ui/react is pinned EXACT (no ~/^ in the catalog entry above) while
-# this patch exists: pnpm applies a patch only to its exact keyed version, so a
-# floated 0.15.9 would silently ship UNPATCHED — the exact pin turns that into
-# a deliberate bump that must revisit the patch. The patch stabilizes
-# useThreadViewportAutoScroll's scroll-listener ref callback (identity was
-# recreated on every render; 0.15 added an isRunning subscription to the hook,
-# so every run start/end re-render detached and re-attached ALL viewport refs
-# via useComposedRefs, reconstructing the ResizeObserver in the same commit the
-# run's content changed — the fresh observer misses the growth window and the
-# browser's scrollTop clamp is misread as a user scroll, silently unpinning
-# stick-to-bottom on every send; BST-1039's browser test catches exactly this).
-# Root cause proven by trace + this stabilization flipping
-# follow-up-queue-repin.browser.test.tsx red->green. The patch touches the
-# ONLY compiled copy of the hook: 0.15.8's dist is module-per-file ESM (no
-# .cjs twin, no bundled duplicate — dist/index.js imports the same file), and
-# the lockfile resolves every dependent, including react-markdown's
-# peer-suffixed instance, to the patched copy. The listener reads handleScroll
-# through a ref written in a layout effect (not during render) so discarded
-# concurrent renders never leak a closure. Remove when upstream stabilizes the
-# ref (check useThreadViewportAutoScroll in the release notes / source before
-# bumping past 0.15.8), and re-run the BST-1039 browser test against the
-# unpatched version to confirm.
-patchedDependencies:
-  '@assistant-ui/react@0.15.8': patches/@assistant-ui__react@0.15.8.patch

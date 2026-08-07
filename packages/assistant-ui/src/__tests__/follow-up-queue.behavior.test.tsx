@@ -23,6 +23,7 @@ import {
   SteerRunButton,
 } from '../follow-up-queue';
 import { resetFollowUpQueueStore } from '../follow-up-queue-store';
+import { ThreadScrollFollowProvider } from '../thread-scroll-follow';
 
 /** A controllable adapter: each run() blocks until its release() is called, so
  * the thread is GENUINELY running in between. Records every run's last user
@@ -63,20 +64,22 @@ function Harness({
   const runtime = useLocalRuntime(adapter);
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      {bridgeMounted ? <FollowUpQueueBridge threadKey={threadKey} /> : null}
-      <FollowUpQueueChips threadKey={threadKey} />
-      <ComposerPrimitive.Root>
-        <ComposerPrimitive.Input aria-label="Message input" />
-        <ThreadPrimitive.If running={false}>
-          <ComposerPrimitive.Send aria-label="Send" />
-        </ThreadPrimitive.If>
-        <ThreadPrimitive.If running>
-          <QueueFollowUpButton threadKey={threadKey} />
-          {onSteerRequest ? (
-            <SteerRunButton onSteerRequest={onSteerRequest} threadKey={threadKey} />
-          ) : null}
-        </ThreadPrimitive.If>
-      </ComposerPrimitive.Root>
+      <ThreadScrollFollowProvider>
+        {bridgeMounted ? <FollowUpQueueBridge threadKey={threadKey} /> : null}
+        <FollowUpQueueChips threadKey={threadKey} />
+        <ComposerPrimitive.Root>
+          <ComposerPrimitive.Input aria-label="Message input" />
+          <ThreadPrimitive.If running={false}>
+            <ComposerPrimitive.Send aria-label="Send" />
+          </ThreadPrimitive.If>
+          <ThreadPrimitive.If running>
+            <QueueFollowUpButton threadKey={threadKey} />
+            {onSteerRequest ? (
+              <SteerRunButton onSteerRequest={onSteerRequest} threadKey={threadKey} />
+            ) : null}
+          </ThreadPrimitive.If>
+        </ComposerPrimitive.Root>
+      </ThreadScrollFollowProvider>
     </AssistantRuntimeProvider>
   );
 }

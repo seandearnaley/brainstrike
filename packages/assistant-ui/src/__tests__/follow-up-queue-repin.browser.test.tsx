@@ -6,7 +6,6 @@ import {
   useAui,
   useAuiState,
   useLocalRuntime,
-  useThreadViewportStore,
 } from '@assistant-ui/react';
 import { useEffect } from 'react';
 import '@testing-library/jest-dom/vitest';
@@ -19,6 +18,11 @@ import {
   resetFollowUpQueueStore,
   useFollowUpQueueStore,
 } from '../follow-up-queue-store';
+import {
+  ThreadScrollFollowProvider,
+  useThreadFollowScrollerRef,
+  useThreadScrollFollow,
+} from '../thread-scroll-follow';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 
@@ -30,9 +34,9 @@ import '../overrides.css';
  * the composer area BELOW the viewport. When the run ends, the bridge
  * dispatches the queued message and the chip row unmounts in the same breath —
  * the viewport gets taller, the browser clamps `scrollTop` down, and the
- * library's auto-scroll bookkeeping (`useThreadViewportAutoScroll`) reads that
- * clamp as a user scroll: `isAtBottom` flips false with no user act, the reply
- * streams below the fold, and the jump chip appears unprompted.
+ * follow engine's scroll bookkeeping (thread-scroll-follow.tsx) could read
+ * that clamp as a user scroll: `isAtBottom` flips false with no user act, the
+ * reply streams below the fold, and the jump chip appears unprompted.
  *
  * The harness mirrors the panel's real geometry dependency: a fixed-height
  * column where the REAL `FollowUpQueueChips` share the column with the
@@ -149,21 +153,21 @@ function createDeferredAdapter() {
 }
 
 /**
- * The outer viewport store's `scrollToBottom` fires ONLY for explicit
- * requests (the jump button, or product code asking to pin) — the library's
+ * The follow engine's `scrollToBottom` request event fires ONLY for explicit
+ * requests (the jump button, or product code asking to pin) — the engine's
  * internal follow writes never route through it. Recording its events lets
  * the tests assert the dispatch re-pin as behavior, not implementation.
  */
-const scrollToBottomRequests: Array<{ behavior?: ScrollBehavior | undefined }> = [];
+const scrollToBottomRequests: Record<string, never>[] = [];
 
 function ScrollRequestProbe() {
-  const store = useThreadViewportStore();
+  const follow = useThreadScrollFollow();
   useEffect(
     () =>
-      store.getState().onScrollToBottom((event) => {
-        scrollToBottomRequests.push(event);
+      follow.onScrollToBottom(() => {
+        scrollToBottomRequests.push({});
       }),
-    [store]
+    [follow]
   );
   return null;
 }
@@ -181,48 +185,53 @@ function StartRunButton() {
   );
 }
 
+function ScrollerWithFollow({ children }: { children: React.ReactNode }) {
+  const scrollerRef = useThreadFollowScrollerRef();
+  return (
+    <div className="aui-thread-viewport" data-testid="assistant-ui-viewport" ref={scrollerRef}>
+      {children}
+    </div>
+  );
+}
+
 function RepinHarness({ adapter }: { adapter: ChatModelAdapter }) {
   const runtime = useLocalRuntime(adapter, { initialMessages });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <StartRunButton />
-      <ScrollRequestProbe />
-      <FollowUpQueueBridge threadKey={THREAD_KEY} />
-      <div className="assistant-ui-panel">
-        <div
-          className="bs-thread"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: COLUMN_HEIGHT_PX,
-            width: 420,
-          }}
-        >
-          <div style={{ display: 'flex', flex: 1, flexDirection: 'column', minHeight: 0 }}>
-            <ThreadScrollRegion>
-              <ThreadPrimitive.Viewport
-                autoScroll
-                className="aui-thread-viewport"
-                data-testid="assistant-ui-viewport"
-                scrollToBottomOnInitialize={false}
-                scrollToBottomOnRunStart={false}
-              >
-                <ThreadPrimitive.Messages
-                  components={{
-                    AssistantMessage: GrowingAssistantMessage,
-                    UserMessage: TallMessage,
-                  }}
-                />
-              </ThreadPrimitive.Viewport>
-              <ThreadScrollToBottom />
-            </ThreadScrollRegion>
+      <ThreadScrollFollowProvider>
+        <StartRunButton />
+        <ScrollRequestProbe />
+        <FollowUpQueueBridge threadKey={THREAD_KEY} />
+        <div className="assistant-ui-panel">
+          <div
+            className="bs-thread"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: COLUMN_HEIGHT_PX,
+              width: 420,
+            }}
+          >
+            <div style={{ display: 'flex', flex: 1, flexDirection: 'column', minHeight: 0 }}>
+              <ThreadScrollRegion>
+                <ScrollerWithFollow>
+                  <ThreadPrimitive.Messages
+                    components={{
+                      AssistantMessage: GrowingAssistantMessage,
+                      UserMessage: TallMessage,
+                    }}
+                  />
+                </ScrollerWithFollow>
+                <ThreadScrollToBottom />
+              </ThreadScrollRegion>
+            </div>
+            {/* The real chip row: mounting/unmounting it resizes the viewport,
+                exactly like the panel's composer area. */}
+            <FollowUpQueueChips threadKey={THREAD_KEY} />
           </div>
-          {/* The real chip row: mounting/unmounting it resizes the viewport,
-              exactly like the panel's composer area. */}
-          <FollowUpQueueChips threadKey={THREAD_KEY} />
         </div>
-      </div>
+      </ThreadScrollFollowProvider>
     </AssistantRuntimeProvider>
   );
 }
