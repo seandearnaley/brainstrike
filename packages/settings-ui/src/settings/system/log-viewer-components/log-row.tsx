@@ -2,11 +2,12 @@ import { TableCell, TableRow } from '@brainstrike/ui';
 import { flexRender, type Row } from '@tanstack/react-table';
 import type { VirtualItem } from '@tanstack/react-virtual';
 import { memo } from 'react';
+import type { LogTableFeatures } from './log-table-features';
 import type { LogRecordRow } from './log-utils';
 
 interface LogRowProps {
   measureRow: (node: HTMLTableRowElement | null) => void;
-  row: Row<LogRecordRow>;
+  row: Row<LogTableFeatures, LogRecordRow>;
   virtualRow: VirtualItem;
   wrapLines: boolean;
 }

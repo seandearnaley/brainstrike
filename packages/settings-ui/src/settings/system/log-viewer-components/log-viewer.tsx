@@ -18,15 +18,12 @@ import { defaultCollator } from '@brainstrike/utils/collator';
 import {
   type CellContext,
   type ColumnDef,
-  getCoreRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
+  type ColumnVisibilityState,
   type PaginationState,
   type SortingState,
-  useReactTable,
-  type VisibilityState,
+  useTable,
 } from '@tanstack/react-table';
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 import {
   ALL_CODES_VALUE,
   ALL_SOURCES_VALUE,
@@ -36,6 +33,7 @@ import {
 import { getLogRecordCode, getLogRecordSource } from './log-diagnostic-metadata';
 import { LogList } from './log-list';
 import { LogRecordDetailDialog, LogRowActions } from './log-record-detail-dialog';
+import { type LogTableFeatures, logTableFeatures } from './log-table-features';
 import { LogToolbar } from './log-toolbar';
 import {
   createLogSearchHaystackCache,
@@ -205,13 +203,13 @@ function formatSourceCoverage(records: readonly LogRecord[]): string {
 function buildLogColumns(
   wrapLines: boolean,
   onShowDetails: (record: LogRecord) => void
-): ColumnDef<LogRecordRow>[] {
+): ColumnDef<LogTableFeatures, LogRecordRow>[] {
   const messageClassName = wrapLines ? 'line-clamp-2 break-words' : 'truncate';
   const payloadClassName = wrapLines ? 'line-clamp-2 break-all' : 'truncate';
   return [
     {
       accessorKey: 'timestamp',
-      cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => (
+      cell: ({ getValue }: CellContext<LogTableFeatures, LogRecordRow, unknown>) => (
         <span className="font-mono text-muted-foreground text-xs">
           {formatLogTimestamp(getValue() as number)}
         </span>
@@ -222,7 +220,7 @@ function buildLogColumns(
     },
     {
       accessorKey: 'level',
-      cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
+      cell: ({ getValue }: CellContext<LogTableFeatures, LogRecordRow, unknown>) => {
         const rawLevel = getValue();
         const level =
           typeof rawLevel === 'string' && LOG_LEVEL_OPTIONS.includes(rawLevel as LogLevel)
@@ -243,7 +241,7 @@ function buildLogColumns(
     },
     {
       accessorKey: 'scope',
-      cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
+      cell: ({ getValue }: CellContext<LogTableFeatures, LogRecordRow, unknown>) => {
         const scope = getValue() as string | undefined;
         return scope ? (
           <span className="line-clamp-1 font-medium text-primary/80 text-xs">[{scope}]</span>
@@ -257,7 +255,7 @@ function buildLogColumns(
     },
     {
       accessorKey: 'message',
-      cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
+      cell: ({ getValue }: CellContext<LogTableFeatures, LogRecordRow, unknown>) => {
         const message = getValue() as string | undefined;
         return (
           <div
@@ -274,7 +272,7 @@ function buildLogColumns(
     },
     {
       accessorKey: 'serializedArgs',
-      cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
+      cell: ({ getValue }: CellContext<LogTableFeatures, LogRecordRow, unknown>) => {
         const payload = getValue() as string;
         return payload ? (
           <code
@@ -293,7 +291,7 @@ function buildLogColumns(
     },
     {
       accessorKey: 'flattenedBindings',
-      cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
+      cell: ({ getValue }: CellContext<LogTableFeatures, LogRecordRow, unknown>) => {
         const bindings = getValue() as string;
         const parsed = bindings && bindings !== '{}' ? bindings : null;
         return parsed ? (
@@ -327,7 +325,7 @@ function buildLogColumns(
 interface LogViewerState {
   autoScroll: boolean;
   codeFilter: string;
-  columnVisibility: VisibilityState;
+  columnVisibility: ColumnVisibilityState;
   globalFilter: string;
   logLevelFilter: LogLevel;
   logRecords: readonly LogRecord[];
@@ -356,7 +354,7 @@ type LogViewerAction =
   | { type: 'SET_AUTO_SCROLL'; value: boolean }
   | { type: 'SET_WRAP_LINES'; value: boolean }
   | { type: 'SET_SORTING'; sorting: SortingState }
-  | { type: 'SET_COLUMN_VISIBILITY'; visibility: VisibilityState }
+  | { type: 'SET_COLUMN_VISIBILITY'; visibility: ColumnVisibilityState }
   | {
       type: 'SET_PAGINATION';
       pagination: PaginationState | ((prev: PaginationState) => PaginationState);
@@ -437,7 +435,7 @@ function logViewerReducer(state: LogViewerState, action: LogViewerAction): LogVi
 export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) {
   const [viewerState, dispatch] = useReducer(logViewerReducer, initialLogViewerState);
   const [selectedRecord, setSelectedRecord] = useState<LogRecord | null>(null);
-  const rowCacheRef = useRef(new WeakMap<LogRecord, LogRecordRow>());
+  const [rowCache] = useState(() => new WeakMap<LogRecord, LogRecordRow>());
   const [searchHaystackCache] = useState(createLogSearchHaystackCache);
   const {
     logRecords,
@@ -540,7 +538,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
         codeFilter,
         timeStart,
         timeEnd,
-        rowCacheRef.current,
+        rowCache,
         searchHaystackCache
       )
     );
@@ -549,6 +547,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     globalFilter,
     logLevelFilter,
     logRecords,
+    rowCache,
     scopeFilter,
     sourceFilter,
     timeEnd,
@@ -556,10 +555,10 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     timeStart,
   ]);
 
-  const tableData = useMemo<LogRecordRow[]>(() => {
-    const rowCache = rowCacheRef.current;
-    return filteredRecords.map((record) => getLogRecordRow(record, rowCache));
-  }, [filteredRecords]);
+  const tableData = useMemo<LogRecordRow[]>(
+    () => filteredRecords.map((record) => getLogRecordRow(record, rowCache)),
+    [filteredRecords, rowCache]
+  );
 
   const handleShowDetails = useCallback((record: LogRecord) => {
     setSelectedRecord(record);
@@ -577,12 +576,10 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
       : lastPageIndex
     : Math.min(pagination.pageIndex, lastPageIndex);
 
-  const table = useReactTable({
+  const table = useTable({
     columns,
     data: tableData,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getSortedRowModel: getSortedRowModel(),
+    features: logTableFeatures,
     onColumnVisibilityChange: (updater) => {
       const newVisibility = typeof updater === 'function' ? updater(columnVisibility) : updater;
       dispatch({ type: 'SET_COLUMN_VISIBILITY', visibility: newVisibility });
@@ -634,7 +631,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     if (typeof window === 'undefined') {
       return;
     }
-    const exportRows = table.getPrePaginationRowModel().rows;
+    const exportRows = table.getPrePaginatedRowModel().rows;
     if (exportRows.length === 0) {
       return;
     }
