@@ -23,6 +23,7 @@ import {
 import { useCallback, useEffect, useRef } from 'react';
 import { useChangesNavigationStore } from './changes-navigation-store';
 import { useRewindStore } from './rewind-store';
+import { type UseRewindFinalizationArgs, useRewindFinalization } from './use-rewind-finalization';
 
 /**
  * Matches the manageCanvas tool in BOTH wire forms — the dotted id on the
@@ -35,8 +36,6 @@ function isManageCanvasToolName(value: unknown): boolean {
     typeof value === 'string' && denormalizeNativeToolName(value) === NATIVE_TOOL_ID.manageCanvas
   );
 }
-
-import { type UseRewindFinalizationArgs, useRewindFinalization } from './use-rewind-finalization';
 
 /**
  * Leading+trailing throttle window for the live "Last Turn" re-resolve
