@@ -484,7 +484,9 @@ Flagged, outside this boundary:
 `packages/app-shell/src/hooks/use-assistant-mcp-menu-state.ts:55-57` collapses every
 MCP failure to a reasonless `ERROR` via a bare `catch`. (The stale
 `@mastra/core@1.50.0` `minimumReleaseAgeExclude` entry this section used to flag
-was removed with the 1.57 upgrade.)
+was removed in #2295, and `scripts/verify-minimum-release-age-exclusions.mjs`
+now fails `pnpm lint` once any such exclusion ages past 30 days, so this class
+cannot recur silently.)
 
 ## 1.51 → 1.57 UPGRADE NOTES (2026-08-06/07)
 
