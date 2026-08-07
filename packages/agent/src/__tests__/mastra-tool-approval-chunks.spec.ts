@@ -793,6 +793,183 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     );
   });
 
+  it("attaches the 1.56+ approved rider to an ask-gated tool's OBJECT resume payload (BST-1097 idiom)", async () => {
+    // A plain suspension can only be raised from inside execute(), which the
+    // framework only reaches after the call's pre-execution gate settled — the
+    // rider states that historical fact so Mastra's per-leg re-check cannot
+    // convert the resume into a denial.
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-1',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { allowedDomains: ['pypi.org'], kind: 'network' },
+            toolCallId: 'tool-call-rider-1',
+            toolName: 'brainstrike_runPython',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { action: 'allow' },
+        runId: 'run-rider-1',
+        toolCallId: 'tool-call-rider-1',
+        toolName: 'brainstrike.runPython',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'allow' },
+            riskByTool: { 'brainstrike.runPython': 'execute' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.runPython': {
+            execute: async () => ({}),
+            id: 'brainstrike.runPython',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toEqual({
+      action: 'allow',
+      approved: true,
+    });
+  });
+
+  it('passes a NON-OBJECT resume payload through untouched even for an ask-gated tool — never mangled into an index map', async () => {
+    // askUser's resume is a bare string/array; spreading it would corrupt it.
+    // The rider is skipped (loud warn at the transport), and the payload
+    // reaches Mastra byte-identical.
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-2',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { question: 'Proceed?' },
+            toolCallId: 'tool-call-rider-2',
+            toolName: 'brainstrike_askUser',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: 'yes, proceed',
+        runId: 'run-rider-2',
+        toolCallId: 'tool-call-rider-2',
+        toolName: 'brainstrike.askUser',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          permissionPolicy: {
+            policies: { edit: 'ask', execute: 'ask', mcp: 'allow', read: 'ask' },
+            riskByTool: { 'brainstrike.askUser': 'read' },
+            yolo: false,
+          },
+          provider: 'openai',
+        },
+        storage: storage as never,
+        tools: {
+          'brainstrike.askUser': {
+            execute: async () => ({}),
+            id: 'brainstrike.askUser',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toBe('yes, proceed');
+  });
+
+  it("leaves an un-gated tool's object resume payload rider-free — Mastra will not re-check it", async () => {
+    const storage = { id: 'workflow-storage' };
+    setSuspendedRuns([
+      {
+        runId: 'run-rider-3',
+        status: 'suspended',
+        suspendedAt: new Date('2026-08-07T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { allowedDomains: ['pypi.org'], kind: 'network' },
+            toolCallId: 'tool-call-rider-3',
+            toolName: 'brainstrike_runPython',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { textDelta: 'ok', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { action: 'allow' },
+        runId: 'run-rider-3',
+        toolCallId: 'tool-call-rider-3',
+        toolName: 'brainstrike.runPython',
+      },
+      {
+        // No permission policy → nothing is ask-gated → no re-check, no rider.
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: storage as never,
+        tools: {
+          'brainstrike.runPython': {
+            execute: async () => ({}),
+            id: 'brainstrike.runPython',
+            resumeSchema: {},
+            suspendSchema: {},
+          },
+        },
+      }
+    );
+    for await (const _chunk of iterator) {
+      // drain
+    }
+
+    expect(agentInstances.at(-1)?.resumeStreamCalls[0]?.resumeData).toEqual({ action: 'allow' });
+  });
+
   it('REFUSES to resume an APPROVAL pause through the suspend-resume transport (BST-1097)', async () => {
     // The two pause kinds carry different resume shapes. A generic resume
     // payload delivered to an approval pause would reach a self-approving

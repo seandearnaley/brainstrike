@@ -10,9 +10,10 @@
  * - `'allow'`→ tool KEPT, NOT in `askToolIds`.
  * - a session grant / YOLO downgrades `'ask'`→`'allow'`, so the tool is kept but
  *   NOT recorded as ask (it runs free, no approval).
- * - a SELF-APPROVING suspending tool (BST-1097) gated to `'ask'` is kept
- *   UNCLONED — no `requireApproval` flag, ever — while still recorded as ask;
- *   if its registered form lost the suspendSchema it is fail-safe omitted.
+ * - a SUSPENDING tool gated to `'ask'` (BST-1097, 1.56+ idiom) takes the SAME
+ *   `requireApproval` clone as every other ask tool — the framework's
+ *   pre-execution approval is Gate A, and the resume transport's
+ *   `approved: true` rider keeps its own suspensions resumable under the flag.
  */
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { describe, expect, it } from 'vitest';

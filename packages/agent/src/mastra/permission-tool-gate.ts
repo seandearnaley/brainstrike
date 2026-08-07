@@ -257,14 +257,19 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
     // move together: a kept ask tool without the flag would run unprompted (a
     // security bug, not a fallback).
     //
-    // SUSPENDING tools (run_python's Gate B, askUser, submitPlan) take the
-    // SAME clone since the @mastra/core 1.56 approval rework: the framework's
-    // pre-execution gate is now the ONLY Gate A (the old in-tool approval
-    // suspension is consumed by the framework and can never see its answer —
-    // the BST-1097 1.56 interception). The flag+suspension combination is
-    // viable because the resume transport attaches the `approved: true`
-    // rider Mastra's per-leg re-check demands (agent-streaming.ts,
-    // createToolResumeIteratorFromRuntime).
+    // SUSPENDING tools take the SAME clone since the @mastra/core 1.56
+    // approval rework: the framework's pre-execution gate is now the ONLY
+    // Gate A (the old in-tool approval suspension is consumed by the
+    // framework and can never see its answer — the BST-1097 1.56
+    // interception). The flag+suspension combination is viable when the
+    // tool's resume payload is a plain OBJECT, because the resume transport
+    // attaches the `approved: true` rider Mastra's per-leg re-check demands
+    // (agent-streaming.ts, createToolResumeIteratorFromRuntime): run_python's
+    // Gate B and submitPlan qualify. askUser's bare string/array resume
+    // CANNOT carry the rider — ask-gating askUser leaves its resume exposed
+    // to the framework's denial (warned loudly at resume time,
+    // mastra_agent_resume_rider_unattachable) until it grows an object
+    // resume envelope.
     if (decision === 'ask') {
       filtered[sanitizedId] = withRequireApproval(tool);
       askToolIds.add(sanitizedId);

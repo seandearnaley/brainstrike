@@ -474,8 +474,10 @@ type RunPythonGateOutcome =
  * idiom as every other ask-gated tool), Mastra emits the ordinary
  * `tool-call-approval` chunk before execute() runs, approve consumes the
  * answer and runs the tool, decline never reaches the tool (the framework
- * mints the denial; the R6 mapper rewrites it into the typed `declined`
- * result). execute() itself only guards the DIRECT-invocation hole: 'ask'
+ * mints the denial and streams NO tool result — the approval card's
+ * "Declined" state owns the UX, as for every other ask-gated tool; the typed
+ * `declined` arm below is legacy, for pre-rework persisted threads only).
+ * execute() itself only guards the DIRECT-invocation hole: 'ask'
  * with no suspension channel refuses rather than running unprompted.
  *
  * Gate B — "may it reach these specific domains?" (BST-1070 §3.1) — stays a

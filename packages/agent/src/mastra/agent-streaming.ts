@@ -1969,14 +1969,46 @@ async function createToolResumeIteratorFromRuntime({
     // 1.56+ RIDER: Mastra re-checks an approval-gated tool's `requireApproval`
     // on EVERY leg, including the resume of a plain (Gate B-style) suspension,
     // and converts a resume without `approved: true` into its generic denial
-    // BEFORE execute() runs. For a tool the permission gate registered as an
-    // ask clone, the rider states the fact that its pre-execution approval
-    // already settled; for everything else the payload is passed through
-    // untouched (an unexpected key would fail the tool's own resumeSchema —
-    // no silent widening).
-    const resumeData = runtime.askTools.has(suspendedCall.toolName)
-      ? { ...(action.resumeData as Record<string, unknown>), approved: true }
-      : action.resumeData;
+    // BEFORE execute() runs.
+    //
+    // The rider states a HISTORICAL fact, and the evidence is structural, not
+    // the current policy: `assertResumedCallIsSuspendPause` above proved this
+    // pause is a PLAIN suspension, and a plain suspension can only be raised
+    // from inside execute() — which the framework only reaches after the
+    // call's pre-execution gate settled under the policy in force at
+    // invocation ('ask' ⇒ an approval was collected; 'allow' ⇒ none was
+    // required). A policy tightened mid-suspension does not retroactively
+    // un-settle that gate, and the resume itself is an explicit user decision
+    // on this very call. `askTools.has` below only answers "will the REBUILT
+    // runtime re-check this tool at all" — when it will not, the payload
+    // passes through untouched.
+    //
+    // Scope: plain-OBJECT payloads only. Spreading a string/array resume
+    // (askUser's bare answer shape) would mangle it into an index map, so a
+    // non-object payload is passed through unchanged — and if the tool is
+    // ask-gated, that resume may hit the framework's denial. Loud, not
+    // silent: the warn below names the tool and the fix (an object resume
+    // envelope). Pinned by unit tests in mastra-tool-approval-chunks.spec.ts.
+    const isPlainObjectResume =
+      typeof action.resumeData === 'object' &&
+      action.resumeData !== null &&
+      !Array.isArray(action.resumeData);
+    const toolIsReChecked = runtime.askTools.has(suspendedCall.toolName);
+    if (toolIsReChecked && !isPlainObjectResume) {
+      logger.warn(
+        'Ask-gated suspending tool has a non-object resume payload; the 1.56+ approval rider cannot be attached and Mastra may deny the resume. Give the tool an object resume envelope to make it ask-compatible.',
+        {
+          code: 'mastra_agent_resume_rider_unattachable',
+          runId: action.runId,
+          toolCallId: action.toolCallId,
+          toolName: suspendedCall.toolName,
+        }
+      );
+    }
+    const resumeData =
+      toolIsReChecked && isPlainObjectResume
+        ? { ...(action.resumeData as Record<string, unknown>), approved: true }
+        : action.resumeData;
     const delegationUsage =
       runtime.personasById.size > 0
         ? createDelegationUsageCapture(runtime.personasById, runtimeData)
