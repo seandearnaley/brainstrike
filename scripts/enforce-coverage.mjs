@@ -19,9 +19,10 @@ const OVERRIDES = new Map([
   // Vitest 4: L 94.52% | F 76.75% | B 66.23% | S 74.64%
   // Recalibrated 2025-01 after FileTreeIndex type-change handling and handle cleanup additions
   ['@brainstrike/file-explorer-ui', { branches: 66, functions: 76, lines: 94, statements: 74 }],
-  // App shell — measured 2026-03: L 99.41% | F 89.87% | B 76.03% | S 88.07%
-  // Ratcheted after database-demo hooks, format utils, and export handler test additions.
-  ['@brainstrike/app-shell', { branches: 75, functions: 88, lines: 98, statements: 87 }],
+  // App shell — measured 2026-08 after assistant-data extraction (BST-983):
+  // L 87.92% | F 89.36% | B 78.43% | S 88.08%. Recalibrated because moving
+  // the densely tested data layer changed this package's denominator.
+  ['@brainstrike/app-shell', { branches: 77, functions: 88, lines: 87, statements: 87 }],
   // Desktop — measured 2026-03: L 91.45% | F 71.10% | B 61.33% | S 71.54%
   // Recalibrated 2026-03 — coverage drifted from new IPC code; Phase 3 work needed.
   ['@brainstrike/desktop', { branches: 60, functions: 70, lines: 90, statements: 70 }],
@@ -69,6 +70,9 @@ const OVERRIDES = new Map([
   // L 90.39% | F 92.20% | B 82.97% | S 90.49%. Pinned so the moved panel code
   // keeps a floor near what ui's override held it to, not the workspace default.
   ['@brainstrike/assistant-ui', { branches: 81, functions: 91, lines: 89, statements: 89 }],
+  // Assistant data — measured 2026-08 at extraction (BST-983):
+  // L 91.64% | F 97.08% | B 81.75% | S 91.66%.
+  ['@brainstrike/assistant-data', { branches: 80, functions: 96, lines: 90, statements: 90 }],
   // Token cache — elevated after token-utils-lite branch/path coverage improvements
   ['@brainstrike/token-cache', { branches: 62, functions: 92, lines: 92, statements: 82 }],
   // Queue thresholds ratcheted in 2026-03 after workerpool adapter control-flow/telemetry coverage additions.

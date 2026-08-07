@@ -1,4 +1,5 @@
 import { registerFactoryResetSessionStore } from '@brainstrike/app-state/factory-reset';
+import { useAssistantThreadGroupsStore } from '@brainstrike/assistant-data';
 import { resetContextUsageStore } from '@brainstrike/assistant-ui/context-usage-store';
 import { resetFollowUpQueueStore } from '@brainstrike/assistant-ui/follow-up-queue-store';
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
@@ -7,7 +8,6 @@ import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-rese
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
 import { useBrowserTabsStore } from './browser-pane/browser-tabs-store';
 import { useChangesLiveRefreshStore } from './changes/changes-live-refresh-store';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';

@@ -154,7 +154,7 @@ export async function* observeDesktopAssistantRunEvents(
  *
  * DUPLICATION NOTE (same precedent as recordDesktopAssistantHookRunOutcome):
  * the INSERT mirrors `recordRunUsage` in
- * packages/app-shell/src/assistant-memory-repository.ts. thread/resource ids
+ * packages/assistant-data/src/assistant-memory-repository.ts. thread/resource ids
  * are derived from the runs row (main trusts its own bookkeeping, and — like
  * recordDesktopAssistantRunEvent — a missing runs row inserts nothing).
  *
@@ -286,7 +286,7 @@ async function completeDesktopAssistantThreadRun(
  *
  * DUPLICATION NOTE (same precedent as the repository's bootstrap-SQL mirror of
  * migration 060): this upsert's column set + SET list are kept byte-consistent
- * with `recordRunOutcome` in packages/app-shell/src/assistant-memory-repository.ts.
+ * with `recordRunOutcome` in packages/assistant-data/src/assistant-memory-repository.ts.
  * Two deliberate differences: thread/resource ids are derived from the runs row
  * (mirrors recordDesktopAssistantRunEvent — the main process trusts its own
  * bookkeeping, not hook-adjacent input), and the conflict clause carries the

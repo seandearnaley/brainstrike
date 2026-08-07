@@ -259,7 +259,7 @@ function that executes the clear — never at module scope (BST-558).**
 Type-position reads in the closed relation unions are erased and remain safe.
 Module-scope value initializers run at bundle CHUNK
 INITIALIZATION, and the renderer's chunk graph does not guarantee the contract
-chunk has evaluated by then. `packages/app-shell/src/assistant-memory-repository.ts`
+chunk has evaluated by then. `packages/assistant-data/src/assistant-memory-repository.ts`
 used to build its bootstrap DDL in a module-scope template literal interpolating
 `MASTRA_MEMORY_TABLES.threads`; adding ONE unrelated static import of
 `@brainstrike/assistant-contract/mastra-memory-schema` to `db-provider.tsx`

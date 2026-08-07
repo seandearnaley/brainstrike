@@ -29,7 +29,7 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/$1.ts'),
       },
       {
-        find: '@brainstrike/assistant-contract',
+        find: /^@brainstrike\/assistant-contract$/,
         replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
       },
       {

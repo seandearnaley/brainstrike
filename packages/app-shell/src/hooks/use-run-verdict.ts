@@ -1,6 +1,6 @@
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import type { RunVerdictContextValue } from '@brainstrike/assistant-ui';
 import { useMemo } from 'react';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 
 /**
  * Binds the assistant panel's per-run 👍/👎 control to the Task Ledger:

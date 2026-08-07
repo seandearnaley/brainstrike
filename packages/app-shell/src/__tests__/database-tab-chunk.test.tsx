@@ -1,8 +1,10 @@
+import {
+  useAssistantThreadGroupsStore,
+  useAssistantThreadStore,
+} from '@brainstrike/assistant-data';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useAssistantThreadGroupsStore } from '../assistant-thread-groups-store';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { DatabaseTab } from '../database-tab-chunk';
 
 let capturedDatabaseProps: {

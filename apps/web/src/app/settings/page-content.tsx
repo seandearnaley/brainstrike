@@ -4,8 +4,7 @@ import {
   NATIVE_TOOL_DEFAULTS,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/agent/tool-metadata';
-import { hasDurableAssistantUsageCapability } from '@brainstrike/app-shell/assistant-durable-usage-capability';
-import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
+import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import {
   createSystemDiagnosticsSettingsCategory,
   useDiagnosticSinkHealthStore,
@@ -14,6 +13,7 @@ import {
 } from '@brainstrike/app-shell/diagnostics';
 import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';

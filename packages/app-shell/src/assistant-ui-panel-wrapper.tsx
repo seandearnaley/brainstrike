@@ -34,6 +34,18 @@ import {
 import { isAssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import {
+  type CumulativeUsageDisplay,
+  createAssistantThreadHistoryAdapter,
+  createPgliteAssistantThreadRepository,
+  createSuspendedRunDiscovery,
+  EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY,
+  hasDurableAssistantUsageCapability,
+  type ModelPricingResolver,
+  resolveAssistantMemoryResourceId,
+  resolveCumulativeUsageDisplay,
+  useAssistantThreadStore,
+} from '@brainstrike/assistant-data';
+import {
   type AssistantProviderSettingsUpdate,
   type AssistantToolMenuItem,
   AssistantUiPanel,
@@ -63,18 +75,6 @@ import type {
 import { mergeAssistantProviderSettings, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import {
-  type CumulativeUsageDisplay,
-  EMPTY_THREAD_CUMULATIVE_USAGE_DISPLAY,
-  type ModelPricingResolver,
-  resolveCumulativeUsageDisplay,
-} from './assistant-cumulative-usage';
-import { hasDurableAssistantUsageCapability } from './assistant-durable-usage-capability';
-import {
-  createAssistantThreadHistoryAdapter,
-  createPgliteAssistantThreadRepository,
-} from './assistant-memory-repository';
-import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
 import { webBodyLimitProps } from './assistant-request-body-limit';
 import {
@@ -84,8 +84,6 @@ import {
   normalizeWriteBackFilePaths,
   resolveWriteBackFolderId,
 } from './assistant-selection-write-back';
-import { createSuspendedRunDiscovery } from './assistant-suspended-approvals';
-import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   type AssistantRunUsagePayload,
   addValuesToSet,

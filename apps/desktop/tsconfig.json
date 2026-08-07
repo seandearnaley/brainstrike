@@ -130,8 +130,11 @@
       "@brainstrike/app-shell": [
         "../../packages/app-shell/src"
       ],
-      "@brainstrike/app-shell/assistant-memory-repository": [
-        "../../packages/app-shell/src/assistant-memory-repository.ts"
+      "@brainstrike/assistant-data": [
+        "../../packages/assistant-data/src"
+      ],
+      "@brainstrike/assistant-data/cost-tracking": [
+        "../../packages/assistant-data/src/cost-tracking/index.ts"
       ],
       "@brainstrike/app-shell/changes/availability": [
         "../../packages/app-shell/src/changes/availability.ts"
@@ -188,6 +191,9 @@
     },
     {
       "path": "../../packages/app-shell"
+    },
+    {
+      "path": "../../packages/assistant-data"
     },
     {
       "path": "../../packages/assistant-ui"

@@ -3,12 +3,12 @@ import { getPermissionToolGateSnapshotInput } from '@brainstrike/app-state/store
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type { RuntimeData } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { useCallback, useEffect, useRef } from 'react';
 import {
   type AssistantForegroundActivityLease,
   acquireAssistantForegroundActivity,
 } from '../assistant-foreground-activity';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import {
   createAssistantThreadRunPromise,
   extractPreparedRunId,

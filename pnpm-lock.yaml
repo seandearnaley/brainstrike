@@ -399,6 +399,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../../packages/assistant-contract
+      '@brainstrike/assistant-data':
+        specifier: workspace:*
+        version: link:../../packages/assistant-data
       '@brainstrike/assistant-service':
         specifier: workspace:*
         version: link:../../packages/assistant-service
@@ -754,6 +757,9 @@ importers:
       '@brainstrike/app-state':
         specifier: workspace:*
         version: link:../../packages/app-state
+      '@brainstrike/assistant-data':
+        specifier: workspace:*
+        version: link:../../packages/assistant-data
       '@brainstrike/assistant-service':
         specifier: workspace:*
         version: link:../../packages/assistant-service
@@ -1143,6 +1149,9 @@ importers:
       '@brainstrike/assistant-contract':
         specifier: workspace:*
         version: link:../assistant-contract
+      '@brainstrike/assistant-data':
+        specifier: workspace:*
+        version: link:../assistant-data
       '@brainstrike/assistant-ui':
         specifier: workspace:*
         version: link:../assistant-ui
@@ -1227,9 +1236,6 @@ importers:
       '@xterm/xterm':
         specifier: ^6.0.0
         version: 6.0.0
-      fractional-indexing:
-        specifier: ^4.0.0
-        version: 4.0.0
       lucide-react:
         specifier: 'catalog:'
         version: 1.23.0(react@19.2.7)
@@ -1344,12 +1350,70 @@ importers:
         specifier: workspace:*
         version: link:../utils
     devDependencies:
+      '@assistant-ui/react':
+        specifier: 'catalog:'
+        version: 0.15.8(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(immer@10.2.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      typescript:
+        specifier: 'catalog:'
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(@vitest/browser-playwright@4.1.10)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.5(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.48.0)(tsx@4.23.0)(yaml@2.9.0))
+
+  packages/assistant-data:
+    dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
+      fractional-indexing:
+        specifier: ^4.0.0
+        version: 4.0.0
+      react:
+        specifier: ^19.2.4
+        version: 19.2.7
+      zustand:
+        specifier: ^5
+        version: 5.0.14(@types/react@19.2.17)(immer@10.2.0)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@testing-library/jest-dom':
+        specifier: 'catalog:'
+        version: 6.9.1
+      '@testing-library/react':
+        specifier: 'catalog:'
+        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.0
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.17
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
+      jsdom:
+        specifier: 'catalog:'
+        version: 29.1.1(@noble/hashes@2.2.0)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'

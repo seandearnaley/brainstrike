@@ -5,6 +5,7 @@
     "@brainstrike/app-state": "workspace:*",
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/app-shell": "workspace:*",
+    "@brainstrike/assistant-data": "workspace:*",
     "@brainstrike/assistant-service": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
     "@brainstrike/chunking-worker": "workspace:*",

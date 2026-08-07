@@ -48,6 +48,12 @@ import {
   getToolSchemaDisplay,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import type {
+  AssistantThreadMetadata,
+  AssistantThreadRepository,
+  AssistantThreadRunRecord,
+  AssistantThreadRuntimeKind,
+} from '@brainstrike/assistant-data';
+import type {
   AssistantProviderSettings,
   AssistantToolMenuItem,
   ComposerAttachmentsAvailability,
@@ -68,12 +74,6 @@ import {
   resolveTapestryColorHex,
   type TapestryColorName,
 } from '@brainstrike/types';
-import type {
-  AssistantThreadMetadata,
-  AssistantThreadRepository,
-  AssistantThreadRunRecord,
-  AssistantThreadRuntimeKind,
-} from './assistant-memory-repository';
 
 const SUPPORTED_SEMANTIC_RECALL_EMBEDDING_PROVIDER_IDS = new Set(['openai', 'google', 'local']);
 const SUPPORTED_OBSERVATIONAL_MEMORY_PROVIDER_IDS = new Set([

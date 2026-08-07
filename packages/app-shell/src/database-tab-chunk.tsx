@@ -1,8 +1,10 @@
+import {
+  resetAssistantThreadStore,
+  useAssistantThreadGroupsStore,
+} from '@brainstrike/assistant-data';
 import { DatabaseDemoPanel } from '@brainstrike/db-explorer/database-demo-panel';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type React from 'react';
-import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
-import { resetAssistantThreadStore } from './assistant-thread-store';
 
 interface DatabaseTabProps {
   readonly chunkingMode?: 'host-proxy' | 'local';

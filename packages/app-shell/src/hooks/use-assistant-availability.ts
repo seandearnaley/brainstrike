@@ -1,6 +1,5 @@
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import {
-  ASSISTANT_AUTH_HEADER_NAME,
   isSecretReadErrorCode,
   type ProviderKeySource,
   type SecretReadErrorCode,
@@ -12,8 +11,11 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+import { type AssistantAuthBridge, resolveAssistantAuthHeaders } from '@brainstrike/assistant-data';
 import { isAbortError } from '@brainstrike/utils/error-utils';
 import { useEffect, useState, useSyncExternalStore } from 'react';
+
+export { resolveAssistantAuthHeaders } from '@brainstrike/assistant-data';
 
 export interface AssistantProviderReadError {
   readonly code: SecretReadErrorCode;
@@ -244,16 +246,6 @@ export async function resolveAssistantBaseUrl(): Promise<string> {
 }
 
 /**
- * Resolves the auth headers every assistant-server request must carry. The
- * desktop bridge's `getAuth` supplies the per-boot token (see
- * `ASSISTANT_AUTH_HEADER_NAME` in @brainstrike/assistant-contract); web builds
- * have no bridge and get an empty object (same-origin `/api` needs none).
- */
-interface AssistantAuthBridge {
-  getAuth?: () => Promise<{ token: string; url: string } | { startupError: string } | null>;
-}
-
-/**
  * Returns the startup failure message when the desktop main process reported
  * the assistant server never started; undefined otherwise (incl. web builds).
  */
@@ -273,27 +265,6 @@ export async function readAssistantStartupFailure(): Promise<string | undefined>
     }
   }
   return;
-}
-
-export async function resolveAssistantAuthHeaders(): Promise<Record<string, string>> {
-  if (typeof window === 'undefined') {
-    return {};
-  }
-
-  const bridge = (window as unknown as { assistant?: AssistantAuthBridge }).assistant;
-  if (bridge && typeof bridge.getAuth === 'function') {
-    try {
-      const auth = await bridge.getAuth();
-      if (auth && 'token' in auth && auth.token) {
-        return { [ASSISTANT_AUTH_HEADER_NAME]: auth.token };
-      }
-    } catch {
-      // ignored — the request proceeds without the header and the server's
-      // 401 surfaces the failure loudly instead of a silent client-side guess.
-    }
-  }
-
-  return {};
 }
 
 export async function resolveAssistantStatusUrl(): Promise<string> {

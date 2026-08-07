@@ -5,7 +5,6 @@ import {
   ComposerPrimitive,
   type DataMessagePartComponent,
   MessagePrimitive,
-  type ThreadHistoryAdapter,
   ThreadPrimitive,
   useAssistantDataUI,
   useAui,
@@ -22,6 +21,7 @@ import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
   type AssistantToolApprovalRequest,
+  type AssistantUiThreadHistoryAdapter,
   CHILD_RUN_USAGE_DATA_NAME,
   CONTEXT_BREAKDOWN_DATA_NAME,
   type LocalLlmBackendFactory,
@@ -299,7 +299,7 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
    * app — web omits it).
    */
   fileMentions?: readonly FileMention[];
-  historyAdapter?: ThreadHistoryAdapter;
+  historyAdapter?: AssistantUiThreadHistoryAdapter;
   /**
    * Re-hydration counter. `historyAdapter.load()` runs ONCE per runtime mount,
    * so a durable change made OUTSIDE the panel — Conversation Rewind hiding a
@@ -431,7 +431,7 @@ export interface AssistantUiPanelProps extends ComposerDraftCommandBridgeProps {
   toolMenu?: AssistantToolMenuConfig;
 }
 
-export type AssistantUiThreadHistoryAdapter = ThreadHistoryAdapter;
+export type { AssistantUiThreadHistoryAdapter } from '@brainstrike/assistant-contract';
 
 function isRunningReasoningPart(part: unknown): boolean {
   if (!(part && typeof part === 'object')) {
@@ -970,7 +970,7 @@ const DataStreamRuntimeChat = ({
         error?: string
       ) => Promise<void> | void)
     | undefined;
-  historyAdapter: ThreadHistoryAdapter | undefined;
+  historyAdapter: AssistantUiThreadHistoryAdapter | undefined;
   requestData: Record<string, unknown> | undefined;
   prepareRequestData?:
     | ((

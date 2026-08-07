@@ -1,11 +1,11 @@
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
+import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { DbHandle } from '@brainstrike/db/react';
 import { useCallback } from 'react';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import {
   type AssistantOperatingRootCandidate,
   resolveAssistantOperatingRootBinding as resolveDurableAssistantOperatingRootBinding,
 } from '../assistant-operating-root';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import {
   type AssistantOperatingRootBinding,
   resolveAssistantOperatingRootBinding,

@@ -1,10 +1,10 @@
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import type { AssistantThreadDraftRuntime } from '@brainstrike/assistant-data';
 import type {
   AssistantProviderSettings,
   AssistantProviderSettingsUpdate,
 } from '@brainstrike/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AssistantThreadDraftRuntime } from '../assistant-thread-store';
 import {
   buildDraftRuntimeForProvider,
   copyProviderSettingsMap,

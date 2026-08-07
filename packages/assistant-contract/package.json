@@ -8,6 +8,7 @@
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
+    "@assistant-ui/react": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",

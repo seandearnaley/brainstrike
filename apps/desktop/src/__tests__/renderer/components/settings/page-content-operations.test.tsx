@@ -101,7 +101,7 @@ vi.mock('@brainstrike/app-shell', () => ({
   useAssistantAvailability: () => assistantAvailability.current,
 }));
 
-vi.mock('@brainstrike/app-shell/cost-tracking', () => ({
+vi.mock('@brainstrike/app-shell/cost-tracking-settings', () => ({
   createCostTrackingSettingsCategory: () => ({
     content: <div data-testid="cost-tracking-category" />,
     id: 'cost-tracking',

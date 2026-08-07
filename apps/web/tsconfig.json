@@ -70,6 +70,9 @@
       "path": "../../packages/app-shell"
     },
     {
+      "path": "../../packages/assistant-data"
+    },
+    {
       "path": "../../packages/assistant-ui"
     },
     {

@@ -1,4 +1,9 @@
 import {
+  createPgliteAssistantThreadRepository,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
+import {
   type AnyContextAction,
   defineContextAction,
   type TargetOf,
@@ -22,8 +27,6 @@ import {
 } from 'lucide-react';
 import type { KeyboardEvent, ReactElement, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
@@ -34,7 +37,6 @@ import {
   THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from './assistant-thread-presentation';
-import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   AssistantThreadTabDndShell,
   useAssistantThreadTabAutoScroll,

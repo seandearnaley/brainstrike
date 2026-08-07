@@ -1,6 +1,6 @@
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import { useRunVerdictBinding } from '../hooks/use-run-verdict';
 
 function repositoryWith(recordRunOutcome?: ReturnType<typeof vi.fn>): AssistantThreadRepository {

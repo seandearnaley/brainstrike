@@ -85,7 +85,7 @@ async function readWebE2eDbPath(page: Page): Promise<string> {
 }
 
 // Assistant threads persist under the workspace-global resource id (see
-// WORKSPACE_MEMORY_RESOURCE_ID in packages/app-shell/src/assistant-memory-resource.ts —
+// WORKSPACE_MEMORY_RESOURCE_ID in packages/assistant-data/src/assistant-memory-resource.ts —
 // not exported from the package barrel, hence the literal), not the focused
 // root name, since #1214 made threads workspace-global.
 const WORKSPACE_MEMORY_RESOURCE_ID = 'brainstrike:workspace';

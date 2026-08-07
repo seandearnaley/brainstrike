@@ -1,8 +1,8 @@
 import '@testing-library/jest-dom/vitest';
+import type { RunLedgerRow } from '@brainstrike/assistant-data';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { RunLedgerRow } from '../../assistant-memory-repository';
 import type { LedgerModelComparisonRow, LedgerTrendPoint } from '../../run-ledger-analytics';
 import {
   isRunOverCap,

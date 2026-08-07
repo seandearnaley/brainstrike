@@ -565,7 +565,7 @@
   mutates the registry.
 - State:
   - packages/app-state/src/stores/assistant-preferences-store.ts
-  - packages/app-shell/src/assistant-thread-store.ts
+  - packages/assistant-data/src/assistant-thread-store.ts
   - Assistant preferences persist the most recently selected model as the default for the next
     new thread, plus a capped `recentModels` list (composite keys, newest first) that feeds the
     composer model menu's top-level rows. The thread store persists each existing thread's model and provider settings so

@@ -14,17 +14,9 @@ function readPackageFile(relativePath: string): string {
   return readFileSync(path.join(APP_SHELL_PACKAGE_ROOT, relativePath), 'utf8');
 }
 
+// assistant-data's own boundary suite (contract-boundary.test.ts there) now
+// owns the moved data layer's import hygiene; this file guards app-shell only.
 describe('app-shell assistant contract boundary', () => {
-  it('reads assistant run events from assistant-contract instead of agent runtime', () => {
-    expect(readSource('assistant-memory-repository.ts')).not.toMatch(
-      /@brainstrike\/agent\/run-events/
-    );
-  });
-
-  it('keeps thread draft runtime data structurally typed inside app-shell', () => {
-    expect(readSource('assistant-thread-store.ts')).not.toMatch(/@brainstrike\/agent['"]/);
-  });
-
   it('reads provider and tool metadata from assistant-contract instead of agent runtime packages', () => {
     const wrapperSource = readSource('assistant-ui-panel-wrapper.tsx');
 
@@ -179,7 +171,6 @@ describe('app-shell assistant contract boundary', () => {
       dependencies?: Record<string, string>;
     };
 
-    expect(readSource('assistant-memory-repository.ts')).not.toMatch(/@brainstrike\/agent/);
     expect(readSource('assistant-ui-panel-wrapper.tsx')).not.toMatch(/@brainstrike\/agent/);
     expect(readSource('__tests__/assistant-ui-panel-wrapper.test.tsx')).not.toMatch(
       /@brainstrike\/agent/

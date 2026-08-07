@@ -1,6 +1,27 @@
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
+  ASSISTANT_THREAD_COLOR_IDS,
+  ASSISTANT_THREAD_ICON_IDS,
+  type AssistantMemoryThread,
+  type AssistantThreadColorId,
+  type AssistantThreadGroup,
+  type AssistantThreadIconId,
+  type AssistantThreadMetadata,
+  type AssistantThreadRepository,
+  buildThreadListSections,
+  buildThreadMembership,
+  createPgliteAssistantThreadGroupsRepository,
+  createPgliteAssistantThreadRepository,
+  getGroupMemberIds,
+  type ThreadListView,
+  type ThreadsPanelGroupBy,
+  type ThreadsPanelSortBy,
+  useAssistantThreadGroupsStore,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
+import {
   type AnyContextAction,
   defineContextAction,
   type TargetOf,
@@ -56,24 +77,8 @@ import {
 } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ASSISTANT_THREAD_COLOR_IDS,
-  ASSISTANT_THREAD_ICON_IDS,
-  type AssistantMemoryThread,
-  type AssistantThreadColorId,
-  type AssistantThreadIconId,
-  type AssistantThreadMetadata,
-  type AssistantThreadRepository,
-  createPgliteAssistantThreadRepository,
-} from './assistant-memory-repository';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
-import {
-  type AssistantThreadGroup,
-  createPgliteAssistantThreadGroupsRepository,
-} from './assistant-thread-groups-repository';
-import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   getAssistantThreadColorSurface,
@@ -82,15 +87,6 @@ import {
   THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from './assistant-thread-presentation';
-import { useAssistantThreadStore } from './assistant-thread-store';
-import {
-  buildThreadListSections,
-  buildThreadMembership,
-  getGroupMemberIds,
-  type ThreadListView,
-  type ThreadsPanelGroupBy,
-  type ThreadsPanelSortBy,
-} from './thread-list-sections';
 import {
   resolveThreadPanelContentState,
   type ThreadPanelLoadState,

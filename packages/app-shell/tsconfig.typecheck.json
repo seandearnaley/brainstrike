@@ -11,6 +11,12 @@
       "@brainstrike/assistant-contract/*": [
         "../assistant-contract/dist/*.d.ts"
       ],
+      "@brainstrike/assistant-data": [
+        "../assistant-data/dist/index.d.ts"
+      ],
+      "@brainstrike/assistant-data/cost-tracking": [
+        "../assistant-data/dist/cost-tracking/index.d.ts"
+      ],
       "@brainstrike/types": [
         "../types/dist/index.d.ts"
       ],
