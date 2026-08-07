@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getCanvasSandboxContentSecurityPolicy } from '@brainstrike/platform-utils';
 import { describe, expect, it } from 'vitest';
 import { getCSP } from '../csp-utils';
 
@@ -81,6 +82,31 @@ describe('vercel.json production headers', () => {
     expect(headerValueOf(appShellRule as VercelHeaderRule, 'Content-Security-Policy')).toBe(
       getCSP('production')
     );
+  });
+
+  it('serves the Canvas shell with the sandbox CSP, ordered to win over the app-wide rule (BST-1173)', () => {
+    const config = readVercelConfig();
+    const sources = (config.headers ?? []).map((rule) => rule.source);
+    const appShellIndex = sources.indexOf('/(.*)');
+    const canvasIndex = sources.indexOf('/canvas-frame.html');
+
+    expect(canvasIndex).toBeGreaterThanOrEqual(0);
+    // Later matching rule wins for the same header key; the canvas CSP must
+    // replace the app CSP (whose frame-ancestors 'none' would make the shell
+    // unframeable and whose script-src would break inline canvas scripts).
+    expect(canvasIndex).toBeGreaterThan(appShellIndex);
+
+    const canvasRule = (config.headers ?? [])[canvasIndex] as VercelHeaderRule;
+    expect(headerValueOf(canvasRule, 'Content-Security-Policy')).toBe(
+      getCanvasSandboxContentSecurityPolicy()
+    );
+    expect(headerValueOf(canvasRule, 'Content-Security-Policy')).not.toContain('frame-ancestors');
+    expect(headerValueOf(canvasRule, 'X-Frame-Options')).toBeUndefined();
+    // The dev server is cross-origin isolated; keep prod headers ready for the
+    // same posture so enabling COEP app-wide can never orphan the canvas.
+    expect(headerValueOf(canvasRule, 'Cross-Origin-Embedder-Policy')).toBe('require-corp');
+    expect(headerValueOf(canvasRule, 'Cross-Origin-Resource-Policy')).toBe('same-origin');
+    expect(cacheControlOf(canvasRule)).toBe(REVALIDATE);
   });
 
   it('serves hashed /assets/* immutable for a year', () => {

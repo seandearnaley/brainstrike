@@ -13,6 +13,7 @@ import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vitest/config';
 import { createAgentBrowserSafeAliasEntries } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
+import { canvasFrameShellPlugin } from './src/canvas-frame-plugin';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -176,6 +177,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    canvasFrameShellPlugin(),
     fullReloadOnCompilerHotspots(),
     wasm(),
     topLevelAwait(),
