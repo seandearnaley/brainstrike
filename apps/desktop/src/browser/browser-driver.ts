@@ -13,6 +13,13 @@
  */
 import type { AccessibilitySnapshot, SnapshotOptions } from './accessibility-snapshot';
 
+/**
+ * A screenshot clip in DOCUMENT coordinates — CSS pixels from the document
+ * origin, matching CDP `Page.captureScreenshot`'s `clip`. NOT viewport-relative:
+ * on a scrolled page, `y` is measured from the top of the document, not the top
+ * of what is currently visible. The driver captures beyond the viewport so a
+ * region below the fold still renders.
+ */
 export interface PaneRegion {
   readonly height: number;
   readonly width: number;

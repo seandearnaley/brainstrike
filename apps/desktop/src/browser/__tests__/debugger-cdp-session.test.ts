@@ -73,4 +73,22 @@ describe('createDebuggerCdpSession', () => {
     session.detach(); // already detached
     expect(dbg.detach).toHaveBeenCalledTimes(1);
   });
+
+  it('registers a single underlying message listener regardless of on() count (no leak)', () => {
+    const dbg = fakeDebugger();
+    const session = createDebuggerCdpSession(dbg);
+    session.on('A', vi.fn());
+    session.on('B', vi.fn());
+    session.on('A', vi.fn());
+    expect(dbg.messageHandlers).toHaveLength(1);
+  });
+
+  it('re-attaches on send after an external detach (DevTools/crash never bricks it)', async () => {
+    const dbg = fakeDebugger();
+    const session = createDebuggerCdpSession(dbg);
+    (dbg.attach as ReturnType<typeof vi.fn>).mockClear();
+    dbg.detach(); // e.g. the user opened DevTools on this tab
+    await session.send('Page.reload');
+    expect(dbg.attach).toHaveBeenCalledWith('1.3');
+  });
 });

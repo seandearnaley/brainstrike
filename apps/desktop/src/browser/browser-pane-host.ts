@@ -147,7 +147,11 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
     const { id } = built.webContents;
     webContentsById.set(id, built.webContents);
     built.webContents.once('destroyed', () => {
-      sessionsById.get(id)?.detach();
+      try {
+        sessionsById.get(id)?.detach();
+      } catch {
+        // The WebContents is already gone; there is nothing left to detach.
+      }
       sessionsById.delete(id);
       webContentsById.delete(id);
     });
@@ -212,7 +216,14 @@ export function createBrowserPaneHost(hostWindow: BrowserWindow): BrowserPaneHos
       }
       activeManagers.delete(manager);
       for (const session of sessionsById.values()) {
-        session.detach();
+        // A detach can throw ("Object has been destroyed") when the WebContents
+        // was already torn down out-of-band; it must never abort the teardown
+        // before manager.dispose() runs.
+        try {
+          session.detach();
+        } catch (error) {
+          logger.debug('Pane CDP session detach during dispose failed', { error });
+        }
       }
       sessionsById.clear();
       webContentsById.clear();

@@ -39,25 +39,42 @@ export class DebuggerBrowserDriver implements BrowserDriver {
     // getFullAXTree requires the Accessibility domain enabled; it is idempotent.
     await session.send('Accessibility.enable');
     const tree = await session.send<AxTreeResult>('Accessibility.getFullAXTree');
-    return formatAccessibilitySnapshot(tree.nodes ?? [], options);
+    // NO SILENT FALLBACKS: a malformed reply (protocol skew, broken transport)
+    // must surface as a capability failure, never a plausible "empty page".
+    if (!Array.isArray(tree?.nodes)) {
+      throw new Error('CDP Accessibility.getFullAXTree returned no nodes array');
+    }
+    return formatAccessibilitySnapshot(tree.nodes, options);
   }
 
   async screenshot(options?: { readonly region?: PaneRegion }): Promise<DriverScreenshot> {
     const session = await this.resolveSession();
-    const params = options?.region ? { clip: toClip(options.region) } : undefined;
+    // A region clip is in DOCUMENT coordinates (see PaneRegion); capture beyond
+    // the viewport so a region below the fold still renders.
+    const params = options?.region
+      ? { captureBeyondViewport: true, clip: toClip(options.region) }
+      : undefined;
     const shot = await session.send<CaptureScreenshotResult>('Page.captureScreenshot', params);
-    return { dataUrl: `data:image/png;base64,${shot.data ?? ''}` };
+    if (typeof shot?.data !== 'string' || shot.data.length === 0) {
+      throw new Error('CDP Page.captureScreenshot returned no image data');
+    }
+    return { dataUrl: `data:image/png;base64,${shot.data}` };
   }
 
   async getPageText(maxChars: number): Promise<DriverPageText> {
     const session = await this.resolveSession();
     const evaluated = await session.send<EvaluateResult>('Runtime.evaluate', {
+      // Always resolves to a string (empty when body is absent) — so a
+      // non-string here means the CALL failed, not that the page is empty.
       expression: 'document.body ? document.body.innerText : ""',
       returnByValue: true,
     });
-    const full = typeof evaluated.result?.value === 'string' ? evaluated.result.value : '';
-    const truncated = full.length > maxChars;
-    return { text: truncated ? full.slice(0, maxChars) : full, truncated };
+    const value = evaluated?.result?.value;
+    if (typeof value !== 'string') {
+      throw new Error('CDP Runtime.evaluate did not return page text');
+    }
+    const truncated = value.length > maxChars;
+    return { text: truncated ? value.slice(0, maxChars) : value, truncated };
   }
 }
 

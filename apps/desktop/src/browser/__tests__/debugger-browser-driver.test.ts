@@ -50,8 +50,27 @@ describe('DebuggerBrowserDriver', () => {
     await driver.screenshot({ region: { height: 40, width: 30, x: 10, y: 20 } });
     const clipCall = session.sent.find((c) => c.method === 'Page.captureScreenshot' && c.params);
     expect(clipCall?.params).toEqual({
+      captureBeyondViewport: true,
       clip: { height: 40, scale: 1, width: 30, x: 10, y: 20 },
     });
+  });
+
+  it('throws (never coerces) when a CDP reply is malformed — NO SILENT FALLBACKS', async () => {
+    await expect(
+      driverWith(new FakeCdpSession({})).snapshot({ filter: 'all', maxChars: 100 })
+    ).rejects.toThrow('no nodes array');
+    await expect(driverWith(new FakeCdpSession({})).screenshot()).rejects.toThrow('no image data');
+    await expect(
+      driverWith(new FakeCdpSession({ 'Runtime.evaluate': { result: { value: 42 } } })).getPageText(
+        10
+      )
+    ).rejects.toThrow('did not return page text');
+  });
+
+  it('accepts a genuinely empty page (empty string is valid, not malformed)', async () => {
+    const session = new FakeCdpSession({ 'Runtime.evaluate': { result: { value: '' } } });
+    const result = await driverWith(session).getPageText(10);
+    expect(result).toEqual({ text: '', truncated: false });
   });
 
   it('getPageText reads innerText via Runtime.evaluate and truncates to maxChars', async () => {
@@ -65,7 +84,11 @@ describe('DebuggerBrowserDriver', () => {
   });
 
   it('resolves a fresh session per call (so it always targets the active tab)', async () => {
-    const resolveSession = vi.fn(() => Promise.resolve(new FakeCdpSession()));
+    const session = new FakeCdpSession({
+      'Page.captureScreenshot': { data: 'QUJD' },
+      'Runtime.evaluate': { result: { value: 'x' } },
+    });
+    const resolveSession = vi.fn(() => Promise.resolve(session));
     const driver = new DebuggerBrowserDriver(resolveSession);
     await driver.getPageText(100);
     await driver.screenshot();

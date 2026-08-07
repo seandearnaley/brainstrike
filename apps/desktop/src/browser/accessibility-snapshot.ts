@@ -71,6 +71,9 @@ interface BuiltLine {
   readonly refKey?: string;
 }
 
+/** Cap a page-supplied accessible name before it enters the model's view. */
+const MAX_NAME_LENGTH = 200;
+
 function roleOf(node: AxSnapshotNode): string {
   return typeof node.role?.value === 'string' ? node.role.value : '';
 }
@@ -78,6 +81,32 @@ function roleOf(node: AxSnapshotNode): string {
 function isInteractive(node: AxSnapshotNode): boolean {
   const role = roleOf(node);
   return role.length > 0 && INTERACTIVE_ROLES.has(role);
+}
+
+/**
+ * An accessible name is UNTRUSTED, page-controlled text (`aria-label`, `alt`,
+ * text content) dropped into the agent's primary seeing surface — a trust
+ * boundary, since PR3 makes refs actionable. Neutralize the three ways a name
+ * could forge formatter structure: collapse all whitespace (a newline would
+ * otherwise inject a fake tree line), escape the double-quotes that delimit the
+ * name, and defuse literal `[ref=` so a page can't forge a ref handle. Then
+ * cap the length.
+ */
+function sanitizeName(raw: string): string {
+  const collapsed = raw.replace(/\s+/g, ' ').trim();
+  const escaped = collapsed.replace(/"/g, '\\"').replace(/\[ref=/gi, '[ref–');
+  return escaped.length > MAX_NAME_LENGTH ? `${escaped.slice(0, MAX_NAME_LENGTH)}…` : escaped;
+}
+
+/** Build one indented `role "name" [ref=eN]` line (+ its ref binding). */
+function renderLine(node: AxSnapshotNode, depth: number, refKey: string | undefined): BuiltLine {
+  const rawName = node.name?.value === undefined ? '' : sanitizeName(String(node.name.value));
+  const name = rawName.length > 0 ? ` "${rawName}"` : '';
+  const refSuffix = refKey ? ` [ref=${refKey}]` : '';
+  const line = `${'  '.repeat(depth)}${roleOf(node)}${name}${refSuffix}`;
+  return refKey && node.backendDOMNodeId !== undefined
+    ? { backendId: node.backendDOMNodeId, line, refKey }
+    : { line };
 }
 
 export function formatAccessibilitySnapshot(
@@ -93,18 +122,29 @@ export function formatAccessibilitySnapshot(
   }
   const roots = nodes.filter((node) => !childOf.has(node.nodeId));
 
-  const hasInteractiveDescendant = (node: AxSnapshotNode, seen: Set<string>): boolean => {
-    if (seen.has(node.nodeId)) {
-      return false;
+  // Memoized so `filter: 'interactive'` stays O(n), not O(n·depth): a real page
+  // returns thousands of AX nodes and this runs on the main process. The
+  // tentative `false` both seeds the memo and breaks cycles (a back-edge to an
+  // in-progress node contributes nothing).
+  const interactiveDescendantMemo = new Map<string, boolean>();
+  const hasInteractiveDescendant = (node: AxSnapshotNode): boolean => {
+    const cached = interactiveDescendantMemo.get(node.nodeId);
+    if (cached !== undefined) {
+      return cached;
     }
-    seen.add(node.nodeId);
-    if (isInteractive(node)) {
-      return true;
+    interactiveDescendantMemo.set(node.nodeId, false);
+    let result = isInteractive(node);
+    if (!result) {
+      for (const id of node.childIds ?? []) {
+        const child = byId.get(id);
+        if (child && !child.ignored && hasInteractiveDescendant(child)) {
+          result = true;
+          break;
+        }
+      }
     }
-    return (node.childIds ?? []).some((id) => {
-      const child = byId.get(id);
-      return Boolean(child && !child.ignored && hasInteractiveDescendant(child, seen));
-    });
+    interactiveDescendantMemo.set(node.nodeId, result);
+    return result;
   };
 
   const shouldShow = (node: AxSnapshotNode): boolean => {
@@ -114,7 +154,7 @@ export function formatAccessibilitySnapshot(
     if (options.filter === 'all') {
       return true;
     }
-    return isInteractive(node) || hasInteractiveDescendant(node, new Set());
+    return isInteractive(node) || hasInteractiveDescendant(node);
   };
 
   const built: BuiltLine[] = [];
@@ -127,23 +167,9 @@ export function formatAccessibilitySnapshot(
     visited.add(node.nodeId);
     const show = shouldShow(node);
     if (show) {
-      const name =
-        node.name?.value !== undefined && String(node.name.value).length > 0
-          ? ` "${node.name.value}"`
-          : '';
-      const refable = isInteractive(node) && node.backendDOMNodeId !== undefined;
-      let refSuffix = '';
-      let ref: { refKey: string; backendId: number } | undefined;
-      if (refable) {
-        refCounter += 1;
-        const refKey = `e${refCounter}`;
-        refSuffix = ` [ref=${refKey}]`;
-        ref = { backendId: node.backendDOMNodeId as number, refKey };
-      }
-      built.push({
-        line: `${'  '.repeat(depth)}${roleOf(node)}${name}${refSuffix}`,
-        ...ref,
-      });
+      const refKey =
+        isInteractive(node) && node.backendDOMNodeId !== undefined ? `e${++refCounter}` : undefined;
+      built.push(renderLine(node, depth, refKey));
     }
     const childDepth = show ? depth + 1 : depth;
     for (const id of node.childIds ?? []) {
