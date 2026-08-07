@@ -15,9 +15,22 @@
  * It composes the sibling `changes/` modules only — it must NEVER import the
  * wrapper back (module-scope chunk-init cycle class; bitten four times).
  */
-import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
+import { type AssistantRunEvent, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { useCallback, useEffect, useRef } from 'react';
 import { useChangesNavigationStore } from './changes-navigation-store';
+
+/**
+ * Matches the manageCanvas tool in BOTH wire forms: the dotted id on the live
+ * stream and the Mastra-sanitized underscore form on persisted parts (same
+ * dual-form handling as `denormalizeNativeToolName` in run-lifecycle).
+ */
+function isManageCanvasToolName(value: unknown): boolean {
+  return (
+    value === NATIVE_TOOL_ID.manageCanvas ||
+    value === NATIVE_TOOL_ID.manageCanvas.replaceAll('.', '_')
+  );
+}
+
 import { useRewindStore } from './rewind-store';
 import { type UseRewindFinalizationArgs, useRewindFinalization } from './use-rewind-finalization';
 
@@ -106,6 +119,7 @@ export function useWrapperRewindWiring({
   // THROTTLED leading+trailing: a tool burst must not fire an IPC round-trip
   // per call, and the LAST completion in a burst must still be reflected —
   // dropping it would leave the list one file short until the run ended.
+  const requestCanvasRefresh = useChangesNavigationStore((state) => state.requestCanvasRefresh);
   const requestLiveLastTurnRefresh = useChangesNavigationStore(
     (state) => state.requestLiveLastTurnRefresh
   );
@@ -133,6 +147,13 @@ export function useWrapperRewindWiring({
         }
         return;
       }
+      // manageCanvas rides the edit-activity stream because canvas mutations
+      // are edit-risk (PR #2294). Its completions re-query the Canvas panel
+      // directly — no throttle needed at canvas mutation frequency — and then
+      // fall through to the (guarded, cheap) Changes refresh below.
+      if (isManageCanvasToolName(event.metadata?.['toolName'])) {
+        requestCanvasRefresh();
+      }
       const throttle = liveRefreshThrottleRef.current;
       const now = Date.now();
       const elapsed = now - throttle.lastFiredAt;
@@ -150,7 +171,7 @@ export function useWrapperRewindWiring({
         requestLiveLastTurnRefresh(threadId);
       }, LIVE_CHANGES_REFRESH_THROTTLE_MS - elapsed);
     },
-    [requestLiveLastTurnRefresh, threadId, setActiveThreadIdentity]
+    [requestCanvasRefresh, requestLiveLastTurnRefresh, threadId, setActiveThreadIdentity]
   );
 
   return {

@@ -22,6 +22,76 @@ describe('WorkspacePanelTabs', () => {
     expect(screen.queryByRole('tab', { name: 'Changes' })).not.toBeInTheDocument();
   });
 
+  it('renders per-tab: Canvas present without Changes still gets chrome, absent capabilities get no trigger', () => {
+    // BST-1173: the gate is per-tab, not all-or-nothing. Canvas alone must
+    // produce a two-tab strip; Changes alone must not render a Canvas trigger.
+    render(
+      <WorkspacePanelTabs
+        canvasPanelContent={<div>Canvas content</div>}
+        contextExplorerContent={<div>Context explorer content</div>}
+      />
+    );
+
+    expect(screen.getByRole('tab', { name: 'Canvas' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Changes' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-panel-tabs-list').className).toContain('grid-cols-2');
+  });
+
+  it('sizes the tab grid to the number of present tabs (three with Changes + Canvas)', () => {
+    render(
+      <WorkspacePanelTabs
+        canvasPanelContent={<div>Canvas content</div>}
+        changesPageContent={<div>Changes content</div>}
+        contextExplorerContent={<div>Context explorer content</div>}
+      />
+    );
+
+    expect(screen.getByTestId('workspace-panel-tabs-list').className).toContain('grid-cols-3');
+  });
+
+  it('lazily mounts Canvas on first open and keeps it mounted after switching away (sticky contract)', () => {
+    render(
+      <WorkspacePanelTabs
+        canvasPanelContent={<div>Canvas content</div>}
+        changesPageContent={<div>Changes content</div>}
+        contextExplorerContent={<div>Context explorer content</div>}
+      />
+    );
+
+    expect(screen.queryByText('Canvas content')).not.toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Canvas' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByText('Canvas content')).toBeVisible();
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Context Explorer' }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    // Mounted-but-hidden, like Changes: the canvas iframe must not reload on
+    // every tab switch.
+    expect(screen.getByText('Canvas content')).not.toBeVisible();
+  });
+
+  it('activates the Canvas tab from the store openCanvasPanel action (external entry point)', () => {
+    render(
+      <WorkspacePanelTabs
+        canvasPanelContent={<div>Canvas content</div>}
+        changesPageContent={<div>Changes content</div>}
+        contextExplorerContent={<div>Context explorer content</div>}
+      />
+    );
+
+    act(() => {
+      useChangesNavigationStore.getState().openCanvasPanel();
+    });
+
+    expect(screen.getByRole('tab', { name: 'Canvas' })).toHaveAttribute('data-state', 'active');
+    expect(screen.getByText('Canvas content')).toBeVisible();
+  });
+
   it('shows Context Explorer as the default active tab, with Changes present but hidden', () => {
     render(
       <WorkspacePanelTabs

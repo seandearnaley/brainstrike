@@ -1,3 +1,4 @@
+import { CanvasPanel } from '@brainstrike/app-shell/canvas/canvas-panel';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
 import NotesPageContent from '@brainstrike/app-shell/notes-page-content';
 import {
@@ -13,6 +14,7 @@ import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 // `/panel`) so the startup check does not defeat the lazy code-split in
 // `@brainstrike/app-shell/notes-page-content`.
 import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
+import { CANVAS_FRAME_SHELL_PATH } from '@brainstrike/platform-utils';
 import { NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
@@ -87,6 +89,11 @@ export default function RootLayoutContent() {
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through
   // so the queue stays singleton while avoiding startup-time workerpool construction.
   const sharedProps: RootLayoutContentProps = {
+    // Canvas render surface (BST-1173): reads the renderer PGlite directly and
+    // frames the same-origin sandbox shell served at CANVAS_FRAME_SHELL_PATH —
+    // no desktop bridge involved, so web gets the surface unconditionally.
+    // (The manageCanvas WRITE tool stays desktop-only; see WebNativeToolId.)
+    canvasPanelContent: <CanvasPanel shellSrc={CANVAS_FRAME_SHELL_PATH} />,
     contextExplorerPageContent: <ContextExplorerPageContent />,
     databaseTabChunkingMode: 'local',
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring

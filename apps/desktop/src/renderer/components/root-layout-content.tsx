@@ -2,6 +2,7 @@
 // `/changes`, which also re-exports ChangesSurface + the diff renderer) so
 // the startup check does not defeat the lazy code-split in
 // changes-page-content.tsx.
+import { CanvasPanel } from '@brainstrike/app-shell/canvas/canvas-panel';
 import { isChangesBridgeAvailable } from '@brainstrike/app-shell/changes/availability';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/git-panel`, which also re-exports GitPanel + @codemirror/merge) so the
@@ -128,6 +129,10 @@ export default function RootLayoutContent() {
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through
   // so the queue stays singleton while avoiding startup-time workerpool construction.
   const sharedProps: RootLayoutContentProps = {
+    // Canvas render surface (BST-1173): needs only the DB (summaries/versions)
+    // and the brainstrike-canvas: shell protocol, both unconditionally present
+    // on desktop — no bridge gate.
+    canvasPanelContent: <CanvasPanel shellSrc="brainstrike-canvas://shell/" />,
     contextExplorerPageContent: <ContextExplorerPageContent />,
     databaseTabChunkingMode: 'host-proxy',
     navigationItems: navigationConfig,
