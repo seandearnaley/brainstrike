@@ -348,8 +348,18 @@ test('a floor shorter than the window is fine, and does not match the Exclude ke
   );
 });
 
-test('the real repo configures no minimumReleaseAge floor (the premise of the 30-day window)', () => {
-  assert.equal(readMinimumReleaseAgeFloorDays(repoRoot), null);
+test('the real repo configures a minimumReleaseAge floor, and it clears the expiry window', () => {
+  // BST-1183 switched the floor on. Asserting the concrete value keeps the
+  // supply-chain policy from being silently relaxed or removed — and the
+  // relational assertion is the one the guard's own remedy depends on.
+  const floorDays = readMinimumReleaseAgeFloorDays(repoRoot);
+  assert.equal(floorDays, 3, 'pnpm-workspace.yaml must keep minimumReleaseAge: 4320 (3 days)');
+  assert.ok(
+    floorDays < MAX_EXCLUSION_AGE_DAYS,
+    `the floor (${floorDays}d) must stay below MAX_EXCLUSION_AGE_DAYS (${MAX_EXCLUSION_AGE_DAYS}d): the guard ` +
+      'tells maintainers to delete aged exclusions because the floor would admit them anyway, which is only ' +
+      'true while the floor is the shorter window.'
+  );
 });
 
 test('a trailing inline comment throws, and the message says where the reason belongs', () => {

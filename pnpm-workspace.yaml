@@ -132,6 +132,36 @@ allowBuilds:
   puppeteer: true
   sharp: true
   '@parcel/watcher': false
+# Supply-chain floor (BST-1183): refuse any npm version published less than 3
+# days ago. That window is where typosquats, compromised-maintainer publishes and
+# malicious postinstall payloads get found and unpublished. Before this the repo
+# had no release-age protection at all (measured on pnpm 11.15.0:
+# `pnpm config get minimumReleaseAge` returned undefined).
+#
+# The value is in MINUTES. 4320 = 3 days.
+#
+# IT APPLIES TO `--frozen-lockfile` TOO. Measured, not assumed: pnpm re-checks
+# every LOCKFILE ENTRY against the cutoff and exits 1 on anything newer ("The
+# lockfile contains entries that the active policies reject"), so this is not
+# only a `pnpm add`/`pnpm update` resolution gate — it is a CI gate. Two direct
+# consequences:
+#   - The floor cannot exceed the age of the newest entry in the committed
+#     lockfile, or CI breaks the moment it lands. At 7 days this repo failed on
+#     react-doctor@0.9.3 + turbo@2.10.8 (then 6.0 and 6.7 days old); 3 days
+#     leaves ~3 days of margin.
+#   - Bumping any dependency to a release younger than 3 days now needs an
+#     explicit exclusion. That is the policy working, not a defect.
+#
+# Need something fresher? Do NOT lower the floor. Pin that one exact version in
+# minimumReleaseAgeExclude below, with a record in
+# scripts/minimum-release-age-exclusions.json — the guard in
+# scripts/verify-minimum-release-age-exclusions.mjs then forces you to delete it
+# once it ages out, so the exception cannot quietly become permanent.
+#
+# This must stay BELOW that guard's 30-day MAX_EXCLUSION_AGE_DAYS; it fails the
+# lint if the two ever cross, because the "delete it, the floor admits it anyway"
+# remedy is only true while the floor is the shorter window.
+minimumReleaseAge: 4320
 # minimumReleaseAgeExclude entries are TEMPORARY, and enforced as temporary by
 # scripts/verify-minimum-release-age-exclusions.mjs (wired into `pnpm lint`).
 # Each entry must:
@@ -157,4 +187,7 @@ minimumReleaseAgeExclude:
   - '@assistant-ui/tap@0.9.10'
   - '@mastra/core@1.57.0'
   - '@mastra/memory@1.26.0'
+  - '@mastra/schema-compat@1.3.5'
+  - '@tanstack/react-store@0.11.1'
+  - '@tanstack/store@0.11.1'
   - assistant-stream@0.3.34

@@ -23,6 +23,18 @@
     "publishedAt": "2026-08-05T20:32:11.880Z",
     "reason": "Pinned 2026-08-06, ~26h after publication (#2295). Carries a GitHub Actions OIDC provenance attestation from the canonical mastra-ai/mastra repo and matches the 'latest' dist-tag. @mastra/core is deliberately HELD at 1.55.0 (published 2026-07-30, old enough to need no exclusion) because 1.56 intercepts BST-1097 Gate A tool-approval resumes — see docs/dependency-updates-breaking-changes.md."
   },
+  "@mastra/schema-compat@1.3.5": {
+    "publishedAt": "2026-08-05T20:32:08.139Z",
+    "reason": "Transitive dependency of @mastra/memory@1.26.0 (#2295), published in the same release batch. Surfaced by turning the minimumReleaseAge floor on: the direct dep was excluded but this one was not, and while no floor was configured that gap was invisible. Same provenance basis as @mastra/memory@1.26.0 — canonical mastra-ai/mastra repo, matches the 'latest' dist-tag."
+  },
+  "@tanstack/react-store@0.11.1": {
+    "publishedAt": "2026-08-05T18:30:19.505Z",
+    "reason": "Transitive dependency pulled in by the @tanstack/react-table v9 migration (#2296). Surfaced by turning the minimumReleaseAge floor on: the direct dep was handled but this transitive one was not, and with no floor configured that gap was invisible. Canonical TanStack/store repo, matches the 'latest' dist-tag."
+  },
+  "@tanstack/store@0.11.1": {
+    "publishedAt": "2026-08-05T18:31:08.124Z",
+    "reason": "Transitive dependency pulled in by the @tanstack/react-table v9 migration (#2296). Surfaced by turning the minimumReleaseAge floor on: the direct dep was handled but this transitive one was not, and with no floor configured that gap was invisible. Canonical TanStack/store repo, matches the 'latest' dist-tag."
+  },
   "assistant-stream@0.3.34": {
     "publishedAt": "2026-08-06T11:15:34.018Z",
     "reason": "assistant-ui 0.15 upgrade set (#2293). Carries GitHub Actions OIDC provenance from the canonical assistant-ui/assistant-ui repo and matches the 'latest' dist-tag."
