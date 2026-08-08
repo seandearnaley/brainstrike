@@ -59,9 +59,36 @@ describe('token-spend-by-tool lens', () => {
       'zero_match_rate',
       'pages_per_search_proxy',
     ]);
+    // pages_per_search_proxy is an actual pages-per-search count (first pages
+    // + follow-ups, over first pages): grepSearch has one first page (row 1)
+    // and one follow-up (row 2) in-window, so 1 search yielded 2 pages — not
+    // the pre-fix off-by-one value of 1 (review fix).
     expect(result.rows).toEqual([
-      ['grepSearch', 2, 400, 200, 0.5, 0.5, 1],
+      ['grepSearch', 2, 400, 200, 0.5, 0.5, 2],
       ['readWorkspaceFile', 1, 50, 50, 0, null, null],
     ]);
+  });
+
+  it('reports pages_per_search_proxy as NULL when the window has only follow-up calls (no first page to anchor the ratio)', async () => {
+    await db.query(
+      `INSERT INTO brainstrike_tool_call_telemetry
+        (id, thread_id, run_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup)
+       VALUES
+        ('5', 'thread', 'run', 'globWorkspace', '2026-08-07T10:30:00Z', 40, false, false, true)`
+    );
+    const parsed = parseLensFile('token-spend-by-tool.sql', readFileSync(LENS_PATH, 'utf8'));
+    if (!parsed.ok) {
+      throw new Error(parsed.error);
+    }
+    const values = coerceLensValues(parsed.lens.params, [
+      '2026-08-07T10:15:00Z',
+      '2026-08-07T10:45:00Z',
+    ]);
+    if (!values.ok) {
+      throw new Error(values.error);
+    }
+    const result = await service.query(parsed.lens.sql, { params: values.values });
+
+    expect(result.rows).toEqual([['globWorkspace', 1, 40, 40, 0, 0, null]]);
   });
 });

@@ -10,6 +10,16 @@ import type { Migration } from './migration-runner';
  * `is_pagination_followup` is intentionally only a proxy. We do not persist a
  * search-session correlation key because it would add avoidable pattern/timing
  * correlation risk. The lens divides follow-up calls by first-page calls.
+ *
+ * `id` uses `crypto.randomUUID()` at the writer, matching the sibling
+ * `brainstrike_assistant_run_usage` table — this is a net-new counters ledger
+ * outside any sync-related rework, so it is not a uuidv7-groundwork table.
+ *
+ * No retention bound yet (deliberate, review-flagged): grows one row per tool
+ * call, cleared only by thread deletion or factory reset. An `occurred_at`
+ * retention sweep (mirroring `DiagnosticEventsRepository.purge()`) is an
+ * accepted follow-up once real usage volume is observed, not an oversight —
+ * see docs/agents/database.md.
  */
 export const migration083ToolCallTelemetry: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_tool_call_telemetry;',

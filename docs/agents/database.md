@@ -149,6 +149,16 @@ references every registered sidecar unconditionally. Rows contain only thread/
 run/tool ids, timestamps, numeric sizes, and booleans; raw tool inputs and
 outputs are prohibited. Migration 074's default-privilege grant makes the
 later-created table readable by the `brainstrike.querySelf` sandbox role.
+The primary key uses `crypto.randomUUID()` (matching the sibling
+`brainstrike_assistant_run_usage` writer), not a uuidv7 — this table is a
+net-new counters ledger outside any sync-related rework, so AGENTS.md's
+uuidv7-groundwork carve-out does not apply. **No retention bound exists yet**
+(BST-1190, deliberate scope decision, review-flagged): the table grows one row
+per tool call, cleared only by thread deletion or factory reset. Given the
+stated purpose is bounded before/after baseline windows (`BASELINE.md`), an
+`occurred_at`-indexed retention sweep — mirroring
+`DiagnosticEventsRepository.purge()`'s bounded oldest-first pattern — is an
+accepted, explicitly deferred follow-up, not an oversight.
 
 ## PGLITE EXTENSION INVARIANT
 

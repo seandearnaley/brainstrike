@@ -1097,6 +1097,10 @@ async function* streamChunksFromMastra({
     }
   } catch (error) {
     if (!isStreamWatchdogError(error)) {
+      // Best-effort telemetry must not be lost on an ordinary stream/projector
+      // failure after earlier tool calls already completed — drain whatever
+      // was accumulated before propagating the failure (review fix).
+      yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
       throw error;
     }
     const terminalChunks = runtimeData?.signal?.aborted

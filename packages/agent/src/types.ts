@@ -350,10 +350,16 @@ export interface StreamChunkChildRunUsage {
   type: 'child-run-usage';
   value: AssistantChildRunUsage;
 }
-/** Internal run-end payload consumed by the desktop durable telemetry sink. */
+/**
+ * Internal run-end payload consumed by the desktop durable telemetry sink.
+ * `occurredAt` is captured at the actual tool-call/projection moment (epoch
+ * ms), not at run-end flush time — a long run's calls must not all collapse
+ * onto the same timestamp (review fix).
+ */
 export interface ToolCallTelemetrySample {
   readonly isPaginationFollowup: boolean;
   readonly modelFacingChars: number;
+  readonly occurredAt: number;
   readonly toolId: string;
   readonly truncated: boolean;
   readonly zeroMatch?: boolean;
