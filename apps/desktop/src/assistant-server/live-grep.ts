@@ -70,7 +70,7 @@ const RIPGREP_MAX_FILESIZE = '2M';
 const RIPGREP_MAX_COUNT_PER_FILE = 200;
 /** Default hard cap on candidate files materialized from the live pass (per call, all roots). */
 const DEFAULT_MAX_LIVE_CANDIDATE_FILES = 1500;
-/** Maximum excluded files read by one count-only steering probe across all roots. */
+/** Maximum excluded files read by one count-only steering probe, per root. */
 export const PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES = 200;
 /** Active candidate cap; overridable in tests so the cap path is exercised without 1500+ files. */
 let maxLiveCandidateFiles = DEFAULT_MAX_LIVE_CANDIDATE_FILES;
@@ -582,8 +582,7 @@ export interface ExcludedPathProbeOptions {
   roots: readonly RuntimeWorkspaceRoot[];
 }
 
-interface ExcludedPathProbeState {
-  candidatesRead: number;
+interface ExcludedPathProbeRootResult {
   fileCount: number;
   matchCount: number;
 }
@@ -650,8 +649,8 @@ async function probeExcludedRoot(args: {
   prefilterLiteral: string;
   ripgrepPath: string;
   root: RuntimeWorkspaceRoot;
-  state: ExcludedPathProbeState;
-}): Promise<void> {
+}): Promise<ExcludedPathProbeRootResult> {
+  const empty: ExcludedPathProbeRootResult = { fileCount: 0, matchCount: 0 };
   let canonicalRootPath: string;
   try {
     canonicalRootPath = await fsPromises.realpath(args.root.path);
@@ -660,7 +659,7 @@ async function probeExcludedRoot(args: {
       error: redactErrorForLog(error),
       rootId: args.root.rootId,
     });
-    return;
+    return empty;
   }
 
   let candidatePaths: Set<string>;
@@ -679,36 +678,50 @@ async function probeExcludedRoot(args: {
       error: redactErrorForLog(error),
       rootId: args.root.rootId,
     });
-    return;
+    return empty;
   }
 
+  // Spend the bounded per-root candidate budget on a fixed, known-eligible
+  // slice BEFORE any filesystem read fires — a synchronous filter+slice, so
+  // this never attempts more than PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES
+  // reads regardless of how many paths ripgrep reports. Every kept read
+  // targets a distinct file, so the whole slice is safe to run concurrently.
+  const eligible: string[] = [];
   for (const relativePath of candidatePaths) {
-    if (args.state.candidatesRead >= PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES) {
-      return;
+    if (eligible.length >= PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES) {
+      break;
     }
     if (
-      !isExcludedPathProbeCandidate({
+      isExcludedPathProbeCandidate({
         filePathAllow: args.filePathAllow,
         policy: args.policy,
         relativePath,
       })
     ) {
-      continue;
-    }
-    // Spend the bounded candidate budget before filesystem work. Broken links,
-    // races, and matcher failures must not let the probe attempt >200 paths.
-    args.state.candidatesRead += 1;
-    const matchCount = await countExcludedCandidateMatches({
-      canonicalRootPath,
-      matcher: args.matcher,
-      relativePath,
-      root: args.root,
-    });
-    args.state.matchCount += matchCount;
-    if (matchCount > 0) {
-      args.state.fileCount += 1;
+      eligible.push(relativePath);
     }
   }
+
+  const matchCounts = await Promise.all(
+    eligible.map((relativePath) =>
+      countExcludedCandidateMatches({
+        canonicalRootPath,
+        matcher: args.matcher,
+        relativePath,
+        root: args.root,
+      })
+    )
+  );
+
+  let fileCount = 0;
+  let matchCount = 0;
+  for (const count of matchCounts) {
+    matchCount += count;
+    if (count > 0) {
+      fileCount += 1;
+    }
+  }
+  return { fileCount, matchCount };
 }
 
 /**
@@ -738,29 +751,32 @@ export async function probeExcludedPathMatches(
 
     const filePathAllow = options.filePaths === undefined ? null : new Set(options.filePaths);
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
-    const state: ExcludedPathProbeState = {
-      candidatesRead: 0,
-      fileCount: 0,
-      matchCount: 0,
-    };
 
-    for (const root of options.roots) {
-      if (state.candidatesRead >= PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES) {
-        break;
-      }
-      await probeExcludedRoot({
-        caseSensitive: options.caseSensitive,
-        filePathAllow,
-        matcher,
-        policy,
-        prefilterLiteral,
-        ripgrepPath,
-        root,
-        state,
-      });
+    // Each root is a distinct filesystem tree with its own ripgrep process and
+    // its own PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES budget — the roots have
+    // no shared state, so every root scans concurrently instead of waiting on
+    // its predecessors.
+    const rootResults = await Promise.all(
+      options.roots.map((root) =>
+        probeExcludedRoot({
+          caseSensitive: options.caseSensitive,
+          filePathAllow,
+          matcher,
+          policy,
+          prefilterLiteral,
+          ripgrepPath,
+          root,
+        })
+      )
+    );
+
+    let fileCount = 0;
+    let matchCount = 0;
+    for (const result of rootResults) {
+      fileCount += result.fileCount;
+      matchCount += result.matchCount;
     }
-
-    return { fileCount: state.fileCount, matchCount: state.matchCount };
+    return { fileCount, matchCount };
   } catch (error) {
     // Defence in depth: this auxiliary probe must never fail grepSearch even
     // when an unexpected policy/runtime error escapes the per-root/file guards.
