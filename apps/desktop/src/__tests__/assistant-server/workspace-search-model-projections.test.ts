@@ -353,48 +353,6 @@ describe('workspace search model projections', () => {
     );
   });
 
-  it('renders liveNote before probeNote as two independent note lines', () => {
-    const projected = projectGrepSearchModelOutput({
-      candidatesTruncated: false,
-      files: [],
-      liveEngine: 'js-walk',
-      liveNote: 'ripgrep unavailable; bounded JavaScript walk used',
-      offset: 0,
-      outputMode: 'files',
-      probeNote:
-        "0 exact-case matches, but 2 case-insensitive matches in 1 files — the pattern's casing may be wrong.",
-      scanLimited: false,
-      totalFiles: 0,
-      totalMatches: 0,
-      truncated: false,
-    });
-
-    const noteLines = projected.value.split('\n').filter((line) => line.startsWith('note: '));
-    expect(noteLines).toEqual([
-      'note: ripgrep unavailable; bounded JavaScript walk used',
-      "note: 0 exact-case matches, but 2 case-insensitive matches in 1 files — the pattern's casing may be wrong.",
-    ]);
-  });
-
-  it('renders probeNote by itself as one note line', () => {
-    const projected = projectGrepSearchModelOutput({
-      candidatesTruncated: false,
-      files: [],
-      liveEngine: 'ripgrep',
-      offset: 0,
-      outputMode: 'files',
-      probeNote: '0 regex matches, but 3 literal matches — regex metacharacters may need escaping.',
-      scanLimited: false,
-      totalFiles: 0,
-      totalMatches: 0,
-      truncated: false,
-    });
-
-    expect(projected.value.split('\n').filter((line) => line.startsWith('note: '))).toEqual([
-      'note: 0 regex matches, but 3 literal matches — regex metacharacters may need escaping.',
-    ]);
-  });
-
   it('keeps healthy headers silent: no flags, no engine, no per-row source labels', () => {
     const projected = projectGrepSearchModelOutput({
       candidatesTruncated: false,

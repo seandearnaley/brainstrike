@@ -24,9 +24,9 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 
 function makeDeps(): ZeroMatchProbeDeps {
   return {
-    runCaseProbe: vi.fn(async () => ({ fileCount: 0, matchCount: 0 })),
-    runExcludedPathProbe: vi.fn(async () => ({ fileCount: 0, matchCount: 0 })),
-    runLiteralProbe: vi.fn(async () => ({ fileCount: 0, matchCount: 0 })),
+    runCaseProbe: vi.fn(async (_signal: AbortSignal) => ({ matchCount: 0 })),
+    runExcludedPathProbe: vi.fn(async (_signal: AbortSignal) => ({ matchCount: 0 })),
+    runLiteralProbe: vi.fn(async (_signal: AbortSignal) => ({ matchCount: 0 })),
   };
 }
 
@@ -52,40 +52,41 @@ describe('resolveZeroMatchProbeNote', () => {
 
   it('returns the case probe note and short-circuits later probes', async () => {
     const deps = makeDeps();
-    vi.mocked(deps.runCaseProbe).mockResolvedValue({ fileCount: 2, matchCount: 5 });
+    vi.mocked(deps.runCaseProbe).mockResolvedValue({ matchCount: 5 });
 
     await expect(
       resolveZeroMatchProbeNote({ caseSensitive: true, isRegex: true }, deps)
     ).resolves.toBe(
-      "0 exact-case matches, but 5 case-insensitive matches in 2 files — the pattern's casing may be wrong."
+      "0 exact-case matches, but 5 case-insensitive matches — the pattern's casing may be wrong."
     );
     expect(deps.runLiteralProbe).not.toHaveBeenCalled();
     expect(deps.runExcludedPathProbe).not.toHaveBeenCalled();
   });
 
-  it('returns the literal probe note without a file count and short-circuits excluded paths', async () => {
+  it('returns the literal probe note and short-circuits excluded paths', async () => {
     const deps = makeDeps();
-    vi.mocked(deps.runLiteralProbe).mockResolvedValue({ fileCount: 9, matchCount: 3 });
+    vi.mocked(deps.runLiteralProbe).mockResolvedValue({ matchCount: 3 });
 
     const note = await resolveZeroMatchProbeNote({ caseSensitive: true, isRegex: true }, deps);
 
     expect(note).toBe(
       '0 regex matches, but 3 literal matches — regex metacharacters may need escaping.'
     );
-    expect(note).not.toContain('9');
     expect(deps.runExcludedPathProbe).not.toHaveBeenCalled();
   });
 
-  it('returns the excluded-path note without a file count', async () => {
+  it('returns the actionable excluded-path note with bounded example paths', async () => {
     const deps = makeDeps();
-    vi.mocked(deps.runExcludedPathProbe).mockResolvedValue({ fileCount: 4, matchCount: 7 });
+    vi.mocked(deps.runExcludedPathProbe).mockResolvedValue({
+      examplePaths: ['node_modules/dep/index.ts', 'dist/bundle.js', 'ignored/third.ts'],
+      matchCount: 7,
+    });
 
     const note = await resolveZeroMatchProbeNote({ caseSensitive: false, isRegex: false }, deps);
 
     expect(note).toBe(
-      '0 matches in indexed/visible files, but 7 matches in excluded or ignored paths — scope explicitly to include them.'
+      '0 matches in indexed/visible files, but 7 matches in excluded or ignored paths (e.g. node_modules/dep/index.ts, dist/bundle.js) — grepSearch cannot reach these; call globWorkspace with includeIgnored: true to list them, then readWorkspaceFile to inspect.'
     );
-    expect(note).not.toContain('4');
   });
 
   it('stays silent when every eligible probe misses', async () => {
@@ -103,7 +104,7 @@ describe('resolveZeroMatchProbeNote', () => {
   it('logs a thrown probe failure and continues to the next eligible probe', async () => {
     const deps = makeDeps();
     vi.mocked(deps.runCaseProbe).mockRejectedValue(new Error('case probe broke'));
-    vi.mocked(deps.runLiteralProbe).mockResolvedValue({ fileCount: 1, matchCount: 3 });
+    vi.mocked(deps.runLiteralProbe).mockResolvedValue({ matchCount: 3 });
 
     await expect(
       resolveZeroMatchProbeNote({ caseSensitive: true, isRegex: true }, deps)
@@ -119,12 +120,19 @@ describe('resolveZeroMatchProbeNote', () => {
   it('times out a hanging probe, logs it, and treats it as a miss', async () => {
     vi.useFakeTimers();
     const deps = makeDeps();
-    vi.mocked(deps.runExcludedPathProbe).mockImplementation(() => new Promise(() => undefined));
+    let probeSignal: AbortSignal | undefined;
+    vi.mocked(deps.runExcludedPathProbe).mockImplementation(
+      (signal) =>
+        new Promise(() => {
+          probeSignal = signal;
+        })
+    );
 
     const pending = resolveZeroMatchProbeNote({ caseSensitive: false, isRegex: false }, deps);
     await vi.advanceTimersByTimeAsync(ZERO_MATCH_PROBE_TIMEOUT_MS);
 
     await expect(pending).resolves.toBeUndefined();
+    expect(probeSignal?.aborted).toBe(true);
     expect(loggerWarnMock).toHaveBeenCalledWith(
       expect.stringContaining('excludedPath'),
       expect.objectContaining({ error: expect.any(Error) })

@@ -215,9 +215,10 @@ function buildRipgrepArgs(args: {
   caseSensitive: boolean;
   /** The normal live pass prunes it; the excluded-path probe deliberately searches it. */
   excludeNodeModules?: boolean;
+  filesOnly?: boolean;
 }): string[] {
   const rgArgs = [
-    '--json',
+    ...(args.filesOnly ? ['--files-with-matches', '--max-count=1'] : ['--json']),
     '--no-config',
     '--no-follow',
     // The indexer policy (re-applied in resolveCandidate) is the SINGLE source of
@@ -254,7 +255,7 @@ function buildRipgrepArgs(args: {
     // Extension/size exclusions remain the single authority via resolveCandidate.
     '--text',
     `--max-filesize=${RIPGREP_MAX_FILESIZE}`,
-    `--max-count=${RIPGREP_MAX_COUNT_PER_FILE}`,
+    ...(args.filesOnly ? [] : [`--max-count=${RIPGREP_MAX_COUNT_PER_FILE}`]),
     // Always fixed-strings: rg is a literal SUPERSET prefilter only; the
     // authoritative literal/regex match is re-derived by the shared JS matcher.
     '--fixed-strings',
@@ -294,6 +295,8 @@ function runRipgrep(args: {
   prefilterLiteral: string;
   caseSensitive: boolean;
   excludeNodeModules?: boolean;
+  filesOnly?: boolean;
+  signal?: AbortSignal;
   timeoutMs?: number;
 }): Promise<RipgrepRun> {
   return new Promise<RipgrepRun>((resolve, reject) => {
@@ -305,6 +308,7 @@ function runRipgrep(args: {
         maxBuffer: RIPGREP_MAX_BUFFER_BYTES,
         timeout: args.timeoutMs ?? RIPGREP_TIMEOUT_MS,
         windowsHide: true,
+        ...(args.signal === undefined ? {} : { signal: args.signal }),
       },
       (error, stdout) => {
         // rg exit code 1 = "no matches" (not an error); 2 = a real error. The
@@ -312,6 +316,10 @@ function runRipgrep(args: {
         // max-buffer kills, so distinguish via the captured stdout we still have.
         const execError = error as (NodeJS.ErrnoException & { killed?: boolean }) | null;
         const truncated = execError?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
+        if (args.signal?.aborted) {
+          reject(execError ?? new Error('ripgrep aborted'));
+          return;
+        }
         if (execError?.killed && !truncated) {
           reject(execError);
           return;
@@ -322,10 +330,20 @@ function runRipgrep(args: {
           reject(execError);
           return;
         }
-        resolve({ candidatePaths: parseRipgrepCandidates(stdout), truncated });
+        resolve({
+          candidatePaths: args.filesOnly
+            ? parseRipgrepFileCandidates(stdout)
+            : parseRipgrepCandidates(stdout),
+          truncated,
+        });
       }
     );
   });
+}
+
+function normalizeRipgrepCandidatePath(value: string): string | null {
+  const normalized = value.replace(/^\.\//, '').replaceAll('\\', '/');
+  return normalized.length > 0 ? normalized : null;
 }
 
 /** Parse `rg --json` stdout into the set of workspace-relative candidate paths. */
@@ -345,10 +363,19 @@ function parseRipgrepCandidates(stdout: string): Set<string> {
     if (!isRipgrepBeginEvent(event)) {
       continue;
     }
-    const text = event.data.path.text;
-    // rg prints paths relative to cwd (the root), e.g. "./src/x.ts" or "src/x.ts".
-    const normalized = text.replace(/^\.\//, '').replaceAll('\\', '/');
-    if (normalized.length > 0) {
+    const normalized = normalizeRipgrepCandidatePath(event.data.path.text);
+    if (normalized !== null) {
+      paths.add(normalized);
+    }
+  }
+  return paths;
+}
+
+function parseRipgrepFileCandidates(stdout: string): Set<string> {
+  const paths = new Set<string>();
+  for (const rawLine of stdout.split('\n')) {
+    const normalized = normalizeRipgrepCandidatePath(rawLine.replace(/\r$/, ''));
+    if (normalized !== null) {
       paths.add(normalized);
     }
   }
@@ -583,8 +610,22 @@ export interface ExcludedPathProbeOptions {
 }
 
 interface ExcludedPathProbeRootResult {
-  fileCount: number;
+  examplePaths?: readonly string[];
   matchCount: number;
+}
+
+function mergeExcludedPathProbeResults(
+  results: readonly ExcludedPathProbeRootResult[]
+): ExcludedPathProbeRootResult {
+  let matchCount = 0;
+  const examplePaths: string[] = [];
+  for (const result of results) {
+    matchCount += result.matchCount;
+    if (result.examplePaths && examplePaths.length < 2) {
+      examplePaths.push(...result.examplePaths.slice(0, 2 - examplePaths.length));
+    }
+  }
+  return { matchCount, ...(examplePaths.length === 0 ? {} : { examplePaths }) };
 }
 
 function isExcludedPathProbeCandidate(args: {
@@ -610,7 +651,11 @@ async function countExcludedCandidateMatches(args: {
   matcher: LineMatcher;
   relativePath: string;
   root: RuntimeWorkspaceRoot;
+  signal: AbortSignal;
 }): Promise<number> {
+  if (args.signal.aborted) {
+    return 0;
+  }
   try {
     const absolutePath = path.join(args.canonicalRootPath, args.relativePath);
     const canonicalTarget = await fsPromises.realpath(absolutePath);
@@ -621,7 +666,10 @@ async function countExcludedCandidateMatches(args: {
     ) {
       return 0;
     }
-    const content = await fsPromises.readFile(canonicalTarget, 'utf8');
+    const content = await fsPromises.readFile(canonicalTarget, {
+      encoding: 'utf8',
+      signal: args.signal,
+    });
     const matches = collectGrepMatchesInContent({
       content,
       contextLines: 0,
@@ -649,8 +697,12 @@ async function probeExcludedRoot(args: {
   prefilterLiteral: string;
   ripgrepPath: string;
   root: RuntimeWorkspaceRoot;
+  signal: AbortSignal;
 }): Promise<ExcludedPathProbeRootResult> {
-  const empty: ExcludedPathProbeRootResult = { fileCount: 0, matchCount: 0 };
+  const empty: ExcludedPathProbeRootResult = { matchCount: 0 };
+  if (args.signal.aborted) {
+    return empty;
+  }
   let canonicalRootPath: string;
   try {
     canonicalRootPath = await fsPromises.realpath(args.root.path);
@@ -668,12 +720,22 @@ async function probeExcludedRoot(args: {
       canonicalRootPath,
       caseSensitive: args.caseSensitive,
       excludeNodeModules: false,
+      filesOnly: true,
       prefilterLiteral: args.prefilterLiteral,
       ripgrepPath: args.ripgrepPath,
+      signal: args.signal,
       timeoutMs: PROBE_RIPGREP_TIMEOUT_MS,
     });
+    if (run.truncated) {
+      logger.warn('excluded-path grep probe: ripgrep candidate output was truncated', {
+        rootId: args.root.rootId,
+      });
+    }
     candidatePaths = run.candidatePaths;
   } catch (error) {
+    if (args.signal.aborted) {
+      return empty;
+    }
     logger.warn('excluded-path grep probe: ripgrep failed for a root', {
       error: redactErrorForLog(error),
       rootId: args.root.rootId,
@@ -702,26 +764,24 @@ async function probeExcludedRoot(args: {
     }
   }
 
-  const matchCounts = await Promise.all(
+  if (args.signal.aborted) {
+    return empty;
+  }
+  const candidateResults = await Promise.all(
     eligible.map((relativePath) =>
       countExcludedCandidateMatches({
         canonicalRootPath,
         matcher: args.matcher,
         relativePath,
         root: args.root,
-      })
+        signal: args.signal,
+      }).then((matchCount) => ({
+        matchCount,
+        ...(matchCount > 0 ? { examplePaths: [relativePath] } : {}),
+      }))
     )
   );
-
-  let fileCount = 0;
-  let matchCount = 0;
-  for (const count of matchCounts) {
-    matchCount += count;
-    if (count > 0) {
-      fileCount += 1;
-    }
-  }
-  return { fileCount, matchCount };
+  return mergeExcludedPathProbeResults(candidateResults);
 }
 
 /**
@@ -732,10 +792,16 @@ async function probeExcludedRoot(args: {
  */
 export async function probeExcludedPathMatches(
   options: ExcludedPathProbeOptions,
-  matcher: LineMatcher
-): Promise<{ matchCount: number; fileCount: number }> {
-  const empty = { fileCount: 0, matchCount: 0 };
+  matcher: LineMatcher,
+  abortSignal?: AbortSignal
+): Promise<{ examplePaths?: readonly string[]; matchCount: number }> {
+  const empty = { matchCount: 0 };
   if (options.roots.length === 0) {
+    return empty;
+  }
+
+  const signal = abortSignal ?? new AbortController().signal;
+  if (signal.aborted) {
     return empty;
   }
 
@@ -745,7 +811,7 @@ export async function probeExcludedPathMatches(
       isRegex: options.isRegex,
       pattern: options.pattern,
     });
-    if (ripgrepPath === null || prefilterLiteral === null) {
+    if (ripgrepPath === null || prefilterLiteral === null || signal.aborted) {
       return empty;
     }
 
@@ -755,7 +821,10 @@ export async function probeExcludedPathMatches(
     // Each root is a distinct filesystem tree with its own ripgrep process and
     // its own PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES budget — the roots have
     // no shared state, so every root scans concurrently instead of waiting on
-    // its predecessors.
+    // its predecessors. The shared signal reaches every concurrent process.
+    if (signal.aborted) {
+      return empty;
+    }
     const rootResults = await Promise.all(
       options.roots.map((root) =>
         probeExcludedRoot({
@@ -766,17 +835,12 @@ export async function probeExcludedPathMatches(
           prefilterLiteral,
           ripgrepPath,
           root,
+          signal,
         })
       )
     );
 
-    let fileCount = 0;
-    let matchCount = 0;
-    for (const result of rootResults) {
-      fileCount += result.fileCount;
-      matchCount += result.matchCount;
-    }
-    return { fileCount, matchCount };
+    return mergeExcludedPathProbeResults(rootResults);
   } catch (error) {
     // Defence in depth: this auxiliary probe must never fail grepSearch even
     // when an unexpected policy/runtime error escapes the per-root/file guards.

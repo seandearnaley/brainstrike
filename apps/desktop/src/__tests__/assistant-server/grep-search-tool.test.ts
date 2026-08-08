@@ -414,7 +414,7 @@ describe('grep search tool', () => {
     }
     expect(result.files).toEqual([]);
     expect(result.probeNote).toBe(
-      "0 exact-case matches, but 1 case-insensitive matches in 1 files — the pattern's casing may be wrong."
+      "0 exact-case matches, but 1 case-insensitive matches — the pattern's casing may be wrong."
     );
     expect(queryMock).toHaveBeenCalledTimes(2);
   });
@@ -466,7 +466,7 @@ describe('grep search tool', () => {
     const projection = projectGrepSearchModelOutput(result);
 
     expect(projection.value).toContain(
-      "note: 0 exact-case matches, but 1 case-insensitive matches in 1 files — the pattern's casing may be wrong."
+      "note: 0 exact-case matches, but 1 case-insensitive matches — the pattern's casing may be wrong."
     );
   });
 });

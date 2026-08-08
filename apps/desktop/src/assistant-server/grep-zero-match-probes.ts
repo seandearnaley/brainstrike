@@ -6,14 +6,14 @@ const logger = createLogger('AssistantGrepZeroMatchProbes');
 export const ZERO_MATCH_PROBE_TIMEOUT_MS = 2000;
 
 export interface ZeroMatchProbeCount {
-  fileCount: number;
+  examplePaths?: readonly string[];
   matchCount: number;
 }
 
 export interface ZeroMatchProbeDeps {
-  runCaseProbe: () => Promise<ZeroMatchProbeCount>;
-  runExcludedPathProbe: () => Promise<ZeroMatchProbeCount>;
-  runLiteralProbe: () => Promise<ZeroMatchProbeCount>;
+  runCaseProbe: (signal: AbortSignal) => Promise<ZeroMatchProbeCount>;
+  runExcludedPathProbe: (signal: AbortSignal) => Promise<ZeroMatchProbeCount>;
+  runLiteralProbe: (signal: AbortSignal) => Promise<ZeroMatchProbeCount>;
 }
 
 type ZeroMatchProbeName = 'case' | 'literal' | 'excludedPath';
@@ -25,21 +25,23 @@ type ZeroMatchProbeName = 'case' | 'literal' | 'excludedPath';
  */
 async function runProbeSafely(
   probe: ZeroMatchProbeName,
-  run: () => Promise<ZeroMatchProbeCount>
+  run: (signal: AbortSignal) => Promise<ZeroMatchProbeCount>
 ): Promise<ZeroMatchProbeCount> {
+  const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      run(),
+      run(controller.signal),
       new Promise<never>((_resolve, reject) => {
         timeout = setTimeout(() => {
+          controller.abort();
           reject(new Error(`zero-match ${probe} probe timed out`));
         }, ZERO_MATCH_PROBE_TIMEOUT_MS);
       }),
     ]);
   } catch (error) {
     logger.warn(`zero-match ${probe} probe failed; treating as a miss`, { error });
-    return { fileCount: 0, matchCount: 0 };
+    return { matchCount: 0 };
   } finally {
     if (timeout !== undefined) {
       clearTimeout(timeout);
@@ -58,7 +60,7 @@ export async function resolveZeroMatchProbeNote(
   if (input.caseSensitive) {
     const result = await runProbeSafely('case', deps.runCaseProbe);
     if (result.matchCount > 0) {
-      return `0 exact-case matches, but ${result.matchCount} case-insensitive matches in ${result.fileCount} files — the pattern's casing may be wrong.`;
+      return `0 exact-case matches, but ${result.matchCount} case-insensitive matches — the pattern's casing may be wrong.`;
     }
   }
 
@@ -71,7 +73,9 @@ export async function resolveZeroMatchProbeNote(
 
   const result = await runProbeSafely('excludedPath', deps.runExcludedPathProbe);
   if (result.matchCount > 0) {
-    return `0 matches in indexed/visible files, but ${result.matchCount} matches in excluded or ignored paths — scope explicitly to include them.`;
+    const examples = result.examplePaths?.slice(0, 2);
+    const exampleNote = examples && examples.length > 0 ? ` (e.g. ${examples.join(', ')})` : '';
+    return `0 matches in indexed/visible files, but ${result.matchCount} matches in excluded or ignored paths${exampleNote} — grepSearch cannot reach these; call globWorkspace with includeIgnored: true to list them, then readWorkspaceFile to inspect.`;
   }
   return;
 }

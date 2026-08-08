@@ -73,10 +73,7 @@ const DEFAULT_CONTENT_MATCHES = 50;
 const INTERNAL_MATCH_CAP = 2000;
 /** Small index candidate pool for count-only zero-match steering probes. */
 export const PROBE_INDEX_CANDIDATE_LIMIT = 50;
-/**
- * Probe rows materialized only to estimate distinct files. `fileCount` is a
- * lower bound when more matches exist; `totalMatches` remains the count source.
- */
+/** Probe rows stay tightly bounded; the uncapped `totalMatches` is the count source. */
 export const PROBE_INDEX_MAX_RESULTS = 20;
 const REDACTED_GREP_PATTERN_LOG_VALUE = { redacted: true } as const;
 
@@ -548,6 +545,7 @@ function runIndexSearch(args: {
 /** Run an index-only, context-free steering probe without exposing match text. */
 async function runProbeIndexSearch(args: {
   service: GrepSearchService;
+  signal: AbortSignal;
   pattern: string;
   isRegex: boolean;
   caseSensitive: boolean;
@@ -556,6 +554,11 @@ async function runProbeIndexSearch(args: {
   rootId: string | undefined;
   rootIds?: readonly string[];
 }): Promise<ZeroMatchProbeCount> {
+  // PGlite exposes no native cancellation hook here; only avoid a call that has
+  // already lost its probe budget rather than pretending to cancel mid-query.
+  if (args.signal.aborted) {
+    return { matchCount: 0 };
+  }
   const result = await args.service.search({
     candidateLimit: PROBE_INDEX_CANDIDATE_LIMIT,
     caseSensitive: args.caseSensitive,
@@ -568,10 +571,7 @@ async function runProbeIndexSearch(args: {
     ...(args.rootId === undefined ? {} : { rootId: args.rootId }),
     ...(args.rootIds === undefined ? {} : { rootIds: args.rootIds }),
   });
-  return {
-    fileCount: new Set(result.matches.map((match) => match.path)).size,
-    matchCount: result.totalMatches,
-  };
+  return { matchCount: result.totalMatches };
 }
 
 export async function runGrepSearch(
@@ -671,7 +671,7 @@ export async function runGrepSearch(
         ? await resolveZeroMatchProbeNote(
             { caseSensitive, isRegex },
             {
-              runCaseProbe: () =>
+              runCaseProbe: (signal) =>
                 runProbeIndexSearch({
                   caseSensitive: false,
                   embeddingSetId,
@@ -679,10 +679,11 @@ export async function runGrepSearch(
                   isRegex,
                   pattern: input.pattern,
                   rootId,
+                  signal,
                   ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
                   service,
                 }),
-              runExcludedPathProbe: () =>
+              runExcludedPathProbe: (signal) =>
                 probeExcludedPathMatches(
                   {
                     caseSensitive,
@@ -691,9 +692,10 @@ export async function runGrepSearch(
                     roots: effectiveLiveRoots,
                     ...(filePaths === undefined ? {} : { filePaths }),
                   },
-                  liveMatcher
+                  liveMatcher,
+                  signal
                 ),
-              runLiteralProbe: () =>
+              runLiteralProbe: (signal) =>
                 runProbeIndexSearch({
                   caseSensitive,
                   embeddingSetId,
@@ -701,6 +703,7 @@ export async function runGrepSearch(
                   isRegex: false,
                   pattern: input.pattern,
                   rootId,
+                  signal,
                   ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
                   service,
                 }),
