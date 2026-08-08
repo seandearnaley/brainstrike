@@ -83,6 +83,7 @@ import { migration081WorkspaceSnapshots } from './081-workspace-snapshots.js';
 import { migration082CanvasDocuments } from './082-canvas-documents.js';
 import { migration083ToolCallTelemetry } from './083-tool-call-telemetry.js';
 import { migration084AssistantToolProjectionRewrites } from './084-assistant-tool-projection-rewrites.js';
+import { migration085ToolCallTelemetryOccurredAtIndex } from './085-tool-call-telemetry-occurred-at-index.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -172,6 +173,7 @@ export const migrations: Migration[] = [
   migration082CanvasDocuments,
   migration083ToolCallTelemetry,
   migration084AssistantToolProjectionRewrites,
+  migration085ToolCallTelemetryOccurredAtIndex,
 ];
 
 // Export base migrations (without chunks table) for test environments

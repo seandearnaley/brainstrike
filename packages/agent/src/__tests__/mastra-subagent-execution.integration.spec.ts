@@ -328,6 +328,35 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     expect(toolEventNames).not.toContain(CHILD_TOOL);
   });
 
+  it('emits child tool-call-telemetry on the parent run stream (BST-1196)', async () => {
+    const executeSpy = vi.fn((_inputData: { pattern: string }) =>
+      Promise.resolve({ matches: ['found FLAG-42'] })
+    );
+    modelHolder.current = createSupervisorModel('child-call-telemetry');
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', parts: [{ text: 'find the flag', type: 'text' }], role: 'user' }],
+      {
+        personas: [testPersona],
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        tools: { 'brainstrike.grepSearch': makeChildTool(executeSpy) },
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(executeSpy).toHaveBeenCalledTimes(1);
+    const telemetrySamples = chunks.flatMap((chunk) =>
+      chunk.type === 'tool-call-telemetry' ? chunk.value : []
+    );
+    expect(
+      telemetrySamples.filter((sample) => sample.toolId === 'brainstrike.grepSearch')
+    ).toHaveLength(1);
+  });
+
   it('surfaces the child run aggregate usage as a subagent child-run-usage chunk (BST-953)', async () => {
     modelHolder.current = createSupervisorModel('child-call-usage');
 

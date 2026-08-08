@@ -1091,11 +1091,14 @@ of that review; do not relitigate without re-reading it).
   which always re-reads the file first and can therefore never go stale that
   way.
 - **The streak only advances on a call that PRODUCES a result.**
-  `peekRepeatedToolCall` is read-only (never mutates); `withRepeatedCallGuard`
-  calls it BEFORE `run`, then calls the mutating `commitRepeatedToolCall` only
-  AFTER `run` resolves. A call that throws (transient ripgrep/fs error) is
-  never committed, so it never advances the streak and never falsely tells the
-  model "the result already in context" when no attempt ever produced one.
+  `peekRepeatedToolCall` is read-only with respect to the observable streak
+  (it never mutates `repeatedToolCalls`); `withRepeatedCallGuard` calls it
+  BEFORE `run`, then calls the mutating `commitRepeatedToolCall` only AFTER
+  `run` resolves. A call that throws (transient ripgrep/fs error) is never
+  committed, so it never advances the streak and never falsely tells the model
+  "the result already in context" when no attempt ever produced one. The peek
+  does separately promote cross-mechanism thread-scope LRU bookkeeping, as
+  detailed under the bounded-state ruling below.
 - **The warning is its own field, never folded into `hint`.** The grep/glob
   purpose-built projectors' continuation logic returns its offset-form
   continuation (and skips `hint` entirely) whenever the page was already
@@ -1168,19 +1171,39 @@ of that review; do not relitigate without re-reading it).
   loop guard's scope and the file's canonical path/mtime. The bytes are not
   resent, but the thread's knowledge is current; omitting this write corrupts
   the next write-staleness decision.
-- **Ephemeral, not factory-reset state — and NOT bounded.** The three maps are
-  process-local. `resetToolCallLoopGuards` serves test isolation AND one
-  production caller: after BST-1192 commits a stale-read projection rewrite
-  batch, it resets that exact `readStateScope(runtimeData)` thread. A dedup stub
-  must never refer the model to an earlier result the newly committed overlay
-  will collapse on the next replay. This mirrors
-  `packages/agent/src/tools/file-read-state.ts` and its `resetFileReadState` and
-  MUST NOT be wired into factory reset. Unlike that module, these maps have NO
-  LRU eviction — a long desktop session reading many distinct files accumulates
-  one `unchangedReadWindows` entry per distinct
-  `(root, path, range, maxChars)` ever read in a thread, unbounded (PR #2323
-  review, deliberately deferred: port `file-read-state.ts`'s bounded-LRU
-  treatment if this ever proves to matter in practice).
+- **Ephemeral, not factory-reset state — and now bounded (BST-1197).** The three
+  maps are process-local. `resetToolCallLoopGuards` serves test isolation AND
+  one production caller: after BST-1192 commits a stale-read projection
+  rewrite batch, it resets that exact `readStateScope(runtimeData)` thread. A
+  dedup stub must never refer the model to an earlier result the newly
+  committed overlay will collapse on the next replay. This mirrors
+  `packages/agent/src/tools/file-read-state.ts` and its `resetFileReadState`
+  and MUST NOT be wired into factory reset. Each per-thread map holds at most
+  the exported `MAX_KEYS_PER_THREAD_SCOPE` (256) keys, using that module's
+  insertion-order, delete-then-set LRU-on-write technique. One shared activity
+  tracker across all three mechanisms holds at most the exported
+  `MAX_TRACKED_THREAD_SCOPES` (256) thread scopes; overflow evicts the
+  least-recently-active scope from every store. The unchanged-read and
+  edit-failure mechanisms are intentionally whole-thread, non-consecutive
+  dedup: their designed behavior is for a key to survive arbitrary unrelated
+  activity between touches. A tight 8-key cap defeated that behavior in
+  ordinary multi-file sessions (PR #2332 review), so 256 preserves useful
+  history while remaining bounded. Repeated-tool state only has grepSearch and
+  globWorkspace entries in practice (at most a couple per thread), making the
+  same generous cap harmless headroom there.
+
+  Every write path (`commitRepeatedToolCall`, `checkUnchangedReadWindow`, and
+  `recordEditFailure`) promotes its scope through `getOrCreateScopeMap`, and the
+  read path (`peekRepeatedToolCall`) promotes it through the same shared
+  `touchThreadScope`. The read-path touch is required because a refused call
+  returns before commit: without it, a thread actively stuck in a refuse-only
+  loop could be evicted as falsely idle and have its refusal silently undone
+  (PR #2332 review, threads 1 and 3). This promotion changes only LRU
+  bookkeeping; peeking still never advances the observable successful-call
+  streak. The bounds remain lossless: a key or scope is forgotten only after
+  `MAX_KEYS_PER_THREAD_SCOPE` or `MAX_TRACKED_THREAD_SCOPES` OTHER identities
+  are touched in between, respectively. At that point the activity is no
+  longer meaningfully contiguous, so restarting at fresh/one is correct.
 
 Paired proofs live in `tool-call-loop-guards.test.ts`,
 `loop-guard-projection-round-trip.test.ts`,

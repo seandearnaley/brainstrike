@@ -2377,6 +2377,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         expect.arrayContaining([
           'brainstrike_tool_call_telemetry_thread_idx',
           'brainstrike_tool_call_telemetry_tool_time_idx',
+          'brainstrike_tool_call_telemetry_occurred_at_idx',
         ])
       );
     } finally {

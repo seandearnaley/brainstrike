@@ -74,6 +74,7 @@ import { migration081WorkspaceSnapshots } from '../migrations/081-workspace-snap
 import { migration082CanvasDocuments } from '../migrations/082-canvas-documents.js';
 import { migration083ToolCallTelemetry } from '../migrations/083-tool-call-telemetry.js';
 import { migration084AssistantToolProjectionRewrites } from '../migrations/084-assistant-tool-projection-rewrites.js';
+import { migration085ToolCallTelemetryOccurredAtIndex } from '../migrations/085-tool-call-telemetry-occurred-at-index.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -267,6 +268,10 @@ const customMigrations: Migration[] = [
   customMigration(
     'custom-084-assistant-tool-projection-rewrites',
     migration084AssistantToolProjectionRewrites
+  ),
+  customMigration(
+    'custom-085-tool-call-telemetry-occurred-at-index',
+    migration085ToolCallTelemetryOccurredAtIndex
   ),
 ];
 
