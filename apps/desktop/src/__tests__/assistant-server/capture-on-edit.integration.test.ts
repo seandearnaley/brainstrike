@@ -33,6 +33,7 @@ vi.mock('electron', () => ({
 }));
 
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireToolExecute } from './_tool-test-helpers';
 
 const ROOT_ID = 'root-1';
@@ -79,6 +80,7 @@ async function writeDisk(rel: string, content: string): Promise<void> {
 }
 
 beforeEach(async () => {
+  resetToolCallLoopGuards();
   rootPath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-capture-'));
   db = await wasmLoader.createPGlite('memory://capture-on-edit');
   await migrate(db);

@@ -40,6 +40,13 @@ export interface GlobWorkspaceToolResult {
   count: number;
   /** Actionable next step when the result was truncated or scan-limited. */
   hint?: string;
+  /**
+   * BST-1188: set only by the repeated-identical-call loop guard on the 3rd
+   * consecutive identical globWorkspace call in a thread. See the matching
+   * field on `GrepToolResultBase` (grep-search-result-contract.ts) for why
+   * this is its own field rather than folded into `hint`.
+   */
+  loopGuardWarning?: string;
   /** Matches returned in this page (self-bounded to the output budget). */
   matches: GlobWorkspaceMatch[];
   offset: number;
