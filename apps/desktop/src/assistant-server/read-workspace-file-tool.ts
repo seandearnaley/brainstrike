@@ -25,10 +25,10 @@ import {
   type ReadWorkspaceFileCursorScope,
   type ReadWorkspaceFileCursorState,
 } from './read-workspace-file-cursor-registry';
-import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model-projection';
+import { buildReadWorkspaceFileProjectionText } from './read-workspace-file-model-projection';
 import { readStateScope } from './workspace-file-staleness';
 import { withStableWorkspaceFileLock } from './workspace-path-resolution';
-import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
+import { describeOpenRootTopology, resolveWorkspaceRoot } from './workspace-roots';
 import { MAX_READ_WORKSPACE_FILE_BYTES } from './workspace-text-file-reader';
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
@@ -549,33 +549,20 @@ function requireReadWorkspaceFileCursorScope(
 }
 
 export interface ReadWorkspaceFileResult {
+  readonly ambiguousRootNames?: string[];
   readonly approxOutputTokens: number;
   readonly content: string;
   readonly endLine: number;
   readonly nextCursor: string | null;
   readonly omittedChars: number;
-  readonly openRoots: number;
+  readonly openRoots?: number;
   readonly path: string;
+  readonly rootId: string;
   readonly rootName: string;
   readonly size: number;
   readonly startLine: number;
   readonly totalLines: number;
   readonly truncated: boolean;
-}
-
-function serializedReadWorkspaceFileModelOutputChars(result: ReadWorkspaceFileResult): number {
-  try {
-    return JSON.stringify(projectReadWorkspaceFileModelOutput(result)).length;
-  } catch (error) {
-    if (
-      error instanceof RangeError &&
-      error.message ===
-        `readWorkspaceFile model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
-    ) {
-      return MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET + 1;
-    }
-    throw error;
-  }
 }
 
 function fitReadWorkspaceFileResult(args: {
@@ -613,7 +600,7 @@ function fitReadWorkspaceFileResult(args: {
     );
   }
   if (
-    serializedReadWorkspaceFileModelOutputChars(emptyResult) >
+    JSON.stringify(buildReadWorkspaceFileProjectionText(emptyResult)).length >
     MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
   ) {
     throw new RangeError(
@@ -676,6 +663,7 @@ export async function runReadWorkspaceFile(
   if (!requestedPath) {
     throw new Error('readWorkspaceFile requires path when starting a new read.');
   }
+  const topology = describeOpenRootTopology(runtimeData);
   // Resolve both before and after acquiring the per-file lock. A symlink can
   // be retargeted while this read waits; only read when both resolutions name
   // the same canonical file so containment and the staleness tracker share
@@ -703,6 +691,7 @@ export async function runReadWorkspaceFile(
     const startLine = startPosition.line;
     const projectedCursor = 'x'.repeat(READ_WORKSPACE_FILE_CURSOR_HANDLE_LENGTH);
     const buildResult = (page: ReadWorkspaceFilePage): ReadWorkspaceFileResult => ({
+      ...topology,
       approxOutputTokens: countTokensHeuristic(page.content),
       content: page.content,
       endLine: page.lastLine,
@@ -712,8 +701,8 @@ export async function runReadWorkspaceFile(
         file.lineStartOffsets,
         file.requestedEndOffset
       ),
-      openRoots: getWorkspaceRoots(runtimeData).length,
       path: file.path,
+      rootId: root.rootId,
       rootName: root.displayName,
       size: file.size,
       startLine,
@@ -722,7 +711,7 @@ export async function runReadWorkspaceFile(
     });
     const fitsResultBudgets = (result: ReturnType<typeof buildResult>): boolean =>
       JSON.stringify(result).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET &&
-      serializedReadWorkspaceFileModelOutputChars(result) <=
+      JSON.stringify(buildReadWorkspaceFileProjectionText(result)).length <=
         MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
     const finishSuccessfulRead = (
       page: ReadWorkspaceFilePage,
