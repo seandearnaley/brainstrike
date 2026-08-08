@@ -1,4 +1,0 @@
-interface:
-  display_name: "Curator Automation"
-  short_description: "Keep the Brainstrike model catalog fresh reliably"
-  default_prompt: "Use $curator-automation to run the Brainstrike Curator model-catalog freshness charter."

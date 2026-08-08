@@ -5,8 +5,6 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { PNPM_SHADOWED_BUILTINS } from '../../.agents/skills/scribe-automation/scripts/collect-scribe-references.mjs';
-
 /**
  * BST-852. Some pnpm subcommands SHADOW an identically-named package script:
  * `pnpm <name>` runs pnpm's builtin and the script NEVER runs. The failure is
@@ -25,11 +23,13 @@ import { PNPM_SHADOWED_BUILTINS } from '../../.agents/skills/scribe-automation/s
  * reintroduced — either by a package declaring a shadowed script name, or by a
  * doc telling someone to type the shadowed shorthand.
  *
- * THE SHADOW SET IS EMPIRICAL. It lives in the scribe collector (imported
- * above) and must never be derived from `pnpm help -a`, which is wrong in both
- * directions — see the comment on PNPM_SHADOWED_BUILTINS for the verified
- * `doctor` (absent yet shadowing) and `clean` (listed yet harmless) cases.
+ * THE SHADOW SET IS EMPIRICAL and must never be derived from `pnpm help -a`,
+ * which is wrong in both directions: `doctor` is absent yet shadowing, while
+ * `clean` is listed yet harmless. Add an entry only after proving in a scratch
+ * package that the bare command does not execute an identically named script.
  */
+
+const PNPM_SHADOWED_BUILTINS = new Set(['doctor']);
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 

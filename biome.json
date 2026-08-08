@@ -411,7 +411,6 @@
     },
     {
       "includes": [
-        ".agents/skills/watch-automation/scripts/collect-watch-evidence.mjs",
         "apps/desktop/e2e/embedding-worker-renderer.crash-b.desktop.test.ts",
         "apps/desktop/e2e/embedding-worker-renderer.diagnostics.desktop.test.ts",
         "apps/desktop/e2e/embedding-worker-renderer.shared.ts",

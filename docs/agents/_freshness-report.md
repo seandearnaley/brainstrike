@@ -25,14 +25,11 @@ revision, including the four references in the prior freshness report. Manual
 review confirmed the two optional, intentionally untracked desktop credential
 files (`apps/desktop/.env.local` and `apps/desktop/.env`),
 the generic `X` command examples, the documented negative pnpm examples, and
-the `.night-shift/<name>.md` template placeholder.
-All other project paths, anchors, migration numbers, package scripts, and
+the remaining generic path placeholders.
+All project paths, anchors, migration numbers, package scripts, and
 paired-test declarations resolved at the audited revision.
 
 Mechanical corrections in this sweep retargeted the local-runtime receiver-test
 reference to its current package and shortened the Hosted Web route anchor to its
 live end.
-The fleet operating-doc sweep also confirmed every charter reference resolves;
-the only collector findings are the intentional `.night-shift/<name>.md`
-template placeholders in the protocol and bulletin. No code-versus-test
-contract conflict was found.
+No code-versus-test contract conflict was found.
