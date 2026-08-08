@@ -32,6 +32,16 @@ interface GrepToolResultBase {
   hint?: string;
   liveEngine: 'ripgrep' | 'js-walk' | 'skipped';
   liveNote?: string;
+  /**
+   * BST-1188: set only by the repeated-identical-call loop guard on the 3rd
+   * consecutive identical grepSearch call in a thread. Rendered as its OWN
+   * `warning:` line — unlike `hint`, which the projection skips whenever the
+   * page was already trimmed by the output-char budget, so a guard warning
+   * folded into `hint` would silently vanish exactly on the large/expensive
+   * repeats it exists to stop (PR #2323 review). Never producer-set outside
+   * `tool-call-loop-guards.ts`.
+   */
+  loopGuardWarning?: string;
   offset: number;
   /**
    * Count of OPEN workspace roots, present only when more than one folder is
@@ -114,7 +124,7 @@ function rejectField(path: string, expected: string, value: unknown): never {
 
 function requireOptionalString(
   record: Record<string, unknown>,
-  field: 'hint' | 'liveNote' | 'probeNote'
+  field: 'hint' | 'liveNote' | 'loopGuardWarning' | 'probeNote'
 ): void {
   const value = record[field];
   if (value !== undefined && typeof value !== 'string') {
@@ -156,6 +166,7 @@ function requireGrepBase(record: Record<string, unknown>): void {
   requireOptionalString(record, 'hint');
   requireOptionalString(record, 'liveNote');
   requireOptionalString(record, 'probeNote');
+  requireOptionalString(record, 'loopGuardWarning');
   if (!isNonNegativeInteger(record['offset'])) {
     rejectField('offset', 'non-negative integer', record['offset']);
   }

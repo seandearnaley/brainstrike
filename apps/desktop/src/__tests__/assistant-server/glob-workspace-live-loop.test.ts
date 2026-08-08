@@ -22,8 +22,9 @@ import type {
   LocalLlmHostGenerateRequest,
   LocalLlmHostRequestOptions,
 } from '@brainstrike/agent/local-llm';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireTool } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
@@ -36,6 +37,10 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
 const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
+
+beforeEach(() => {
+  resetToolCallLoopGuards();
+});
 
 /**
  * Scripted host client: the first generation requests the glob tool; once the

@@ -49,6 +49,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireToolExecute } from './_tool-test-helpers';
 
 const ROOT_ID = 'root-1';
@@ -135,6 +136,7 @@ async function seedIndexedFile(content: string): Promise<void> {
 }
 
 beforeEach(async () => {
+  resetToolCallLoopGuards();
   rootPath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-reindex-'));
   db = await wasmLoader.createPGlite('memory://reindex-on-edit-integration');
   await migrate(db);
