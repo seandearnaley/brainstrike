@@ -16,11 +16,20 @@
  * This mirrors `packages/agent/src/tools/file-read-state.ts`: state lasts only
  * for the desktop main-process lifetime, and the reset export exists ONLY for
  * test isolation. It is ephemeral execution state, not persisted application
- * state, and MUST NOT be wired into factory reset. Unlike that module's flat,
- * LRU-bounded map, these three maps are NOT bounded — a long desktop session
- * touching many threads/files/paths grows them unboundedly. Deliberately
- * deferred (PR #2323 review): worth porting the same bounded-LRU treatment if
- * this ever proves to matter in practice.
+ * state, and MUST NOT be wired into factory reset. BST-1197 bounds each inner
+ * map at the exported `MAX_KEYS_PER_THREAD_SCOPE` (256) with insertion-order
+ * LRU-on-write eviction (delete, then set), and bounds the shared outer
+ * activity set at the exported `MAX_TRACKED_THREAD_SCOPES` (256). Mechanisms
+ * 2 (`unchangedReadWindows`) and 3 (`editFailureStreaks`) intentionally dedup
+ * across unrelated whole-thread activity, so their generous key cap preserves
+ * useful multi-file history; mechanism 1 only has grep/glob entries in
+ * practice, so the same cap is harmless headroom. Every write path promotes
+ * its scope through `getOrCreateScopeMap`, while `peekRepeatedToolCall` also
+ * promotes through `touchThreadScope` so a refuse-only loop cannot be evicted
+ * as falsely idle before it reaches a commit. A key or scope is forgotten only
+ * after the corresponding cap's worth of OTHER identities are touched in
+ * between, when the activity is no longer meaningfully contiguous and
+ * restarting fresh is correct.
  */
 
 interface RepeatedToolCallState {
@@ -42,6 +51,10 @@ export interface LoopGuardRefusalResult {
 const repeatedToolCalls = new Map<string, Map<string, RepeatedToolCallState>>();
 const unchangedReadWindows = new Map<string, Map<string, UnchangedReadWindowState>>();
 const editFailureStreaks = new Map<string, Map<string, number>>();
+const threadScopeActivity = new Set<string>();
+
+export const MAX_KEYS_PER_THREAD_SCOPE = 256;
+export const MAX_TRACKED_THREAD_SCOPES = 256;
 
 export const UNCHANGED_READ_STUB_MESSAGE =
   'File unchanged since last read — refer to the earlier readWorkspaceFile result in this conversation.';
@@ -88,10 +101,36 @@ export function stableNormalizedArgsKey(value: unknown): string {
   return serialized;
 }
 
+function setBounded<K, V>(map: Map<K, V>, key: K, value: V, maxEntries: number): void {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size > maxEntries) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) {
+      map.delete(oldest);
+    }
+  }
+}
+
+function touchThreadScope(threadScope: string): void {
+  threadScopeActivity.delete(threadScope);
+  threadScopeActivity.add(threadScope);
+  if (threadScopeActivity.size > MAX_TRACKED_THREAD_SCOPES) {
+    const oldest = threadScopeActivity.values().next().value;
+    if (oldest !== undefined) {
+      threadScopeActivity.delete(oldest);
+      repeatedToolCalls.delete(oldest);
+      unchangedReadWindows.delete(oldest);
+      editFailureStreaks.delete(oldest);
+    }
+  }
+}
+
 function getOrCreateScopeMap<T>(
   store: Map<string, Map<string, T>>,
   threadScope: string
 ): Map<string, T> {
+  touchThreadScope(threadScope);
   const existing = store.get(threadScope);
   if (existing) {
     return existing;
@@ -107,18 +146,25 @@ export interface RepeatedCallCheck {
 }
 
 /**
- * READ-ONLY: what this tool call's identical-args streak WOULD become if it
- * succeeds. Never mutates state — pair with `commitRepeatedToolCall` after
- * the call actually produces a result. A call that THROWS must never advance
- * the streak: "refused after N attempts with no new information, use the
- * result already in context" is false when every attempt errored and there
- * is no result in context (PR #2323 review).
+ * READ-ONLY with respect to the observable identical-args streak: reports
+ * what the streak WOULD become if the call succeeds, but never mutates
+ * `repeatedToolCalls`. Pair with `commitRepeatedToolCall` after the call
+ * actually produces a result. A call that THROWS must never advance the
+ * streak: "refused after N attempts with no new information, use the result
+ * already in context" is false when every attempt errored and there is no
+ * result in context (PR #2323 review).
+ *
+ * The peek does update the separate cross-mechanism thread-scope LRU. Refused
+ * calls never reach `commitRepeatedToolCall`, so this bookkeeping touch keeps
+ * a refuse-only loop from being evicted as falsely idle without advancing its
+ * successful-call streak (PR #2332 review).
  */
 export function peekRepeatedToolCall(
   threadScope: string,
   toolId: string,
   args: unknown
 ): RepeatedCallCheck {
+  touchThreadScope(threadScope);
   const argsKey = stableNormalizedArgsKey(args);
   const previous = repeatedToolCalls.get(threadScope)?.get(toolId);
   const count = previous?.argsKey === argsKey ? previous.count + 1 : 1;
@@ -136,7 +182,12 @@ export function commitRepeatedToolCall(
   count: number
 ): void {
   const callsByTool = getOrCreateScopeMap(repeatedToolCalls, threadScope);
-  callsByTool.set(toolId, { argsKey: stableNormalizedArgsKey(args), count });
+  setBounded(
+    callsByTool,
+    toolId,
+    { argsKey: stableNormalizedArgsKey(args), count },
+    MAX_KEYS_PER_THREAD_SCOPE
+  );
 }
 
 export function buildRepeatedCallWarningText(toolId: string, count: number): string {
@@ -234,7 +285,7 @@ export function checkUnchangedReadWindow(
   const windowsByKey = getOrCreateScopeMap(unchangedReadWindows, threadScope);
   const previous = windowsByKey.get(windowKey);
   const count = previous?.mtimeMs === mtimeMs ? previous.count + 1 : 1;
-  windowsByKey.set(windowKey, { count, mtimeMs });
+  setBounded(windowsByKey, windowKey, { count, mtimeMs }, MAX_KEYS_PER_THREAD_SCOPE);
   return {
     count,
     status: count >= 3 ? 'refuse' : count === 2 ? 'stub' : 'fresh',
@@ -249,7 +300,7 @@ export function recordEditFailure(threadScope: string, rootId: string, path: str
   const failuresByPath = getOrCreateScopeMap(editFailureStreaks, threadScope);
   const key = editFailurePathKey(rootId, path);
   const count = (failuresByPath.get(key) ?? 0) + 1;
-  failuresByPath.set(key, count);
+  setBounded(failuresByPath, key, count, MAX_KEYS_PER_THREAD_SCOPE);
   return count;
 }
 
@@ -267,9 +318,11 @@ export function resetToolCallLoopGuards(threadScope?: string): void {
     repeatedToolCalls.clear();
     unchangedReadWindows.clear();
     editFailureStreaks.clear();
+    threadScopeActivity.clear();
     return;
   }
   repeatedToolCalls.delete(threadScope);
   unchangedReadWindows.delete(threadScope);
   editFailureStreaks.delete(threadScope);
+  threadScopeActivity.delete(threadScope);
 }
