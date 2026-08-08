@@ -10,6 +10,8 @@ import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repo
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
+const DIMENSION_SELECT_PATTERN = /SELECT\b[^;]*\bdimensions\b[^;]*\bFROM\s+embedding_sets\b/i;
+
 describe('validateEmbeddingDimensions batch N+1 regression', () => {
   let db: PGlite;
   let repo: FileChunkRepository;
@@ -62,9 +64,8 @@ describe('validateEmbeddingDimensions batch N+1 regression', () => {
 
     await repo.insertMany(chunks);
 
-    const dimensionSelectPattern = /SELECT\b[^;]*\bdimensions\b[^;]*\bFROM\s+embedding_sets\b/i;
     const dimensionQueries = querySpy.mock.calls.filter(
-      (c) => typeof c[0] === 'string' && dimensionSelectPattern.test(c[0])
+      (c) => typeof c[0] === 'string' && DIMENSION_SELECT_PATTERN.test(c[0])
     ).length;
     const totalQueries = querySpy.mock.calls.length;
 
@@ -141,10 +142,9 @@ describe('validateEmbeddingDimensions batch N+1 regression', () => {
 
   it('can clear the process-local dimension cache between hermetic tests', async () => {
     const querySpy = vi.spyOn(db, 'query');
-    const dimensionSelectPattern = /SELECT\b[^;]*\bdimensions\b[^;]*\bFROM\s+embedding_sets\b/i;
     const dimensionSelectCount = (): number =>
       querySpy.mock.calls.filter(
-        (call) => typeof call[0] === 'string' && dimensionSelectPattern.test(call[0])
+        (call) => typeof call[0] === 'string' && DIMENSION_SELECT_PATTERN.test(call[0])
       ).length;
 
     await resolveEmbeddingSetDimensions(db, [set1Id]);
