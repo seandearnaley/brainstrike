@@ -86,6 +86,7 @@ import {
   type ReadWorkspaceFileCursorRegistry,
   readWorkspaceFileCursorRegistry,
 } from './read-workspace-file-cursor-registry';
+import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model-projection';
 import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runSkillScript } from './run-skill-script-tool';
@@ -396,7 +397,7 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.readWorkspaceFile,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceFile],
-      toModelOutput: (output: unknown) => ({ type: 'json', value: output }),
+      toModelOutput: projectReadWorkspaceFileModelOutput,
     },
     ...(toolOutputArtifactReader
       ? {
