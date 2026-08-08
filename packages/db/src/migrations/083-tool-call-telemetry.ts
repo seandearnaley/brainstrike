@@ -15,11 +15,17 @@ import type { Migration } from './migration-runner';
  * `brainstrike_assistant_run_usage` table — this is a net-new counters ledger
  * outside any sync-related rework, so it is not a uuidv7-groundwork table.
  *
- * No retention bound yet (deliberate, review-flagged): grows one row per tool
- * call, cleared only by thread deletion or factory reset. An `occurred_at`
- * retention sweep (mirroring `DiagnosticEventsRepository.purge()`) is an
- * accepted follow-up once real usage volume is observed, not an oversight —
- * see docs/agents/database.md.
+ * Retention (BST-1198): rows older than 60 days are pruned by the existing
+ * scheduled-database-maintenance pass (`runScheduledDatabaseMaintenance` in
+ * `services/scheduled-database-maintenance.ts`, the same ANALYZE/VACUUM
+ * scheduler from #1716) — no separate cron/timer was added. An idle pass does
+ * a full age-bounded sweep; a pass while the job queue is active still runs a
+ * LIMIT-bounded sweep (mirroring the terminal-job prune split) so a busy
+ * queue cannot let telemetry rows accumulate unbounded. The DELETE filters on
+ * `occurred_at`, which the existing `tool_id, occurred_at DESC` composite
+ * index already covers; an infrequent bounded prune tolerates a full-index or
+ * sequential scan, so no dedicated single-column index was added. See
+ * docs/agents/database.md for the full contract.
  */
 export const migration083ToolCallTelemetry: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_tool_call_telemetry;',

@@ -152,13 +152,40 @@ later-created table readable by the `brainstrike.querySelf` sandbox role.
 The primary key uses `crypto.randomUUID()` (matching the sibling
 `brainstrike_assistant_run_usage` writer), not a uuidv7 — this table is a
 net-new counters ledger outside any sync-related rework, so AGENTS.md's
-uuidv7-groundwork carve-out does not apply. **No retention bound exists yet**
-(BST-1190, deliberate scope decision, review-flagged): the table grows one row
-per tool call, cleared only by thread deletion or factory reset. Given the
-stated purpose is bounded before/after baseline windows (`BASELINE.md`), an
-`occurred_at`-indexed retention sweep — mirroring
-`DiagnosticEventsRepository.purge()`'s bounded oldest-first pattern — is an
-accepted, explicitly deferred follow-up, not an oversight.
+uuidv7-groundwork carve-out does not apply.
+
+**Retention (BST-1198, closes the BST-1190 deferral):** rows older than 60
+days are pruned by the existing scheduled-database-maintenance mechanism —
+`runScheduledDatabaseMaintenance` in
+`packages/db/src/services/scheduled-database-maintenance.ts`, the same
+idle-triggered pass that runs the #1716 `ANALYZE`/`VACUUM` sweep for
+`file_chunks`/`file_records`/`embedding_cache` and the terminal-job prune. No
+new scheduler, timer, or migration was added:
+- `DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS` (60 days) is
+  the default; callers may override it via
+  `ScheduledDatabaseMaintenanceOptions.toolCallTelemetryRetentionMs`, resolved
+  and validated (non-negative) on every pass, like the sibling job-queue
+  options.
+- Idle passes (`status: 'completed'`) run a full, unbounded-by-count
+  age-DELETE — the same shape as `pruneTerminalJobs`.
+- Passes while the job queue is active (`status: 'partial'`) still run a
+  `activePruneLimit`-bounded age-DELETE — the same shape as
+  `pruneFinishedJobsBounded` — so a long-running backfill cannot let telemetry
+  rows accumulate unbounded for the same reason job rows once did; only the
+  heavyweight `VACUUM` defers until idle.
+- Both deletes filter on `occurred_at`, which migration 083's
+  `brainstrike_tool_call_telemetry_tool_time_idx` composite index
+  (`tool_id, occurred_at DESC`) already covers well enough for an infrequent
+  bounded sweep — mirroring `DiagnosticEventsRepository.purge()`'s
+  oldest-first shape, no dedicated single-column index or new migration was
+  added.
+- The result's `prunedToolCallTelemetryRows` field reports the count for both
+  branches; the desktop scheduler logs it alongside `prunedTerminalJobs`.
+Paired test: `packages/db/__tests__/scheduled-database-maintenance.test.ts`
+(`tool_call_telemetry retention (BST-1198)` describe block) proves old rows
+are pruned and newer rows survive on both the idle and active-queue paths, and
+that the `token-spend-by-tool` lens output for an in-window query is
+unaffected by pruning outside that window.
 
 ## PGLITE EXTENSION INVARIANT
 
