@@ -171,7 +171,7 @@ function createThreadScrollFollow(): ThreadScrollFollow {
         });
       };
       const onScroll = () => handleScroll(el);
-      const onPointerDown = () => {
+      const onUserIntent = () => {
         pendingFollow = false;
         cancelScheduledMeasurement();
       };
@@ -197,13 +197,17 @@ function createThreadScrollFollow(): ThreadScrollFollow {
         subtree: true,
       });
       el.addEventListener('scroll', onScroll);
-      el.addEventListener('pointerdown', onPointerDown);
+      el.addEventListener('pointerdown', onUserIntent);
+      el.addEventListener('touchstart', onUserIntent, { passive: true });
+      el.addEventListener('wheel', onUserIntent, { passive: true });
       return () => {
         cancelScheduledMeasurement();
         resizeObserver.disconnect();
         mutationObserver.disconnect();
         el.removeEventListener('scroll', onScroll);
-        el.removeEventListener('pointerdown', onPointerDown);
+        el.removeEventListener('pointerdown', onUserIntent);
+        el.removeEventListener('touchstart', onUserIntent);
+        el.removeEventListener('wheel', onUserIntent);
         if (element === el) {
           element = null;
         }

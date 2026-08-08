@@ -72,12 +72,13 @@ describe('ThreadScrollFollowProvider', () => {
       scrollTop: {
         get: () => scrollTop,
         set: (next: number) => {
-          scrollTop = next;
+          scrollTop = Math.max(0, Math.min(next, scrollHeight - clientHeight));
         },
       },
     });
     const scrollTo = vi.fn((options: ScrollToOptions | number, y?: number): void => {
-      scrollTop = typeof options === 'number' ? (y ?? scrollTop) : (options.top ?? scrollTop);
+      element.scrollTop =
+        typeof options === 'number' ? (y ?? element.scrollTop) : (options.top ?? element.scrollTop);
     });
     Object.defineProperty(element, 'scrollTo', { value: scrollTo });
 
@@ -103,17 +104,27 @@ describe('ThreadScrollFollowProvider', () => {
     scrollHeight = 200;
     flushAnimationFrames();
 
+    expect(scrollTo).toHaveBeenCalledTimes(1);
     expect(scrollTo).toHaveBeenCalledWith({ behavior: 'instant', top: 200 });
-    expect(scrollTop).toBe(200);
+    expect(scrollTop).toBe(100);
+
+    for (const eventType of ['pointerdown', 'touchstart', 'wheel']) {
+      callback(
+        [{ attributeName: null, type: 'characterData' } as unknown as MutationRecord],
+        {} as unknown as MutationObserver
+      );
+      expect(frameCallbacks.size).toBe(1);
+      element.dispatchEvent(new Event(eventType));
+      expect(frameCallbacks.size).toBe(0);
+    }
 
     callback(
       [{ attributeName: null, type: 'characterData' } as unknown as MutationRecord],
       {} as unknown as MutationObserver
     );
     expect(frameCallbacks.size).toBe(1);
-    element.dispatchEvent(new Event('pointerdown'));
-    expect(frameCallbacks.size).toBe(0);
     detach();
+    expect(frameCallbacks.size).toBe(0);
     unmount();
   });
 });

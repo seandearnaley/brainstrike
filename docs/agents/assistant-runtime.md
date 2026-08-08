@@ -817,8 +817,8 @@ Content growth is detected by `MutationObserver`, measured immediately, then
 verified in one coalesced `requestAnimationFrame`. Mutation delivery can
 precede Chromium's final layout, while a `ResizeObserver` attached to the
 scroller does not reliably observe scroll-height-only growth; relying only on
-the synchronous read can therefore miss the new bottom. Pointer-down and
-detach cancel a pending frame so a user grabbing the scrollbar, or an
+the synchronous read can therefore miss the new bottom. Pointer, wheel, and
+touch intent plus detach cancel a pending frame so user navigation, or an
 unmounted scroller, cannot receive a deferred follow write.
 
 The scroller, the message list, the button and the engine are one owned
