@@ -871,14 +871,22 @@ provider-request boundary without mutating Mastra-owned message content.
   successful `readWorkspaceFile` or `grepSearch`, and after a successful
   `writeWorkspaceFile` or `stringReplaceWorkspaceFile`, desktop scans the
   thread's visible persisted tool invocations and excludes calls already in
-  the overlay. Overlapping reads of the same resolved file supersede earlier
-  reads; either supported edit supersedes all earlier reads of that file; an
-  identical normalized grep pattern/scope supersedes the earlier grep. No
-  in-memory pending queue exists. Reclaimable size is the serialized projected
-  result length minus the serialized text-marker length — an honest character
-  approximation, never token-exactness. One transaction commits the whole
-  pending batch only at 65,536 reclaimable characters or more; below threshold
-  it writes nothing.
+  the overlay. Resolved-file identity is canonical `rootId` plus workspace path
+  (root-name fallback exists only for legacy persisted results that predate
+  `rootId`). Overlapping reads supersede earlier reads; either supported edit
+  supersedes all earlier reads of that file; an identical normalized grep
+  pattern/scope supersedes the earlier grep. Persisted unchanged-read dedup
+  stubs are neither candidates nor superseders. Read markers name a later read
+  only when one exists; edit-superseded markers direct the model to re-read, and
+  multi-root markers use the same unambiguous root-label rule as the live read
+  projector. No in-memory pending queue exists. Reclaimable size is the
+  serialized projected result length minus the serialized text-marker length —
+  an honest character approximation, never token-exactness. Predicate matching
+  is cheap; model projections are built once, only for a winning pair. One
+  transaction commits the whole pending batch only at 65,536 reclaimable
+  characters or more; below threshold it writes nothing. Detection/commit is
+  post-success optimization bookkeeping: any failure is logged and the already
+  successful tool result remains successful.
 - **Replay rewriting is surgical and transient.** The agent-side Mastra input
   processor receives the fully built AI-SDK prompt and replaces only matching
   `tool-result.output` values with text markers. It runs before provider-history

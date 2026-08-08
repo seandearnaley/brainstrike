@@ -783,7 +783,12 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
 
   let initializationStage: AgentStreamInitializationStage = 'provider_model_bootstrap';
   try {
-    const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
+    // trustedRuntimeData for consistency with every other capability builder
+    // below, even though resolveLocalLlmHostClient today only reads
+    // `provider`/`memory.memorySettings.observationalMemory.modelTarget` —
+    // neither field is stripped, so this was a no-op-in-practice inconsistency
+    // (raw `runtimeData` was never intentional here) rather than a live bug.
+    const localLlmHostClient = resolveLocalLlmHostClient(trustedRuntimeData, toolDependencies);
     // Tool-lifecycle hooks (desktop): build the per-request manager over the
     // mounted roots + server-resolved trust. Hook run events flow through the
     // same queued sink the memory + stream observer drain, so hook.blocked and

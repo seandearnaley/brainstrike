@@ -22,10 +22,15 @@ import {
   grepProjectionHeaderPrefix,
   parseGrepToolResult,
 } from './grep-search-result-contract';
+import {
+  projectReadWorkspaceFileModelOutput,
+  resolveReadWorkspaceFileRootLabel,
+} from './read-workspace-file-model-projection';
 import { readProjectionHeaderPrefix } from './read-workspace-file-result-contract';
 import { resetToolCallLoopGuards } from './tool-call-loop-guards';
 import {
   readToolCallId,
+  redactToolErrorForLog,
   resolveToolExecuteInputCandidate,
   type ToolExecuteRunContext,
 } from './tool-execute-support';
@@ -61,11 +66,21 @@ interface PersistedToolInvocation {
 }
 
 interface ReadProjectionResult {
+  readonly ambiguousRootNames?: string[];
   readonly endLine: number;
+  readonly openRoots?: number;
   readonly path: string;
+  readonly rootId?: string;
   readonly rootName: string;
   readonly startLine: number;
   readonly totalLines: number;
+}
+
+interface PreparedToolInvocation {
+  readonly grepKey: string | undefined;
+  readonly invocation: PersistedToolInvocation;
+  readonly read: ReadProjectionResult | undefined;
+  readonly readIsDedup: boolean;
 }
 
 interface RewriteCandidate extends ToolProjectionRewriteEntry {
@@ -139,12 +154,21 @@ function parseReadProjectionResult(value: unknown): ReadProjectionResult | undef
   if (!isRecord(value)) {
     return;
   }
-  const { endLine, path, rootName, startLine, totalLines } = value;
+  const { ambiguousRootNames, endLine, openRoots, path, rootId, rootName, startLine, totalLines } =
+    value;
   if (
     typeof path !== 'string' ||
     path.length === 0 ||
     typeof rootName !== 'string' ||
     rootName.length === 0 ||
+    (rootId !== undefined && (typeof rootId !== 'string' || rootId.length === 0)) ||
+    (openRoots !== undefined &&
+      !(typeof openRoots === 'number' && Number.isInteger(openRoots) && openRoots > 0)) ||
+    (ambiguousRootNames !== undefined &&
+      !(
+        Array.isArray(ambiguousRootNames) &&
+        ambiguousRootNames.every((name) => typeof name === 'string')
+      )) ||
     !Number.isInteger(startLine) ||
     !Number.isInteger(endLine) ||
     !Number.isInteger(totalLines)
@@ -152,22 +176,34 @@ function parseReadProjectionResult(value: unknown): ReadProjectionResult | undef
     return;
   }
   return {
+    ...(ambiguousRootNames ? { ambiguousRootNames } : {}),
     endLine: endLine as number,
+    ...(openRoots === undefined ? {} : { openRoots: openRoots as number }),
     path,
+    ...(rootId === undefined ? {} : { rootId }),
     rootName,
     startLine: startLine as number,
     totalLines: totalLines as number,
   };
 }
 
-export function buildReadSupersededMarker(result: ReadProjectionResult): string {
+export function buildReadSupersededMarker(
+  result: ReadProjectionResult,
+  supersederToolName: string
+): string {
   // Mirrors read-workspace-file-model-projection.ts's own `read ` header
   // convention (PR #2322, merged) so a collapsed marker still reads as a
   // natural continuation of that format; the path is escaped the same way
   // that live projector escapes it so an embedded newline in a filename can
   // never break the marker's single-line invariant.
   const escapedPath = escapeProjectionPathLineBreaks(result.path);
-  return `${readProjectionHeaderPrefix()}${escapedPath} lines ${result.startLine}-${result.endLine}/${result.totalLines} [superseded — see the later read of this file]`;
+  const rootLabel = resolveReadWorkspaceFileRootLabel(result);
+  const displayPath = rootLabel ? `${rootLabel}:${escapedPath}` : escapedPath;
+  const reason =
+    supersederToolName === NATIVE_TOOL_ID.readWorkspaceFile
+      ? 'see the later read of this file'
+      : 'file was modified after this read — re-read before relying on it';
+  return `${readProjectionHeaderPrefix()}${displayPath} lines ${result.startLine}-${result.endLine}/${result.totalLines} [superseded — ${reason}]`;
 }
 
 export function buildGrepSupersededMarker(outputMode: GrepToolResult['outputMode']): string {
@@ -182,25 +218,30 @@ function serializedChars(value: unknown): number {
   return serialized.length;
 }
 
-function readCandidate(invocation: PersistedToolInvocation): RewriteCandidate | undefined {
-  const result = parseReadProjectionResult(invocation.result);
-  if (!result) {
+function readCandidate(
+  invocation: PersistedToolInvocation,
+  result: ReadProjectionResult,
+  superseder: PersistedToolInvocation
+): RewriteCandidate | undefined {
+  try {
+    const markerText = buildReadSupersededMarker(result, superseder.toolName);
+    const originalChars = serializedChars(projectReadWorkspaceFileModelOutput(invocation.result));
+    const markerChars = serializedChars({ type: 'text', value: markerText });
+    return {
+      markerText,
+      originalChars,
+      reclaimableChars: Math.max(0, originalChars - markerChars),
+      supersededByToolCallId: superseder.toolCallId,
+      toolCallId: invocation.toolCallId,
+    };
+  } catch (error) {
     logger.warn('Skipping malformed persisted read result during supersession detection', {
       code: 'tool_projection_rewrite_malformed_read_history',
+      error: redactToolErrorForLog(error),
       toolCallId: invocation.toolCallId,
     });
     return;
   }
-  const markerText = buildReadSupersededMarker(result);
-  const originalChars = serializedChars({ type: 'json', value: invocation.result });
-  const markerChars = serializedChars({ type: 'text', value: markerText });
-  return {
-    markerText,
-    originalChars,
-    reclaimableChars: Math.max(0, originalChars - markerChars),
-    supersededByToolCallId: '',
-    toolCallId: invocation.toolCallId,
-  };
 }
 
 function grepCandidate(invocation: PersistedToolInvocation): RewriteCandidate | undefined {
@@ -227,9 +268,19 @@ function grepCandidate(invocation: PersistedToolInvocation): RewriteCandidate | 
   };
 }
 
-function normalizeGrepKey(args: Record<string, unknown>): string | undefined {
-  const parsed = GrepSearchInputSchema.safeParse(args);
+function normalizeGrepKey(
+  invocation: PersistedToolInvocation,
+  persisted: boolean
+): string | undefined {
+  const candidate = resolveToolExecuteInputCandidate(GrepSearchInputSchema, invocation.args);
+  const parsed = GrepSearchInputSchema.safeParse(candidate);
   if (!parsed.success) {
+    if (persisted) {
+      logger.warn('Skipping unparseable persisted grep arguments during supersession detection', {
+        code: 'tool_projection_rewrite_malformed_grep_history_args',
+        toolCallId: invocation.toolCallId,
+      });
+    }
     return;
   }
   const input = parsed.data;
@@ -248,22 +299,39 @@ function normalizeGrepKey(args: Record<string, unknown>): string | undefined {
 
 function parseFileIdentity(
   value: unknown
-): Pick<ReadProjectionResult, 'path' | 'rootName'> | undefined {
+): Pick<ReadProjectionResult, 'path' | 'rootId' | 'rootName'> | undefined {
   if (!isRecord(value)) {
     return;
   }
-  const { path, rootName } = value;
+  const { path, rootId, rootName } = value;
   if (
     !(
       typeof path === 'string' &&
       path.length > 0 &&
       typeof rootName === 'string' &&
-      rootName.length > 0
+      rootName.length > 0 &&
+      (rootId === undefined || (typeof rootId === 'string' && rootId.length > 0))
     )
   ) {
     return;
   }
-  return { path, rootName };
+  return { path, ...(rootId === undefined ? {} : { rootId }), rootName };
+}
+
+function sameFile(
+  first: Pick<ReadProjectionResult, 'path' | 'rootId' | 'rootName'>,
+  second: Pick<ReadProjectionResult, 'path' | 'rootId' | 'rootName'>
+): boolean {
+  if (first.path !== second.path) {
+    return false;
+  }
+  if (first.rootId && second.rootId) {
+    return first.rootId === second.rootId;
+  }
+  // Results persisted before rootId was added cannot be canonically
+  // disambiguated. Preserve their legacy root-name match only when at least
+  // one side genuinely lacks the canonical identity.
+  return first.rootName === second.rootName;
 }
 
 function rangesOverlap(first: ReadProjectionResult, second: ReadProjectionResult): boolean {
@@ -271,63 +339,69 @@ function rangesOverlap(first: ReadProjectionResult, second: ReadProjectionResult
 }
 
 function readWasSuperseded(args: {
-  readonly earlierRead: ReadProjectionResult;
-  readonly later: PersistedToolInvocation;
+  readonly earlier: PreparedToolInvocation;
+  readonly later: PreparedToolInvocation;
 }): boolean {
-  const currentFile = parseFileIdentity(args.later.result);
   if (
-    currentFile?.path !== args.earlierRead.path ||
-    currentFile.rootName !== args.earlierRead.rootName
+    args.earlier.invocation.toolName !== NATIVE_TOOL_ID.readWorkspaceFile ||
+    !args.earlier.read ||
+    args.earlier.readIsDedup ||
+    args.later.readIsDedup
   ) {
     return false;
   }
+  const currentFile = parseFileIdentity(args.later.invocation.result);
+  if (!(currentFile && sameFile(args.earlier.read, currentFile))) {
+    return false;
+  }
   if (
-    args.later.toolName === NATIVE_TOOL_ID.writeWorkspaceFile ||
-    args.later.toolName === NATIVE_TOOL_ID.stringReplaceWorkspaceFile
+    args.later.invocation.toolName === NATIVE_TOOL_ID.writeWorkspaceFile ||
+    args.later.invocation.toolName === NATIVE_TOOL_ID.stringReplaceWorkspaceFile
   ) {
     return true;
   }
-  const currentRead = parseReadProjectionResult(args.later.result);
   return Boolean(
-    args.later.toolName === NATIVE_TOOL_ID.readWorkspaceFile &&
-      currentRead &&
-      rangesOverlap(args.earlierRead, currentRead)
+    args.later.invocation.toolName === NATIVE_TOOL_ID.readWorkspaceFile &&
+      args.later.read &&
+      rangesOverlap(args.earlier.read, args.later.read)
   );
 }
 
-function readRewriteCandidate(args: {
-  readonly earlier: PersistedToolInvocation;
-  readonly later: PersistedToolInvocation;
-}): RewriteCandidate | undefined {
-  if (args.earlier.toolName !== NATIVE_TOOL_ID.readWorkspaceFile) {
-    return;
-  }
-  const earlierRead = parseReadProjectionResult(args.earlier.result);
-  if (!earlierRead) {
-    readCandidate(args.earlier);
-    return;
-  }
-  if (!readWasSuperseded({ earlierRead, later: args.later })) {
-    return;
-  }
-  const candidate = readCandidate(args.earlier);
-  return candidate ? { ...candidate, supersededByToolCallId: args.later.toolCallId } : undefined;
+function grepWasSuperseded(
+  earlier: PreparedToolInvocation,
+  later: PreparedToolInvocation
+): boolean {
+  return (
+    earlier.invocation.toolName === NATIVE_TOOL_ID.grepSearch &&
+    later.invocation.toolName === NATIVE_TOOL_ID.grepSearch &&
+    earlier.grepKey !== undefined &&
+    earlier.grepKey === later.grepKey
+  );
 }
 
-function grepRewriteCandidate(args: {
-  readonly earlier: PersistedToolInvocation;
-  readonly later: PersistedToolInvocation;
-}): RewriteCandidate | undefined {
-  if (
-    args.earlier.toolName !== NATIVE_TOOL_ID.grepSearch ||
-    args.later.toolName !== NATIVE_TOOL_ID.grepSearch ||
-    normalizeGrepKey(args.earlier.args) === undefined ||
-    normalizeGrepKey(args.earlier.args) !== normalizeGrepKey(args.later.args)
-  ) {
-    return;
+function prepareInvocation(
+  invocation: PersistedToolInvocation,
+  persisted: boolean
+): PreparedToolInvocation {
+  const read =
+    invocation.toolName === NATIVE_TOOL_ID.readWorkspaceFile
+      ? parseReadProjectionResult(invocation.result)
+      : undefined;
+  if (invocation.toolName === NATIVE_TOOL_ID.readWorkspaceFile && !read) {
+    logger.warn('Skipping malformed persisted read result during supersession detection', {
+      code: 'tool_projection_rewrite_malformed_read_history',
+      toolCallId: invocation.toolCallId,
+    });
   }
-  const candidate = grepCandidate(args.earlier);
-  return candidate ? { ...candidate, supersededByToolCallId: args.later.toolCallId } : undefined;
+  return {
+    grepKey:
+      invocation.toolName === NATIVE_TOOL_ID.grepSearch
+        ? normalizeGrepKey(invocation, persisted)
+        : undefined,
+    invocation,
+    read,
+    readIsDedup: isRecord(invocation.result) && invocation.result['dedup'] === true,
+  };
 }
 
 function collectCandidates(args: {
@@ -337,14 +411,17 @@ function collectCandidates(args: {
   if (!(isRecord(args.current.input) && args.current.toolCallId)) {
     throw new TypeError('Tracked tool projection input and tool-call id must be present.');
   }
-  const history: PersistedToolInvocation[] = [
-    ...args.invocations,
-    {
-      args: args.current.input,
-      result: args.current.result,
-      toolCallId: args.current.toolCallId,
-      toolName: args.current.toolId,
-    },
+  const history = [
+    ...args.invocations.map((invocation) => prepareInvocation(invocation, true)),
+    prepareInvocation(
+      {
+        args: args.current.input,
+        result: args.current.result,
+        toolCallId: args.current.toolCallId,
+        toolName: args.current.toolId,
+      },
+      false
+    ),
   ];
   const candidates: RewriteCandidate[] = [];
   for (let earlierIndex = 0; earlierIndex < history.length - 1; earlierIndex += 1) {
@@ -356,16 +433,19 @@ function collectCandidates(args: {
       .slice(earlierIndex + 1)
       .find(
         (candidate) =>
-          readRewriteCandidate({ earlier, later: candidate }) !== undefined ||
-          grepRewriteCandidate({ earlier, later: candidate }) !== undefined
+          readWasSuperseded({ earlier, later: candidate }) || grepWasSuperseded(earlier, candidate)
       );
     if (!later) {
       continue;
     }
-    const candidate =
-      readRewriteCandidate({ earlier, later }) ?? grepRewriteCandidate({ earlier, later });
+    const candidate = earlier.read
+      ? readCandidate(earlier.invocation, earlier.read, later.invocation)
+      : grepCandidate(earlier.invocation);
     if (candidate) {
-      candidates.push(candidate);
+      candidates.push({
+        ...candidate,
+        supersededByToolCallId: later.invocation.toolCallId,
+      });
     }
   }
   return candidates;
@@ -557,13 +637,21 @@ export function applyToolProjectionRewriteRecording(
       execute: async (input: unknown, context?: ToolExecuteRunContext) => {
         const result = await executable.execute(input, context);
         if (shouldRecordResult(toolId, result)) {
-          await recordSuccessfulToolProjection({
-            input: resolveToolExecuteInputCandidate(NATIVE_TOOL_INPUT_SCHEMAS[toolId], input),
-            result,
-            runtimeData,
-            toolCallId: readToolCallId(context),
-            toolId,
-          });
+          try {
+            await recordSuccessfulToolProjection({
+              input: resolveToolExecuteInputCandidate(NATIVE_TOOL_INPUT_SCHEMAS[toolId], input),
+              result,
+              runtimeData,
+              toolCallId: readToolCallId(context),
+              toolId,
+            });
+          } catch (error) {
+            logger.error('Tool projection rewrite bookkeeping failed; tool result preserved', {
+              code: 'tool_projection_rewrite_recording_failed',
+              error: redactToolErrorForLog(error),
+              toolId,
+            });
+          }
         }
         return result;
       },

@@ -8,6 +8,8 @@ import type { ToolProjectionRewriteLookup } from '../types';
 
 const logger = createLogger('ToolProjectionRewriteProcessor');
 type Prompt = ProcessLLMRequestArgs['prompt'];
+type AssistantOrToolMessage = Extract<Prompt[number], { role: 'assistant' | 'tool' }>;
+type RewritablePart = AssistantOrToolMessage['content'][number];
 
 function collectPresentToolCallIds(prompt: Prompt): Set<string> {
   const present = new Set<string>();
@@ -54,60 +56,37 @@ export class ToolProjectionRewriteProcessor implements Processor<'tool-projectio
     }
     const presentToolCallIds = collectPresentToolCallIds(args.prompt);
     let rewrittenCount = 0;
+    const rewritePart = <Part extends RewritablePart>(part: Part): Part => {
+      if (part.type !== 'tool-result' || !part.toolCallId) {
+        return part;
+      }
+      const rewrite = rewrites.get(part.toolCallId);
+      if (!rewrite) {
+        return part;
+      }
+      if (!rewrite.markerText.trim()) {
+        throw new Error('Tool projection rewrite marker must be non-empty.');
+      }
+      if (!presentToolCallIds.has(rewrite.supersededByToolCallId)) {
+        return part;
+      }
+      rewrittenCount += 1;
+      return {
+        ...part,
+        output: { type: 'text' as const, value: rewrite.markerText },
+      } as Part;
+    };
     const prompt = args.prompt.map((message) => {
       if (message.role === 'tool') {
-        let contentChanged = false;
-        const content = message.content.map((part) => {
-          const rewrite = rewrites.get(part.toolCallId);
-          if (!rewrite) {
-            return part;
-          }
-          if (rewrite.toolCallId !== part.toolCallId) {
-            throw new Error('Tool projection rewrite lookup returned a mismatched tool-call id.');
-          }
-          if (!rewrite.markerText.trim()) {
-            throw new Error('Tool projection rewrite marker must be non-empty.');
-          }
-          if (!presentToolCallIds.has(rewrite.supersededByToolCallId)) {
-            return part;
-          }
-          contentChanged = true;
-          rewrittenCount += 1;
-          return {
-            ...part,
-            output: { type: 'text' as const, value: rewrite.markerText },
-          };
-        });
+        const content = message.content.map(rewritePart);
+        const contentChanged = content.some((part, index) => part !== message.content[index]);
         return contentChanged ? { ...message, content } : message;
       }
       if (message.role !== 'assistant') {
         return message;
       }
-      let contentChanged = false;
-      const content = message.content.map((part) => {
-        if (part.type !== 'tool-result') {
-          return part;
-        }
-        const rewrite = rewrites.get(part.toolCallId);
-        if (!rewrite) {
-          return part;
-        }
-        if (rewrite.toolCallId !== part.toolCallId) {
-          throw new Error('Tool projection rewrite lookup returned a mismatched tool-call id.');
-        }
-        if (!rewrite.markerText.trim()) {
-          throw new Error('Tool projection rewrite marker must be non-empty.');
-        }
-        if (!presentToolCallIds.has(rewrite.supersededByToolCallId)) {
-          return part;
-        }
-        contentChanged = true;
-        rewrittenCount += 1;
-        return {
-          ...part,
-          output: { type: 'text' as const, value: rewrite.markerText },
-        };
-      });
+      const content = message.content.map(rewritePart);
+      const contentChanged = content.some((part, index) => part !== message.content[index]);
       return contentChanged ? { ...message, content } : message;
     });
     if (rewrittenCount === 0) {

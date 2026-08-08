@@ -2,6 +2,7 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { grepProjectionHeaderPrefix } from '../../assistant-server/grep-search-result-contract';
+import { projectReadWorkspaceFileModelOutput } from '../../assistant-server/read-workspace-file-model-projection';
 import { readProjectionHeaderPrefix } from '../../assistant-server/read-workspace-file-result-contract';
 import {
   buildGrepSupersededMarker,
@@ -45,7 +46,7 @@ async function insertMessage(
   );
 }
 
-function readResult(contentLength: number, endLine = 100) {
+function readResult(contentLength: number, endLine = 100, overrides: Record<string, unknown> = {}) {
   return {
     approxOutputTokens: contentLength,
     content: 'x'.repeat(contentLength),
@@ -53,13 +54,46 @@ function readResult(contentLength: number, endLine = 100) {
     nextCursor: null,
     omittedChars: 0,
     path: 'src/a.ts',
+    rootId: 'root-a',
     rootName: 'workspace',
     size: contentLength,
     startLine: 1,
     tokenCount: null,
     totalLines: endLine,
     truncated: false,
+    ...overrides,
   };
+}
+
+const LARGE_READ_CONTENT_CHARS = 5000;
+const READS_TO_CROSS_BATCH_THRESHOLD = 14;
+
+async function insertLargeReads(
+  db: PGlite,
+  args: {
+    idPrefix: string;
+    input?: Record<string, unknown>;
+    resultOverrides?: Record<string, unknown>;
+    startMinute?: number;
+  }
+): Promise<void> {
+  for (let index = 0; index < READS_TO_CROSS_BATCH_THRESHOLD; index += 1) {
+    await insertMessage(
+      db,
+      {
+        id: `${args.idPrefix}-${index}`,
+        input: args.input ?? {
+          endLine: 100,
+          path: 'src/a.ts',
+          root: 'root-a',
+          startLine: 1,
+        },
+        result: readResult(LARGE_READ_CONTENT_CHARS, 100, args.resultOverrides),
+        toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      new Date(Date.UTC(2026, 7, 8, 12, (args.startMinute ?? 0) + index)).toISOString()
+    );
+  }
 }
 
 describe('tool projection rewrite overlay', () => {
@@ -146,16 +180,7 @@ describe('tool projection rewrite overlay', () => {
     ).toHaveLength(0);
     expect(resetLoopGuards).not.toHaveBeenCalled();
 
-    await insertMessage(
-      db,
-      {
-        id: 'call-large',
-        input: { endLine: 100, path: 'src/a.ts', root: 'workspace', startLine: 1 },
-        result: readResult(TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS + 1),
-        toolName: NATIVE_TOOL_ID.readWorkspaceFile,
-      },
-      '2026-08-08T12:01:00Z'
-    );
+    await insertLargeReads(db, { idPrefix: 'call-large', startMinute: 1 });
     await recordSuccessfulToolProjection(
       {
         input: { endLine: 100, path: 'src/a.ts', root: 'workspace', startLine: 1 },
@@ -170,7 +195,7 @@ describe('tool projection rewrite overlay', () => {
     const rows = await db.query<{ marker_text: string; rewrite_id: string }>(
       'SELECT marker_text, rewrite_id FROM brainstrike_assistant_tool_projection_rewrites ORDER BY tool_call_id'
     );
-    expect(rows.rows).toHaveLength(2);
+    expect(rows.rows).toHaveLength(READS_TO_CROSS_BATCH_THRESHOLD + 1);
     expect(new Set(rows.rows.map((row) => row.rewrite_id)).size).toBe(1);
     expect(rows.rows.every((row) => row.marker_text.startsWith(readProjectionHeaderPrefix()))).toBe(
       true
@@ -187,16 +212,7 @@ describe('tool projection rewrite overlay', () => {
   });
 
   it('treats a successful file edit as superseding every earlier read of that file', async () => {
-    await insertMessage(
-      db,
-      {
-        id: 'read-before-edit',
-        input: { endLine: 100, path: 'src/a.ts', root: 'workspace', startLine: 1 },
-        result: readResult(TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS + 1),
-        toolName: NATIVE_TOOL_ID.readWorkspaceFile,
-      },
-      '2026-08-08T12:00:00Z'
-    );
+    await insertLargeReads(db, { idPrefix: 'read-before-edit' });
 
     await recordSuccessfulToolProjection(
       {
@@ -205,6 +221,7 @@ describe('tool projection rewrite overlay', () => {
           bytesWritten: 11,
           created: false,
           path: 'src/a.ts',
+          rootId: 'root-a',
           rootName: 'workspace',
         },
         runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
@@ -214,11 +231,191 @@ describe('tool projection rewrite overlay', () => {
       { getDatabase: databaseProvider, resetLoopGuards }
     );
 
-    const rows = await db.query<{ superseded_by_tool_call_id: string }>(
-      'SELECT superseded_by_tool_call_id FROM brainstrike_assistant_tool_projection_rewrites'
+    const rows = await db.query<{ marker_text: string; superseded_by_tool_call_id: string }>(
+      'SELECT marker_text, superseded_by_tool_call_id FROM brainstrike_assistant_tool_projection_rewrites'
     );
-    expect(rows.rows).toEqual([{ superseded_by_tool_call_id: 'edit-new' }]);
+    expect(rows.rows).toHaveLength(READS_TO_CROSS_BATCH_THRESHOLD);
+    expect(rows.rows).toEqual(
+      expect.arrayContaining([
+        {
+          marker_text:
+            'read src/a.ts lines 1-100/100 [superseded — file was modified after this read — re-read before relying on it]',
+          superseded_by_tool_call_id: 'edit-new',
+        },
+      ])
+    );
+    expect(
+      rows.rows.filter((row) => row.marker_text.includes('file was modified after this read'))
+    ).toEqual([
+      {
+        marker_text:
+          'read src/a.ts lines 1-100/100 [superseded — file was modified after this read — re-read before relying on it]',
+        superseded_by_tool_call_id: 'edit-new',
+      },
+    ]);
     expect(resetLoopGuards).toHaveBeenCalledWith('thread-1');
+  });
+
+  it('does not merge same-name paths from different canonical workspace roots', async () => {
+    await insertMessage(
+      db,
+      {
+        id: 'read-root-a',
+        input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+        result: readResult(LARGE_READ_CONTENT_CHARS, 100, { rootId: 'root-a' }),
+        toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      '2026-08-08T11:00:00Z'
+    );
+    await insertMessage(
+      db,
+      {
+        id: 'read-root-b',
+        input: { endLine: 100, path: 'src/a.ts', root: 'root-b', startLine: 1 },
+        result: readResult(1000, 100, { rootId: 'root-b' }),
+        toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      '2026-08-08T11:01:00Z'
+    );
+    await insertLargeReads(db, {
+      idPrefix: 'root-filler-old',
+      input: { endLine: 100, path: 'src/filler.ts', root: 'root-a', startLine: 1 },
+      resultOverrides: { path: 'src/filler.ts', rootId: 'root-a' },
+    });
+    await insertMessage(
+      db,
+      {
+        id: 'root-filler-new',
+        input: { endLine: 100, path: 'src/filler.ts', root: 'root-a', startLine: 1 },
+        result: readResult(1000, 100, { path: 'src/filler.ts', rootId: 'root-a' }),
+        toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      '2026-08-08T12:30:00Z'
+    );
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { content: 'unrelated', path: 'src/other.ts', root: 'root-a' },
+        result: {
+          bytesWritten: 9,
+          created: false,
+          path: 'src/other.ts',
+          rootId: 'root-a',
+          rootName: 'workspace',
+        },
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'root-trigger',
+        toolId: NATIVE_TOOL_ID.writeWorkspaceFile,
+      },
+      { getDatabase: databaseProvider, resetLoopGuards }
+    );
+
+    const rows = await db.query<{ tool_call_id: string }>(
+      'SELECT tool_call_id FROM brainstrike_assistant_tool_projection_rewrites'
+    );
+    expect(rows.rows).toHaveLength(READS_TO_CROSS_BATCH_THRESHOLD);
+    expect(rows.rows.map((row) => row.tool_call_id)).not.toContain('read-root-a');
+  });
+
+  it('never lets a persisted unchanged-read stub supersede a real earlier read', async () => {
+    await insertMessage(
+      db,
+      {
+        id: 'read-real',
+        input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+        result: readResult(LARGE_READ_CONTENT_CHARS),
+        toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      '2026-08-08T11:00:00Z'
+    );
+    await insertMessage(
+      db,
+      {
+        id: 'read-dedup-stub',
+        input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+        result: readResult(44, 100, {
+          content: 'File unchanged since the previous identical read.',
+          dedup: true,
+        }),
+        toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      '2026-08-08T12:01:00Z'
+    );
+    await insertLargeReads(db, {
+      idPrefix: 'filler-old',
+      input: { endLine: 100, path: 'src/filler.ts', root: 'root-a', startLine: 1 },
+      resultOverrides: { path: 'src/filler.ts' },
+      startMinute: 2,
+    });
+    await insertMessage(
+      db,
+      {
+        id: 'filler-new',
+        input: { endLine: 100, path: 'src/filler.ts', root: 'root-a', startLine: 1 },
+        result: readResult(1000, 100, { path: 'src/filler.ts' }),
+        toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      '2026-08-08T12:30:00Z'
+    );
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { content: 'unrelated', path: 'src/other.ts', root: 'root-a' },
+        result: {
+          bytesWritten: 9,
+          created: false,
+          path: 'src/other.ts',
+          rootId: 'root-a',
+          rootName: 'workspace',
+        },
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'unrelated-trigger',
+        toolId: NATIVE_TOOL_ID.writeWorkspaceFile,
+      },
+      { getDatabase: databaseProvider, resetLoopGuards }
+    );
+
+    const rows = await db.query<{ tool_call_id: string }>(
+      'SELECT tool_call_id FROM brainstrike_assistant_tool_projection_rewrites'
+    );
+    expect(rows.rows).toHaveLength(READS_TO_CROSS_BATCH_THRESHOLD);
+    expect(rows.rows.map((row) => row.tool_call_id)).not.toContain('read-real');
+  });
+
+  it('uses the unambiguous multi-root label in collapsed read markers', async () => {
+    await insertLargeReads(db, {
+      idPrefix: 'read-labeled-root',
+      resultOverrides: {
+        ambiguousRootNames: [],
+        openRoots: 2,
+        rootId: 'root-a',
+        rootName: 'workspace',
+      },
+    });
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+        result: readResult(1000, 100, {
+          ambiguousRootNames: [],
+          openRoots: 2,
+          rootId: 'root-a',
+          rootName: 'workspace',
+        }),
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'read-labeled-root-later',
+        toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      { getDatabase: databaseProvider, resetLoopGuards }
+    );
+
+    const rows = await db.query<{ marker_text: string }>(
+      'SELECT marker_text FROM brainstrike_assistant_tool_projection_rewrites'
+    );
+    expect(rows.rows).toHaveLength(READS_TO_CROSS_BATCH_THRESHOLD);
+    expect(
+      rows.rows.every((row) => /^read workspace:src\/a\.ts lines/u.test(row.marker_text))
+    ).toBe(true);
   });
 
   it('supersedes earlier greps only for the same normalized pattern and scope', async () => {
@@ -269,5 +466,110 @@ describe('tool projection rewrite overlay', () => {
     expect(
       rows.rows.every((row) => row.marker_text.startsWith(grepProjectionHeaderPrefix('files')))
     ).toBe(true);
+  });
+
+  it('normalizes wrapped persisted grep arguments before supersession matching', async () => {
+    const grepResult = {
+      candidatesTruncated: false,
+      files: Array.from({ length: 300 }, (_, index) => ({
+        firstLine: 1,
+        matchCount: 1,
+        path: `src/${String(index).padStart(3, '0')}-${'long-name-'.repeat(20)}.ts`,
+        source: 'live' as const,
+      })),
+      liveEngine: 'ripgrep' as const,
+      offset: 0,
+      outputMode: 'files' as const,
+      scanLimited: false,
+      totalFiles: 300,
+      totalMatches: 300,
+      truncated: false,
+    };
+    for (let index = 0; index < 20; index += 1) {
+      await insertMessage(
+        db,
+        {
+          id: `grep-wrapped-${index}`,
+          input: {
+            context: { filePaths: ['src'], outputMode: 'files', pattern: 'wrapped-needle' },
+          },
+          result: grepResult,
+          toolName: NATIVE_TOOL_ID.grepSearch,
+        },
+        new Date(Date.UTC(2026, 7, 8, 13, index)).toISOString()
+      );
+    }
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { filePaths: ['src'], outputMode: 'files', pattern: 'wrapped-needle' },
+        result: { ...grepResult, files: [] },
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'grep-wrapped-new',
+        toolId: NATIVE_TOOL_ID.grepSearch,
+      },
+      { getDatabase: databaseProvider, resetLoopGuards }
+    );
+
+    expect(
+      (await db.query('SELECT * FROM brainstrike_assistant_tool_projection_rewrites')).rows
+    ).toHaveLength(20);
+  });
+
+  it('batches reads by projected replay size rather than larger raw JSON size', async () => {
+    const markerChars = JSON.stringify({
+      type: 'text',
+      value: 'read src/a.ts lines 1-100/100 [superseded — see the later read of this file]',
+    }).length;
+    let thresholdFixture:
+      | { contentLength: number; count: number; result: ReturnType<typeof readResult> }
+      | undefined;
+    for (let count = 10; count <= 20 && !thresholdFixture; count += 1) {
+      for (let contentLength = 4000; contentLength <= 5500; contentLength += 1) {
+        const candidate = readResult(contentLength);
+        const rawReclaimable =
+          (JSON.stringify({ type: 'json', value: candidate }).length - markerChars) * count;
+        const projectedReclaimable =
+          (JSON.stringify(projectReadWorkspaceFileModelOutput(candidate)).length - markerChars) *
+          count;
+        if (
+          rawReclaimable >= TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS &&
+          projectedReclaimable < TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS
+        ) {
+          thresholdFixture = { contentLength, count, result: candidate };
+          break;
+        }
+      }
+    }
+    if (!thresholdFixture) {
+      throw new Error('Expected a read fixture that crosses only the raw-JSON threshold.');
+    }
+    for (let index = 0; index < thresholdFixture.count; index += 1) {
+      await insertMessage(
+        db,
+        {
+          id: `read-raw-only-threshold-${index}`,
+          input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+          result: thresholdFixture.result,
+          toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+        },
+        new Date(Date.UTC(2026, 7, 8, 14, index)).toISOString()
+      );
+    }
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+        result: readResult(1000),
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'read-after-raw-only-threshold',
+        toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      { getDatabase: databaseProvider, resetLoopGuards }
+    );
+
+    expect(
+      (await db.query('SELECT * FROM brainstrike_assistant_tool_projection_rewrites')).rows
+    ).toHaveLength(0);
   });
 });
