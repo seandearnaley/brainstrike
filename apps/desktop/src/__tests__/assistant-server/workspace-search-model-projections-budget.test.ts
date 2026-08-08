@@ -30,20 +30,30 @@ it('fits nearly twice as many newline-dense grep rows with the decoded ruler', (
     .split('\n')
     .filter((line) => /^ {2}\d+: /u.test(line)).length;
 
+  // Derive "how many rows would the OLD (JSON-serialized) ruler have kept"
+  // from the REAL projector rather than hand-reconstructing its header/row/
+  // continuation format: re-run projectGrepSearchModelOutput on each
+  // candidate prefix (with `totalMatches` held at the true dataset size so
+  // the continuation text stays realistic) and measure ITS actual output.
+  // The current (decoded-ruler) projector never drops anything from a
+  // prefix this small, so its rendering for `kept` items is exactly what
+  // the old ruler would have judged for that same page — no duplicated
+  // formatting knowledge, so a future format change can't silently drift
+  // this baseline out of sync with reality.
   let oldSerializedRulerRows = 0;
   for (let kept = 1; kept <= matches.length; kept += 1) {
-    const candidateLines = [
-      `grep content 1-${kept}/100`,
-      '/src/newline-dense.ts',
-      ...matches.slice(0, kept).map((match) => `  ${match.line}: ${match.lineText}`),
-      ...(kept < matches.length
-        ? [`continue: reuse the prior brainstrike.grepSearch input with offset=${kept}`]
-        : []),
-    ];
-    const oldSerializedChars = JSON.stringify({
-      type: 'text',
-      value: candidateLines.join('\n'),
-    }).length;
+    const candidateProjected = projectGrepSearchModelOutput({
+      candidatesTruncated: false,
+      liveEngine: 'ripgrep',
+      matches: matches.slice(0, kept),
+      offset: 0,
+      outputMode: 'content',
+      scanLimited: false,
+      skippedMissingLineMetadata: 0,
+      totalMatches: matches.length,
+      truncated: false,
+    });
+    const oldSerializedChars = JSON.stringify(candidateProjected).length;
     if (oldSerializedChars <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       oldSerializedRulerRows = kept;
     }

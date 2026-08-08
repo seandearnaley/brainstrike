@@ -24,14 +24,51 @@ export const MAX_MODEL_TOOL_RESULT_CHAR_BUDGET =
  * PostToolUse guidance inside the total model-result envelope.
  */
 export const MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS = 1500;
-/**
- * BST-1195: desktop domain projectors self-fit decoded model-visible text via
- * decodedWorkspaceTextModelOutputChars. The generic transport guard below
- * still measures full JSON-serialized output at its higher ceiling.
- */
 export const MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET =
   MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
 const TOOL_RESULT_PREVIEW_CHARS = 8000;
+
+/**
+ * BST-1195: the decoded-text domain-projection ruler. Desktop's purpose-built
+ * TEXT projectors (`workspace-model-projection-helpers.ts`) and this
+ * package's own domain-projection runtime guards
+ * (`../mastra/tool-model-output.ts`: `assertDomainProjectionWithinBudget` and
+ * `composeHookContextWithProjection`) share this ONE implementation so the
+ * two layers can never diverge again. PR #2334 review caught exactly that
+ * divergence: the projectors switched to decoded length, but the runtime
+ * guard directly downstream kept measuring
+ * `JSON.stringify({type:'text',value}).length` against the SAME budget
+ * constant — so a page that legitimately fit the new (larger) domain budget
+ * could still throw a `RangeError` a moment later at the runtime gate,
+ * because JSON-escaping made it look oversized again. JSON/`content`-typed
+ * domain projections are unaffected by BST-1195 and keep measuring full
+ * serialized size — only `type: 'text'` outputs use this ruler.
+ *
+ * Value derivation for the reserve: the OLD ruler measured
+ * `JSON.stringify({ type: 'text', value }).length`, which for the empty
+ * string is exactly 26 (`{"type":"text","value":""}.length === 26`) — the
+ * fixed structural overhead of the envelope. JSON escaping can only ADD
+ * characters relative to the raw string (never remove), and code-point
+ * counting can only be <= UTF-16 length (astral pairs collapse). Therefore
+ * for ANY string X: codePointLength(X) + 26 <= JSON.stringify({type:'text',
+ * value:X}).length — a value that fit the old serialized budget is
+ * guaranteed to still fit this one, so a stored/replayed projection never
+ * newly throws. Do not "round up" this constant without re-deriving the
+ * proof above.
+ */
+export const PROJECTION_ENVELOPE_RESERVE_CHARS = 26;
+
+/**
+ * Decoded-text domain-projection char count: code points in the value the
+ * model actually reads, plus {@link PROJECTION_ENVELOPE_RESERVE_CHARS}. This
+ * is the ONE measurement a purpose-built TEXT domain projection (and the
+ * runtime guards that re-check its output) must use against
+ * {@link MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET} — never site-local
+ * `JSON.stringify(...).length` math.
+ */
+export function decodedTextModelOutputChars(value: string): number {
+  return Array.from(value).length + PROJECTION_ENVELOPE_RESERVE_CHARS;
+}
 
 /**
  * Budget native tools should bound their own serialized output to. Kept under
