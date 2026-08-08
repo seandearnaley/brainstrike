@@ -723,6 +723,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       throw new Error('Assistant tab controller boxes were unavailable before overflow.');
     }
 
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     for (let index = 1; index <= 8; index += 1) {
       await newThreadButton.click();
       await expect(tabList.getByRole('tab')).toHaveCount(initialTabCount + index);
@@ -733,6 +734,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       scrollWidth: element.scrollWidth,
     }));
     expect(scrollMetrics.scrollWidth).toBeGreaterThan(scrollMetrics.clientWidth);
+    await tabScroll.evaluate((element) => {
+      element.scrollTo({ behavior: 'instant', left: 0 });
+      element.dispatchEvent(new Event('scroll'));
+    });
+    await expect.poll(() => tabScroll.evaluate((element) => element.scrollLeft)).toBe(0);
+    await expect(scrollLeftButton).toBeDisabled();
     await expect(scrollRightButton).toBeEnabled();
 
     const overflowButtonBox = await newThreadButton.boundingBox();
