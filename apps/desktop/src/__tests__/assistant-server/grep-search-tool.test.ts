@@ -400,6 +400,75 @@ describe('grep search tool', () => {
     });
     expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('sk-sensitive');
   });
+
+  it('adds case-insensitive steering without leaking probe matches into the result', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+      rows: [{ content: 'needle lower-case', path: 'src/case.ts', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
+
+    expect(result.totalMatches).toBe(0);
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    expect(result.files).toEqual([]);
+    expect(result.probeNote).toBe(
+      "0 exact-case matches, but 1 case-insensitive matches in 1 files — the pattern's casing may be wrong."
+    );
+    expect(queryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('adds literal steering for a regex zero-match', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+      rows: [{ content: String.raw`token\d+`, path: 'src/literal.ts', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch({ isRegex: true, pattern: String.raw`token\d+` }, undefined);
+
+    expect(result.totalMatches).toBe(0);
+    expect(result.probeNote).toBe(
+      '0 regex matches, but 1 literal matches — regex metacharacters may need escaping.'
+    );
+    expect(queryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('omits probeNote when every eligible index probe misses', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+
+    const result = await runGrepSearch(
+      { caseSensitive: true, isRegex: true, pattern: 'missing-token' },
+      undefined
+    );
+
+    expect(result).not.toHaveProperty('probeNote');
+    expect(queryMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not run any probe query after the main pass finds a match', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ content: 'Needle exact', path: 'src/exact.ts', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
+
+    expect(result.totalMatches).toBe(1);
+    expect(result).not.toHaveProperty('probeNote');
+    expect(queryMock).toHaveBeenCalledOnce();
+  });
+
+  it('round-trips a zero-match probe note through the model projection', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+      rows: [{ content: 'needle lower-case', path: 'src/case.ts', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
+    const projection = projectGrepSearchModelOutput(result);
+
+    expect(projection.value).toContain(
+      "note: 0 exact-case matches, but 1 case-insensitive matches in 1 files — the pattern's casing may be wrong."
+    );
+  });
 });
 
 describe('grep search tool multi-root', () => {

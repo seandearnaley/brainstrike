@@ -22,7 +22,8 @@ import {
   type ModelFacingGrepMatch,
   parseGrepToolResult,
 } from './grep-search-result-contract';
-import { type LiveGrepResult, runLiveGrep } from './live-grep';
+import { resolveZeroMatchProbeNote, type ZeroMatchProbeCount } from './grep-zero-match-probes';
+import { type LiveGrepResult, probeExcludedPathMatches, runLiveGrep } from './live-grep';
 import {
   describeOpenRootTopology,
   getWorkspaceRoots,
@@ -70,6 +71,13 @@ const DEFAULT_CONTENT_MATCHES = 50;
  * already reports THIS constant as the pagination cap.
  */
 const INTERNAL_MATCH_CAP = 2000;
+/** Small index candidate pool for count-only zero-match steering probes. */
+export const PROBE_INDEX_CANDIDATE_LIMIT = 50;
+/**
+ * Probe rows materialized only to estimate distinct files. `fileCount` is a
+ * lower bound when more matches exist; `totalMatches` remains the count source.
+ */
+export const PROBE_INDEX_MAX_RESULTS = 20;
 const REDACTED_GREP_PATTERN_LOG_VALUE = { redacted: true } as const;
 
 /**
@@ -82,6 +90,7 @@ interface MergedGrepResult {
   liveEngine: LiveGrepResult['engine'];
   liveNote?: string;
   matches: LabeledGrepMatch[];
+  probeNote?: string;
   scanLimited: boolean;
   skippedMissingLineMetadata: number;
   /** Unique merged (rootId, path, line) matches before the cap. */
@@ -350,6 +359,7 @@ function buildFilesResult(
       truncated,
       ...topology,
       ...(mergedResult.liveNote ? { liveNote: mergedResult.liveNote } : {}),
+      ...(mergedResult.probeNote ? { probeNote: mergedResult.probeNote } : {}),
       ...(hint ? { hint } : {}),
     };
   });
@@ -450,6 +460,7 @@ function buildContentResult(args: {
       truncated,
       ...topology,
       ...(mergedResult.liveNote ? { liveNote: mergedResult.liveNote } : {}),
+      ...(mergedResult.probeNote ? { probeNote: mergedResult.probeNote } : {}),
       ...(hint ? { hint } : {}),
     };
   });
@@ -532,6 +543,35 @@ function runIndexSearch(args: {
     ...(args.rootId === undefined ? {} : { rootId: args.rootId }),
     ...(args.rootIds === undefined ? {} : { rootIds: args.rootIds }),
   });
+}
+
+/** Run an index-only, context-free steering probe without exposing match text. */
+async function runProbeIndexSearch(args: {
+  service: GrepSearchService;
+  pattern: string;
+  isRegex: boolean;
+  caseSensitive: boolean;
+  filePaths: readonly string[] | undefined;
+  embeddingSetId: string | undefined;
+  rootId: string | undefined;
+  rootIds?: readonly string[];
+}): Promise<ZeroMatchProbeCount> {
+  const result = await args.service.search({
+    candidateLimit: PROBE_INDEX_CANDIDATE_LIMIT,
+    caseSensitive: args.caseSensitive,
+    contextLines: 0,
+    isRegex: args.isRegex,
+    maxResults: PROBE_INDEX_MAX_RESULTS,
+    pattern: args.pattern,
+    ...(args.embeddingSetId === undefined ? {} : { embeddingSetId: args.embeddingSetId }),
+    ...(args.filePaths === undefined ? {} : { filePaths: args.filePaths }),
+    ...(args.rootId === undefined ? {} : { rootId: args.rootId }),
+    ...(args.rootIds === undefined ? {} : { rootIds: args.rootIds }),
+  });
+  return {
+    fileCount: new Set(result.matches.map((match) => match.path)).size,
+    matchCount: result.totalMatches,
+  };
 }
 
 export async function runGrepSearch(
@@ -626,6 +666,51 @@ export async function runGrepSearch(
     });
 
     const merged = mergeGrepMatches(serviceResult, liveResult);
+    const probeNote =
+      merged.matches.length === 0
+        ? await resolveZeroMatchProbeNote(
+            { caseSensitive, isRegex },
+            {
+              runCaseProbe: () =>
+                runProbeIndexSearch({
+                  caseSensitive: false,
+                  embeddingSetId,
+                  filePaths,
+                  isRegex,
+                  pattern: input.pattern,
+                  rootId,
+                  ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
+                  service,
+                }),
+              runExcludedPathProbe: () =>
+                probeExcludedPathMatches(
+                  {
+                    caseSensitive,
+                    isRegex,
+                    pattern: input.pattern,
+                    roots: effectiveLiveRoots,
+                    ...(filePaths === undefined ? {} : { filePaths }),
+                  },
+                  liveMatcher
+                ),
+              runLiteralProbe: () =>
+                runProbeIndexSearch({
+                  caseSensitive,
+                  embeddingSetId,
+                  filePaths,
+                  isRegex: false,
+                  pattern: input.pattern,
+                  rootId,
+                  ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
+                  service,
+                }),
+            }
+          )
+        : undefined;
+    const mergedWithProbe: MergedGrepResult = {
+      ...merged,
+      ...(probeNote ? { probeNote } : {}),
+    };
 
     // The projection prefixes file headers with root names only when several
     // folders are OPEN (not merely matched), so the open-root topology —
@@ -635,10 +720,10 @@ export async function runGrepSearch(
 
     return parseGrepToolResult(
       outputMode === 'files'
-        ? buildFilesResult(merged, offset, topology)
+        ? buildFilesResult(mergedWithProbe, offset, topology)
         : buildContentResult({
             contextLines,
-            mergedResult: merged,
+            mergedResult: mergedWithProbe,
             offset,
             requestedMatches,
             serviceCap: INTERNAL_MATCH_CAP,

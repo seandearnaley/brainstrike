@@ -60,6 +60,8 @@ const RIPGREP_FALLBACK_DIRS: readonly string[] =
 
 /** Wall-clock bound for one ripgrep prefilter invocation (per root). */
 const RIPGREP_TIMEOUT_MS = 4000;
+/** Shorter per-root ripgrep ceiling for the optional excluded-path probe. */
+export const PROBE_RIPGREP_TIMEOUT_MS = 1500;
 /** Cap on ripgrep stdout (~bytes) so a pathological match set can't blow memory. */
 const RIPGREP_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
 /** Skip files larger than this in the prefilter (mirrors the indexer's intent). */
@@ -68,6 +70,8 @@ const RIPGREP_MAX_FILESIZE = '2M';
 const RIPGREP_MAX_COUNT_PER_FILE = 200;
 /** Default hard cap on candidate files materialized from the live pass (per call, all roots). */
 const DEFAULT_MAX_LIVE_CANDIDATE_FILES = 1500;
+/** Maximum excluded files read by one count-only steering probe across all roots. */
+export const PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES = 200;
 /** Active candidate cap; overridable in tests so the cap path is exercised without 1500+ files. */
 let maxLiveCandidateFiles = DEFAULT_MAX_LIVE_CANDIDATE_FILES;
 /** Skip on-disk files larger than this when reading them for the authoritative match. */
@@ -206,7 +210,12 @@ function resolveRipgrepPrefilterLiteral(args: {
 }
 
 /** Build the ripgrep argument list for a fixed-string (literal) prefilter. */
-function buildRipgrepArgs(args: { prefilterLiteral: string; caseSensitive: boolean }): string[] {
+function buildRipgrepArgs(args: {
+  prefilterLiteral: string;
+  caseSensitive: boolean;
+  /** The normal live pass prunes it; the excluded-path probe deliberately searches it. */
+  excludeNodeModules?: boolean;
+}): string[] {
   const rgArgs = [
     '--json',
     '--no-config',
@@ -234,7 +243,6 @@ function buildRipgrepArgs(args: { prefilterLiteral: string; caseSensitive: boole
     // ONLY dirs the policy already hard-excludes by name, so the candidate set
     // stays a strict SUPERSET of policy-kept files (parity with the JS walk).
     '--glob=!**/.git/',
-    '--glob=!**/node_modules/',
     // Treat EVERY file as text. By default rg's content heuristic skips any file
     // with a NUL byte before the first match (no `begin` event → never a
     // candidate), but brainstrike's exclusion authority (`isBinaryFile`, the
@@ -251,6 +259,9 @@ function buildRipgrepArgs(args: { prefilterLiteral: string; caseSensitive: boole
     // authoritative literal/regex match is re-derived by the shared JS matcher.
     '--fixed-strings',
   ];
+  if (args.excludeNodeModules ?? true) {
+    rgArgs.push('--glob=!**/node_modules/');
+  }
   if (args.caseSensitive) {
     rgArgs.push('--case-sensitive');
   } else {
@@ -282,6 +293,8 @@ function runRipgrep(args: {
   canonicalRootPath: string;
   prefilterLiteral: string;
   caseSensitive: boolean;
+  excludeNodeModules?: boolean;
+  timeoutMs?: number;
 }): Promise<RipgrepRun> {
   return new Promise<RipgrepRun>((resolve, reject) => {
     execFile(
@@ -290,7 +303,7 @@ function runRipgrep(args: {
       {
         cwd: args.canonicalRootPath,
         maxBuffer: RIPGREP_MAX_BUFFER_BYTES,
-        timeout: RIPGREP_TIMEOUT_MS,
+        timeout: args.timeoutMs ?? RIPGREP_TIMEOUT_MS,
         windowsHide: true,
       },
       (error, stdout) => {
@@ -559,6 +572,203 @@ export interface LiveGrepOptions {
   isRegex: boolean;
   pattern: string;
   roots: readonly RuntimeWorkspaceRoot[];
+}
+
+export interface ExcludedPathProbeOptions {
+  caseSensitive: boolean;
+  filePaths?: readonly string[];
+  isRegex: boolean;
+  pattern: string;
+  roots: readonly RuntimeWorkspaceRoot[];
+}
+
+interface ExcludedPathProbeState {
+  candidatesRead: number;
+  fileCount: number;
+  matchCount: number;
+}
+
+function isExcludedPathProbeCandidate(args: {
+  filePathAllow: ReadonlySet<string> | null;
+  policy: IndexingEntryPolicy;
+  relativePath: string;
+}): boolean {
+  if (args.filePathAllow && !args.filePathAllow.has(args.relativePath)) {
+    return false;
+  }
+  if (hasDotGitSegment(args.relativePath)) {
+    return false;
+  }
+  return !args.policy.shouldIncludeFile({
+    fileName: path.posix.basename(args.relativePath),
+    fileSize: undefined,
+    relativePath: args.relativePath,
+  });
+}
+
+async function countExcludedCandidateMatches(args: {
+  canonicalRootPath: string;
+  matcher: LineMatcher;
+  relativePath: string;
+  root: RuntimeWorkspaceRoot;
+}): Promise<number> {
+  try {
+    const absolutePath = path.join(args.canonicalRootPath, args.relativePath);
+    const canonicalTarget = await fsPromises.realpath(absolutePath);
+    const stat = await fsPromises.stat(absolutePath);
+    if (
+      !(isWithinRoot(args.canonicalRootPath, canonicalTarget) && stat.isFile()) ||
+      stat.size > MAX_READ_FILE_BYTES
+    ) {
+      return 0;
+    }
+    const content = await fsPromises.readFile(canonicalTarget, 'utf8');
+    const matches = collectGrepMatchesInContent({
+      content,
+      contextLines: 0,
+      matcher: args.matcher,
+      path: args.relativePath,
+      rootId: args.root.rootId,
+      rootName: args.root.displayName,
+      startLine: 1,
+    });
+    return matches.length;
+  } catch (error) {
+    logger.warn('excluded-path grep probe: candidate could not be matched', {
+      error: redactErrorForLog(error),
+      rootId: args.root.rootId,
+    });
+    return 0;
+  }
+}
+
+async function probeExcludedRoot(args: {
+  caseSensitive: boolean;
+  filePathAllow: ReadonlySet<string> | null;
+  matcher: LineMatcher;
+  policy: IndexingEntryPolicy;
+  prefilterLiteral: string;
+  ripgrepPath: string;
+  root: RuntimeWorkspaceRoot;
+  state: ExcludedPathProbeState;
+}): Promise<void> {
+  let canonicalRootPath: string;
+  try {
+    canonicalRootPath = await fsPromises.realpath(args.root.path);
+  } catch (error) {
+    logger.warn('excluded-path grep probe: root is not accessible', {
+      error: redactErrorForLog(error),
+      rootId: args.root.rootId,
+    });
+    return;
+  }
+
+  let candidatePaths: Set<string>;
+  try {
+    const run = await runRipgrep({
+      canonicalRootPath,
+      caseSensitive: args.caseSensitive,
+      excludeNodeModules: false,
+      prefilterLiteral: args.prefilterLiteral,
+      ripgrepPath: args.ripgrepPath,
+      timeoutMs: PROBE_RIPGREP_TIMEOUT_MS,
+    });
+    candidatePaths = run.candidatePaths;
+  } catch (error) {
+    logger.warn('excluded-path grep probe: ripgrep failed for a root', {
+      error: redactErrorForLog(error),
+      rootId: args.root.rootId,
+    });
+    return;
+  }
+
+  for (const relativePath of candidatePaths) {
+    if (args.state.candidatesRead >= PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES) {
+      return;
+    }
+    if (
+      !isExcludedPathProbeCandidate({
+        filePathAllow: args.filePathAllow,
+        policy: args.policy,
+        relativePath,
+      })
+    ) {
+      continue;
+    }
+    // Spend the bounded candidate budget before filesystem work. Broken links,
+    // races, and matcher failures must not let the probe attempt >200 paths.
+    args.state.candidatesRead += 1;
+    const matchCount = await countExcludedCandidateMatches({
+      canonicalRootPath,
+      matcher: args.matcher,
+      relativePath,
+      root: args.root,
+    });
+    args.state.matchCount += matchCount;
+    if (matchCount > 0) {
+      args.state.fileCount += 1;
+    }
+  }
+}
+
+/**
+ * Count authoritative matches only in files the balanced indexing policy would
+ * exclude. This optional steering pass is intentionally ripgrep-only and
+ * bounded much more tightly than the normal live pass; absence of a safe rg
+ * prefilter is an honest miss rather than a reason to walk the workspace.
+ */
+export async function probeExcludedPathMatches(
+  options: ExcludedPathProbeOptions,
+  matcher: LineMatcher
+): Promise<{ matchCount: number; fileCount: number }> {
+  const empty = { fileCount: 0, matchCount: 0 };
+  if (options.roots.length === 0) {
+    return empty;
+  }
+
+  try {
+    const ripgrepPath = await resolveRipgrepPath();
+    const prefilterLiteral = resolveRipgrepPrefilterLiteral({
+      isRegex: options.isRegex,
+      pattern: options.pattern,
+    });
+    if (ripgrepPath === null || prefilterLiteral === null) {
+      return empty;
+    }
+
+    const filePathAllow = options.filePaths === undefined ? null : new Set(options.filePaths);
+    const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
+    const state: ExcludedPathProbeState = {
+      candidatesRead: 0,
+      fileCount: 0,
+      matchCount: 0,
+    };
+
+    for (const root of options.roots) {
+      if (state.candidatesRead >= PROBE_EXCLUDED_PATH_MAX_CANDIDATE_FILES) {
+        break;
+      }
+      await probeExcludedRoot({
+        caseSensitive: options.caseSensitive,
+        filePathAllow,
+        matcher,
+        policy,
+        prefilterLiteral,
+        ripgrepPath,
+        root,
+        state,
+      });
+    }
+
+    return { fileCount: state.fileCount, matchCount: state.matchCount };
+  } catch (error) {
+    // Defence in depth: this auxiliary probe must never fail grepSearch even
+    // when an unexpected policy/runtime error escapes the per-root/file guards.
+    logger.warn('excluded-path grep probe failed unexpectedly; treating as a miss', {
+      error: redactErrorForLog(error),
+    });
+    return empty;
+  }
 }
 
 /**

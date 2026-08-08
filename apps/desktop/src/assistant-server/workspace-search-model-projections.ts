@@ -419,9 +419,9 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
   const result = parseGrepToolResult(output);
   const items = result.outputMode === 'files' ? result.files : result.matches;
   const rootLabel = buildRootLabelResolver(result, items);
-  const note = result.liveNote
-    ? `note: ${clipEnd(result.liveNote, MAX_LINE_TEXT_CHARS, 'note')}`
-    : null;
+  const noteLines = [result.liveNote, result.probeNote]
+    .filter((note): note is string => note !== undefined)
+    .map((note) => `note: ${clipEnd(note, MAX_LINE_TEXT_CHARS, 'note')}`);
   let keptLines: string[] = [];
   let kept = 0;
 
@@ -434,7 +434,7 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
     const candidate = [
       buildGrepHeader(result, candidateKept),
       ...candidateLines,
-      ...(note ? [note] : []),
+      ...noteLines,
       ...(continuation ? [continuation] : []),
     ];
     if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
@@ -448,7 +448,7 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
   const lines = [
     buildGrepHeader(result, kept),
     ...keptLines,
-    ...(note ? [note] : []),
+    ...noteLines,
     ...(continuation ? [continuation] : []),
   ];
   assertProjectionFits('grepSearch', lines);

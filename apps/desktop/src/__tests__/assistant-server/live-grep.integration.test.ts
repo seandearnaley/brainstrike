@@ -12,6 +12,7 @@ import { createGrepLineMatcher } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   discoverRipgrepPathForTests,
+  probeExcludedPathMatches,
   resetRipgrepAvailabilityForTests,
   runLiveGrep,
   setMaxLiveCandidateFilesForTests,
@@ -927,5 +928,114 @@ describe('runLiveGrep — candidate cap bounds the resolve (truncated)', () => {
     // …and the cap is surfaced (never silent) so the model knows more exist.
     expect(result.truncated).toBe(true);
     expect(result.note).toMatch(/candidate-file cap/i);
+  });
+});
+
+describe('probeExcludedPathMatches', () => {
+  it('counts matches inside node_modules, which the normal passes exclude', async () => {
+    if ((await findRealRipgrep()) === null) {
+      return;
+    }
+    const dir = await makeWorkspace({
+      'node_modules/dep/index.ts': 'EXCLUDED_PROBE one\nEXCLUDED_PROBE two\n',
+    });
+
+    const result = await probeExcludedPathMatches(
+      {
+        caseSensitive: false,
+        isRegex: false,
+        pattern: 'EXCLUDED_PROBE',
+        roots: [root(dir)],
+      },
+      literalMatcher('EXCLUDED_PROBE')
+    );
+
+    expect(result).toEqual({ fileCount: 1, matchCount: 2 });
+  });
+
+  it('does not count matches in normally included files', async () => {
+    if ((await findRealRipgrep()) === null) {
+      return;
+    }
+    const dir = await makeWorkspace({ 'src/normal.ts': 'EXCLUDED_NORMAL match\n' });
+
+    const result = await probeExcludedPathMatches(
+      {
+        caseSensitive: false,
+        isRegex: false,
+        pattern: 'EXCLUDED_NORMAL',
+        roots: [root(dir)],
+      },
+      literalMatcher('EXCLUDED_NORMAL')
+    );
+
+    expect(result).toEqual({ fileCount: 0, matchCount: 0 });
+  });
+
+  it('never descends into .git even when probing excluded paths', async () => {
+    if ((await findRealRipgrep()) === null) {
+      return;
+    }
+    const dir = await makeWorkspace({ '.git/objects/probe.txt': 'DOT_GIT_PROBE match\n' });
+
+    const result = await probeExcludedPathMatches(
+      {
+        caseSensitive: false,
+        isRegex: false,
+        pattern: 'DOT_GIT_PROBE',
+        roots: [root(dir)],
+      },
+      literalMatcher('DOT_GIT_PROBE')
+    );
+
+    expect(result).toEqual({ fileCount: 0, matchCount: 0 });
+  });
+
+  it('returns a clean miss when ripgrep is unavailable', async () => {
+    const dir = await makeWorkspace({
+      'node_modules/dep/index.ts': 'NO_RIPGREP_PROBE match\n',
+    });
+
+    const result = await withRipgrepHidden(() =>
+      probeExcludedPathMatches(
+        {
+          caseSensitive: false,
+          isRegex: false,
+          pattern: 'NO_RIPGREP_PROBE',
+          roots: [root(dir)],
+        },
+        literalMatcher('NO_RIPGREP_PROBE')
+      )
+    );
+
+    expect(result).toEqual({ fileCount: 0, matchCount: 0 });
+  });
+
+  it('respects the exact filePaths allowlist for excluded candidates', async () => {
+    if ((await findRealRipgrep()) === null) {
+      return;
+    }
+    const dir = await makeWorkspace({
+      'node_modules/drop/index.ts': 'ALLOW_EXCLUDED match\n',
+      'node_modules/keep/index.ts': 'ALLOW_EXCLUDED match\n',
+    });
+    const options = {
+      caseSensitive: false,
+      isRegex: false,
+      pattern: 'ALLOW_EXCLUDED',
+      roots: [root(dir)],
+    };
+
+    const notAllowed = await probeExcludedPathMatches(
+      { ...options, filePaths: ['node_modules/missing/index.ts'] },
+      literalMatcher('ALLOW_EXCLUDED')
+    );
+    const allowed = await probeExcludedPathMatches(
+      { ...options, filePaths: ['node_modules/keep/index.ts'] },
+      literalMatcher('ALLOW_EXCLUDED')
+    );
+
+    expect(notAllowed).toEqual({ fileCount: 0, matchCount: 0 });
+    expect(allowed).toEqual({ fileCount: 1, matchCount: 1 });
   });
 });
