@@ -11,9 +11,10 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { RuntimeData } from '@brainstrike/agent';
+import { NATIVE_TOOL_RESULT_CHAR_BUDGET, type RuntimeData } from '@brainstrike/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildTruncationMarker,
   disposeLiveChildProcesses,
   fitHeadAndTailToCharBudget,
   resolveShellInvocation,
@@ -114,7 +115,9 @@ describe('fitHeadAndTailToCharBudget — character-based retention', () => {
     expect(result.truncated).toBe(true);
     expect(result.text).toHaveLength(80);
     expect(result.text.startsWith(text.slice(0, 10))).toBe(true);
-    expect(result.text).toContain('[… output truncated: 133 chars omitted of 159 total …]');
+    // Uses the same marker builder the production code calls — one definition
+    // for the model-facing marker contract, not a duplicated literal.
+    expect(result.text).toContain(buildTruncationMarker(133, 159));
     expect(result.text.endsWith(text.slice(-16))).toBe(true);
   });
 
@@ -126,8 +129,42 @@ describe('fitHeadAndTailToCharBudget — character-based retention', () => {
     expect(result.truncated).toBe(true);
     expect(result.text).toHaveLength(100);
     expect(result.text.startsWith('H'.repeat(18))).toBe(true);
-    expect(result.text).toContain('[… output truncated: 254 chars omitted of 300 total …]');
+    expect(result.text).toContain(buildTruncationMarker(254, 300));
     expect(result.text.endsWith('T'.repeat(28))).toBe(true);
+  });
+
+  it('never splits a UTF-16 surrogate pair at the head or tail boundary', () => {
+    // U+1F600 (😀) is an astral character: two UTF-16 code units. These exact
+    // padding lengths were verified (see PR #2314 review thread) to put the
+    // computed 40%/60% cut points AT index 8 (inside the first emoji's pair,
+    // splitting off its lone high surrogate) and at the low surrogate of the
+    // second emoji (splitting off its lone low surrogate) — reproducing the
+    // naive-slice bug before asserting the fix.
+    const emoji = '😀';
+    const text = `${'a'.repeat(7)}${emoji}${'b'.repeat(83)}${emoji}${'c'.repeat(11)}`;
+    const charBudget = 74;
+
+    const result = fitHeadAndTailToCharBudget(text, charBudget);
+
+    expect(result.truncated).toBe(true);
+    expect(result.text.length).toBeLessThanOrEqual(charBudget);
+    // A lone (unpaired) surrogate has no valid UTF-8 encoding; encoding then
+    // decoding replaces it with U+FFFD. Round-tripping through UTF-8 is the
+    // precise, encoding-agnostic proof that no boundary left a broken half.
+    const roundTripped = Buffer.from(result.text, 'utf8').toString('utf8');
+    expect(roundTripped).toBe(result.text);
+    expect(roundTripped).not.toContain('�');
+  });
+
+  it('returns empty text (not a mangled marker fragment) when the budget cannot hold the marker', () => {
+    const text = 'x'.repeat(1000);
+    // The marker for a 1000-char input is ~40 chars; a budget smaller than
+    // that cannot honestly retain any content.
+    const tinyBudget = 10;
+
+    const result = fitHeadAndTailToCharBudget(text, tinyBudget);
+
+    expect(result).toEqual({ text: '', truncated: true });
   });
 });
 
@@ -179,9 +216,9 @@ describe('runExecuteCommand — command echo bounding', () => {
 
 describe('runExecuteCommand — truncated flag (no false positive on empty streams)', () => {
   // Regression guard: an ABSENT stream must never flip the overall result to
-  // truncated + a bogus "Output was truncated… re-run piping through | tail"
-  // hint on the COMMON case (output on only one stream, or a silent command).
-  // Keep the raw hasStdout/hasStderr gate even as fitting internals evolve.
+  // truncated + a bogus "Output was truncated…" hint on the COMMON case
+  // (output on only one stream, or a silent command). Keep the raw
+  // hasStdout/hasStderr gate even as fitting internals evolve.
 
   it('reports truncated=false when only stdout has output (empty stderr)', async () => {
     const root = await makeWorkspace();
@@ -349,12 +386,31 @@ describe('runExecuteCommand — output bounding (no unbounded result)', () => {
     expect(result.exitCode).toBe(0);
     expect(result.truncated).toBe(true);
     expect(result.hint).toBeTruthy();
-    // The serialized result must be bounded (well under a megabyte of text).
-    expect(JSON.stringify(result).length).toBeLessThan(20_000);
+    // The serialized result must stay inside the native tool result budget —
+    // the actual transport guard, not an arbitrary looser number. Budgeting
+    // is done on RAW chars while this guard measures SERIALIZED chars, so
+    // this also catches JSON-escaping blowing past the budget on the edge.
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
     expect(result.stdout).toContain('[… output truncated:');
     // Both the early diagnostic context and the most-recent output survive.
     expect(result.stdout.startsWith('1\n2\n3\n')).toBe(true);
     expect(result.stdout.endsWith('49999\n50000\n')).toBe(true);
+  });
+
+  it('describes head+tail retention in the truncation hint (not stale tail-only wording)', async () => {
+    const root = await makeWorkspace();
+    const result = await runExecuteCommand(
+      { command: 'seq 1 50000', timeoutMs: 30_000 },
+      singleRoot(root)
+    );
+
+    expect(result.truncated).toBe(true);
+    // Regression guard: the hint must describe the CURRENT retention shape.
+    // It must not push the model toward `| tail -n N`, which would discard
+    // the early head content this feature exists to preserve.
+    expect(result.hint).toContain('start and end of each stream');
+    expect(result.hint).not.toContain('most recent lines');
+    expect(result.hint).not.toContain('| tail -n N');
   });
 });
 

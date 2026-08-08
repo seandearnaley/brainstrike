@@ -44,7 +44,7 @@ const MAX_CAPTURED_OUTPUT_BYTES = 1_000_000;
 const MAX_STREAMED_OUTPUT_BYTES = 256_000;
 /** Visible notice appended to the live stream once the streaming cap is hit. */
 const STREAM_TRUNCATION_NOTICE =
-  '\n[output truncated — live streaming stopped; the final result keeps the most recent lines]\n';
+  '\n[output truncated — live streaming stopped; the final result keeps the start and end of each stream]\n';
 /**
  * Grace period between the polite SIGTERM and the forceful SIGKILL when tearing
  * down a process tree. A well-behaved child exits on SIGTERM; a wedged one is
@@ -497,6 +497,16 @@ export function buildTruncationMarker(omittedChars: number, totalChars: number):
   return `[… output truncated: ${omittedChars} chars omitted of ${totalChars} total …]`;
 }
 
+/** True when `codeUnit` is the LEADING half of a UTF-16 surrogate pair. */
+function isHighSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xd8_00 && codeUnit <= 0xdb_ff;
+}
+
+/** True when `codeUnit` is the TRAILING half of a UTF-16 surrogate pair. */
+function isLowSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xdc_00 && codeUnit <= 0xdf_ff;
+}
+
 /**
  * Keep early diagnostics and recent status from oversized output within one
  * hard character budget. Exported so the single-line slicing boundary and the
@@ -518,21 +528,45 @@ export function fitHeadAndTailToCharBudget(
   // N can never have more digits than M, so the N=M marker reserves the
   // maximum marker width before retained content receives the remaining room.
   const reservedMarkerLength = buildTruncationMarker(totalChars, totalChars).length;
-  const retainedBudget = Math.max(0, boundedBudget - reservedMarkerLength);
+  // A budget too small to even hold the marker cannot honestly retain any
+  // content. Say so plainly instead of returning a mangled marker fragment —
+  // the reservation below then guarantees the assembled result fits, so no
+  // trailing defensive slice is needed.
+  if (boundedBudget < reservedMarkerLength) {
+    return { text: '', truncated: true };
+  }
+  const retainedBudget = boundedBudget - reservedMarkerLength;
   const headBudget = Math.floor(retainedBudget * 0.4);
   const tailBudget = retainedBudget - headBudget;
-  const head = text.slice(0, headBudget);
-  const tail = tailBudget > 0 ? text.slice(-tailBudget) : '';
+  const rawHead = text.slice(0, headBudget);
+  // `slice` cuts UTF-16 code units, not characters — a boundary landing
+  // inside a surrogate pair (emoji, CJK ext-B, ...) would otherwise leave a
+  // lone surrogate that JSON.stringify escapes into a literal replacement
+  // character. Snap the cut back off the pair instead of splitting it.
+  const head =
+    rawHead.length > 0 && isHighSurrogate(rawHead.charCodeAt(rawHead.length - 1))
+      ? rawHead.slice(0, -1)
+      : rawHead;
+  const rawTail = tailBudget > 0 ? text.slice(-tailBudget) : '';
+  const tail =
+    rawTail.length > 0 && isLowSurrogate(rawTail.charCodeAt(0)) ? rawTail.slice(1) : rawTail;
   const omittedChars = totalChars - head.length - tail.length;
   const marker = buildTruncationMarker(omittedChars, totalChars);
 
-  // The worst-case reservation already guarantees this bound. Keep the final
-  // slice as cheap defensive insurance for pathologically tiny budgets.
   return {
-    text: `${head}${marker}${tail}`.slice(0, boundedBudget),
+    text: `${head}${marker}${tail}`,
     truncated: true,
   };
 }
+
+/**
+ * Truncation guidance attached whenever either stream was budget-fitted.
+ * Describes the CURRENT head+tail retention shape — must never regress to
+ * language that implies tail-only retention (e.g. advising `| tail -n N`,
+ * which would discard the head content this feature exists to preserve).
+ */
+const TRUNCATION_HINT =
+  'Output was truncated to fit the budget; the start and end of each stream are shown with a marker where content was omitted (stdout prioritized). Re-run scoped to produce less output, or filter with grep/sed, if you need the omitted middle.';
 
 /**
  * Bound captured output to the model token budget, keeping a 40% HEAD for early
@@ -546,6 +580,11 @@ export function fitHeadAndTailToCharBudget(
  * larger share of the per-stream budget and any leftover; stderr keeps a
  * guaranteed minimum share. Each non-empty stream then applies its own 40/60
  * character split, with the truncation marker charged to that same budget.
+ *
+ * SERIALIZED-SIZE CORRECTED: the nominal RAW content budget approximates the
+ * transport guard, but JSON escaping can push the true SERIALIZED size over
+ * it; when that happens this falls back to a bisection against the measured
+ * serialized size (see the comment at that fallback for the full rationale).
  */
 function buildResult(args: {
   command: string;
@@ -567,54 +606,84 @@ function buildResult(args: {
       ? `${command.slice(0, MAX_ECHOED_COMMAND_CHARS)}… [command truncated: full command is in the tool call input]`
       : command;
 
-  // Reserve a small envelope for the base fields + hint, then split the rest:
-  // stdout-priority (60%) with the remainder to stderr. If one stream is empty,
-  // the other gets the whole content budget.
-  const envelopeReserveChars = 1200;
-  const contentBudget = Math.max(0, NATIVE_TOOL_RESULT_CHAR_BUDGET - envelopeReserveChars);
-  const hasStdout = outcome.stdout.length > 0;
-  const hasStderr = outcome.stderr.length > 0;
-  let stdoutBudget: number;
-  let stderrBudget: number;
-  if (hasStdout && hasStderr) {
-    stdoutBudget = Math.floor(contentBudget * 0.6);
-    stderrBudget = contentBudget - stdoutBudget;
-  } else if (hasStdout) {
-    stdoutBudget = contentBudget;
-    stderrBudget = 0;
-  } else {
-    stdoutBudget = 0;
-    stderrBudget = contentBudget;
-  }
-
   // Preserve the raw pre-ANSI guard: an ABSENT stream is never truncated. This
   // prevents a false "output was truncated" result for silent commands and the
   // common case where only one stream has content.
-  const fittedStdout = hasStdout
-    ? fitHeadAndTailToCharBudget(stdoutText, stdoutBudget)
-    : { text: '', truncated: false };
-  const fittedStderr = hasStderr
-    ? fitHeadAndTailToCharBudget(stderrText, stderrBudget)
-    : { text: '', truncated: false };
-  const truncated = fittedStdout.truncated || fittedStderr.truncated;
+  const hasStdout = outcome.stdout.length > 0;
+  const hasStderr = outcome.stderr.length > 0;
 
-  return {
-    command: echoedCommand,
-    cwd,
-    durationMs,
-    exitCode: outcome.exitCode,
-    rootName,
-    signal: outcome.signal,
-    stderr: fittedStderr.text,
-    stdout: fittedStdout.text,
-    timedOut: outcome.timedOut,
-    truncated,
-    ...(truncated
-      ? {
-          hint: 'Output was truncated to fit the budget; only the most recent lines of each stream are shown (stdout prioritized). Re-run piping through "| tail -n N", or scope the command to produce less output.',
-        }
-      : {}),
+  // Reserve a small envelope for the base fields + hint, then split the rest:
+  // stdout-priority (60%) with the remainder to stderr. If one stream is
+  // empty, the other gets the whole content budget.
+  const envelopeReserveChars = 1200;
+  const nominalContentBudget = Math.max(0, NATIVE_TOOL_RESULT_CHAR_BUDGET - envelopeReserveChars);
+
+  const buildForContentBudget = (contentBudget: number): ExecuteCommandToolResult => {
+    let stdoutBudget: number;
+    let stderrBudget: number;
+    if (hasStdout && hasStderr) {
+      stdoutBudget = Math.floor(contentBudget * 0.6);
+      stderrBudget = contentBudget - stdoutBudget;
+    } else if (hasStdout) {
+      stdoutBudget = contentBudget;
+      stderrBudget = 0;
+    } else {
+      stdoutBudget = 0;
+      stderrBudget = contentBudget;
+    }
+    const fittedStdout = hasStdout
+      ? fitHeadAndTailToCharBudget(stdoutText, stdoutBudget)
+      : { text: '', truncated: false };
+    const fittedStderr = hasStderr
+      ? fitHeadAndTailToCharBudget(stderrText, stderrBudget)
+      : { text: '', truncated: false };
+    const truncated = fittedStdout.truncated || fittedStderr.truncated;
+    return {
+      command: echoedCommand,
+      cwd,
+      durationMs,
+      exitCode: outcome.exitCode,
+      rootName,
+      signal: outcome.signal,
+      stderr: fittedStderr.text,
+      stdout: fittedStdout.text,
+      timedOut: outcome.timedOut,
+      truncated,
+      ...(truncated ? { hint: TRUNCATION_HINT } : {}),
+    };
   };
+
+  const nominalResult = buildForContentBudget(nominalContentBudget);
+  if (JSON.stringify(nominalResult).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET) {
+    return nominalResult;
+  }
+
+  // The RAW content budget above assumes ~1 serialized char per retained
+  // char, but JSON escaping expands `\n`/`"`/`\` to 2 chars each — a
+  // newline-heavy stream (e.g. `seq`, one value per line) is enough to tip
+  // the actual SERIALIZED size over NATIVE_TOOL_RESULT_CHAR_BUDGET even
+  // though the raw estimate looked safe. Binary-search the content budget
+  // against the REAL serialized size instead of guessing a fixed reserve —
+  // same bisection-on-measured-size shape as fitContentTextToModelBudget in
+  // packages/agent/src/mastra/tool-model-output.ts. Monotonic: a larger
+  // content budget can only retain equal-or-more characters, so serialized
+  // length is non-decreasing in contentBudget, which is what makes the
+  // bisection valid. contentBudget=0 is the guaranteed-fits floor (envelope
+  // only, both streams reduced to an empty budget-fitted string).
+  let low = 0;
+  let high = nominalContentBudget;
+  let best = buildForContentBudget(0);
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = buildForContentBudget(mid);
+    if (JSON.stringify(candidate).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET) {
+      best = candidate;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best;
 }
 
 /**
