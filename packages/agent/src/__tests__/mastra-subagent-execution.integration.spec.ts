@@ -349,13 +349,12 @@ describe('mastra subagent delegation (real @mastra/core supervisor loop)', () =>
     }
 
     expect(executeSpy).toHaveBeenCalledTimes(1);
+    const telemetrySamples = chunks.flatMap((chunk) =>
+      chunk.type === 'tool-call-telemetry' ? chunk.value : []
+    );
     expect(
-      chunks.some(
-        (chunk) =>
-          chunk.type === 'tool-call-telemetry' &&
-          chunk.value.some((sample) => sample.toolId === 'brainstrike.grepSearch')
-      )
-    ).toBe(true);
+      telemetrySamples.filter((sample) => sample.toolId === 'brainstrike.grepSearch')
+    ).toHaveLength(1);
   });
 
   it('surfaces the child run aggregate usage as a subagent child-run-usage chunk (BST-953)', async () => {

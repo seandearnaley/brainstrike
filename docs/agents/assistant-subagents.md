@@ -140,10 +140,12 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   Metadata carries ids/labels ONLY (`parentToolCallId`, `personaId`,
   `toolCallId`, `toolName`) — never args/results (the sanitizer strips those).
 
-  Subagent tool calls ALSO feed the SAME per-tool token telemetry as primary
-  tool calls, attributed to the parent run (BST-1196); see
-  assistant-persistence.md, `## TOOL-CALL TOKEN TELEMETRY`. This closes the
-  BST-1190 follow-up gap without a separate child telemetry path.
+  Subagent tool calls ALSO feed the SAME per-tool token telemetry table as
+  primary tool calls, attributed to the parent run (BST-1196), via a
+  telemetry-only `RunTokenDiagnostics.recordSubagentToolOutput` sink that
+  deliberately does NOT feed the parent-run prompt-reconciliation aggregate
+  `recordModelOutput` also updates; see assistant-persistence.md, `## TOOL-
+  CALL TOKEN TELEMETRY`. This closes the BST-1190 follow-up gap.
 - **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry
   (tool-output-limits.ts) so an oversized delegation result trims structurally
   (truncated + hint) instead of a hard size error.

@@ -464,10 +464,16 @@ export async function createMastraAgentRuntime(
   } = resolvePersonaRuntimeParts({
     // Persona agents get the same raw/model split. Their independent policy
     // gate clones full tool descriptors, so `toModelOutput` survives intact.
-    // Thread the same diagnostics observer as the primary tool map so subagent
-    // calls attribute to the parent run's existing telemetry drain (BST-1196).
+    // Thread the SAME `tokenDiagnostics` instance as the primary tool map so
+    // subagent calls attribute to the parent run's existing telemetry drain
+    // (BST-1196), but through the telemetry-only sink: `recordModelOutput`
+    // (used by the primary map) also feeds the `#projection` aggregate,
+    // which is a reconciliation signal against the PARENT model's actual
+    // prompt (`providerReportedPromptTokens`). Subagent tool outputs never
+    // enter the parent's prompt, so they must not inflate that aggregate —
+    // see `RunTokenDiagnostics.recordSubagentToolOutput`'s doc comment.
     guardedTools: applyToolModelOutputProjections(guardedTools, toolNameMap, (toolId, output) =>
-      tokenDiagnostics.recordModelOutput(toolId, output)
+      tokenDiagnostics.recordSubagentToolOutput(toolId, output)
     ),
     languageModel,
     permissionSnapshot,
