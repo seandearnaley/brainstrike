@@ -33,7 +33,10 @@ import { ToolProjectionInputRejectedError } from '../mastra/tool-projection-inpu
 import {
   decodedTextModelOutputChars,
   MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET,
+  NATIVE_TOOL_RESULT_CHAR_BUDGET,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
+  TOOL_RESULT_TRUNCATED_CODE,
 } from '../stream/tool-output-limits';
 import {
   createHookResultEnvelope,
@@ -497,6 +500,140 @@ describe('applyToolModelOutputProjections', () => {
         64) *
         4
     );
+  });
+
+  describe('self-bounded native tool results (BST-1189 follow-up)', () => {
+    const projectForTool = (canonicalName: string): TestTool => {
+      const tool = asTool({ execute: () => Promise.resolve('unused'), id: 'bounded' });
+      const projected = applyToolModelOutputProjections(
+        { bounded: tool },
+        new Map([['bounded', canonicalName]])
+      );
+      return projected['bounded'] as TestTool;
+    };
+
+    const commandHint =
+      'Output was truncated to fit the budget; only the most recent lines of each stream are shown (stdout prioritized). Re-run piping through "| tail -n N", or scope the command to produce less output.';
+    const stdoutTail = 'final-status-tail-sentinel: 3 of 214 tests failed';
+
+    // Quote-heavy stdout (JSON logs are routine command output) so the test
+    // also proves the projection ceiling absorbs JSON re-escaping.
+    const buildCommandShapedResult = (stdoutRawChars: number): Record<string, unknown> => {
+      const line = '{"level":"info","event":"case-finished","assertions":12,"status":"passed"}\n';
+      const body = line.repeat(
+        Math.ceil(Math.max(0, stdoutRawChars - stdoutTail.length) / line.length)
+      );
+      return {
+        command: 'pnpm vitest run --reporter=json',
+        cwd: '/workspace/repo',
+        durationMs: 5321,
+        exitCode: 1,
+        hint: commandHint,
+        rootName: 'repo',
+        signal: null,
+        stderr: 'FAIL src/example.test.ts > preserves the tail',
+        stdout: `${body}${stdoutTail}`,
+        timedOut: false,
+        truncated: true,
+      };
+    };
+
+    it.each([
+      'brainstrike.executeCommand',
+      'brainstrike.runPython',
+      'brainstrike.runSkillScript',
+    ])('passes a self-bounded %s result over the generic 8000-char ceiling through unmodified', (canonicalName) => {
+      const result = buildCommandShapedResult(7600);
+      const serialized = JSON.stringify(result);
+      expect(serialized.length).toBeGreaterThan(MAX_MODEL_TOOL_RESULT_CHAR_BUDGET);
+      expect(serialized.length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
+
+      const modelOutput = projectForTool(canonicalName).toModelOutput?.(result) as {
+        type?: string;
+        value?: string;
+      };
+
+      expect(modelOutput.type).toBe('text');
+      expect(modelOutput.value).toBe(serialized);
+      expect(modelOutput.value).toContain(stdoutTail);
+      // The hint carries quote characters, so match its JSON-encoded form.
+      expect(modelOutput.value).toContain(JSON.stringify(commandHint));
+      expect(modelOutput.value).not.toContain(TOOL_RESULT_TRUNCATED_CODE);
+    });
+
+    it.each([
+      'skill_read',
+      'skill_search',
+    ])('passes a self-bounded %s string result over the generic 8000-char ceiling through unmodified', (canonicalName) => {
+      const note =
+        '[Output truncated at ~2750 tokens (the full file is 52,000 chars). Re-read a narrower slice with startLine/endLine.]';
+      const text = `${'reference-line: alpha beta gamma delta epsilon\n'.repeat(200)}${note}`;
+      expect(JSON.stringify(text).length).toBeGreaterThan(MAX_MODEL_TOOL_RESULT_CHAR_BUDGET);
+      expect(JSON.stringify(text).length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
+
+      const modelOutput = projectForTool(canonicalName).toModelOutput?.(text) as {
+        type?: string;
+        value?: string;
+      };
+
+      expect(modelOutput.type).toBe('text');
+      expect(modelOutput.value).toBe(text);
+    });
+
+    it('still bounds an executeCommand result that violates its own self-bound', () => {
+      const result = buildCommandShapedResult(60_000);
+      expect(JSON.stringify(result).length).toBeGreaterThan(NATIVE_TOOL_RESULT_CHAR_BUDGET);
+
+      const modelOutput = projectForTool('brainstrike.executeCommand').toModelOutput?.(result) as {
+        type?: string;
+        value?: string;
+      };
+
+      expect(modelOutput.type).toBe('text');
+      expect(modelOutput.value).toContain(TOOL_RESULT_TRUNCATED_CODE);
+      expect(JSON.stringify(modelOutput).length).toBeLessThanOrEqual(
+        NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET
+      );
+    });
+
+    it('keeps a near-limit executeCommand result complete when hook context is present', async () => {
+      const result = buildCommandShapedResult(7600);
+      const hookContext = `Review the failing tests before continuing.${'c'.repeat(512)}`;
+      const tool = asTool({
+        execute: () => Promise.resolve(result),
+        id: 'bounded',
+      });
+      const toolNameMap = new Map([['bounded', 'brainstrike.executeCommand']]);
+      const hooked = applyToolHooks(
+        { bounded: tool },
+        {
+          hookRunner: {
+            postToolUse: () => Promise.resolve({ additionalContext: hookContext }),
+            preToolUse: () => Promise.resolve({ decision: 'allow' }),
+          },
+          toolNameMap,
+        }
+      );
+      const projected = applyToolModelOutputProjections(hooked, toolNameMap);
+      const projectedTool = projected['bounded'] as TestTool;
+
+      const rawOutput = await projectedTool.execute?.({});
+      const modelOutput = projectedTool.toModelOutput?.(rawOutput) as {
+        type?: string;
+        value?: string;
+      };
+
+      expect(modelOutput.type).toBe('text');
+      expect(modelOutput.value).toContain(stdoutTail);
+      expect(modelOutput.value).toContain(JSON.stringify(commandHint));
+      expect(modelOutput.value).toContain(`Post-tool context: ${hookContext}`);
+      expect(modelOutput.value).not.toContain('[model projection truncated]');
+      expect(modelOutput.value).not.toContain('[post-tool context truncated]');
+      expect(modelOutput.value).not.toContain(TOOL_RESULT_TRUNCATED_CODE);
+      expect(JSON.stringify(modelOutput).length).toBeLessThanOrEqual(
+        NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET
+      );
+    });
   });
 
   it('keeps concurrent primitive hook results isolated across model and transcript channels', async () => {

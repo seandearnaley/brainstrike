@@ -1,4 +1,4 @@
-import { isGuardedToolError } from '@brainstrike/assistant-contract';
+import { isGuardedToolError, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { ToolsInput } from '@mastra/core/agent';
@@ -10,6 +10,10 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
   MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_MODEL_TOOL_RESULT_TOKENS,
+  NATIVE_SELF_BOUND_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
+  NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET,
+  NATIVE_SELF_BOUND_MODEL_RESULT_TOKEN_BUDGET,
+  NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS,
   SKILL_ACTIVATION_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
   SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET,
   SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET,
@@ -51,6 +55,8 @@ interface ModelContentOutput {
 interface ModelProjectionBudget {
   readonly domainSerializedChars: number;
   readonly domainTokens: number;
+  /** Token budget for bounding the RAW tool output before envelope fitting. */
+  readonly rawOutputTokens: number;
   readonly totalSerializedChars: number;
   readonly totalTokens: number;
 }
@@ -58,6 +64,7 @@ interface ModelProjectionBudget {
 const DEFAULT_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
   domainSerializedChars: MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   domainTokens: MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
+  rawOutputTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
   totalSerializedChars: MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
   totalTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
 };
@@ -65,12 +72,39 @@ const DEFAULT_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
 const SKILL_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
   domainSerializedChars: SKILL_ACTIVATION_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
   domainTokens: SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
+  rawOutputTokens: SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
   totalSerializedChars: SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET,
   totalTokens: SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET,
 };
 
+const NATIVE_SELF_BOUND_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
+  domainSerializedChars: NATIVE_SELF_BOUND_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
+  domainTokens: NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS,
+  rawOutputTokens: NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS,
+  totalSerializedChars: NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET,
+  totalTokens: NATIVE_SELF_BOUND_MODEL_RESULT_TOKEN_BUDGET,
+};
+
+/**
+ * Explicit, enumerated overrides keyed by canonical (pre-sanitization) tool
+ * name. The native entries cover every tool that self-bounds its result to
+ * NATIVE_TOOL_RESULT_CHAR_BUDGET and relies on the generic projection: their
+ * carefully built results (head+tail retention, truncation hints — BST-1189)
+ * must pass through unmodified instead of being replaced by the generic
+ * prefix preview at the tighter default ceiling. A Map, not a record, so
+ * hostile MCP tool names (`constructor`, …) cannot resolve prototype members.
+ */
+const MODEL_PROJECTION_BUDGET_OVERRIDES: ReadonlyMap<string, ModelProjectionBudget> = new Map([
+  [NATIVE_TOOL_ID.executeCommand, NATIVE_SELF_BOUND_MODEL_PROJECTION_BUDGET],
+  [NATIVE_TOOL_ID.runPython, NATIVE_SELF_BOUND_MODEL_PROJECTION_BUDGET],
+  [NATIVE_TOOL_ID.runSkillScript, NATIVE_SELF_BOUND_MODEL_PROJECTION_BUDGET],
+  [NATIVE_TOOL_ID.skill, SKILL_MODEL_PROJECTION_BUDGET],
+  [NATIVE_TOOL_ID.skillRead, NATIVE_SELF_BOUND_MODEL_PROJECTION_BUDGET],
+  [NATIVE_TOOL_ID.skillSearch, NATIVE_SELF_BOUND_MODEL_PROJECTION_BUDGET],
+]);
+
 function resolveModelProjectionBudget(toolName: string): ModelProjectionBudget {
-  return toolName === 'skill' ? SKILL_MODEL_PROJECTION_BUDGET : DEFAULT_MODEL_PROJECTION_BUDGET;
+  return MODEL_PROJECTION_BUDGET_OVERRIDES.get(toolName) ?? DEFAULT_MODEL_PROJECTION_BUDGET;
 }
 
 function isExecutableTool(tool: unknown): tool is ExecutableToolWithModelOutput {
@@ -99,8 +133,7 @@ function serializeBoundedOutput(
   modelTokenBudgetOverride?: number
 ): string {
   const modelTokenBudget =
-    modelTokenBudgetOverride ??
-    (toolName === 'skill' ? SKILL_ACTIVATION_RESULT_TOKEN_BUDGET : MAX_MODEL_TOOL_RESULT_TOKENS);
+    modelTokenBudgetOverride ?? resolveModelProjectionBudget(toolName).rawOutputTokens;
   const bounded = boundToolOutputForModel(toolName, output, modelTokenBudget).output;
   if (typeof bounded === 'string') {
     return bounded;

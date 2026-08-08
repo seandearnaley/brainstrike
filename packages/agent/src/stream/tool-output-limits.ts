@@ -106,6 +106,36 @@ export const SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET =
   SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET * APPROX_CHARS_PER_TOKEN;
 
 /**
+ * Model-projection envelope for native tools that self-bound their result to
+ * {@link NATIVE_TOOL_RESULT_CHAR_BUDGET} and rely on the generic projection
+ * (executeCommand, runPython, runSkillScript, skill_read, skill_search). The
+ * tool's own bound — head+tail retention, truncation hints (BST-1189) — is the
+ * working limit; this envelope exists so the default projector passes that
+ * result through unmodified instead of re-truncating it at the tighter
+ * {@link MAX_MODEL_TOOL_RESULT_TOKENS} ceiling and replacing the carefully
+ * built fields with a generic prefix preview.
+ *
+ * The 2x escape reserve is a worst-case bound, not slack: the default
+ * projection embeds the serialized result as a JSON string value, and
+ * JSON-escaping an already-serialized payload at most doubles it (`"` → `\"`,
+ * `\` → `\\`; prior serialization leaves no raw control characters). Sizing
+ * the ceiling below that would let quote-heavy output — JSON logs are routine
+ * command output — silently lose its tail again.
+ */
+const SELF_BOUND_ESCAPE_RESERVE_FACTOR = 2;
+export const NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS =
+  SELF_BOUND_ESCAPE_RESERVE_FACTOR * NATIVE_TOOL_RESULT_TOKEN_BUDGET;
+export const NATIVE_SELF_BOUND_DOMAIN_MODEL_RESULT_CHAR_BUDGET =
+  (NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS + MODEL_PROJECTION_STRUCTURAL_RESERVE_TOKENS) *
+  APPROX_CHARS_PER_TOKEN;
+export const NATIVE_SELF_BOUND_MODEL_RESULT_TOKEN_BUDGET =
+  NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS +
+  Math.ceil(HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET / APPROX_CHARS_PER_TOKEN) +
+  MODEL_PROJECTION_STRUCTURAL_RESERVE_TOKENS;
+export const NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET =
+  NATIVE_SELF_BOUND_MODEL_RESULT_TOKEN_BUDGET * APPROX_CHARS_PER_TOKEN;
+
+/**
  * Per-tool transport-guard budget overrides. Explicit and enumerated — every
  * other tool keeps the generic budget. Keyed by the SANITIZED tool id (the id
  * the data-stream mapper reports).

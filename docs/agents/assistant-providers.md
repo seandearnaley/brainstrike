@@ -874,7 +874,20 @@ native/MCP tool. PostToolUse context travels only in an internal execution
 carrier: Mastra's `transform.display` and `transform.transcript` channels
 restore the exact domain result before live UI or durable persistence, while
 `toModelOutput` alone consumes the context. Generated/default projections are
-bounded to `MAX_MODEL_TOOL_RESULT_TOKENS` (2000) / 8000 serialized characters.
+bounded to `MAX_MODEL_TOOL_RESULT_TOKENS` (2000) / 8000 serialized characters —
+EXCEPT for tools that self-bound their complete result to
+`NATIVE_TOOL_RESULT_TOKEN_BUDGET` and rely on the generic projection
+(executeCommand, runPython, runSkillScript, skill_read, skill_search; the
+`skill` activation keeps its dedicated 6000-token envelope). Those are
+enumerated in `MODEL_PROJECTION_BUDGET_OVERRIDES`
+(packages/agent/src/mastra/tool-model-output.ts) with the wider
+`NATIVE_SELF_BOUND_*` envelope: 2x the native budget plus the structural
+reserve, sized for worst-case JSON re-escaping of an embedded serialized
+payload, so the tool's own head+tail retention and truncation hints (BST-1189)
+pass through the default projector unmodified instead of being replaced by the
+generic prefix preview. Regression guard:
+`packages/agent/src/__tests__/tool-model-output.spec.ts`, "self-bounded native
+tool results".
 Purpose-built domain projections have the stricter
 `MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS` (1500) / 6000-character contract so the
 remaining envelope can carry PostToolUse guidance. Domain projectors MUST
