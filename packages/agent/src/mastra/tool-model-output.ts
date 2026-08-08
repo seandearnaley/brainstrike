@@ -14,6 +14,7 @@ import {
   NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET,
   NATIVE_SELF_BOUND_MODEL_RESULT_TOKEN_BUDGET,
   NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS,
+  NATIVE_TOOL_RESULT_TOKEN_BUDGET,
   SKILL_ACTIVATION_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
   SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET,
   SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET,
@@ -80,7 +81,11 @@ const SKILL_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
 const NATIVE_SELF_BOUND_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
   domainSerializedChars: NATIVE_SELF_BOUND_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
   domainTokens: NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS,
-  rawOutputTokens: NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS,
+  // The raw guard stays at the tool's own contract: a result whose single
+  // serialization exceeds NATIVE_TOOL_RESULT_CHAR_BUDGET violated its
+  // self-bound and must be truncated with a visible hint. Only the envelope
+  // budgets above carry the 2x re-escaping reserve.
+  rawOutputTokens: NATIVE_TOOL_RESULT_TOKEN_BUDGET,
   totalSerializedChars: NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET,
   totalTokens: NATIVE_SELF_BOUND_MODEL_RESULT_TOKEN_BUDGET,
 };

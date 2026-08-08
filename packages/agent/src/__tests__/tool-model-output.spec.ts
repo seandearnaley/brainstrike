@@ -580,6 +580,26 @@ describe('applyToolModelOutputProjections', () => {
       expect(modelOutput.value).toBe(text);
     });
 
+    it('enforces the native self-bound on a result just past it instead of granting the escape reserve', () => {
+      // Codex P2 on #2338: the 2x escape reserve belongs to the ENVELOPE
+      // measurement only. A result whose single serialization lands between
+      // NATIVE_TOOL_RESULT_CHAR_BUDGET and 2x it (a tool that fit raw chars,
+      // not serialized chars) must still be truncated with a visible hint.
+      const result = buildCommandShapedResult(13_000);
+      const serialized = JSON.stringify(result);
+      expect(serialized.length).toBeGreaterThan(NATIVE_TOOL_RESULT_CHAR_BUDGET);
+      expect(serialized.length).toBeLessThanOrEqual(2 * NATIVE_TOOL_RESULT_CHAR_BUDGET);
+
+      const modelOutput = projectForTool('brainstrike.executeCommand').toModelOutput?.(result) as {
+        type?: string;
+        value?: string;
+      };
+
+      expect(modelOutput.type).toBe('text');
+      expect(modelOutput.value).not.toBe(serialized);
+      expect(modelOutput.value).toContain(TOOL_RESULT_TRUNCATED_CODE);
+    });
+
     it('still bounds an executeCommand result that violates its own self-bound', () => {
       const result = buildCommandShapedResult(60_000);
       expect(JSON.stringify(result).length).toBeGreaterThan(NATIVE_TOOL_RESULT_CHAR_BUDGET);

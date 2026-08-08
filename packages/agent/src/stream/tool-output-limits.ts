@@ -121,6 +121,12 @@ export const SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET =
  * `\` → `\\`; prior serialization leaves no raw control characters). Sizing
  * the ceiling below that would let quote-heavy output — JSON logs are routine
  * command output — silently lose its tail again.
+ *
+ * The reserve applies ONLY to these envelope budgets (measured on the
+ * re-escaped embedding). The projection's raw-output guard stays at
+ * {@link NATIVE_TOOL_RESULT_TOKEN_BUDGET}: a result whose single
+ * serialization exceeds the native budget violated its self-bound and is
+ * truncated with a visible hint, never passed through.
  */
 const SELF_BOUND_ESCAPE_RESERVE_FACTOR = 2;
 export const NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS =
