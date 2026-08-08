@@ -50,6 +50,7 @@ class FakeWebContents {
   readonly debugger = fakeDebugger();
   getTitle = () => 'Fake';
   getURL = () => 'about:blank';
+  isLoading = () => false;
   loadURL = vi.fn(() => Promise.resolve());
   reload = vi.fn();
   close = vi.fn();

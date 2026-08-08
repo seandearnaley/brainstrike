@@ -543,6 +543,12 @@ export {
 export {
   type AskUserInput,
   AskUserInputSchema,
+  type BrowserGetPageTextInput,
+  BrowserGetPageTextInputSchema,
+  type BrowserNavigateInput,
+  BrowserNavigateInputSchema,
+  type BrowserReadPageInput,
+  BrowserReadPageInputSchema,
   type DeleteWorkspaceFileInput,
   DeleteWorkspaceFileInputSchema,
   type ExecuteCommandInput,

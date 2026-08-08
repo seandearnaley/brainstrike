@@ -42,6 +42,10 @@ import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roo
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
 import { createBrowserPaneHost } from './browser/browser-pane-host';
+import {
+  clearActiveBrowserPaneHost,
+  setActiveBrowserPaneHost,
+} from './browser/browser-pane-registry';
 import { createBrowserIpcHandlers } from './browser-ipc-handlers';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
@@ -1865,10 +1869,14 @@ if (singleInstanceLockAcquired) {
         // window instead of leaving `window.browser` calls hitting a disposed
         // host. The manager attaches views to THIS window's contentView.
         const browserPaneHost = createBrowserPaneHost(win);
+        // Register for the assistant server's browser tools (BST-1176):
+        // executors resolve the ACTIVE host per call through this registry.
+        setActiveBrowserPaneHost(browserPaneHost);
         unregisterBrowserIpcHandlers = registerBrowserIpcHandlers(
           createBrowserIpcHandlers(browserPaneHost.manager)
         );
         win.once('closed', () => {
+          clearActiveBrowserPaneHost(browserPaneHost);
           browserPaneHost.dispose();
           unregisterBrowserIpcHandlers?.();
           unregisterBrowserIpcHandlers = null;

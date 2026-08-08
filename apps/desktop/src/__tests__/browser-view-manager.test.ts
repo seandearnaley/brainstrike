@@ -55,6 +55,7 @@ function createFakeView(id: number): FakeView {
       goBack: vi.fn(),
       goForward: vi.fn(),
       id,
+      isLoading: () => false,
       loadURL: (url) => {
         calls.loaded.push(url);
         navState.url = url;
@@ -391,6 +392,42 @@ describe('BrowserViewManager', () => {
     expect(manager.listTabs()).toEqual([]);
     // The orphaned view's page process must not keep running either.
     expect(created[0]?.calls.closed).toBe(true);
+  });
+
+  it('records a navigation error per tab (blocked scheme + failed load) and clears it on the next load', async () => {
+    const { created, manager } = setup();
+    const tabId = manager.createTab('https://ok.example');
+    expect(manager.getNavigationError(tabId)).toBeNull();
+
+    // Blocked scheme: shown as about:blank AND queryable — never a silent ok.
+    manager.navigate(tabId, 'file:///etc/passwd');
+    expect(manager.getNavigationError(tabId)).toContain('blocked scheme');
+
+    // Failed load: the loadURL rejection is recorded.
+    const view = created[0];
+    if (!view) {
+      throw new Error('view missing');
+    }
+    view.webContents.loadURL = () => Promise.reject(new Error('ERR_NAME_NOT_RESOLVED'));
+    manager.navigate(tabId, 'https://nope.invalid');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(manager.getNavigationError(tabId)).toContain('ERR_NAME_NOT_RESOLVED');
+
+    // A new clean load clears it.
+    view.webContents.loadURL = () => Promise.resolve();
+    manager.navigate(tabId, 'https://ok.example');
+    expect(manager.getNavigationError(tabId)).toBeNull();
+    expect(manager.getNavigationError('nope')).toBeNull();
+  });
+
+  it('re-emits tab state on load start/stop so pushed isLoading never latches', () => {
+    const { created, manager, onTabsChanged } = setup();
+    manager.createTab('https://x.example');
+    const before = onTabsChanged.mock.calls.length;
+    created[0]?.emit('did-start-loading');
+    created[0]?.emit('did-stop-loading');
+    expect(onTabsChanged.mock.calls.length).toBe(before + 2);
   });
 
   it('dispose destroys every view and detaches it', () => {

@@ -162,6 +162,32 @@ export const NATIVE_TOOL_DEFAULTS: Record<NativeToolId, NativeToolDefaultMetadat
     requiresApproval: false,
     riskCategory: 'read',
   },
+  // Browser pane read tools (BST-1176 PR2): riskCategory 'read' like
+  // webExtract — they fetch/observe web content without mutating workspace
+  // state. Navigation goes through the pane's scheme gate (isNavigableUrl),
+  // so file:/devtools:/chrome: can never be reached. Write-actions
+  // (click/type/form_input) arrive in PR3 as gated 'edit' tools.
+  [NATIVE_TOOL_ID.browserGetPageText]: {
+    category: 'retrieval',
+    estimatedTokens: 100,
+    loadingTier: 'deferred',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
+  [NATIVE_TOOL_ID.browserNavigate]: {
+    category: 'retrieval',
+    estimatedTokens: 130,
+    loadingTier: 'deferred',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
+  [NATIVE_TOOL_ID.browserReadPage]: {
+    category: 'retrieval',
+    estimatedTokens: 140,
+    loadingTier: 'deferred',
+    requiresApproval: false,
+    riskCategory: 'read',
+  },
   // Deletes a single workspace FILE. riskCategory 'edit' so the permission engine
   // gates it (→ 'ask' by default) like the other file-mutation tools; directory
   // deletes are refused by the tool itself.

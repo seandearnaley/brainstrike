@@ -9,6 +9,62 @@ import { WEB_EXTRACT_TOOL_ID, WEB_SEARCH_TOOL_ID } from './tool-categories.js';
 import type { ToolSchemaDisplay } from './tool-schemas-display.js';
 
 export const SEARCH_TOOL_SCHEMAS = {
+  'brainstrike.browserGetPageText': {
+    description: "Read the visible text of the browser pane's current page (active tab).",
+    parameters: [
+      {
+        default: 6000,
+        description: 'Maximum characters to return',
+        max: 30_000,
+        min: 100,
+        name: 'maxChars',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns: 'The page body text with a truncated flag',
+    toolId: 'brainstrike.browserGetPageText',
+  },
+  'brainstrike.browserNavigate': {
+    description:
+      "Open a URL in the app's embedded browser pane (creates a tab when none is open) and wait for the load.",
+    parameters: [
+      {
+        description: 'URL to open. Bare hosts get https://; non-URL text becomes a web search',
+        minLength: 1,
+        name: 'url',
+        required: true,
+        type: 'string',
+      },
+    ],
+    returns: 'The final url and page title after the load settles',
+    toolId: 'brainstrike.browserNavigate',
+  },
+  'brainstrike.browserReadPage': {
+    description:
+      "Read the browser pane's current page as a compact accessibility tree with [ref=eN] handles on interactive elements.",
+    parameters: [
+      {
+        default: 'interactive',
+        description: "'interactive' returns only actionable elements; 'all' returns the full tree",
+        enumValues: ['interactive', 'all'],
+        name: 'filter',
+        required: false,
+        type: 'string',
+      },
+      {
+        default: 6000,
+        description: 'Maximum characters of tree text to return',
+        max: 30_000,
+        min: 500,
+        name: 'maxChars',
+        required: false,
+        type: 'number',
+      },
+    ],
+    returns: 'Indented role "name" [ref=eN] tree text with a truncated flag',
+    toolId: 'brainstrike.browserReadPage',
+  },
   'brainstrike.findWorkspaceSymbol': {
     description:
       "Locate a symbol's best-effort enclosing 1-based line range in a workspace file without returning whole-file content.",

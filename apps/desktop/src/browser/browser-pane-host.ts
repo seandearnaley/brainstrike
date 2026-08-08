@@ -69,6 +69,7 @@ function createPaneView(partition: string): BuiltPaneView {
     goBack: () => webContents.navigationHistory.goBack(),
     goForward: () => webContents.navigationHistory.goForward(),
     id: webContents.id,
+    isLoading: () => webContents.isLoading(),
     loadURL: (url) => webContents.loadURL(url),
     on: (event, listener) => {
       (webContents.on as (e: string, l: (...args: unknown[]) => void) => void)(event, listener);

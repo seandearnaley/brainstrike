@@ -18,6 +18,12 @@ export const QUERY_SELF_EXAMPLE_QUERIES: readonly string[] = [
 export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.askUser]:
     'Ask the user a clarifying question and WAIT for their answer (the run pauses). Provide options for a structured choice (selectionMode multi_select allows several), or omit options for a free-text question',
+  [NATIVE_TOOL_ID.browserGetPageText]:
+    "Read the visible text of the browser pane's current page (active tab), truncated to maxChars",
+  [NATIVE_TOOL_ID.browserNavigate]:
+    "Open a URL in the app's embedded browser pane (creates a tab when none is open) and wait for the load. Bare hosts get https://; non-URL text becomes a web search. Returns the final url and title",
+  [NATIVE_TOOL_ID.browserReadPage]:
+    "Read the browser pane's current page as a compact accessibility tree. Interactive elements carry [ref=eN] handles for later actions; filter 'interactive' returns only actionable elements",
   [NATIVE_TOOL_ID.deleteWorkspaceFile]:
     'Permanently delete a single file in a chosen open workspace root and invalidate its index rows. DESTRUCTIVE and NOT recoverable through the tool; refuses directories (use executeCommand) and acts on a symlink itself (removes the link, never its target). Workspace-scoped; requires approval',
   [NATIVE_TOOL_ID.executeCommand]:
