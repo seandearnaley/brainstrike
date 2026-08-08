@@ -734,11 +734,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       scrollWidth: element.scrollWidth,
     }));
     expect(scrollMetrics.scrollWidth).toBeGreaterThan(scrollMetrics.clientWidth);
+    await expect(scrollLeftButton).toBeEnabled();
+    await expect(scrollRightButton).toBeDisabled();
+
     await tabScroll.evaluate((element) => {
       element.scrollTo({ behavior: 'instant', left: 0 });
-      element.dispatchEvent(new Event('scroll'));
     });
-    await expect.poll(() => tabScroll.evaluate((element) => element.scrollLeft)).toBe(0);
     await expect(scrollLeftButton).toBeDisabled();
     await expect(scrollRightButton).toBeEnabled();
 
