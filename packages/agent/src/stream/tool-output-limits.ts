@@ -108,7 +108,9 @@ export const SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET =
 /**
  * Model-projection envelope for native tools that self-bound their result to
  * {@link NATIVE_TOOL_RESULT_CHAR_BUDGET} and rely on the generic projection
- * (executeCommand, runPython, runSkillScript, skill_read, skill_search). The
+ * (executeCommand, runPython, runSkillScript, skill_read, skill_search, and
+ * the fitItemsToCharBudget default-budget callers without custom projectors:
+ * manageTaskList, readWorkspaceDirectory, queryDiagnostics). The
  * tool's own bound — head+tail retention, truncation hints (BST-1189) — is the
  * working limit; this envelope exists so the default projector passes that
  * result through unmodified instead of re-truncating it at the tighter

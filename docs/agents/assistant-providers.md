@@ -877,7 +877,9 @@ restore the exact domain result before live UI or durable persistence, while
 bounded to `MAX_MODEL_TOOL_RESULT_TOKENS` (2000) / 8000 serialized characters —
 EXCEPT for tools that self-bound their complete result to
 `NATIVE_TOOL_RESULT_TOKEN_BUDGET` and rely on the generic projection
-(executeCommand, runPython, runSkillScript, skill_read, skill_search; the
+(executeCommand, runPython, runSkillScript, skill_read, skill_search, plus the
+`fitItemsToCharBudget` default-budget callers without custom projectors —
+manageTaskList, readWorkspaceDirectory, queryDiagnostics; the
 `skill` activation keeps its dedicated 6000-token envelope). Those are
 enumerated in `MODEL_PROJECTION_BUDGET_OVERRIDES`
 (packages/agent/src/mastra/tool-model-output.ts) with the wider

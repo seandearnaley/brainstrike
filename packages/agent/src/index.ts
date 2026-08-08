@@ -545,6 +545,8 @@ export {
   type RunPythonResult,
   type RunPythonToolOptions,
   type RunPythonUnavailableReason,
+  serializationOverhead,
+  sliceTailCodePoints,
   toRunPythonResult,
 } from './tools/run-python-tool';
 export {

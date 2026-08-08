@@ -580,6 +580,65 @@ describe('applyToolModelOutputProjections', () => {
       expect(modelOutput.value).toBe(text);
     });
 
+    // Collection-carrying tools that self-bound via fitItemsToCharBudget's
+    // default budget and rely on the generic projection. manageTaskList is the
+    // verbatim reproduction: `tasks` is not a trimmable collection key, so
+    // without the override its 8000-11000-char results were replaced wholesale
+    // by the opaque preview envelope; the other two were structurally
+    // re-trimmed below the bound their producer had already fitted.
+    it.each([
+      [
+        'brainstrike.manageTaskList',
+        (): Record<string, unknown> => ({
+          summary: { completed: 3, inProgress: 1, pending: 26, total: 30 },
+          tasks: Array.from({ length: 30 }, (_, index) => ({
+            description: `Step detail ${'d'.repeat(240)}`,
+            id: `task-${index}`,
+            status: index < 3 ? 'completed' : 'pending',
+            title: `Implement migration step ${index}`,
+          })),
+        }),
+      ],
+      [
+        'brainstrike.readWorkspaceDirectory',
+        (): Record<string, unknown> => ({
+          entries: Array.from({ length: 115 }, (_, index) => ({
+            kind: 'file',
+            name: `src/components/settings/preferences-panel-section-${index}.tsx`,
+          })),
+          path: 'src/components/settings',
+          root: 'repo',
+        }),
+      ],
+      [
+        'brainstrike.queryDiagnostics',
+        (): Record<string, unknown> => ({
+          items: Array.from({ length: 55 }, (_, index) => ({
+            code: 'ts2345',
+            message:
+              'Argument of type "string" is not assignable to parameter of type "number" in this call expression.',
+            path: `src/feature/module-${index}.ts`,
+            severity: 'error',
+          })),
+          total: 55,
+        }),
+      ],
+    ])('passes a self-bounded %s collection result over the generic ceiling through unmodified', (canonicalName, buildResult) => {
+      const result = buildResult();
+      const serialized = JSON.stringify(result);
+      expect(serialized.length).toBeGreaterThan(MAX_MODEL_TOOL_RESULT_CHAR_BUDGET);
+      expect(serialized.length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
+
+      const modelOutput = projectForTool(canonicalName).toModelOutput?.(result) as {
+        type?: string;
+        value?: string;
+      };
+
+      expect(modelOutput.type).toBe('text');
+      expect(modelOutput.value).toBe(serialized);
+      expect(modelOutput.value).not.toContain(TOOL_RESULT_TRUNCATED_CODE);
+    });
+
     it('enforces the native self-bound on a result just past it instead of granting the escape reserve', () => {
       // Codex P2 on #2338: the 2x escape reserve belongs to the ENVELOPE
       // measurement only. A result whose single serialization lands between
