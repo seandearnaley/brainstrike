@@ -41,6 +41,12 @@ interface GrepToolResultBase {
    * several are open, and the model still needs the root selector then).
    */
   openRoots?: number;
+  /**
+   * BST-1194: set only for a genuine zero-match result when a bounded steering
+   * probe (case, literal-vs-regex, or excluded path) finds missed matches. The
+   * model projection renders it as an additional `note:` line.
+   */
+  probeNote?: string;
   scanLimited: boolean;
   totalMatches: number;
   truncated: boolean;
@@ -106,7 +112,10 @@ function rejectField(path: string, expected: string, value: unknown): never {
   );
 }
 
-function requireOptionalString(record: Record<string, unknown>, field: 'hint' | 'liveNote'): void {
+function requireOptionalString(
+  record: Record<string, unknown>,
+  field: 'hint' | 'liveNote' | 'probeNote'
+): void {
   const value = record[field];
   if (value !== undefined && typeof value !== 'string') {
     rejectField(field, 'string or absent', value);
@@ -146,6 +155,7 @@ function requireGrepBase(record: Record<string, unknown>): void {
   }
   requireOptionalString(record, 'hint');
   requireOptionalString(record, 'liveNote');
+  requireOptionalString(record, 'probeNote');
   if (!isNonNegativeInteger(record['offset'])) {
     rejectField('offset', 'non-negative integer', record['offset']);
   }
