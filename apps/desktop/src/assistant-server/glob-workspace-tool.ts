@@ -33,6 +33,11 @@ export interface GlobWorkspaceToolResult {
   matches: GlobWorkspaceMatch[];
   offset: number;
   /**
+   * Count of OPEN workspace roots, present only when more than one folder is
+   * open — drives the projection's root-name prefix on match rows (BST-1185).
+   */
+  openRoots?: number;
+  /**
    * True when at least one root's file-visit cap was hit, so more matches may
    * exist that were never reached. Never silent — surfaced for the model.
    */
@@ -111,9 +116,11 @@ function buildResult(args: {
    */
   totalMatches: number;
   offset: number;
+  /** Open-root count when >1 (projection root-prefix trigger); else absent. */
+  openRoots: number | undefined;
   scanLimited: boolean;
 }): GlobWorkspaceToolResult {
-  const { windowMatches, totalMatches, offset, scanLimited } = args;
+  const { windowMatches, totalMatches, offset, openRoots, scanLimited } = args;
   const pagedMatches = windowMatches.slice(offset);
   // The hint is built INSIDE the fitted candidate so it can never push the
   // serialized result back over the budget.
@@ -142,6 +149,7 @@ function buildResult(args: {
       scanLimited,
       totalMatches,
       truncated,
+      ...(openRoots === undefined ? {} : { openRoots }),
       ...(hint ? { hint } : {}),
     };
   });
@@ -186,8 +194,10 @@ export async function runGlobWorkspace(
   // total is threaded through so the hint/`totalMatches` report the real total,
   // not the capped window size.
   const limited = allMatches.slice(0, offset + limit);
+  const openRootCount = getWorkspaceRoots(runtimeData).length;
   return buildResult({
     offset,
+    openRoots: openRootCount > 1 ? openRootCount : undefined,
     scanLimited,
     totalMatches: allMatches.length,
     windowMatches: limited,

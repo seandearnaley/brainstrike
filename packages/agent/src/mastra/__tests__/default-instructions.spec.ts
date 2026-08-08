@@ -446,8 +446,12 @@ describe('multi-root guidance', () => {
     expect(instructions).toContain('workspace-root manifest');
     expect(instructions).toContain('refreshes the detailed inventory');
     expect(instructions).toMatch(/pass "root"/i);
-    // Search handoffs expose the exact fields accepted by the read tool.
-    expect(instructions).toContain('copyable read_args with root and path');
+    // Search handoffs teach the compact root-prefix convention (BST-1185):
+    // results carry `rootName:path` file headers, and the root name is a valid
+    // "root" selector for the read tools.
+    expect(instructions).toContain('root name');
+    expect(instructions).toMatch(/root name.*as "root"/i);
+    expect(instructions).not.toContain('read_args');
     // The root-qualified tools are named in the guidance.
     expect(instructions).toContain('grepSearch');
     expect(instructions).toContain('readWorkspaceDirectory');
