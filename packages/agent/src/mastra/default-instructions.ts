@@ -374,7 +374,7 @@ function buildParallelCallInstruction(names: ModelFacingToolNames): string {
   if (!hasRelevantTool) {
     return '';
   }
-  return 'Before using tools, identify every independent read, search, or command needed for the next step and issue those calls together in one turn instead of splitting them across turns.';
+  return 'Batch independent reads, searches, or commands into one turn.';
 }
 
 /**
@@ -389,15 +389,13 @@ function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
     return '';
   }
   const boundedRoutes = [
-    names.readWorkspaceFile ? `${names.readWorkspaceFile} over cat/head/tail` : '',
-    names.grepSearch ? `${names.grepSearch} over grep/rg` : '',
-    names.globWorkspace ? `${names.globWorkspace} over find` : '',
-    names.readWorkspaceDirectory ? `${names.readWorkspaceDirectory} over ls` : '',
-  ].filter(Boolean);
+    names.readWorkspaceFile,
+    names.grepSearch,
+    names.globWorkspace,
+    names.readWorkspaceDirectory,
+  ].filter((name): name is string => Boolean(name));
   const routingClause =
-    boundedRoutes.length > 0
-      ? ` For bounded filesystem access, prefer ${boundedRoutes.join('; ')}.`
-      : '';
+    boundedRoutes.length > 0 ? ` Prefer ${boundedRoutes.join(', ')} instead.` : '';
   return `${names.executeCommand} runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.${routingClause}`;
 }
 

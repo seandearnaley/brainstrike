@@ -409,9 +409,7 @@ describe('parallel tool-call guidance', () => {
       new Map<string, string>([['brainstrike_readWorkspaceFile', 'brainstrike.readWorkspaceFile']])
     );
 
-    expect(instructions).toContain(
-      'Before using tools, identify every independent read, search, or command needed for the next step and issue those calls together in one turn instead of splitting them across turns.'
-    );
+    expect(instructions).toContain('Batch independent reads, searches, or commands into one turn.');
   });
 
   it('omits next-step parallelism when no read, search, or command tool is registered', () => {
@@ -419,19 +417,19 @@ describe('parallel tool-call guidance', () => {
       new Map<string, string>([['brainstrike_manageCanvas', 'brainstrike.manageCanvas']])
     );
 
-    expect(instructions).not.toContain('identify every independent read, search, or command');
+    expect(instructions).not.toContain('Batch independent reads, searches, or commands');
   });
 
   it('advertises next-step parallelism for tool maps outside the search/read example set (webSearch, lspInspect)', () => {
     const webSearchOnly = buildDefaultInstructions(
       new Map<string, string>([['brainstrike_webSearch', 'brainstrike.webSearch']])
     );
-    expect(webSearchOnly).toContain('identify every independent read, search, or command');
+    expect(webSearchOnly).toContain('Batch independent reads, searches, or commands');
 
     const lspInspectOnly = buildDefaultInstructions(
       new Map<string, string>([['brainstrike_lspInspect', 'brainstrike.lspInspect']])
     );
-    expect(lspInspectOnly).toContain('identify every independent read, search, or command');
+    expect(lspInspectOnly).toContain('Batch independent reads, searches, or commands');
   });
 });
 
@@ -451,9 +449,7 @@ describe('cross-tool safety guidance', () => {
     expect(instructions).toContain('EXTERNAL service');
     expect(instructions).toContain('never include secrets or private workspace content');
     expect(instructions).toContain('both indexed and live on-disk content');
-    expect(instructions).toContain(
-      'For bounded filesystem access, prefer grepSearch over grep/rg.'
-    );
+    expect(instructions).toContain('Prefer grepSearch instead.');
     expect(instructions).not.toContain('cat/head/tail');
     expect(instructions).not.toContain('over find');
     expect(instructions).not.toContain('over ls');
@@ -469,9 +465,7 @@ describe('cross-tool safety guidance', () => {
         ['list', 'brainstrike.readWorkspaceDirectory'],
       ])
     );
-    expect(withBoundedTools).toContain(
-      'For bounded filesystem access, prefer read over cat/head/tail; grep over grep/rg; glob over find; list over ls.'
-    );
+    expect(withBoundedTools).toContain('Prefer read, grep, glob, list instead.');
 
     const shellOnly = buildDefaultInstructions(
       new Map<string, string>([['cmd', 'brainstrike.executeCommand']])
@@ -479,7 +473,7 @@ describe('cross-tool safety guidance', () => {
     expect(shellOnly).toContain(
       'cmd runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.'
     );
-    expect(shellOnly).not.toContain('For bounded filesystem access');
+    expect(shellOnly).not.toContain('instead.');
   });
 
   it('routes activated skill scripts through the typed tool and recovers from decline with native writes', () => {
