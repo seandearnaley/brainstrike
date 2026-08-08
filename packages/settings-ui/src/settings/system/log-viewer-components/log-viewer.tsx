@@ -45,8 +45,6 @@ import {
 import { useLogExport } from './use-log-export';
 import { useLogRecordSource } from './use-log-record-source';
 
-export type { LogSourceAdapter } from './log-source-adapter';
-
 interface LogViewerProps {
   emptyStateText?: string;
   logSource: LogSourceAdapter | undefined;

@@ -19,6 +19,8 @@ export function useDiagnosticsPurgeAction({
 } {
   const [isPurgingNow, setIsPurgingNow] = useState(false);
 
+  // The catch branch never rethrows, so the trailing reset runs on both paths.
+  // A finally clause blocks React Compiler memoization (react-hooks-js/todo).
   const handlePurgeNow = useCallback(async () => {
     if (!onPurgeNow) {
       return;

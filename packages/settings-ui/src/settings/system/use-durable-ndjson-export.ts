@@ -20,6 +20,9 @@ export function useDurableNdjsonExport({
 } {
   const [isExportingDurableNdjson, setIsExportingDurableNdjson] = useState(false);
 
+  // Guard the DOM before doing the bounded query, and explain an empty result
+  // visibly. The trailing reset avoids a finally clause, which blocks React
+  // Compiler memoization (react-hooks-js/todo); the catch never rethrows.
   const handleExportDurableNdjson = useCallback(async () => {
     if (!onExportDurableNdjson || typeof window === 'undefined') {
       return;

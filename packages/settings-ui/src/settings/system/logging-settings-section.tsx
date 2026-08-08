@@ -27,7 +27,7 @@ import {
 import { Download, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
 import { LogViewer } from './log-viewer-components/log-viewer';
-import type { LoggingSettingsSectionProps } from './logging-settings-types';
+import type { FileCapabilities, LoggingSettingsSectionProps } from './logging-settings-types';
 import { useDiagnosticsPurgeAction } from './use-diagnostics-purge-action';
 import { useDurableNdjsonExport } from './use-durable-ndjson-export';
 import { useLoggingPreferencesSync } from './use-logging-preferences-sync';
@@ -45,10 +45,10 @@ const LOG_LEVEL_OPTIONS: LogLevel[] = [
 export type { LogSourceAdapter } from './log-viewer-components/log-source-adapter';
 export type {
   DurableNdjsonExportResult,
+  FileCapabilities,
   LoggingSettingsSectionProps,
 } from './logging-settings-types';
 
-type FileCapabilities = NonNullable<LoggingSettingsSectionProps['fileCapabilities']>;
 type LogSourceMode = 'persistent' | 'session';
 
 const DURABLE_EMPTY_STATE_TEXT = 'No durable warn+ events recorded.';

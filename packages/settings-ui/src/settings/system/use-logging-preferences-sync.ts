@@ -149,6 +149,8 @@ export function useLoggingPreferencesSync({
     });
   }, [onOpenLogDestination, preferences.file.destination, toast]);
 
+  // The catch branch never rethrows, so the trailing reset runs on both paths.
+  // A finally clause blocks React Compiler memoization (react-hooks-js/todo).
   const handleReset = useCallback(async () => {
     const previous = useLoggingPreferencesStore.getState().preferences;
     resetPreferences();
