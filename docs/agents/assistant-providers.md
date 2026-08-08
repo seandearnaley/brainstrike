@@ -825,9 +825,18 @@ Tool output budget (anti-thrash contract): budgets are token-denominated and
 enforced deterministically on serialized chars at 4 chars/token (mirrors
 `countTokensHeuristic`). Native producers self-bound result lists via
 `fitItemsToCharBudget`; `readWorkspaceFile` emits 1-based line-numbered pages
-and self-bounds its purpose-built JSON projection to the 6000-character domain
-budget before returning, so page metadata and `nextCursor` never fall into the
-generic prefix preview.
+and self-bounds its plain-text model projection to the 6000-character domain
+budget before returning. The tool's binary search fits against that same real
+projection. BST-1186 fits more file content because one compact header plus an
+optional footer has lower fixed overhead than the raw result's metadata keys
+and object punctuation, not because JSON escaping creates budget headroom: a
+content newline costs the same two serialized characters in either envelope.
+The actual escaping win is on the model wire, where text projections carry
+literal newlines instead of `\n` digraphs and therefore cost fewer/cheaper
+tokens. Follow-up: the serialized-character budget still over-charges every
+text projector roughly 2x per newline because it measures the JSON-serialized
+envelope instead of wire text; correcting that is a separate, larger,
+cross-cutting opportunity rather than a `readWorkspaceFile`-only change.
 If the requested page exceeds the envelope, it shortens the page and returns a
 26-character random `nextCursor` handle that resumes at the exact source line
 and column, including within a long generated/minified line. The authoritative
@@ -1157,6 +1166,32 @@ share one runtime result contract. The projector also recognizes its own
 canonical bounded text envelope when Mastra replays a stored model projection
 while preparing a later same-run step; that replay is idempotent and does not
 reparse the text as a raw grep result.
+`readWorkspaceFile` keeps its complete typed raw result for display,
+persistence, hooks, and reload. Its projection-contract raw result fields now
+include `openRoots`, `ambiguousRootNames`, and `rootId` in place of the removed
+always-null `tokenCount`; the separate raw `approxOutputTokens` estimate remains
+outside that projection contract. Its Mastra `toModelOutput` projection emits
+a compact `read <root:>path lines <start>-<end>/<total>` header, prefixing a
+root selector only when `openRoots > 1`. An unambiguous display name is the
+preferred selector; a name listed in producer-owned `ambiguousRootNames` falls
+back to `rootId`, matching the full-inventory `describeOpenRootTopology`
+policy. Line breaks in both the selector and path are escaped so neither can
+forge protocol lines. The page's already-gutter-prefixed content follows
+verbatim. The header adds `size` and `omitted` only for a truncated page. A
+`continue: cursor=<nextCursor>` footer appears only when a continuation cursor
+exists: never when the request fit completely, and never in the registry-less
+internal read mode where truncation can occur without an issuable cursor. The
+same compact formatter backs the producer's self-fit binary search. It admits
+more source content because the single header and optional footer replace the
+raw result's fixed metadata-key and object-punctuation overhead; JSON escaping
+does not free character-budget room. Its literal wire newlines instead save
+model tokens. A stored `{type:'text',value}` beginning with `read ` on a later
+same-run step replays byte-for-byte instead of being reparsed as a raw result,
+mirroring the grep/glob replay contract. Legacy stored
+`{type:'json',value:<raw result>}` projections are unwrapped and re-rendered in
+the new text form, and legacy raw results without topology fields degrade to an
+unprefixed header without losing content. Nothing else read `tokenCount`, so
+the always-null field was dropped from the result entirely.
 `findWorkspaceSymbol` and `lspInspect` keep their complete typed raw results for
 display, persistence, hooks, and reload while their Mastra `toModelOutput`
 projections emit bounded line-oriented inspection summaries. Symbol output
