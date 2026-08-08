@@ -47,6 +47,7 @@ const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
+const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
 
 export async function* observeDesktopAssistantRunEvents(
   stream: AsyncIterable<StreamChunk>,
@@ -245,6 +246,82 @@ export async function* persistDesktopChildRunUsage(
       await persist(chunk.value);
     }
     yield chunk;
+  }
+}
+
+function isSearchTelemetryTool(toolId: string): boolean {
+  return (
+    toolId === 'grepSearch' ||
+    toolId === 'globWorkspace' ||
+    toolId.endsWith('.grepSearch') ||
+    toolId.endsWith('.globWorkspace')
+  );
+}
+
+/**
+ * Consume the internal run-end telemetry chunk and persist one narrow row per
+ * tool call. The explicit parameter allowlist is the privacy boundary: no raw
+ * result, input, pattern, path, file content, or command text reaches SQL.
+ */
+export async function* persistDesktopToolCallTelemetry(
+  stream: AsyncIterable<StreamChunk>,
+  runId: string,
+  getDatabase: RunPersistenceDatabaseProvider
+): AsyncIterable<StreamChunk> {
+  const persist = async (value: {
+    readonly isPaginationFollowup: boolean;
+    readonly modelFacingChars: number;
+    readonly toolId: string;
+    readonly truncated: boolean;
+    readonly zeroMatch?: boolean;
+  }): Promise<void> => {
+    const isSearch = isSearchTelemetryTool(value.toolId);
+    try {
+      const database = await getDatabase();
+      const result = await database.query(
+        `INSERT INTO ${TOOL_CALL_TELEMETRY_TABLE}
+          (id, thread_id, run_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup)
+         SELECT $1, runs.thread_id, runs.id, $3, $4, $5, $6, $7, $8
+         FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+         WHERE runs.id = $2
+         RETURNING id`,
+        [
+          crypto.randomUUID(),
+          runId,
+          value.toolId,
+          new Date(),
+          value.modelFacingChars,
+          value.truncated,
+          isSearch ? (value.zeroMatch ?? null) : null,
+          isSearch ? value.isPaginationFollowup : false,
+        ]
+      );
+      if (result.rows.length === 0) {
+        logger.warn('Tool-call telemetry has no thread-run row to attribute to', {
+          code: 'assistant_tool_call_telemetry_missing_run_row',
+          runId,
+          toolId: value.toolId,
+        });
+      }
+    } catch (error: unknown) {
+      // Best-effort relative to the turn, but never silent.
+      logger.warn('Failed to persist tool-call telemetry', {
+        code: 'assistant_tool_call_telemetry_persist_failed',
+        error,
+        runId,
+        toolId: value.toolId,
+      });
+    }
+  };
+
+  for await (const chunk of stream) {
+    if (chunk.type !== 'tool-call-telemetry') {
+      yield chunk;
+      continue;
+    }
+    for (const value of chunk.value) {
+      await persist(value);
+    }
   }
 }
 

@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   observeDesktopAssistantRunEvents,
   persistDesktopChildRunUsage,
+  persistDesktopToolCallTelemetry,
 } from '../../assistant-server/run-persistence';
 
 // File-local double — the pre-split suite shared one across every describe.
@@ -177,5 +178,61 @@ describe('child-run-usage durable persistence (BST-953)', () => {
     await drive([chunk], { model: 'gemma-3n', provider: 'local' });
 
     expect(usageInsertCalls()).toHaveLength(0);
+  });
+});
+
+describe('tool-call telemetry durable persistence (BST-1190)', () => {
+  it('writes only allowlisted counters and ids, consumes the internal chunk, and preserves other chunks', async () => {
+    mockDesktopDatabase.query.mockResolvedValue({ rows: [{ id: 'telemetry-row' }] });
+    const privateText = 'PRIVATE_PATTERN:/PRIVATE_PATH:COMMAND_TEXT';
+    const telemetryChunk = {
+      type: 'tool-call-telemetry',
+      value: [
+        {
+          isPaginationFollowup: true,
+          modelFacingChars: 321,
+          toolId: 'grepSearch',
+          truncated: true,
+          unsafeFixture: privateText,
+          zeroMatch: false,
+        },
+        {
+          isPaginationFollowup: true,
+          modelFacingChars: 99,
+          toolId: 'executeCommand',
+          truncated: false,
+          unsafeFixture: privateText,
+          zeroMatch: true,
+        },
+      ],
+    } as unknown as StreamChunk;
+    const passthrough = { payload: { text: 'ok' }, type: 'text-delta' } as unknown as StreamChunk;
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield telemetryChunk;
+      yield passthrough;
+    }
+
+    const seen: StreamChunk[] = [];
+    for await (const chunk of persistDesktopToolCallTelemetry(
+      source(),
+      'run-telemetry',
+      async () => mockDesktopDatabase
+    )) {
+      seen.push(chunk);
+    }
+
+    expect(seen).toEqual([passthrough]);
+    const inserts = mockDesktopDatabase.query.mock.calls.filter((call) =>
+      String(call[0]).includes('INSERT INTO brainstrike_tool_call_telemetry')
+    );
+    expect(inserts).toHaveLength(2);
+    expect(inserts[0]?.[1]).toEqual(
+      expect.arrayContaining(['run-telemetry', 'grepSearch', 321, true, false, true])
+    );
+    expect(inserts[1]?.[1]).toEqual(
+      expect.arrayContaining(['run-telemetry', 'executeCommand', 99, false, null, false])
+    );
+    expect(JSON.stringify(inserts)).not.toContain(privateText);
   });
 });

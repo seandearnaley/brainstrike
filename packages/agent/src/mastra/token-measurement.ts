@@ -6,6 +6,8 @@ import {
 } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import type { ToolsInput } from '@mastra/core/agent';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
+import type { ToolCallTelemetrySample } from '../types';
+import { readToolCallTelemetryMetadata } from './tool-call-telemetry';
 
 const MAX_FAILURE_MESSAGE_CHARACTERS = 240;
 const INLINE_MEDIA_TYPES = new Set(['file-data', 'image-data', 'media']);
@@ -288,6 +290,7 @@ export class RunTokenDiagnostics {
   readonly #toolDefinitionCount: number;
   readonly #toolDefinitionFailure?: FailedMeasurement;
   readonly #toolDefinitionMeasurement?: TokenMeasurementSample;
+  readonly #toolCallTelemetry: ToolCallTelemetrySample[] = [];
 
   constructor(params: {
     capability: TokenMeasurementCapability;
@@ -320,17 +323,38 @@ export class RunTokenDiagnostics {
     return this.#toolDefinitionBreakdown;
   }
 
-  recordModelOutput(output: unknown): void {
+  recordModelOutput(toolId: string, output: unknown): void {
     this.#projection.count += 1;
     let serialized: string;
+    let modelFacingChars: number;
     try {
       serialized = serializeModelOutputForTokenMeasurement(output);
+      const modelFacingSerialization = JSON.stringify(output);
+      if (modelFacingSerialization === undefined) {
+        throw new TypeError(
+          'Model output projection could not be serialized for character telemetry'
+        );
+      }
+      modelFacingChars = modelFacingSerialization.length;
     } catch {
       this.#projection.failure ??= failedMeasurement('projection-serialization-failed');
       return;
     }
 
     const sample = this.#measurement.measure(serialized);
+    const metadata = readToolCallTelemetryMetadata(output);
+    const genericTruncation =
+      isRecord(output) &&
+      output['type'] === 'json' &&
+      isRecord(output['value']) &&
+      output['value']['truncated'] === true;
+    this.#toolCallTelemetry.push({
+      isPaginationFollowup: metadata?.isPaginationFollowup ?? false,
+      modelFacingChars,
+      toolId,
+      truncated: genericTruncation || (metadata?.truncated ?? false),
+      ...(metadata ? { zeroMatch: metadata.zeroMatch } : {}),
+    });
     this.#projection.backstopTokens += sample.backstopTokens;
     this.#projection.serializedCharacters += sample.serializedCharacters;
     if (sample.status === 'failed') {
@@ -340,6 +364,11 @@ export class RunTokenDiagnostics {
       return;
     }
     this.#projection.tokenCount += sample.tokenCount;
+  }
+
+  /** Counts, sizes, ids, and booleans only; never projected content. */
+  toolCallTelemetry(): readonly ToolCallTelemetrySample[] {
+    return this.#toolCallTelemetry.map((entry) => ({ ...entry }));
   }
 
   toLogFields(options: RunTokenDiagnosticsLogOptions = {}): Record<string, number | string> {

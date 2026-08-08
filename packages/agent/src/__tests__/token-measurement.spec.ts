@@ -92,7 +92,7 @@ describe('run token diagnostics', () => {
       tools: { lookup: tool },
     });
 
-    diagnostics.recordModelOutput({
+    diagnostics.recordModelOutput('lookup', {
       type: 'text',
       value: `projected ${secret}`,
     });
@@ -109,6 +109,42 @@ describe('run token diagnostics', () => {
     expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
     expect(fields.modelVisibleProjectionTokens).toBeGreaterThan(0);
     expect(JSON.stringify(fields)).not.toContain(secret);
+  });
+
+  it('records privacy-safe per-tool model-facing characters and generic truncation', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+
+    diagnostics.recordModelOutput('grepSearch', {
+      type: 'json',
+      value: { omittedItems: 4, truncated: true },
+    });
+    diagnostics.recordModelOutput('readWorkspaceFile', {
+      type: 'text',
+      value: 'private file contents',
+    });
+
+    const telemetry = diagnostics.toolCallTelemetry();
+    expect(telemetry).toEqual([
+      {
+        isPaginationFollowup: false,
+        modelFacingChars: JSON.stringify({
+          type: 'json',
+          value: { omittedItems: 4, truncated: true },
+        }).length,
+        toolId: 'grepSearch',
+        truncated: true,
+      },
+      {
+        isPaginationFollowup: false,
+        modelFacingChars: JSON.stringify({
+          type: 'text',
+          value: 'private file contents',
+        }).length,
+        toolId: 'readWorkspaceFile',
+        truncated: false,
+      },
+    ]);
+    expect(JSON.stringify(telemetry)).not.toContain('private file contents');
   });
 
   it.each([
@@ -146,6 +182,25 @@ describe('run token diagnostics', () => {
     expect(serialized).not.toContain('secret-base64-payload');
   });
 
+  it('counts actual serialized media characters for telemetry even though token counting masks them', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+    const output = {
+      type: 'content',
+      value: [{ data: 'actual-base64-payload', mediaType: 'image/png', type: 'image-data' }],
+    };
+
+    diagnostics.recordModelOutput('imageTool', output);
+
+    expect(diagnostics.toolCallTelemetry()).toEqual([
+      {
+        isPaginationFollowup: false,
+        modelFacingChars: JSON.stringify(output).length,
+        toolId: 'imageTool',
+        truncated: false,
+      },
+    ]);
+  });
+
   it('keeps deterministic backstop totals when the optional counter fails', async () => {
     const diagnostics = await createRunTokenDiagnostics(
       {
@@ -158,7 +213,7 @@ describe('run token diagnostics', () => {
         },
       }
     );
-    diagnostics.recordModelOutput({ type: 'text', value: 'safe projection' });
+    diagnostics.recordModelOutput('lookup', { type: 'text', value: 'safe projection' });
 
     const logFields = diagnostics.toLogFields();
     expect(logFields).toMatchObject({

@@ -110,6 +110,11 @@ const SENTINEL_INSERTS = [
      (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
      VALUES ('sentinel-canvas-version', 'sentinel-canvas', 'sentinel-thread',
       'sentinel-resource', 'Sentinel', '<p>sentinel</p>', 1, 'assistant')`,
+  // BST-1190: durable counts/sizes-only tool-call telemetry.
+  `INSERT INTO brainstrike_tool_call_telemetry
+     (id, thread_id, run_id, tool_id, model_facing_chars)
+     VALUES ('sentinel-tool-telemetry', 'sentinel-thread', 'sentinel-run',
+      'brainstrike.grepSearch', 42)`,
   // BST-992 convergence: factory-reset-only sentinel (representative of the
   // six seed-free caches) — wiped by the purge, kept by Clear Database.
   `INSERT INTO job_queue_metrics (queue, succeeded_total)
@@ -168,6 +173,7 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_message_parents')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_tombstones')).toBe(0);
     expect(await countRows('brainstrike_canvas_versions')).toBe(0);
+    expect(await countRows('brainstrike_tool_call_telemetry')).toBe(0);
     expect(await countRows('brainstrike_workspace_snapshots')).toBe(0);
   }
 

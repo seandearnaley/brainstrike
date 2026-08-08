@@ -305,7 +305,8 @@ export async function prepareHostedToolDiscovery(params: {
     capability: resolveTokenMeasurementCapability(params.provider, params.modelName),
     tools: initialTools,
   });
-  const recordModelOutput = (output: unknown): void => tokenDiagnostics.recordModelOutput(output);
+  const recordModelOutput = (toolId: string, output: unknown): void =>
+    tokenDiagnostics.recordModelOutput(toolId, output);
   const modelProjectedTools = applyToolModelOutputProjections(
     initialTools,
     params.toolNameMap,

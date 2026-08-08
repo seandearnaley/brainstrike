@@ -140,6 +140,16 @@ factory-reset ownership explicit. A Canvas document is the rows sharing one
 app-side uuidv7 `canvas_id`; greatest `version` is current. Full contract:
 `docs/agents/assistant-persistence.md` § CANVAS DOCUMENT VERSIONS.
 
+Migration 083 owns the FK-less `brainstrike_tool_call_telemetry` ledger for
+durable model-facing per-tool counts and sizes. Register it in both migration
+runners and the reset/thread-delete registries. Mirror its DDL in the renderer-
+lazy assistant bootstrap: although only the migrated desktop main-process
+assistant server writes rows, the renderer repository's thread-delete CTE
+references every registered sidecar unconditionally. Rows contain only thread/
+run/tool ids, timestamps, numeric sizes, and booleans; raw tool inputs and
+outputs are prohibited. Migration 074's default-privilege grant makes the
+later-created table readable by the `brainstrike.querySelf` sandbox role.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

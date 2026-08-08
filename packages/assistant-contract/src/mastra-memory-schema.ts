@@ -197,6 +197,14 @@ export const WORKSPACE_SNAPSHOTS_TABLE = 'brainstrike_workspace_snapshots';
 export const CANVAS_VERSIONS_TABLE = 'brainstrike_canvas_versions';
 
 /**
+ * Privacy-safe per-tool model-output telemetry (BST-1190, migration 083 in
+ * BOTH runners plus the app-shell bootstrap mirror). The mirror is required
+ * because the repository's thread-delete CTE references every registered
+ * sidecar unconditionally, even though only desktop main writes these rows.
+ */
+export const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
+
+/**
  * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
  * `thread_id`. All three delete implementations (single CTE, bulk CTE, and
  * the Mastra `MemoryStorage.deleteThread` override) derive their stages from
@@ -207,6 +215,7 @@ export const CANVAS_VERSIONS_TABLE = 'brainstrike_canvas_versions';
  */
 export const THREAD_DELETE_SIDECAR_TABLES = [
   { table: 'brainstrike_canvas_versions', threadColumn: 'thread_id' },
+  { table: TOOL_CALL_TELEMETRY_TABLE, threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_edit_checkpoints', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_run_errors', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_message_parents', threadColumn: 'thread_id' },

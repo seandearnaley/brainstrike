@@ -777,6 +777,9 @@ export function registerDatabaseIpcHandlers(
             // Versioned Canvas documents (migration 082, BST-1173): no FK, so
             // clear their thread-owned content explicitly.
             await clearOptionalRelation(tx, 'brainstrike_canvas_versions');
+            // Durable per-tool model-facing telemetry (migration 083): no FK,
+            // so counters for deleted runs must be cleared explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_tool_call_telemetry');
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');

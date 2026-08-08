@@ -350,6 +350,18 @@ export interface StreamChunkChildRunUsage {
   type: 'child-run-usage';
   value: AssistantChildRunUsage;
 }
+/** Internal run-end payload consumed by the desktop durable telemetry sink. */
+export interface ToolCallTelemetrySample {
+  readonly isPaginationFollowup: boolean;
+  readonly modelFacingChars: number;
+  readonly toolId: string;
+  readonly truncated: boolean;
+  readonly zeroMatch?: boolean;
+}
+export interface StreamChunkToolCallTelemetry {
+  readonly type: 'tool-call-telemetry';
+  readonly value: readonly ToolCallTelemetrySample[];
+}
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
@@ -406,6 +418,7 @@ export type StreamChunk =
   | StreamChunkRunEvent
   | StreamChunkShellOutput
   | StreamChunkText
+  | StreamChunkToolCallTelemetry
   | StreamChunkTool
   | StreamChunkToolApprovalRequired
   | StreamChunkToolSuspendRequired
