@@ -1,4 +1,0 @@
-interface:
-  display_name: "Librarian Automation"
-  short_description: "Consolidate Night Shift learnings and bulletin reliably"
-  default_prompt: "Use $librarian-automation to run the Brainstrike Librarian learnings-consolidation charter."
