@@ -921,10 +921,13 @@ producer constants, and omission guidance remain local to each projection.
 Path policy also remains explicit at each call site: context and retrieval
 escape CR, LF, U+2028, and U+2029 while preserving repeated whitespace needed
 by follow-up file tools (800- and 700-character path ceilings respectively);
-inspection and unrooted search previews collapse whitespace onto one line at an
-800-character ceiling. Rooted search `read_args` retain the producer path in
-JSON so it stays directly reusable. Malformed or over-budget output continues
-to fail visibly; the shared helpers must never add coercion or fallback.
+inspection previews collapse whitespace onto one line at an 800-character
+ceiling. Search projections (BST-1185) emit the producer path VERBATIM with
+line breaks escaped and never clip it — a clipped path is an unusable
+selector, so an oversized path overflows the projection budget and its item
+is omitted with an advancing offset instead. Malformed or over-budget output
+continues to fail visibly; the shared helpers must never add coercion or
+fallback.
 
 Conditional assembly still advertises only tools that survived runtime gates.
 Remove duplicated prose to recover prompt budget; do not remove or weaken the

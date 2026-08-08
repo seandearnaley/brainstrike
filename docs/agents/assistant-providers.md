@@ -1109,13 +1109,21 @@ active budget. Proofs:
 (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 `grepSearch` and `globWorkspace` keep their complete typed raw pages for
 display, persistence, hooks, and reload, but their Mastra `toModelOutput`
-projections are deterministic line-oriented text. Those projections retain
-copyable `read_args` JSON containing the exact `root`, `path`, and (for grep)
-1-based `startLine` accepted by `readWorkspaceFile`, plus root display name,
-count/source/scan-limit state, and authoritative continuation guidance while
-fitting the 6000-character domain budget. This is Brainstrike's local-first
-multi-root equivalent of OpenCode's absolute-path grep/glob/read handoff: the
-model does not need to translate a display-only root label into a tool input.
+projections are deterministic line-oriented text. Since BST-1185 those
+projections are PATH-GROUPED and happy-path-silent: one file header per file
+(`rootName:path`, root prefix only when the producer's `openRoots` reports
+more than one open folder — the display name is a valid `root` selector, and
+two same-named roots fall back to root ids), then `line: text` rows with `-`
+marking context rows; files mode emits `rootName:path:firstLine (N matches)`
+per line. Engine/limit flags (`live=`, `candidates_truncated`,
+`scan_limited`, `skipped_lines=`) appear in the header ONLY when they fire;
+the read recipe lives once in the grepSearch/globWorkspace tool descriptions
+instead of a per-row `read_args` envelope (the legacy per-row format cost
+~180 chars/match). Continuation guidance is unchanged and authoritative, and
+everything fits the 6000-character domain budget. Stored projections from
+pre-BST-1185 threads still carry the legacy `grep <mode> | page=` header; the
+replay prefix is the common prefix of both generations, so they replay
+byte-for-byte.
 Because Mastra's one-argument projector receives the raw result but not the
 original tool input, paging guidance tells the model to reuse the prior call;
 it never fabricates or duplicates the original pattern. When the whole raw page
@@ -1125,10 +1133,19 @@ budget omits raw page items does the projector calculate an earlier advancing
 `offset`. Producer guidance includes an `offset` only when that offset strictly
 advances; when search or candidate limits yield an empty page with no reachable
 next offset, it instead gives terminal query-refinement guidance. A truncated
-result without producer guidance throws instead of guessing. Oversized paths and
-match context are clipped with an explicit omitted-character marker, and
-malformed result shapes throw a content-free diagnostic naming the rejected
-field rather than falling back to generic JSON. The grep producer and projector
+result without producer guidance throws instead of guessing. Match lines and
+context are clipped with an explicit omitted-character marker; paths and root
+labels are NEVER clipped or whitespace-collapsed (a mangled selector is
+unusable) — a pathological oversized selector overflows the budget and its
+item is omitted with an advancing offset. Root-name ambiguity is decided by
+the PRODUCER against the full open-root inventory (`ambiguousRootNames` on
+the envelope; `describeOpenRootTopology`), never page-locally. SETTLED
+filename-forgery ruling (PR #2313): line breaks and a leading whitespace
+character in paths are escaped, so a hostile filename can never create a new
+projection line nor mimic an indented match row; a filename that merely
+resembles a header or continuation string still renders inline on its own
+single line and is an accepted residual — do not reintroduce per-row quoting
+to chase it. The grep producer and projector
 share one runtime result contract. The projector also recognizes its own
 canonical bounded text envelope when Mastra replays a stored model projection
 while preparing a later same-run step; that replay is idempotent and does not

@@ -20,11 +20,27 @@ export interface GrepFileSummary {
 }
 
 interface GrepToolResultBase {
+  /**
+   * Lowercased display names shared by MORE THAN ONE open root, present only
+   * when non-empty. Ambiguity is a property of the FULL open-root inventory —
+   * a page can contain one root of a twin pair, and `resolveWorkspaceRoot`
+   * would still reject the shared name — so the producer computes this and
+   * the projection falls back to root ids for these names (PR #2313 review).
+   */
+  ambiguousRootNames?: string[];
   candidatesTruncated: boolean;
   hint?: string;
   liveEngine: 'ripgrep' | 'js-walk' | 'skipped';
   liveNote?: string;
   offset: number;
+  /**
+   * Count of OPEN workspace roots, present only when more than one folder is
+   * open. The projection prefixes each file header with its root name only in
+   * that case (BST-1185) — the projector cannot know the open-root topology
+   * from the matches alone (a page may happen to hit a single root even when
+   * several are open, and the model still needs the root selector then).
+   */
+  openRoots?: number;
   scanLimited: boolean;
   totalMatches: number;
   truncated: boolean;
@@ -44,8 +60,16 @@ export interface GrepContentToolResult extends GrepToolResultBase {
 
 export type GrepToolResult = GrepFilesToolResult | GrepContentToolResult;
 
+/**
+ * Replay-detection prefix for stored grep model projections. Deliberately the
+ * COMMON prefix of both header generations: the legacy verbose header
+ * (`grep content | page=…`, pre-BST-1185) and the compact header
+ * (`grep content 1-2/61`) both start with `grep <mode> `, so stored
+ * projections from old threads keep replaying byte-for-byte after the format
+ * change instead of being rejected as malformed raw output.
+ */
 export function grepProjectionHeaderPrefix(outputMode: GrepToolResult['outputMode']): string {
-  return `grep ${outputMode} | page=`;
+  return `grep ${outputMode} `;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -124,6 +148,20 @@ function requireGrepBase(record: Record<string, unknown>): void {
   requireOptionalString(record, 'liveNote');
   if (!isNonNegativeInteger(record['offset'])) {
     rejectField('offset', 'non-negative integer', record['offset']);
+  }
+  const openRoots = record['openRoots'];
+  if (openRoots !== undefined && !isPositiveInteger(openRoots)) {
+    rejectField('openRoots', 'positive integer or absent', openRoots);
+  }
+  const ambiguousRootNames = record['ambiguousRootNames'];
+  if (
+    ambiguousRootNames !== undefined &&
+    !(
+      Array.isArray(ambiguousRootNames) &&
+      ambiguousRootNames.every((name) => typeof name === 'string')
+    )
+  ) {
+    rejectField('ambiguousRootNames', 'string array or absent', ambiguousRootNames);
   }
   if (typeof record['scanLimited'] !== 'boolean') {
     rejectField('scanLimited', 'boolean', record['scanLimited']);
