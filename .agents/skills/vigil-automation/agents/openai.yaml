@@ -1,4 +1,0 @@
-interface:
-  display_name: "Vigil Automation"
-  short_description: "Watch Brainstrike security advisories reliably"
-  default_prompt: "Use $vigil-automation to run the Brainstrike Vigil security-advisory watcher charter."

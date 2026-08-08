@@ -1,4 +1,0 @@
-interface:
-  display_name: "Porter Automation"
-  short_description: "Run the Brainstrike Porter merge-executor evidence collector"
-  default_prompt: "Use $porter-automation to run the Brainstrike Porter low-risk merge executor charter."
