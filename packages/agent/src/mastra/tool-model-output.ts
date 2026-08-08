@@ -5,6 +5,7 @@ import type { ToolsInput } from '@mastra/core/agent';
 import { toJsonSafe } from '../stream/json';
 import {
   boundToolOutputForModel,
+  decodedTextModelOutputChars,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
   MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
@@ -360,16 +361,63 @@ function measureProjectedModelOutput(output: Record<string, unknown>): number {
   return stringifyJsonSafe(measured).length;
 }
 
+/**
+ * BST-1195: the char count a domain-projection budget check must use for a
+ * GENUINELY text-typed projection — one whose producer actually returned
+ * `{type:'text', value}`, not a synthetic fallback (e.g. `json`-typed input
+ * pre-stringified, or an unrecognized shape coerced to text) that merely
+ * ENDS UP shaped like `{type:'text', ...}` after normalization. Every
+ * purpose-built desktop projector in
+ * `apps/desktop/src/assistant-server/*-model-projection*.ts` self-fits
+ * against `decodedTextModelOutputChars`, not `JSON.stringify(...).length`
+ * (see that function's doc for the full rationale). This runtime guard sits
+ * directly downstream of those projectors and re-validates the SAME budget
+ * constant, so it MUST measure the same way for them — otherwise a page
+ * that legitimately fits the new (larger) domain budget throws here a
+ * moment later because JSON-escaping makes it look oversized again (PR
+ * #2334 review). Every other domain projection — `json`, `content`, and the
+ * fallback-coerced case — is unaffected by BST-1195 and keeps measuring
+ * full serialized size, since nothing on those paths changed how it
+ * self-fits and none of them were recalibrated for a larger effective
+ * budget. `useDecodedRuler` is always the caller's own
+ * `isDecodedTextRuler` determination from {@link assertDomainProjectionWithinBudget}
+ * — never re-derived from the candidate's shape downstream, because by the
+ * time a candidate reaches {@link composeHookContextWithProjection} a
+ * fallback-coerced OR json-derived candidate can be structurally
+ * indistinguishable from a genuine one (both end up `type: 'text'`).
+ */
+function measureDomainModelOutputForBudget(
+  output: Record<string, unknown>,
+  useDecodedRuler: boolean
+): number {
+  if (useDecodedRuler && typeof output['value'] === 'string') {
+    return decodedTextModelOutputChars(output['value']);
+  }
+  return measureProjectedModelOutput(output);
+}
+
+interface DomainProjectionAssertion {
+  /** True only for a genuine `{type:'text', value}` producer output — see
+   * {@link measureDomainModelOutputForBudget}. Threaded explicitly into
+   * {@link composeHookContextWithProjection} rather than re-derived, since
+   * `normalized.type` alone can't tell a genuine text projection apart from
+   * a fallback-coerced or json-derived one. */
+  readonly isDecodedTextRuler: boolean;
+  readonly normalized: Record<string, unknown>;
+}
+
 function assertDomainProjectionWithinBudget(
   toolName: string,
   output: unknown
-): Record<string, unknown> {
+): DomainProjectionAssertion {
   const budget = resolveModelProjectionBudget(toolName);
+  const isGenuineTextProjection =
+    isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string';
   let normalized: Record<string, unknown>;
   if (isModelContentOutput(output)) {
     normalized = output as unknown as Record<string, unknown>;
-  } else if (isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string') {
-    normalized = { type: 'text', value: output['value'] };
+  } else if (isGenuineTextProjection) {
+    normalized = { type: 'text', value: (output as { value: string }).value };
   } else if (isRecord(output) && output['type'] === 'json') {
     normalized = { type: 'json', value: toJsonSafe(output['value']) };
   } else {
@@ -378,12 +426,15 @@ function assertDomainProjectionWithinBudget(
       value: typeof output === 'string' ? output : stringifyJsonSafe(output),
     };
   }
-  if (measureProjectedModelOutput(normalized) > budget.domainSerializedChars) {
+  if (
+    measureDomainModelOutputForBudget(normalized, isGenuineTextProjection) >
+    budget.domainSerializedChars
+  ) {
     throw new RangeError(
       `${toolName} domain model projection exceeds the ${budget.domainSerializedChars}-character budget; purpose-built projectors must self-fit complete output`
     );
   }
-  return normalized;
+  return { isDecodedTextRuler: isGenuineTextProjection, normalized };
 }
 
 interface HookProjectionComposition {
@@ -459,13 +510,28 @@ function capHookContextForProjection(context: string): string {
 function composeHookContextWithProjection(
   toolName: string,
   domainProjection: Record<string, unknown>,
-  hookContext: string
+  hookContext: string,
+  isDecodedTextRuler: boolean
 ): Record<string, unknown> {
   const budget = resolveModelProjectionBudget(toolName);
   const composition = readHookProjectionComposition(domainProjection);
   const context = capHookContextForProjection(hookContext);
+  // BST-1195: `isDecodedTextRuler` comes from the caller's
+  // `assertDomainProjectionWithinBudget` call, NOT re-derived here.
+  // `readHookProjectionComposition`'s `json` branch also produces a
+  // `type: 'text'` composed candidate (it pre-stringifies the JSON value),
+  // so dispatching on the CANDIDATE's shape alone would wrongly give an
+  // originally json-typed (or fallback-coerced) domain projection the
+  // decoded ruler too — projections this ticket never touched or
+  // recalibrated. For a genuine text projection this total-envelope check
+  // stays aligned with the same decoded ruler its domain check just passed
+  // (an escape-dense page that legitimately cleared the 6000-char domain
+  // budget must not overflow this 8000-char total budget under the OLD
+  // serialized measurement before a single byte of hook context is added);
+  // every other projection keeps measuring full serialized size here
+  // exactly as before.
   const fits = (candidate: Record<string, unknown>): boolean =>
-    measureProjectedModelOutput(candidate) <= budget.totalSerializedChars;
+    measureDomainModelOutputForBudget(candidate, isDecodedTextRuler) <= budget.totalSerializedChars;
 
   const full = composition.build(context);
   if (fits(full)) {
@@ -487,10 +553,18 @@ function composeHookContextWithProjection(
 function projectDefaultModelOutput(toolName: string, output: unknown): Record<string, unknown> {
   const settled = readSettledToolOutputModelProjection(output);
   if (settled) {
-    const defaultProjection = assertDomainProjectionWithinBudget(toolName, settled.output);
+    const { isDecodedTextRuler, normalized } = assertDomainProjectionWithinBudget(
+      toolName,
+      settled.output
+    );
     return settled.hookContext
-      ? composeHookContextWithProjection(toolName, defaultProjection, settled.hookContext)
-      : defaultProjection;
+      ? composeHookContextWithProjection(
+          toolName,
+          normalized,
+          settled.hookContext,
+          isDecodedTextRuler
+        )
+      : normalized;
   }
   const projectionSource = readSettledToolOutputProjectionSource(output);
   if (isGuardedToolError(projectionSource)) {
@@ -503,7 +577,11 @@ function projectDefaultModelOutput(toolName: string, output: unknown): Record<st
   if (!hookContext) {
     return defaultProjection;
   }
-  return composeHookContextWithProjection(toolName, defaultProjection, hookContext);
+  // The generic/default projection path is untouched by BST-1195 (it always
+  // self-fits via the serialized ruler, see createDefaultModelOutput /
+  // fitTextModelOutput), so its hook-composed candidate keeps measuring
+  // serialized size too: isDecodedTextRuler is always false here.
+  return composeHookContextWithProjection(toolName, defaultProjection, hookContext, false);
 }
 
 const MAX_PROJECTION_SHAPE_KEYS = 12;
@@ -553,10 +631,18 @@ function projectExistingModelOutput(
 ): unknown {
   const settled = readSettledToolOutputModelProjection(output);
   if (settled) {
-    const defaultProjection = assertDomainProjectionWithinBudget(toolName, settled.output);
+    const { isDecodedTextRuler, normalized } = assertDomainProjectionWithinBudget(
+      toolName,
+      settled.output
+    );
     return settled.hookContext
-      ? composeHookContextWithProjection(toolName, defaultProjection, settled.hookContext)
-      : defaultProjection;
+      ? composeHookContextWithProjection(
+          toolName,
+          normalized,
+          settled.hookContext,
+          isDecodedTextRuler
+        )
+      : normalized;
   }
   const projectionSource = readSettledToolOutputProjectionSource(output);
   if (isGuardedToolError(projectionSource)) {
@@ -569,11 +655,19 @@ function projectExistingModelOutput(
     if (resolved === null || resolved === undefined) {
       return projectDefaultModelOutput(toolName, projectionSource);
     }
-    const domainProjection = assertDomainProjectionWithinBudget(toolName, resolved);
+    const { isDecodedTextRuler, normalized } = assertDomainProjectionWithinBudget(
+      toolName,
+      resolved
+    );
     if (hookContext) {
-      return composeHookContextWithProjection(toolName, domainProjection, hookContext);
+      return composeHookContextWithProjection(
+        toolName,
+        normalized,
+        hookContext,
+        isDecodedTextRuler
+      );
     }
-    return domainProjection;
+    return normalized;
   };
   // A domain projector that rejects its input's SHAPE must not kill the whole
   // run: the thrown error replaces (and destroys) the diagnostic for whatever

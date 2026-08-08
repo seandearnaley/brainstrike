@@ -35,6 +35,7 @@ import {
   UNCHANGED_READ_STUB_MESSAGE,
 } from './tool-call-loop-guards';
 import { readStateScope } from './workspace-file-staleness';
+import { decodedWorkspaceTextModelOutputChars } from './workspace-model-projection-helpers';
 import { withStableWorkspaceFileLock } from './workspace-path-resolution';
 import { describeOpenRootTopology, resolveWorkspaceRoot } from './workspace-roots';
 import { MAX_READ_WORKSPACE_FILE_BYTES } from './workspace-text-file-reader';
@@ -613,8 +614,9 @@ function fitReadWorkspaceFileResult(args: {
     );
   }
   if (
-    JSON.stringify(buildReadWorkspaceFileProjectionText(emptyResult)).length >
-    MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    decodedWorkspaceTextModelOutputChars([
+      buildReadWorkspaceFileProjectionText(emptyResult).value,
+    ]) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
   ) {
     throw new RangeError(
       `readWorkspaceFile metadata exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character model projection budget`
@@ -736,7 +738,7 @@ export async function runReadWorkspaceFile(
     });
     const fitsResultBudgets = (result: ReturnType<typeof buildResult>): boolean =>
       JSON.stringify(result).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET &&
-      JSON.stringify(buildReadWorkspaceFileProjectionText(result)).length <=
+      decodedWorkspaceTextModelOutputChars([buildReadWorkspaceFileProjectionText(result).value]) <=
         MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
     const finishSuccessfulRead = (
       page: ReadWorkspaceFilePage,

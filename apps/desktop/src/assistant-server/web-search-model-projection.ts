@@ -3,6 +3,7 @@ import {
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import { isValidWebSearchCitationUrl } from './web-search-citation-url';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from './workspace-model-projection-helpers';
 
 export interface WebSearchTextModelOutput {
   type: 'text';
@@ -172,10 +173,6 @@ function output(lines: readonly string[]): WebSearchTextModelOutput {
   return { type: 'text', value: lines.join('\n') };
 }
 
-function serializedChars(lines: readonly string[]): number {
-  return JSON.stringify(output(lines)).length;
-}
-
 function status(result: WebSearchResult): 'available' | 'error' | 'unavailable' {
   if (!result.available) {
     return 'unavailable';
@@ -231,7 +228,7 @@ export function projectWebSearchModelOutput(raw: unknown): WebSearchTextModelOut
   for (const [index, item] of result.results.entries()) {
     const nextItem = itemLines(item, index + 1);
     const candidate = buildLines(result, [...projectedItems, ...nextItem], kept + 1);
-    if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       break;
     }
     projectedItems.push(...nextItem);
@@ -239,7 +236,7 @@ export function projectWebSearchModelOutput(raw: unknown): WebSearchTextModelOut
   }
 
   const lines = buildLines(result, projectedItems, kept);
-  if (serializedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     throw new RangeError('webSearch model projection cannot fit required metadata');
   }
   return output(lines);

@@ -30,7 +30,11 @@ import {
 } from '../mastra/tool-call-telemetry';
 import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
 import { ToolProjectionInputRejectedError } from '../mastra/tool-projection-input-rejected';
-import { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET } from '../stream/tool-output-limits';
+import {
+  decodedTextModelOutputChars,
+  MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
+} from '../stream/tool-output-limits';
 import {
   createHookResultEnvelope,
   HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET,
@@ -684,7 +688,7 @@ describe('applyToolModelOutputProjections', () => {
     });
   });
 
-  it('keeps the complete domain projection and bounded post-tool context within one budget', async () => {
+  it('keeps the complete domain projection and full post-tool context within one budget', async () => {
     const continuation = 'nextCursor: line:201';
     const domainBody = `${'x'.repeat(2800)}middle-source-sentinel${'y'.repeat(2700)}`;
     const domainProjection = `path: "/workspace/large.ts"\n${domainBody}\n${continuation}`;
@@ -726,9 +730,92 @@ describe('applyToolModelOutputProjections', () => {
     expect(modelOutput.value).toContain(
       'Post-tool context: Inspect packages/db before continuing.'
     );
+    // BST-1195 recalibration: this fixture's ~5.6k-char domain projection
+    // plus the full (already upstream-capped-to-2000-char) hook context
+    // decode to well under the 8000-char total envelope, even though its
+    // JSON-serialized form (2000 NUL bytes each balloon to a 6-char
+    // escape) is far over it. composeHookContextWithProjection now
+    // measures decoded chars for a genuine text domain projection, so
+    // NEITHER the domain projection NOR the post-tool context needs to be
+    // truncated any more — this fixture used to force post-tool-context
+    // truncation purely as an artifact of the old JSON-serialized ruler,
+    // not because the model-visible content was actually oversized.
+    expect(modelOutput.value).not.toContain('[post-tool context truncated]');
+    expect(modelOutput.value).not.toContain('[model projection truncated]');
+    // The hook context was already capped upstream (hook-tool-wrap's
+    // capContext, to HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET - 1 chars plus a
+    // single ellipsis) well before it ever reaches
+    // composeHookContextWithProjection — that upstream cap is what survives
+    // here unchanged, not an ADDITIONAL truncation by the total-envelope
+    // guard under test (which is why the "[post-tool context truncated]"
+    // marker above is correctly absent).
+    const upstreamCappedHookContext = `${hookContext.slice(
+      0,
+      HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET - 1
+    )}…`;
+    expect(upstreamCappedHookContext.length).toBeLessThan(hookContext.length);
+    expect(modelOutput.value).toContain(`Post-tool context: ${upstreamCappedHookContext}`);
+    expect(decodedTextModelOutputChars(modelOutput.value ?? '')).toBeLessThanOrEqual(
+      MAX_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+  });
+
+  it('still truncates post-tool context when the decoded total genuinely overflows', async () => {
+    const continuation = 'nextCursor: line:201';
+    // Sized so the domain projection alone clears the 6000-char domain
+    // budget (decoded chars + 26 <= 6000) but, combined with the label and
+    // the full 2000-char (already upstream-capped) hook context, the
+    // decoded TOTAL genuinely exceeds the 8000-char envelope — proving the
+    // BST-1195 decoded ruler still enforces a real ceiling and the
+    // fallback truncation path in composeHookContextWithProjection still
+    // works, rather than the domain-budget fix having silently disabled
+    // post-tool-context bounding altogether.
+    const domainBody = 'z'.repeat(5920);
+    const domainProjection = `path: "/workspace/huge.ts"\n${domainBody}\n${continuation}`;
+    const domainOutput = { summary: 'raw result' };
+    const hookContext = `Inspect packages/db before continuing.${' '.repeat(2000)}`;
+    const toModelOutput = vi.fn(async () => ({
+      type: 'text',
+      value: domainProjection,
+    }));
+    const tool = asTool({
+      execute: () => domainOutput,
+      id: 'custom-overflowing-hook-context',
+      toModelOutput,
+    });
+    const toolNameMap = new Map([
+      ['custom_overflowing_hook_context', 'custom.overflowing-hook-context'],
+    ]);
+    const hooked = applyToolHooks(
+      { custom_overflowing_hook_context: tool },
+      {
+        hookRunner: {
+          postToolUse: () => Promise.resolve({ additionalContext: hookContext }),
+          preToolUse: () => Promise.resolve({ decision: 'allow' }),
+        },
+        toolNameMap,
+      }
+    );
+    const projected = applyToolModelOutputProjections(hooked, toolNameMap);
+    const projectedTool = projected['custom_overflowing_hook_context'] as TestTool;
+
+    const rawOutput = await projectedTool.execute?.({});
+    const modelOutput = (await projectedTool.toModelOutput?.(rawOutput)) as {
+      type?: string;
+      value?: string;
+    };
+
+    expect(modelOutput.type).toBe('text');
+    // The domain projection itself independently fit its own 6000-char
+    // budget, so it is never touched — only the hook context shrinks.
+    expect(modelOutput.value?.startsWith(domainProjection)).toBe(true);
+    expect(modelOutput.value).toContain(continuation);
+    expect(modelOutput.value).toContain('Post-tool context: Inspect packages/db');
     expect(modelOutput.value).toContain('[post-tool context truncated]');
     expect(modelOutput.value).not.toContain('[model projection truncated]');
-    expect(JSON.stringify(modelOutput).length).toBeLessThanOrEqual(8000);
+    expect(decodedTextModelOutputChars(modelOutput.value ?? '')).toBeLessThanOrEqual(
+      MAX_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
   });
 
   it('appends hook context without reordering authored content parts', async () => {

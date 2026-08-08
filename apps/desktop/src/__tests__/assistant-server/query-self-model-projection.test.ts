@@ -1,6 +1,7 @@
 import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET, QuerySelfInputSchema } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
 import { projectQuerySelfModelOutput } from '../../assistant-server/query-self-model-projection';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
 
 function serializedChars(value: { type: 'text'; value: string }): number {
   return JSON.stringify(value).length;
@@ -60,7 +61,9 @@ describe('querySelf model projection', () => {
 
     // The budget is a hard contract: central code throws above it rather than
     // prefix-truncating, so the projector must fit a complete page itself.
-    expect(serializedChars(projection)).toBeLessThanOrEqual(
+    // BST-1195: projections may exceed 6000 serialized envelope characters
+    // while their decoded model-visible text still fits the domain budget.
+    expect(decodedChars([projection.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     // A silently short result would be a correctness failure, not a formatting one.
@@ -173,7 +176,7 @@ describe('querySelf model projection', () => {
       truncated: false,
     });
 
-    expect(serializedChars(projection)).toBeLessThanOrEqual(
+    expect(decodedChars([projection.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
   });
@@ -226,7 +229,8 @@ describe('querySelf model projection', () => {
 
     const projection = projectQuerySelfModelOutput({ kind: 'tables', tables });
 
-    expect(serializedChars(projection)).toBeLessThanOrEqual(
+    // BST-1195 recalibrated oversized metadata pages to decoded text length.
+    expect(decodedChars([projection.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(projection.value).toContain('more listed tables omitted');
@@ -245,7 +249,7 @@ describe('querySelf model projection', () => {
       table: 'wide',
     });
 
-    expect(serializedChars(projection)).toBeLessThanOrEqual(
+    expect(decodedChars([projection.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(projection.value).toContain('more columns omitted');
@@ -276,7 +280,8 @@ describe('querySelf model projection', () => {
 
     const projection = projectQuerySelfModelOutput({ analyzed: false, kind: 'plan', plan });
 
-    expect(serializedChars(projection)).toBeLessThanOrEqual(
+    // BST-1195 recalibrated newline-dense plans to decoded text length.
+    expect(decodedChars([projection.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(projection.value).toContain('more plan line(s) omitted');
@@ -300,7 +305,7 @@ describe('querySelf model projection', () => {
 
     const projection = projectQuerySelfModelOutput({ analyzed: true, kind: 'plan', plan });
 
-    expect(serializedChars(projection)).toBeLessThanOrEqual(
+    expect(decodedChars([projection.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(projection.value).toContain('Aggregate');
@@ -327,7 +332,7 @@ describe('querySelf model projection', () => {
 
     const projection = projectQuerySelfModelOutput({ analyzed: true, kind: 'plan', plan });
 
-    expect(serializedChars(projection)).toBeLessThanOrEqual(
+    expect(decodedChars([projection.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     // The clip is stated, and the informative prefix of each line survives.

@@ -31,6 +31,7 @@ import {
   resetToolCallLoopGuards,
   UNCHANGED_READ_STUB_MESSAGE,
 } from '../../assistant-server/tool-call-loop-guards';
+import { decodedWorkspaceTextModelOutputChars } from '../../assistant-server/workspace-model-projection-helpers';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -789,12 +790,12 @@ describe('assistant-tools read tools', () => {
       const result = await executeTool({ path: '/src/large.ts' });
 
       const projected = toModelOutput(result);
+      const projectedValue = (projected as { value: string }).value;
       expect(projected).toMatchObject({ type: 'text' });
-      expect((projected as { value: string }).value).toMatch(/^read \//);
-      expect((projected as { value: string }).value).toContain(
-        `continue: cursor=${result.nextCursor}`
-      );
-      expect(JSON.stringify(projected).length).toBeLessThanOrEqual(
+      expect(projectedValue).toMatch(/^read \//);
+      expect(projectedValue).toContain(`continue: cursor=${result.nextCursor}`);
+      // BST-1195 recalibrated the read page boundary to decoded model text.
+      expect(decodedWorkspaceTextModelOutputChars([projectedValue])).toBeLessThanOrEqual(
         MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
       );
       expect(result.truncated).toBe(true);

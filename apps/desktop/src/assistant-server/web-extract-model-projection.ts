@@ -3,6 +3,7 @@ import {
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import { refuseExtractUrl, type WebExtractToolResult } from './web-extract-tool';
+import { decodedWorkspaceTextModelOutputChars } from './workspace-model-projection-helpers';
 
 export interface WebExtractTextModelOutput {
   type: 'text';
@@ -144,7 +145,10 @@ export function projectWebExtractModelOutput(raw: unknown): WebExtractTextModelO
     ...(result.error ? [`error: ${JSON.stringify(result.error)}`] : []),
   ];
   const projected = output(lines);
-  if (JSON.stringify(projected).length > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (
+    decodedWorkspaceTextModelOutputChars([projected.value]) >
+    MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+  ) {
     throw new RangeError('webExtract output must settle before model projection');
   }
   return projected;

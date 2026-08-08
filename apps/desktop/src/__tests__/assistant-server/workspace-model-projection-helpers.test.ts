@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   clipProjectionEnd,
   clipProjectionMiddle,
+  decodedWorkspaceTextModelOutputChars,
   escapeProjectionPathLineBreaks,
   isNonNegativeInteger,
   isPositiveInteger,
   isRecord,
   makeWorkspaceTextModelOutput,
+  PROJECTION_ENVELOPE_RESERVE_CHARS,
   projectionSingleLine,
-  serializedWorkspaceTextModelOutputChars,
 } from '../../assistant-server/workspace-model-projection-helpers';
 
 describe('workspace model projection helpers', () => {
@@ -39,8 +40,18 @@ describe('workspace model projection helpers', () => {
     const output = makeWorkspaceTextModelOutput(['alpha', 'beta']);
 
     expect(output).toEqual({ type: 'text', value: 'alpha\nbeta' });
-    expect(serializedWorkspaceTextModelOutputChars(['alpha', 'beta'])).toBe(
-      JSON.stringify(output).length
+    expect(decodedWorkspaceTextModelOutputChars(['alpha', 'beta'])).toBe(
+      Array.from(output.value).length + PROJECTION_ENVELOPE_RESERVE_CHARS
     );
+
+    const newlineDenseLines = ['a\nb', 'c'];
+    const newlineDenseOutput = makeWorkspaceTextModelOutput(newlineDenseLines);
+    const decodedChars = decodedWorkspaceTextModelOutputChars(newlineDenseLines);
+    const oldSerializedChars = JSON.stringify(newlineDenseOutput).length;
+
+    expect(newlineDenseOutput.value).toBe('a\nb\nc');
+    expect(decodedChars).toBe(31);
+    expect(oldSerializedChars).toBe(33);
+    expect(decodedChars).toBeLessThan(oldSerializedChars);
   });
 });
