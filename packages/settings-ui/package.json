@@ -42,6 +42,10 @@
       "types": "./dist/settings-page-content.d.ts",
       "import": "./dist/settings-page-content.js"
     },
+    "./settings-category-factories": {
+      "types": "./dist/settings-category-factories.d.ts",
+      "import": "./dist/settings-category-factories.js"
+    },
     "./settings/models/model-runtime-services": {
       "types": "./dist/settings/models/model-runtime-services.d.ts",
       "import": "./dist/settings/models/model-runtime-services.js"

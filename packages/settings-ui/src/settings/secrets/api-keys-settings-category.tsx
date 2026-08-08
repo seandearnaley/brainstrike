@@ -2,15 +2,13 @@ import { Key } from 'lucide-react';
 import type { SettingsCategory } from '../../settings-page-content';
 import { ApiKeysSettings, type ApiKeysSettingsProps } from './api-keys-settings';
 
-export type CreateApiKeysSettingsCategoryOptions = ApiKeysSettingsProps;
-
 /**
  * Creates the desktop API-key settings category outside the
  * `SettingsPageContent` component module so Fast Refresh can preserve page
  * state when category composition changes.
  */
 export function createApiKeysSettingsCategory(
-  options: CreateApiKeysSettingsCategoryOptions = {}
+  options: ApiKeysSettingsProps = {}
 ): SettingsCategory {
   return {
     content: <ApiKeysSettings {...options} />,
