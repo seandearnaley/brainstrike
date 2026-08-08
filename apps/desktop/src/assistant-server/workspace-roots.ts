@@ -301,10 +301,13 @@ export function describeOpenRootTopology(runtimeData: RuntimeData | undefined): 
     const key = root.displayName.toLowerCase();
     countsByName.set(key, (countsByName.get(key) ?? 0) + 1);
   }
-  const ambiguousRootNames = Array.from(countsByName.entries())
-    .filter(([, count]) => count > 1)
-    .map(([name]) => name)
-    .sort();
+  const ambiguousRootNames: string[] = [];
+  for (const [name, count] of countsByName) {
+    if (count > 1) {
+      ambiguousRootNames.push(name);
+    }
+  }
+  ambiguousRootNames.sort();
   return {
     openRoots: roots.length,
     ...(ambiguousRootNames.length > 0 ? { ambiguousRootNames } : {}),
