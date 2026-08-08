@@ -7,6 +7,7 @@ import {
   NATIVE_TOOL_INPUT_SCHEMAS,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type RuntimeData,
+  ToolProjectionInputRejectedError,
   withFileLock,
 } from '@brainstrike/agent';
 import { ToolInputError, type ToolOutputArtifactReference } from '@brainstrike/assistant-contract';
@@ -20,6 +21,10 @@ import {
   type CommandSessionPayloadTransform,
 } from '../../assistant-server/command-session-tools';
 import { ReadWorkspaceFileCursorRegistry } from '../../assistant-server/read-workspace-file-cursor-registry';
+import {
+  type ReadWorkspaceFileResult,
+  runReadWorkspaceFile,
+} from '../../assistant-server/read-workspace-file-tool';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -45,6 +50,26 @@ function requireToolModelOutput<TOutput>(
     throw new Error(`Expected tool '${id}' to have a model output projection`);
   }
   return (output: unknown) => toModelOutput.call(tool, output) as TOutput;
+}
+
+function legacyReadProjectionContentLimit(result: ReadWorkspaceFileResult): number {
+  let best = 0;
+  let high = result.content.length;
+  let low = 0;
+  while (low <= high) {
+    const kept = Math.floor((low + high) / 2);
+    const candidate = { ...result, content: result.content.slice(0, kept) };
+    if (
+      JSON.stringify({ type: 'json', value: candidate }).length <=
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    ) {
+      best = kept;
+      low = kept + 1;
+    } else {
+      high = kept - 1;
+    }
+  }
+  return best;
 }
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -609,17 +634,211 @@ describe('assistant-tools read tools', () => {
 
     try {
       const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
-      const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+      const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
       const toModelOutput = requireToolModelOutput<unknown>(tools, 'brainstrike.readWorkspaceFile');
       const result = await executeTool({ path: '/src/large.ts' });
 
       const projected = toModelOutput(result);
-      expect(projected).toEqual({ type: 'json', value: result });
+      expect(projected).toMatchObject({ type: 'text' });
+      expect((projected as { value: string }).value).toMatch(/^read \//);
+      expect((projected as { value: string }).value).toContain(
+        `continue: cursor=${result.nextCursor}`
+      );
       expect(JSON.stringify(projected).length).toBeLessThanOrEqual(
         MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
       );
-      expect(result['truncated']).toBe(true);
-      expect(result['nextCursor']).toEqual(expect.any(String));
+      expect(result.truncated).toBe(true);
+      expect(result.nextCursor).toEqual(expect.any(String));
+
+      // BST-1186 acceptance: compare the newly fitted page with the largest
+      // content prefix that the former JSON-envelope predicate would accept
+      // while holding this fixture's metadata fixed.
+      const legacyContentChars = legacyReadProjectionContentLimit(result);
+      const oldEnvelopeChars = JSON.stringify({ type: 'json', value: result }).length;
+      const newEnvelopeChars = JSON.stringify(projected).length;
+      const newContentChars = result.content.length;
+      const legacyContentLines = result.content.slice(0, legacyContentChars).split('\n').length;
+      const newContentLines = result.content.split('\n').length;
+      expect(newEnvelopeChars).toBeLessThanOrEqual(oldEnvelopeChars);
+      expect(newContentChars).toBeGreaterThan(legacyContentChars);
+      expect(newContentChars - legacyContentChars).toBeGreaterThan(0);
+      expect(newContentLines).toBeGreaterThanOrEqual(legacyContentLines);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('projects an untruncated single-root workspace file read as exact plain text', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+      const toModelOutput = requireToolModelOutput<unknown>(tools, 'brainstrike.readWorkspaceFile');
+      const result = await executeTool({ path: '/src/main.ts' });
+
+      expect(toModelOutput(result)).toEqual({
+        type: 'text',
+        value: 'read /src/main.ts lines 1-4/4\n1: line 1\n2: line 2\n3: line 3\n4: line 4',
+      });
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('prefixes the projected read header when multiple workspace roots are open', async () => {
+    const rootA = await createWorkspaceFixture();
+    const rootB = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({
+      memory: { resourceId: 'workspace', threadId: 'thread-read-projection-roots' },
+      workspaceRoots: [
+        { displayName: 'alpha', path: rootA, rootId: 'root-a' },
+        { displayName: 'beta', path: rootB, rootId: 'root-b' },
+      ],
+    } as RuntimeData);
+
+    try {
+      const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+      const toModelOutput = requireToolModelOutput<{ type: 'text'; value: string }>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+      const result = await executeTool({ path: '/src/main.ts', root: 'root-a' });
+
+      expect(toModelOutput(result).value).toMatch(/^read alpha:\/src\/main\.ts lines /);
+    } finally {
+      await Promise.all([
+        fsPromises.rm(rootA, { force: true, recursive: true }),
+        fsPromises.rm(rootB, { force: true, recursive: true }),
+      ]);
+    }
+  });
+
+  it('projects truncated read metadata and its continuation footer', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+      const toModelOutput = requireToolModelOutput<{ type: 'text'; value: string }>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+      const result = await executeTool({ maxChars: 10, path: '/src/main.ts' });
+      const projectedLines = toModelOutput(result).value.split('\n');
+
+      expect(projectedLines[0]).toBe(
+        `read /src/main.ts lines ${result.startLine}-${result.endLine}/${result.totalLines} | size=${result.size} omitted=${result.omittedChars}`
+      );
+      expect(projectedLines.at(-1)).toBe(`continue: cursor=${result.nextCursor}`);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('replays a stored read model projection byte-for-byte', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+      const toModelOutput = requireToolModelOutput<{ type: 'text'; value: string }>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+      const result = await executeTool({ maxChars: 10, path: '/src/main.ts' });
+      const projected = toModelOutput(result);
+
+      expect(toModelOutput(projected)).toEqual(projected);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('rejects malformed read model projection inputs', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+      const toModelOutput = requireToolModelOutput<unknown>(tools, 'brainstrike.readWorkspaceFile');
+      const result = await executeTool({ path: '/src/main.ts' });
+      const malformedOpenRoots = { ...result, openRoots: undefined };
+
+      expect(() => toModelOutput({})).toThrowError(ToolProjectionInputRejectedError);
+      expect(() => toModelOutput({})).toThrow(
+        'readWorkspaceFile model projection received a malformed result'
+      );
+      expect(() => toModelOutput(malformedOpenRoots)).toThrowError(
+        ToolProjectionInputRejectedError
+      );
+      expect(() => toModelOutput(malformedOpenRoots)).toThrow(
+        'readWorkspaceFile model projection received a malformed result'
+      );
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('rejects an oversized read model projection', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+      const toModelOutput = requireToolModelOutput<unknown>(tools, 'brainstrike.readWorkspaceFile');
+      const result = await executeTool({ path: '/src/main.ts' });
+
+      expect(() => toModelOutput({ ...result, content: 'x'.repeat(8000) })).toThrowError(
+        RangeError
+      );
+      expect(() => toModelOutput({ ...result, content: 'x'.repeat(8000) })).toThrow('6000');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('omits continuation text for registry-less truncated reads', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const runtimeData = { workspaceRootPath } as RuntimeData;
+
+    try {
+      const result = await runReadWorkspaceFile(
+        { maxChars: 10, path: '/src/main.ts' },
+        runtimeData,
+        null
+      );
+      const tools = buildDesktopAssistantTools(runtimeData);
+      const toModelOutput = requireToolModelOutput<{ type: 'text'; value: string }>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+
+      expect(result.truncated).toBe(true);
+      expect(result.nextCursor).toBeNull();
+      expect(() => toModelOutput(result)).not.toThrow();
+      expect(toModelOutput(result).value).not.toContain('continue:');
     } finally {
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }

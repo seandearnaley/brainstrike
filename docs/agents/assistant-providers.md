@@ -823,9 +823,11 @@ Tool output budget (anti-thrash contract): budgets are token-denominated and
 enforced deterministically on serialized chars at 4 chars/token (mirrors
 `countTokensHeuristic`). Native producers self-bound result lists via
 `fitItemsToCharBudget`; `readWorkspaceFile` emits 1-based line-numbered pages
-and self-bounds its purpose-built JSON projection to the 6000-character domain
-budget before returning, so page metadata and `nextCursor` never fall into the
-generic prefix preview.
+and self-bounds its plain-text model projection to the 6000-character domain
+budget before returning. The tool's binary search fits against that same real
+projection, so BST-1186 spends the JSON-envelope escaping tax on more file
+content while keeping page metadata and `nextCursor` out of the generic prefix
+preview.
 If the requested page exceeds the envelope, it shortens the page and returns a
 26-character random `nextCursor` handle that resumes at the exact source line
 and column, including within a long generated/minified line. The authoritative
@@ -1155,6 +1157,24 @@ share one runtime result contract. The projector also recognizes its own
 canonical bounded text envelope when Mastra replays a stored model projection
 while preparing a later same-run step; that replay is idempotent and does not
 reparse the text as a raw grep result.
+`readWorkspaceFile` keeps its complete typed raw result for display,
+persistence, hooks, and reload. Its 11 projection-contract fields now include
+`openRoots` in place of the removed always-null `tokenCount`; the separate raw
+`approxOutputTokens` estimate remains outside that projection contract. Its
+Mastra `toModelOutput` projection emits a compact
+`read <root:>path lines <start>-<end>/<total>` header, prefixing the root name
+only when `openRoots > 1`, followed by the page's already-gutter-prefixed
+content verbatim. The header adds `size` and `omitted` only for a truncated
+page. A `continue: cursor=<nextCursor>` footer appears only when a continuation
+cursor exists: never when the request fit completely, and never in the
+registry-less internal read mode where truncation can occur without an
+issuable cursor. The same projection function backs the producer's self-fit
+binary search, replacing its old JSON-envelope measurement so pages spend the
+freed budget on more source content. A stored `{type:'text',value}` beginning
+with `read ` on a later same-run step replays byte-for-byte instead of being
+reparsed as a raw result, mirroring the grep/glob replay contract. Nothing else
+read `tokenCount`, so the always-null field was dropped from the result
+entirely.
 `findWorkspaceSymbol` and `lspInspect` keep their complete typed raw results for
 display, persistence, hooks, and reload while their Mastra `toModelOutput`
 projections emit bounded line-oriented inspection summaries. Symbol output

@@ -25,9 +25,10 @@ import {
   type ReadWorkspaceFileCursorScope,
   type ReadWorkspaceFileCursorState,
 } from './read-workspace-file-cursor-registry';
+import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model-projection';
 import { readStateScope } from './workspace-file-staleness';
 import { withStableWorkspaceFileLock } from './workspace-path-resolution';
-import { resolveWorkspaceRoot } from './workspace-roots';
+import { getWorkspaceRoots, resolveWorkspaceRoot } from './workspace-roots';
 import { MAX_READ_WORKSPACE_FILE_BYTES } from './workspace-text-file-reader';
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
@@ -553,13 +554,28 @@ export interface ReadWorkspaceFileResult {
   readonly endLine: number;
   readonly nextCursor: string | null;
   readonly omittedChars: number;
+  readonly openRoots: number;
   readonly path: string;
   readonly rootName: string;
   readonly size: number;
   readonly startLine: number;
-  readonly tokenCount: null;
   readonly totalLines: number;
   readonly truncated: boolean;
+}
+
+function serializedReadWorkspaceFileModelOutputChars(result: ReadWorkspaceFileResult): number {
+  try {
+    return JSON.stringify(projectReadWorkspaceFileModelOutput(result)).length;
+  } catch (error) {
+    if (
+      error instanceof RangeError &&
+      error.message ===
+        `readWorkspaceFile model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+    ) {
+      return MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET + 1;
+    }
+    throw error;
+  }
 }
 
 function fitReadWorkspaceFileResult(args: {
@@ -597,7 +613,7 @@ function fitReadWorkspaceFileResult(args: {
     );
   }
   if (
-    JSON.stringify({ type: 'json', value: emptyResult }).length >
+    serializedReadWorkspaceFileModelOutputChars(emptyResult) >
     MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
   ) {
     throw new RangeError(
@@ -696,21 +712,18 @@ export async function runReadWorkspaceFile(
         file.lineStartOffsets,
         file.requestedEndOffset
       ),
+      openRoots: getWorkspaceRoots(runtimeData).length,
       path: file.path,
       rootName: root.displayName,
       size: file.size,
       startLine,
-      tokenCount: null,
       totalLines: file.totalLines,
       truncated: page.nextPosition !== null,
     });
-    const buildModelOutput = (result: ReturnType<typeof buildResult>) => ({
-      type: 'json' as const,
-      value: result,
-    });
     const fitsResultBudgets = (result: ReturnType<typeof buildResult>): boolean =>
       JSON.stringify(result).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET &&
-      JSON.stringify(buildModelOutput(result)).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
+      serializedReadWorkspaceFileModelOutputChars(result) <=
+        MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
     const finishSuccessfulRead = (
       page: ReadWorkspaceFilePage,
       result: ReturnType<typeof buildResult>
