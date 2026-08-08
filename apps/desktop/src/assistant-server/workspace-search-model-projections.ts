@@ -86,6 +86,7 @@ function parseGlobWorkspaceToolResult(output: unknown): GlobWorkspaceToolResult 
       isRecord(output) &&
       isNonNegativeInteger(output['count']) &&
       isOptionalString(output['hint']) &&
+      isOptionalString(output['loopGuardWarning']) &&
       Array.isArray(output['matches']) &&
       output['matches'].every(isGlobMatch) &&
       output['count'] === output['matches'].length &&
@@ -419,9 +420,17 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
   const result = parseGrepToolResult(output);
   const items = result.outputMode === 'files' ? result.files : result.matches;
   const rootLabel = buildRootLabelResolver(result, items);
-  const note = result.liveNote
-    ? `note: ${clipEnd(result.liveNote, MAX_LINE_TEXT_CHARS, 'note')}`
-    : null;
+  const noteLines = [result.liveNote, result.probeNote]
+    .filter((note): note is string => note !== undefined)
+    .map((note) => `note: ${clipEnd(note, MAX_LINE_TEXT_CHARS, 'note')}`);
+  // BST-1188: the loop guard's own line, rendered UNCONDITIONALLY like
+  // noteLines above — never folded into `hint`, which the continuation logic
+  // below skips whenever `omittedByProjection` already trimmed the page (see
+  // `grepContinuation`), silently dropping a `hint`-borne warning on exactly
+  // the large/expensive repeats the guard exists to stop.
+  const warningLines = result.loopGuardWarning
+    ? [`warning: ${clipEnd(result.loopGuardWarning, MAX_LINE_TEXT_CHARS, 'warning')}`]
+    : [];
   let keptLines: string[] = [];
   let kept = 0;
 
@@ -434,7 +443,8 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
     const candidate = [
       buildGrepHeader(result, candidateKept),
       ...candidateLines,
-      ...(note ? [note] : []),
+      ...noteLines,
+      ...warningLines,
       ...(continuation ? [continuation] : []),
     ];
     if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
@@ -448,7 +458,8 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
   const lines = [
     buildGrepHeader(result, kept),
     ...keptLines,
-    ...(note ? [note] : []),
+    ...noteLines,
+    ...warningLines,
     ...(continuation ? [continuation] : []),
   ];
   assertProjectionFits('grepSearch', lines);
@@ -494,6 +505,11 @@ function globContinuation(
 export function projectGlobWorkspaceModelOutput(output: unknown): WorkspaceSearchTextModelOutput {
   const result = parseGlobWorkspaceToolResult(output);
   const rootLabel = buildRootLabelResolver(result, result.matches);
+  // BST-1188: same unconditional own-line treatment as grepSearch's
+  // `warningLines` above — never folded into `hint`.
+  const warningLines = result.loopGuardWarning
+    ? [`warning: ${clipEnd(result.loopGuardWarning, MAX_LINE_TEXT_CHARS, 'warning')}`]
+    : [];
   const keptLines: string[] = [];
   let kept = 0;
 
@@ -505,6 +521,7 @@ export function projectGlobWorkspaceModelOutput(output: unknown): WorkspaceSearc
       buildGlobHeader(result, candidateKept),
       ...keptLines,
       itemLine,
+      ...warningLines,
       ...(continuation ? [continuation] : []),
     ];
     if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
@@ -518,6 +535,7 @@ export function projectGlobWorkspaceModelOutput(output: unknown): WorkspaceSearc
   const lines = [
     buildGlobHeader(result, kept),
     ...keptLines,
+    ...warningLines,
     ...(continuation ? [continuation] : []),
   ];
   assertProjectionFits('globWorkspace', lines);

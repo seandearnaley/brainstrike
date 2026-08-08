@@ -2,18 +2,27 @@
  * Thread-scoped loop guards for repeated workspace inspection and edit
  * failures (BST-1188).
  *
- * Three independent in-memory mechanisms live here: consecutive identical
- * calls to selected read/search tools warn and then refuse; unchanged fresh
- * `readWorkspaceFile` windows return a compact stub and then refuse; repeated
- * ambiguous/not-found string replacements gain stronger recovery guidance.
- * Every map is scoped by `readStateScope(runtimeData)` at its production call
- * site so one thread never inherits another thread's streak.
+ * Two independent in-memory mechanisms live here: consecutive identical calls
+ * to grepSearch/globWorkspace warn and then refuse; repeated ambiguous/
+ * not-found string replacements gain stronger recovery guidance. A third,
+ * mtime-aware mechanism for `readWorkspaceFile` (unchanged fresh reads return
+ * a compact stub, then refuse) lives in `read-workspace-file-tool.ts` itself,
+ * built on this module's `checkUnchangedReadWindow`/refusal primitives —
+ * `readWorkspaceFile` deliberately does NOT use the plain identical-args
+ * streak below (see the `withRepeatedCallGuard` docstring for why). Every map
+ * is scoped by `readStateScope(runtimeData)` at its production call site so
+ * one thread never inherits another thread's streak.
  *
  * This mirrors `packages/agent/src/tools/file-read-state.ts`: state lasts only
  * for the desktop main-process lifetime. Tests reset it for isolation, and a
  * committed stale-read projection batch resets the affected production thread
  * so no dedup stub can point at evidence the batch just collapsed. It is still
- * ephemeral execution state and MUST NOT be wired into factory reset.
+ * ephemeral execution state and MUST NOT be wired into factory reset. Unlike
+ * that module's flat,
+ * LRU-bounded map, these three maps are NOT bounded — a long desktop session
+ * touching many threads/files/paths grows them unboundedly. Deliberately
+ * deferred (PR #2323 review): worth porting the same bounded-LRU treatment if
+ * this ever proves to matter in practice.
  */
 
 interface RepeatedToolCallState {
@@ -94,20 +103,42 @@ function getOrCreateScopeMap<T>(
   return created;
 }
 
-export function checkRepeatedToolCall(
+export interface RepeatedCallCheck {
+  readonly count: number;
+  readonly status: 'ok' | 'refuse' | 'warn';
+}
+
+/**
+ * READ-ONLY: what this tool call's identical-args streak WOULD become if it
+ * succeeds. Never mutates state — pair with `commitRepeatedToolCall` after
+ * the call actually produces a result. A call that THROWS must never advance
+ * the streak: "refused after N attempts with no new information, use the
+ * result already in context" is false when every attempt errored and there
+ * is no result in context (PR #2323 review).
+ */
+export function peekRepeatedToolCall(
   threadScope: string,
   toolId: string,
   args: unknown
-): { readonly count: number; readonly status: 'ok' | 'refuse' | 'warn' } {
-  const callsByTool = getOrCreateScopeMap(repeatedToolCalls, threadScope);
+): RepeatedCallCheck {
   const argsKey = stableNormalizedArgsKey(args);
-  const previous = callsByTool.get(toolId);
+  const previous = repeatedToolCalls.get(threadScope)?.get(toolId);
   const count = previous?.argsKey === argsKey ? previous.count + 1 : 1;
-  callsByTool.set(toolId, { argsKey, count });
   return {
     count,
     status: count >= 4 ? 'refuse' : count >= 3 ? 'warn' : 'ok',
   };
+}
+
+/** Commit the streak `count` a matching `peekRepeatedToolCall` computed — call ONLY after the call succeeds. */
+export function commitRepeatedToolCall(
+  threadScope: string,
+  toolId: string,
+  args: unknown,
+  count: number
+): void {
+  const callsByTool = getOrCreateScopeMap(repeatedToolCalls, threadScope);
+  callsByTool.set(toolId, { argsKey: stableNormalizedArgsKey(args), count });
 }
 
 export function buildRepeatedCallWarningText(toolId: string, count: number): string {
@@ -135,54 +166,68 @@ export function isLoopGuardRefusal(value: unknown): value is LoopGuardRefusalRes
   );
 }
 
-export function mergeHintWithWarning(
-  existingHint: string | undefined,
-  warningText: string
-): string {
-  return existingHint ? `${warningText} ${existingHint}` : warningText;
-}
-
 /**
- * Mechanism 1 for a `hint`-bearing result (grepSearch/globWorkspace): refuse
- * without running `run` at all on the 4th+ consecutive identical call, else
- * run it and fold a warning into its `hint` on the 3rd. `run`'s result is
- * mutated in place (never spread into a new object) so callers that tag the
- * SAME object elsewhere (e.g. WeakMap-keyed telemetry) keep that tag.
+ * Mechanism 1 (grepSearch/globWorkspace ONLY — see module docstring for why
+ * `readWorkspaceFile` is excluded): refuse without running `run` at all on
+ * the 4th+ consecutive identical call, else run it and stamp a THIRD-call
+ * warning as its own `loopGuardWarning` field. NOT folded into `hint`: the
+ * purpose-built grep/glob projectors only render `hint` when the page was NOT
+ * already trimmed by the output-char budget (`omittedByProjection`), so on
+ * exactly the large/expensive repeats this guard exists to stop, a
+ * `hint`-only warning would silently vanish (PR #2323 review). The projectors
+ * render `loopGuardWarning` as its own line unconditionally, the same way
+ * they already render `liveNote`/`probeNote`.
+ *
+ * The streak is committed ONLY after `run` resolves (never on a throw), and
+ * `run`'s result is mutated in place (never spread into a new object) so
+ * callers that tag the SAME object elsewhere (e.g. WeakMap-keyed telemetry)
+ * keep that tag.
  */
-export async function withRepeatedCallGuard<TResult extends { hint?: string }>(args: {
+export async function withRepeatedCallGuard<TResult extends { loopGuardWarning?: string }>(args: {
   readonly input: unknown;
   readonly run: () => Promise<TResult>;
   readonly threadScope: string;
   readonly toolId: string;
 }): Promise<LoopGuardRefusalResult | TResult> {
-  const loopGuard = checkRepeatedToolCall(args.threadScope, args.toolId, args.input);
-  if (loopGuard.status === 'refuse') {
-    return buildRepeatedCallRefusalResult(args.toolId, loopGuard.count);
+  const peek = peekRepeatedToolCall(args.threadScope, args.toolId, args.input);
+  if (peek.status === 'refuse') {
+    return buildRepeatedCallRefusalResult(args.toolId, peek.count);
   }
   const result = await args.run();
-  if (loopGuard.status === 'warn') {
-    result.hint = mergeHintWithWarning(
-      result.hint,
-      buildRepeatedCallWarningText(args.toolId, loopGuard.count)
-    );
+  commitRepeatedToolCall(args.threadScope, args.toolId, args.input, peek.count);
+  if (peek.status === 'warn') {
+    result.loopGuardWarning = buildRepeatedCallWarningText(args.toolId, peek.count);
   }
   return result;
 }
 
 export function readWindowKey(args: {
   readonly endLine: number | null | undefined;
+  readonly maxChars: number;
   readonly path: string;
   readonly rootId: string;
   readonly startLine: number | null | undefined;
 }): string {
   return stableNormalizedArgsKey({
     endLine: args.endLine ?? null,
+    maxChars: args.maxChars,
     path: args.path,
     rootId: args.rootId,
     startLine: args.startLine ?? null,
   });
 }
 
+/**
+ * Mechanism 2 (`readWorkspaceFile` only): call ONLY after the caller has
+ * already built a successful, NON-TRUNCATED page for this exact request —
+ * never before or on a request that returned only part of the window (PR
+ * #2323 review: recording an observation for a call that later fails to
+ * produce a page falsely primes the NEXT retry to look like a repeat, and
+ * stubbing away a truncated page would silently discard the reader's only
+ * `nextCursor` to the rest of the file). Always mutates — this is the commit,
+ * there is no separate peek, because by the time it is called the read has
+ * already succeeded.
+ */
 export function checkUnchangedReadWindow(
   threadScope: string,
   windowKey: string,

@@ -146,6 +146,31 @@ vi.mock('@brainstrike/settings-ui/settings-page-content', async (importOriginal)
     await importOriginal<typeof import('@brainstrike/settings-ui/settings-page-content')>();
   return {
     ...actual,
+    SettingsPageContent: ({
+      categories,
+    }: {
+      categories: MockSettingsCategory[];
+      defaultCategoryId?: string;
+    }) => {
+      mockState.renderedCategoryIds = categories.map((category) => category.id);
+      return (
+        <div data-testid="settings-layout">
+          {categories.map((category) => (
+            <section data-testid={`category-${category.id}`} key={category.id}>
+              {category.content}
+            </section>
+          ))}
+        </div>
+      );
+    },
+  };
+});
+
+vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/settings-ui/settings-category-factories')>();
+  return {
+    ...actual,
     createAppearanceSettingsCategory: (): MockSettingsCategory => ({
       content: <div data-testid="appearance-category" />,
       id: 'appearance',
@@ -166,23 +191,6 @@ vi.mock('@brainstrike/settings-ui/settings-page-content', async (importOriginal)
       id: 'token-counting',
       title: 'Token Counting',
     }),
-    SettingsPageContent: ({
-      categories,
-    }: {
-      categories: MockSettingsCategory[];
-      defaultCategoryId?: string;
-    }) => {
-      mockState.renderedCategoryIds = categories.map((category) => category.id);
-      return (
-        <div data-testid="settings-layout">
-          {categories.map((category) => (
-            <section data-testid={`category-${category.id}`} key={category.id}>
-              {category.content}
-            </section>
-          ))}
-        </div>
-      );
-    },
   };
 });
 

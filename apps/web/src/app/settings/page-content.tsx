@@ -37,6 +37,8 @@ import {
   createSearchIndexingSettingsCategory,
   createSubagentPersonasSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
+} from '@brainstrike/settings-ui/settings-category-factories';
+import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/settings-ui/settings-page-content';

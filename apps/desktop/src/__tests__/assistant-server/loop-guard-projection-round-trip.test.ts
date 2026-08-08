@@ -1,14 +1,17 @@
 import {
   applyToolModelOutputProjections,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  GrepFileSummary,
+  GrepToolResult,
+} from '../../assistant-server/grep-search-result-contract';
 import {
   buildRepeatedCallRefusalResult,
-  buildRepeatedCallWarningText,
-  checkRepeatedToolCall,
-  mergeHintWithWarning,
   resetToolCallLoopGuards,
+  withRepeatedCallGuard,
 } from '../../assistant-server/tool-call-loop-guards';
 import {
   projectGlobWorkspaceModelOutput,
@@ -18,42 +21,56 @@ import {
 /**
  * BST-1188 loop guards: proof that the repeated-identical-call warning and
  * refusal survive the REAL grep/glob projectors (workspace-search-model-projections.ts,
- * grep-search-result-contract.ts — neither file is touched by BST-1188) and the
- * runtime dispatcher's fail-soft path. Split from workspace-search-model-projections.test.ts
- * (BST-1185/BST-1191) to stay under the file's own 1000-line lint ceiling; the
- * projector functions under test are unchanged by this split.
+ * grep-search-result-contract.ts) and the runtime dispatcher's fail-soft path.
+ * Split from workspace-search-model-projections.test.ts (BST-1185/BST-1191) to
+ * stay under the file's own 1000-line lint ceiling; the projector functions
+ * under test are unchanged by this split.
  *
- * - The warning is folded into the result's `hint` (the only field these
- *   purpose-built projectors always render when truthy — an arbitrary extra
- *   key is dropped).
+ * - The warning is its OWN `loopGuardWarning` field, rendered as its own
+ *   `warning:` line UNCONDITIONALLY — never folded into `hint`, which the
+ *   continuation logic skips whenever the page was already trimmed by the
+ *   output-char budget (PR #2323 review: exactly the large/expensive
+ *   repeats this guard exists to stop).
  * - The refusal object (no `outputMode`) is REJECTED by the parsers and
  *   degrades through the SAME fail-soft dispatcher path
  *   workspace-search-model-projections.test.ts proves for other malformed
  *   shapes, rather than throwing and failing the run.
+ * - `withRepeatedCallGuard` never calls `run` on the 4th+ consecutive call
+ *   (drives these tests through the ACTUAL production entry point, not just
+ *   the underlying peek/commit primitives).
  */
 describe('BST-1188 loop-guard warning/refusal projection round trip', () => {
   beforeEach(() => {
     resetToolCallLoopGuards();
   });
 
-  it('renders third-call warnings folded into grep and glob hints, alongside any existing hint', () => {
-    const grepArgs = { pattern: 'needle' };
-    const globArgs = { pattern: '*.ts' };
-    let grepCall = checkRepeatedToolCall('thread-warning', 'brainstrike.grepSearch', grepArgs);
-    let globCall = checkRepeatedToolCall('thread-warning', 'brainstrike.globWorkspace', globArgs);
-    for (let count = 0; count < 2; count += 1) {
-      grepCall = checkRepeatedToolCall('thread-warning', 'brainstrike.grepSearch', grepArgs);
-      globCall = checkRepeatedToolCall('thread-warning', 'brainstrike.globWorkspace', globArgs);
+  async function grepCallsUntil(
+    threadScope: string,
+    input: unknown,
+    result: () => GrepToolResult,
+    times: number
+  ): Promise<Awaited<ReturnType<typeof withRepeatedCallGuard<GrepToolResult>>>> {
+    let last: Awaited<ReturnType<typeof withRepeatedCallGuard<GrepToolResult>>> | undefined;
+    for (let attempt = 0; attempt < times; attempt += 1) {
+      last = await withRepeatedCallGuard({
+        input,
+        run: () => Promise.resolve(result()),
+        threadScope,
+        toolId: 'brainstrike.grepSearch',
+      });
     }
-    expect(grepCall).toEqual({ count: 3, status: 'warn' });
-    expect(globCall).toEqual({ count: 3, status: 'warn' });
+    if (!last) {
+      throw new Error('grepCallsUntil requires times > 0');
+    }
+    return last;
+  }
 
-    const grepWarning = buildRepeatedCallWarningText('brainstrike.grepSearch', grepCall.count);
-    const globWarning = buildRepeatedCallWarningText('brainstrike.globWorkspace', globCall.count);
-    const grepProjected = projectGrepSearchModelOutput({
+  it('renders the third-call warning as its own line on a healthy result', async () => {
+    const args = { pattern: 'needle' };
+    const buildHealthy = (): GrepToolResult => ({
       candidatesTruncated: false,
       files: [],
-      hint: mergeHintWithWarning('Existing grep guidance.', grepWarning),
+      hint: 'Existing grep guidance.',
       liveEngine: 'ripgrep',
       offset: 0,
       outputMode: 'files',
@@ -62,20 +79,102 @@ describe('BST-1188 loop-guard warning/refusal projection round trip', () => {
       totalMatches: 0,
       truncated: false,
     });
-    const globProjected = projectGlobWorkspaceModelOutput({
-      count: 0,
-      hint: mergeHintWithWarning('Existing glob guidance.', globWarning),
-      matches: [],
+
+    const warned = await grepCallsUntil('thread-warning', args, buildHealthy, 3);
+
+    expect('loopGuardWarning' in warned && warned.loopGuardWarning).toContain(
+      'made this exact brainstrike.grepSearch call 3 times in a row'
+    );
+    const projected = projectGrepSearchModelOutput(warned);
+    expect(projected.value).toContain('warning: You have made this exact');
+    // The pre-existing hint (real continuation guidance) must survive
+    // alongside the warning — the warning is an ADDITIONAL line, not a
+    // replacement.
+    expect(projected.value).toContain('Existing grep guidance.');
+  });
+
+  it('still renders the warning when the page overflows the char budget and the hint is suppressed', async () => {
+    // Mirrors workspace-search-model-projections.test.ts's own "fits a
+    // maximum grep page to the domain ceiling" fixture: enough long-path
+    // items that the projector's own budget-fit loop drops items and
+    // switches the continuation line to the `offset=` form — the exact
+    // condition under which a `hint`-borne warning previously vanished
+    // (PR #2323 review).
+    const args = { pattern: 'needle' };
+    const buildOverflowing = (): GrepToolResult => ({
+      candidatesTruncated: false,
+      files: Array.from({ length: 50 }, (_, index) => ({
+        firstLine: index + 1,
+        matchCount: index + 2,
+        path: `/very/long/generated/path/${String(index).padStart(3, '0')}-${'x'.repeat(80)}.ts`,
+        rootId: `root-${index % 2}`,
+        rootName: index % 2 === 0 ? 'alpha' : 'beta',
+        source: 'both' as const,
+      })) satisfies GrepFileSummary[],
+      liveEngine: 'ripgrep',
       offset: 0,
+      openRoots: 2,
+      outputMode: 'files',
       scanLimited: false,
-      totalMatches: 0,
+      totalFiles: 50,
+      totalMatches: 20_000,
       truncated: false,
     });
 
-    expect(grepProjected.value).toContain(grepWarning);
-    expect(grepProjected.value).toContain('Existing grep guidance.');
-    expect(globProjected.value).toContain(globWarning);
-    expect(globProjected.value).toContain('Existing glob guidance.');
+    const warned = await grepCallsUntil('thread-overflow', args, buildOverflowing, 3);
+    const projected = projectGrepSearchModelOutput(warned);
+
+    expect(serializedCharsOf(projected)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    // Proves this candidate really did hit the omitted-by-projection path
+    // (offset-form continuation), the branch that discards `hint`.
+    expect(projected.value).toMatch(
+      /continue: reuse the prior brainstrike\.grepSearch input with offset=\d+$/
+    );
+    expect(projected.value).toContain('warning: You have made this exact');
+  });
+
+  function serializedCharsOf(value: unknown): number {
+    return JSON.stringify(value).length;
+  }
+
+  it('never calls run on the 4th+ consecutive identical call', async () => {
+    const args = { pattern: 'needle' };
+    const run = vi.fn(
+      (): Promise<GrepToolResult> =>
+        Promise.resolve({
+          candidatesTruncated: false,
+          files: [],
+          liveEngine: 'ripgrep',
+          offset: 0,
+          outputMode: 'files',
+          scanLimited: false,
+          totalFiles: 0,
+          totalMatches: 0,
+          truncated: false,
+        })
+    );
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await withRepeatedCallGuard({
+        input: args,
+        run,
+        threadScope: 'thread-skip',
+        toolId: 'brainstrike.grepSearch',
+      });
+    }
+    expect(run).toHaveBeenCalledTimes(3);
+
+    const fourth = await withRepeatedCallGuard({
+      input: args,
+      run,
+      threadScope: 'thread-skip',
+      toolId: 'brainstrike.grepSearch',
+    });
+
+    expect(run).toHaveBeenCalledTimes(3); // NOT 4 — the guard skipped it.
+    expect(fourth).toMatchObject({ ok: false, refused: true });
   });
 
   it('rejects fourth-call refusal objects with the typed projector marker', () => {

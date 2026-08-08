@@ -32,6 +32,16 @@ interface GrepToolResultBase {
   hint?: string;
   liveEngine: 'ripgrep' | 'js-walk' | 'skipped';
   liveNote?: string;
+  /**
+   * BST-1188: set only by the repeated-identical-call loop guard on the 3rd
+   * consecutive identical grepSearch call in a thread. Rendered as its OWN
+   * `warning:` line — unlike `hint`, which the projection skips whenever the
+   * page was already trimmed by the output-char budget, so a guard warning
+   * folded into `hint` would silently vanish exactly on the large/expensive
+   * repeats it exists to stop (PR #2323 review). Never producer-set outside
+   * `tool-call-loop-guards.ts`.
+   */
+  loopGuardWarning?: string;
   offset: number;
   /**
    * Count of OPEN workspace roots, present only when more than one folder is
@@ -41,6 +51,12 @@ interface GrepToolResultBase {
    * several are open, and the model still needs the root selector then).
    */
   openRoots?: number;
+  /**
+   * BST-1194: set only for a genuine zero-match result when a bounded steering
+   * probe (case, literal-vs-regex, or excluded path) finds missed matches. The
+   * model projection renders it as an additional `note:` line.
+   */
+  probeNote?: string;
   scanLimited: boolean;
   totalMatches: number;
   truncated: boolean;
@@ -106,7 +122,10 @@ function rejectField(path: string, expected: string, value: unknown): never {
   );
 }
 
-function requireOptionalString(record: Record<string, unknown>, field: 'hint' | 'liveNote'): void {
+function requireOptionalString(
+  record: Record<string, unknown>,
+  field: 'hint' | 'liveNote' | 'loopGuardWarning' | 'probeNote'
+): void {
   const value = record[field];
   if (value !== undefined && typeof value !== 'string') {
     rejectField(field, 'string or absent', value);
@@ -146,6 +165,8 @@ function requireGrepBase(record: Record<string, unknown>): void {
   }
   requireOptionalString(record, 'hint');
   requireOptionalString(record, 'liveNote');
+  requireOptionalString(record, 'probeNote');
+  requireOptionalString(record, 'loopGuardWarning');
   if (!isNonNegativeInteger(record['offset'])) {
     rejectField('offset', 'non-negative integer', record['offset']);
   }

@@ -699,50 +699,6 @@ export async function runReadWorkspaceFile(
       requestedPath,
       workspacePath: resolved.workspacePath,
     });
-    if (loopGuard && continuationCursor === null) {
-      const unchangedRead = checkUnchangedReadWindow(
-        loopGuard.threadScope,
-        readWindowKey({
-          endLine: input.endLine,
-          path: file.path,
-          rootId: root.rootId,
-          startLine: input.startLine,
-        }),
-        file.mtimeMs
-      );
-      if (unchangedRead.status !== 'fresh') {
-        // A deduplicated/refused read still confirms that the model's existing
-        // view matches the current file. Preserve that observation so the next
-        // edit does not fail the read-before-write staleness guard incorrectly.
-        recordKnownFileMtime(loopGuard.threadScope, file.absolutePath, file.mtimeMs);
-        if (unchangedRead.status === 'refuse') {
-          return buildRepeatedCallRefusalResult(
-            NATIVE_TOOL_ID.readWorkspaceFile,
-            unchangedRead.count
-          );
-        }
-        const startLine = Math.max(1, Math.min(input.startLine ?? 1, file.totalLines));
-        const endLine = Math.max(
-          startLine,
-          Math.min(input.endLine ?? file.totalLines, file.totalLines)
-        );
-        return {
-          approxOutputTokens: countTokensHeuristic(UNCHANGED_READ_STUB_MESSAGE),
-          content: UNCHANGED_READ_STUB_MESSAGE,
-          dedup: true,
-          endLine,
-          nextCursor: null,
-          omittedChars: 0,
-          path: file.path,
-          rootName: root.displayName,
-          size: file.size,
-          startLine,
-          tokenCount: null,
-          totalLines: file.totalLines,
-          truncated: false,
-        };
-      }
-    }
     const pageRequest = resolveReadWorkspaceFilePageRequest({
       cursor: continuationCursor,
       cursorLineLength: file.cursorLineLength,
@@ -816,6 +772,60 @@ export async function runReadWorkspaceFile(
       maxChars,
       startPosition,
     });
+
+    // BST-1188 loop guard (report PR #2323 review): checked ONLY after a
+    // page has ALREADY been built successfully, and ONLY for a non-truncated
+    // page. Checking any earlier — e.g. right after the file scan, before
+    // `fitReadWorkspaceFileResult` can still throw (a `maxChars` too small to
+    // advance) — would falsely record an observation for a call that never
+    // produced a page, priming the model's very next (corrected) retry to
+    // look like a repeat of a read that never happened. Skipping a TRUNCATED
+    // page keeps the dedup stub from ever discarding the only `nextCursor`
+    // pointer to the rest of a large file: the stub always exists rather than
+    // resend content, and a partial page is not "the results have not
+    // changed" — it is the same partial slice the model would keep needing to
+    // page past regardless.
+    if (loopGuard && continuationCursor === null && !selected.result.truncated) {
+      const unchangedRead = checkUnchangedReadWindow(
+        loopGuard.threadScope,
+        readWindowKey({
+          endLine: input.endLine,
+          maxChars,
+          path: file.path,
+          rootId: root.rootId,
+          startLine: input.startLine,
+        }),
+        file.mtimeMs
+      );
+      if (unchangedRead.status !== 'fresh') {
+        // A deduplicated/refused read still confirms that the model's existing
+        // view matches the current file. Preserve that observation so the next
+        // edit does not fail the read-before-write staleness guard incorrectly.
+        recordKnownFileMtime(loopGuard.threadScope, file.absolutePath, file.mtimeMs);
+        if (unchangedRead.status === 'refuse') {
+          return buildRepeatedCallRefusalResult(
+            NATIVE_TOOL_ID.readWorkspaceFile,
+            unchangedRead.count
+          );
+        }
+        return {
+          approxOutputTokens: countTokensHeuristic(UNCHANGED_READ_STUB_MESSAGE),
+          content: UNCHANGED_READ_STUB_MESSAGE,
+          dedup: true,
+          endLine: selected.result.endLine,
+          nextCursor: null,
+          omittedChars: 0,
+          path: file.path,
+          rootName: root.displayName,
+          size: file.size,
+          startLine: selected.result.startLine,
+          tokenCount: null,
+          totalLines: file.totalLines,
+          truncated: false,
+        };
+      }
+    }
+
     return finishSuccessfulRead(selected.page, selected.result);
   });
 }

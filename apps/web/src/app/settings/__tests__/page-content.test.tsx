@@ -8,9 +8,9 @@ vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => (
   ModelSelectionPage: vi.fn(() => <div data-testid="model-selection-page-mock" />),
 }));
 
-vi.mock('@brainstrike/settings-ui/settings-page-content', async (importOriginal) => {
+vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@brainstrike/settings-ui/settings-page-content')>();
+    await importOriginal<typeof import('@brainstrike/settings-ui/settings-category-factories')>();
   return {
     ...actual,
     createAppearanceSettingsCategory: vi.fn(() => ({
