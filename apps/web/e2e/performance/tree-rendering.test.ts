@@ -6,12 +6,18 @@ import {
   persistCurrentExplorerStoreSnapshot,
   restoreInlineFixture,
 } from '../utils/file-explorer-restoration';
-import { waitForAppLoad } from '../utils/layout-helpers';
+import {
+  CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
+  getContextExplorerRightResizeHandle,
+  waitForAppLoad,
+} from '../utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
 test.describe('Performance: Tree Rendering', () => {
   const restoredResizeObserverRootName = 'restored-resize-observer-test';
+  const rootIdPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
   // Create a large file tree for stress testing
   const createLargeFileTree = (depth: number, breadth: number): FileTree => {
@@ -42,6 +48,23 @@ test.describe('Performance: Tree Rendering', () => {
     }
 
     return tree;
+  };
+
+  const widenExplorerPanel = async (page: Page): Promise<void> => {
+    const panel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
+    const resizeHandle = getContextExplorerRightResizeHandle(page);
+    const handleBox = await resizeHandle.boundingBox();
+    if (!handleBox) {
+      throw new Error('Explorer resize handle was unavailable.');
+    }
+
+    const startX = handleBox.x + handleBox.width / 2;
+    const startY = handleBox.y + handleBox.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX - 320, startY, { steps: 20 });
+    await page.mouse.up();
+    await expect.poll(() => panel.evaluate((element) => element.clientWidth)).toBeGreaterThan(280);
   };
 
   const installResizeObserverTracker = async (page: Page) => {
@@ -487,11 +510,8 @@ test.describe('Performance: Tree Rendering', () => {
     expect(await stopObservingExpandAllSpinner(page)).toBe(false);
   });
 
-  // BST-1044: stale spec unmasked by lifting --max-failures (asserts the
-  // pre-uuid roots-identity contract). Un-fixme with the ticket.
-  test.fixme('restored fixed-height tree rows do not register row resize observers', async ({
-    page,
-  }) => {
+  // BST-1044: restored explorer state is keyed by durable RootId UUID.
+  test('restored fixed-height tree rows do not register row resize observers', async ({ page }) => {
     await setupRestoredResizeObserverTree(page);
     const tree = createExpandAllPerfTree(24, 10);
     const explorer = new FileExplorerPage(page);
@@ -501,7 +521,8 @@ test.describe('Performance: Tree Rendering', () => {
     await expect(page.getByTestId('expand-all-button-small')).toBeEnabled({ timeout: 30_000 });
 
     const persistedSnapshot = await persistCurrentExplorerStoreSnapshot(page);
-    expect(persistedSnapshot.currentFolderId).toBe(restoredResizeObserverRootName);
+    expect(persistedSnapshot.currentFolderId).not.toBe(restoredResizeObserverRootName);
+    expect(persistedSnapshot.currentFolderId).toMatch(rootIdPattern);
     expect(persistedSnapshot.topLevelExpandedCount).toBeGreaterThan(0);
     expect(persistedSnapshot.folderExpandedCount).toBeGreaterThan(0);
 
@@ -526,18 +547,16 @@ test.describe('Performance: Tree Rendering', () => {
     expect(await getObservedVirtualRowCount(page)).toBe(0);
   });
 
-  // BST-1044: stale spec unmasked by lifting --max-failures (cancel races a
-  // now-faster expand-all). Un-fixme with the ticket.
-  test.fixme('cancel during expand-all leaves a valid partially expanded tree', async ({
-    page,
-  }) => {
+  // BST-1044: keep the traversal cancellable long enough to assert partial state.
+  test('cancel during expand-all leaves a valid partially expanded tree', async ({ page }) => {
     const tree = createExpandAllPerfTree(12, 6);
     await mockBrowserApis(page, 'expand-all-cancel-test', tree, {
-      directoryReadDelayMs: 25,
+      directoryReadDelayMs: 250,
     });
 
     const home = new HomePage(page);
     await home.goto();
+    await widenExplorerPanel(page);
 
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
