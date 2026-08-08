@@ -343,6 +343,26 @@ function buildSearchInstruction(names: ModelFacingToolNames): string {
 }
 
 /**
+ * General parallel-call guidance. Emitted when at least one read, search, or
+ * command tool is registered, without advertising unavailable tool names.
+ */
+function buildParallelCallInstruction(names: ModelFacingToolNames): string {
+  const hasRelevantTool = [
+    names.grepSearch,
+    names.readWorkspaceFile,
+    names.globWorkspace,
+    names.executeCommand,
+    names.readWorkspaceDirectory,
+    names.hybridSearch,
+    names.queryEmbeddingSpace,
+  ].some(Boolean);
+  if (!hasRelevantTool) {
+    return '';
+  }
+  return 'Before using tools, identify every independent read, search, or command needed for the next step and issue those calls together in one turn instead of splitting them across turns.';
+}
+
+/**
  * Guidance for the shell execution tool. Emitted only when the tool is
  * available (the permission policy did not deny it), so an unavailable verb is
  * never advertised. The wording is honest: there is NO sandbox, and by default
@@ -353,7 +373,17 @@ function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
   if (!names.executeCommand) {
     return '';
   }
-  return `${names.executeCommand} runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.`;
+  const boundedRoutes = [
+    names.readWorkspaceFile ? `${names.readWorkspaceFile} over cat/head/tail` : '',
+    names.grepSearch ? `${names.grepSearch} over grep/rg` : '',
+    names.globWorkspace ? `${names.globWorkspace} over find` : '',
+    names.readWorkspaceDirectory ? `${names.readWorkspaceDirectory} over ls` : '',
+  ].filter(Boolean);
+  const routingClause =
+    boundedRoutes.length > 0
+      ? ` For bounded filesystem access, prefer ${boundedRoutes.join('; ')}.`
+      : '';
+  return `${names.executeCommand} runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.${routingClause}`;
 }
 
 /**
@@ -539,6 +569,7 @@ export function buildDefaultInstructions(
     : '';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
+  const parallelCallInstruction = buildParallelCallInstruction(names);
   const hybridSearchClause = names.hybridSearch
     ? `Use ${names.hybridSearch} when a lookup mixes conceptual intent with distinctive exact terms.`
     : '';
@@ -640,6 +671,7 @@ export function buildDefaultInstructions(
     curationInstruction,
     selectionLine,
     'Keep retrieval budgets small. If truncated: true, follow its hint to fetch only missing data and report consequential omissions.',
+    parallelCallInstruction,
     'Issue independent read-only lookups together in one step.',
     'If an expected native tool is unavailable, name its ID; use an alternative only if it still answers the user.',
     'When asked, list callable tool IDs with brief descriptions.',

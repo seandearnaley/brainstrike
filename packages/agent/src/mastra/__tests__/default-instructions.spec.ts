@@ -403,6 +403,26 @@ describe('grep-first search orientation', () => {
   });
 });
 
+describe('parallel tool-call guidance', () => {
+  it('advertises next-step parallelism when a read, search, or command tool is registered', () => {
+    const instructions = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_readWorkspaceFile', 'brainstrike.readWorkspaceFile']])
+    );
+
+    expect(instructions).toContain(
+      'Before using tools, identify every independent read, search, or command needed for the next step and issue those calls together in one turn instead of splitting them across turns.'
+    );
+  });
+
+  it('omits next-step parallelism when no read, search, or command tool is registered', () => {
+    const instructions = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_manageCanvas', 'brainstrike.manageCanvas']])
+    );
+
+    expect(instructions).not.toContain('identify every independent read, search, or command');
+  });
+});
+
 describe('cross-tool safety guidance', () => {
   it('keeps unsandboxed-command and external-web privacy warnings after compaction', () => {
     const instructions = buildDefaultInstructions(
@@ -419,6 +439,35 @@ describe('cross-tool safety guidance', () => {
     expect(instructions).toContain('EXTERNAL service');
     expect(instructions).toContain('never include secrets or private workspace content');
     expect(instructions).toContain('both indexed and live on-disk content');
+    expect(instructions).toContain(
+      'For bounded filesystem access, prefer grepSearch over grep/rg.'
+    );
+    expect(instructions).not.toContain('cat/head/tail');
+    expect(instructions).not.toContain('over find');
+    expect(instructions).not.toContain('over ls');
+  });
+
+  it('routes shell filesystem commands only through registered bounded tools', () => {
+    const withBoundedTools = buildDefaultInstructions(
+      new Map<string, string>([
+        ['cmd', 'brainstrike.executeCommand'],
+        ['read', 'brainstrike.readWorkspaceFile'],
+        ['grep', 'brainstrike.grepSearch'],
+        ['glob', 'brainstrike.globWorkspace'],
+        ['list', 'brainstrike.readWorkspaceDirectory'],
+      ])
+    );
+    expect(withBoundedTools).toContain(
+      'For bounded filesystem access, prefer read over cat/head/tail; grep over grep/rg; glob over find; list over ls.'
+    );
+
+    const shellOnly = buildDefaultInstructions(
+      new Map<string, string>([['cmd', 'brainstrike.executeCommand']])
+    );
+    expect(shellOnly).toContain(
+      'cmd runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.'
+    );
+    expect(shellOnly).not.toContain('For bounded filesystem access');
   });
 
   it('routes activated skill scripts through the typed tool and recovers from decline with native writes', () => {
