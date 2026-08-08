@@ -139,6 +139,11 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   throws on unknown kinds, so the contract enum MUST ship before any emitter.
   Metadata carries ids/labels ONLY (`parentToolCallId`, `personaId`,
   `toolCallId`, `toolName`) — never args/results (the sanitizer strips those).
+
+  Subagent tool calls ALSO feed the SAME per-tool token telemetry as primary
+  tool calls, attributed to the parent run (BST-1196); see
+  assistant-persistence.md, `## TOOL-CALL TOKEN TELEMETRY`. This closes the
+  BST-1190 follow-up gap without a separate child telemetry path.
 - **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry
   (tool-output-limits.ts) so an oversized delegation result trims structurally
   (truncated + hint) instead of a hard size error.

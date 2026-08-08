@@ -1106,6 +1106,14 @@ failure, and never accepts raw input/output fields. The renderer lazy-bootstrap
 mirrors migration 083 byte-for-byte because its thread-delete CTE references
 every registered sidecar unconditionally, even though it never writes rows.
 
+Subagent/persona-delegated tool calls attribute to this same table under the
+PARENT run's `run_id`/`thread_id` (BST-1196): `agent-runtime.ts` projects the
+child tool map through the SAME `RunTokenDiagnostics` observer as the primary
+tool map, so samples ride the existing run-end `tool-call-telemetry` drain with
+no new `StreamChunk` type or schema change. The table currently has NO origin
+discriminator beyond each sample's `toolId`; a per-persona/per-origin breakdown
+would require a migration and remains deliberate future work, not implemented.
+
 The table is FK-less because numbered migrations cannot depend on lazy Mastra
 parents. `THREAD_DELETE_SIDECAR_TABLES` removes thread rows; the reset registry
 owns all three table-enumerating reset paths. The shipped
