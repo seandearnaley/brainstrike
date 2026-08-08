@@ -1091,11 +1091,14 @@ of that review; do not relitigate without re-reading it).
   which always re-reads the file first and can therefore never go stale that
   way.
 - **The streak only advances on a call that PRODUCES a result.**
-  `peekRepeatedToolCall` is read-only (never mutates); `withRepeatedCallGuard`
-  calls it BEFORE `run`, then calls the mutating `commitRepeatedToolCall` only
-  AFTER `run` resolves. A call that throws (transient ripgrep/fs error) is
-  never committed, so it never advances the streak and never falsely tells the
-  model "the result already in context" when no attempt ever produced one.
+  `peekRepeatedToolCall` is read-only with respect to the observable streak
+  (it never mutates `repeatedToolCalls`); `withRepeatedCallGuard` calls it
+  BEFORE `run`, then calls the mutating `commitRepeatedToolCall` only AFTER
+  `run` resolves. A call that throws (transient ripgrep/fs error) is never
+  committed, so it never advances the streak and never falsely tells the model
+  "the result already in context" when no attempt ever produced one. The peek
+  does separately promote cross-mechanism thread-scope LRU bookkeeping, as
+  detailed under the bounded-state ruling below.
 - **The warning is its own field, never folded into `hint`.** The grep/glob
   purpose-built projectors' continuation logic returns its offset-form
   continuation (and skips `hint` entirely) whenever the page was already
@@ -1172,17 +1175,31 @@ of that review; do not relitigate without re-reading it).
   maps are process-local and `resetToolCallLoopGuards` is exported ONLY for test
   isolation; this mirrors `packages/agent/src/tools/file-read-state.ts` and its
   `resetFileReadState` and MUST NOT be wired into factory reset. Each per-thread
-  map holds at most 8 keys, using that module's insertion-order,
-  delete-then-set LRU-on-write technique. One shared activity tracker across
-  all three mechanisms holds at most 256 thread scopes; overflow evicts the
-  least-recently-active scope from every store. These bounds are lossless for
-  immediate-repeat detection: every call re-touches its exact tool, read-window,
-  or path identity, so a genuine streak remains hot and cannot be evicted. A
-  key is forgotten only after 8 other identities intervene, when the calls are
-  no longer meaningfully in a row and restarting at fresh/one is correct. The
-  same argument holds one level up: a scope inactive behind 256 other active
-  threads is not in the middle of a loop-guard-relevant streak, so its next
-  call correctly starts fresh.
+  map holds at most the exported `MAX_KEYS_PER_THREAD_SCOPE` (256) keys, using
+  that module's insertion-order, delete-then-set LRU-on-write technique. One
+  shared activity tracker across all three mechanisms holds at most the
+  exported `MAX_TRACKED_THREAD_SCOPES` (256) thread scopes; overflow evicts the
+  least-recently-active scope from every store. The unchanged-read and
+  edit-failure mechanisms are intentionally whole-thread, non-consecutive
+  dedup: their designed behavior is for a key to survive arbitrary unrelated
+  activity between touches. A tight 8-key cap defeated that behavior in
+  ordinary multi-file sessions (PR #2332 review), so 256 preserves useful
+  history while remaining bounded. Repeated-tool state only has grepSearch and
+  globWorkspace entries in practice (at most a couple per thread), making the
+  same generous cap harmless headroom there.
+
+  Every write path (`commitRepeatedToolCall`, `checkUnchangedReadWindow`, and
+  `recordEditFailure`) promotes its scope through `getOrCreateScopeMap`, and the
+  read path (`peekRepeatedToolCall`) promotes it through the same shared
+  `touchThreadScope`. The read-path touch is required because a refused call
+  returns before commit: without it, a thread actively stuck in a refuse-only
+  loop could be evicted as falsely idle and have its refusal silently undone
+  (PR #2332 review, threads 1 and 3). This promotion changes only LRU
+  bookkeeping; peeking still never advances the observable successful-call
+  streak. The bounds remain lossless: a key or scope is forgotten only after
+  `MAX_KEYS_PER_THREAD_SCOPE` or `MAX_TRACKED_THREAD_SCOPES` OTHER identities
+  are touched in between, respectively. At that point the activity is no
+  longer meaningfully contiguous, so restarting at fresh/one is correct.
 
 Paired proofs live in `tool-call-loop-guards.test.ts`,
 `loop-guard-projection-round-trip.test.ts`,

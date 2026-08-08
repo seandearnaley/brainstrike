@@ -17,12 +17,19 @@
  * for the desktop main-process lifetime, and the reset export exists ONLY for
  * test isolation. It is ephemeral execution state, not persisted application
  * state, and MUST NOT be wired into factory reset. BST-1197 bounds each inner
- * map at 8 keys with insertion-order LRU-on-write eviction (delete, then set)
- * and bounds the shared outer activity set at 256 thread scopes, evicting the
- * least-recently-active scope from all three stores. This is lossless for an
- * immediate-repeat guard: every call refreshes its identity, so a live streak
- * stays hot; state disappears only after 8 other identities intervene. A
- * thread inactive behind 256 other active scopes likewise correctly restarts.
+ * map at the exported `MAX_KEYS_PER_THREAD_SCOPE` (256) with insertion-order
+ * LRU-on-write eviction (delete, then set), and bounds the shared outer
+ * activity set at the exported `MAX_TRACKED_THREAD_SCOPES` (256). Mechanisms
+ * 2 (`unchangedReadWindows`) and 3 (`editFailureStreaks`) intentionally dedup
+ * across unrelated whole-thread activity, so their generous key cap preserves
+ * useful multi-file history; mechanism 1 only has grep/glob entries in
+ * practice, so the same cap is harmless headroom. Every write path promotes
+ * its scope through `getOrCreateScopeMap`, while `peekRepeatedToolCall` also
+ * promotes through `touchThreadScope` so a refuse-only loop cannot be evicted
+ * as falsely idle before it reaches a commit. A key or scope is forgotten only
+ * after the corresponding cap's worth of OTHER identities are touched in
+ * between, when the activity is no longer meaningfully contiguous and
+ * restarting fresh is correct.
  */
 
 interface RepeatedToolCallState {
@@ -44,10 +51,10 @@ export interface LoopGuardRefusalResult {
 const repeatedToolCalls = new Map<string, Map<string, RepeatedToolCallState>>();
 const unchangedReadWindows = new Map<string, Map<string, UnchangedReadWindowState>>();
 const editFailureStreaks = new Map<string, Map<string, number>>();
-const threadScopeActivity = new Map<string, true>();
+const threadScopeActivity = new Set<string>();
 
-const MAX_KEYS_PER_THREAD_SCOPE = 8;
-const MAX_TRACKED_THREAD_SCOPES = 256;
+export const MAX_KEYS_PER_THREAD_SCOPE = 256;
+export const MAX_TRACKED_THREAD_SCOPES = 256;
 
 export const UNCHANGED_READ_STUB_MESSAGE =
   'File unchanged since last read — refer to the earlier readWorkspaceFile result in this conversation.';
@@ -105,14 +112,11 @@ function setBounded<K, V>(map: Map<K, V>, key: K, value: V, maxEntries: number):
   }
 }
 
-function getOrCreateScopeMap<T>(
-  store: Map<string, Map<string, T>>,
-  threadScope: string
-): Map<string, T> {
+function touchThreadScope(threadScope: string): void {
   threadScopeActivity.delete(threadScope);
-  threadScopeActivity.set(threadScope, true);
+  threadScopeActivity.add(threadScope);
   if (threadScopeActivity.size > MAX_TRACKED_THREAD_SCOPES) {
-    const oldest = threadScopeActivity.keys().next().value;
+    const oldest = threadScopeActivity.values().next().value;
     if (oldest !== undefined) {
       threadScopeActivity.delete(oldest);
       repeatedToolCalls.delete(oldest);
@@ -120,6 +124,13 @@ function getOrCreateScopeMap<T>(
       editFailureStreaks.delete(oldest);
     }
   }
+}
+
+function getOrCreateScopeMap<T>(
+  store: Map<string, Map<string, T>>,
+  threadScope: string
+): Map<string, T> {
+  touchThreadScope(threadScope);
   const existing = store.get(threadScope);
   if (existing) {
     return existing;
@@ -135,18 +146,25 @@ export interface RepeatedCallCheck {
 }
 
 /**
- * READ-ONLY: what this tool call's identical-args streak WOULD become if it
- * succeeds. Never mutates state — pair with `commitRepeatedToolCall` after
- * the call actually produces a result. A call that THROWS must never advance
- * the streak: "refused after N attempts with no new information, use the
- * result already in context" is false when every attempt errored and there
- * is no result in context (PR #2323 review).
+ * READ-ONLY with respect to the observable identical-args streak: reports
+ * what the streak WOULD become if the call succeeds, but never mutates
+ * `repeatedToolCalls`. Pair with `commitRepeatedToolCall` after the call
+ * actually produces a result. A call that THROWS must never advance the
+ * streak: "refused after N attempts with no new information, use the result
+ * already in context" is false when every attempt errored and there is no
+ * result in context (PR #2323 review).
+ *
+ * The peek does update the separate cross-mechanism thread-scope LRU. Refused
+ * calls never reach `commitRepeatedToolCall`, so this bookkeeping touch keeps
+ * a refuse-only loop from being evicted as falsely idle without advancing its
+ * successful-call streak (PR #2332 review).
  */
 export function peekRepeatedToolCall(
   threadScope: string,
   toolId: string,
   args: unknown
 ): RepeatedCallCheck {
+  touchThreadScope(threadScope);
   const argsKey = stableNormalizedArgsKey(args);
   const previous = repeatedToolCalls.get(threadScope)?.get(toolId);
   const count = previous?.argsKey === argsKey ? previous.count + 1 : 1;
