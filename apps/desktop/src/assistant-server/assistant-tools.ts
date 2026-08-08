@@ -90,6 +90,13 @@ import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runSkillScript } from './run-skill-script-tool';
 import {
+  buildRepeatedCallRefusalResult,
+  buildRepeatedCallWarningText,
+  checkRepeatedToolCall,
+  isLoopGuardRefusal,
+  mergeHintWithWarning,
+} from './tool-call-loop-guards';
+import {
   logToolFailure,
   parseToolExecuteInput,
   readToolCallId,
@@ -110,6 +117,7 @@ import {
   runUpdateWorkspaceContextSelection,
   runUpdateWorkspaceTapestrySelections,
 } from './workspace-context-tools';
+import { readStateScope } from './workspace-file-staleness';
 import {
   projectFindWorkspaceSymbolModelOutput,
   projectLspInspectModelOutput,
@@ -235,7 +243,25 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          return await runGrepSearch(resolvedInput, runtimeData);
+          const loopGuard = checkRepeatedToolCall(
+            readStateScope(runtimeData),
+            NATIVE_TOOL_ID.grepSearch,
+            resolvedInput
+          );
+          if (loopGuard.status === 'refuse') {
+            return buildRepeatedCallRefusalResult(NATIVE_TOOL_ID.grepSearch, loopGuard.count);
+          }
+          const result = await runGrepSearch(resolvedInput, runtimeData);
+          if (loopGuard.status === 'warn') {
+            return {
+              ...result,
+              hint: mergeHintWithWarning(
+                result.hint,
+                buildRepeatedCallWarningText(NATIVE_TOOL_ID.grepSearch, loopGuard.count)
+              ),
+            };
+          }
+          return result;
         } catch (error) {
           logToolFailure('grepSearch failed', error, resolvedInput);
           throw error;
@@ -253,7 +279,25 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          return await runGlobWorkspace(resolvedInput, runtimeData);
+          const loopGuard = checkRepeatedToolCall(
+            readStateScope(runtimeData),
+            NATIVE_TOOL_ID.globWorkspace,
+            resolvedInput
+          );
+          if (loopGuard.status === 'refuse') {
+            return buildRepeatedCallRefusalResult(NATIVE_TOOL_ID.globWorkspace, loopGuard.count);
+          }
+          const result = await runGlobWorkspace(resolvedInput, runtimeData);
+          if (loopGuard.status === 'warn') {
+            return {
+              ...result,
+              hint: mergeHintWithWarning(
+                result.hint,
+                buildRepeatedCallWarningText(NATIVE_TOOL_ID.globWorkspace, loopGuard.count)
+              ),
+            };
+          }
+          return result;
         } catch (error) {
           logToolFailure('globWorkspace failed', error, resolvedInput);
           throw error;
@@ -354,7 +398,34 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          return await runReadWorkspaceFile(resolvedInput, runtimeData, readFileCursorRegistry);
+          const threadScope = readStateScope(runtimeData);
+          const loopGuard = checkRepeatedToolCall(
+            threadScope,
+            NATIVE_TOOL_ID.readWorkspaceFile,
+            resolvedInput
+          );
+          if (loopGuard.status === 'refuse') {
+            return buildRepeatedCallRefusalResult(
+              NATIVE_TOOL_ID.readWorkspaceFile,
+              loopGuard.count
+            );
+          }
+          const result = await runReadWorkspaceFile(
+            resolvedInput,
+            runtimeData,
+            readFileCursorRegistry,
+            { threadScope }
+          );
+          if (loopGuard.status === 'warn' && !isLoopGuardRefusal(result) && result.dedup !== true) {
+            return {
+              ...result,
+              _warning: buildRepeatedCallWarningText(
+                NATIVE_TOOL_ID.readWorkspaceFile,
+                loopGuard.count
+              ),
+            };
+          }
+          return result;
         } catch (error) {
           logToolFailure('readWorkspaceFile failed', error, resolvedInput);
           throw error;

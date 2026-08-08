@@ -3,10 +3,12 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  getKnownFileMtime,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_INPUT_SCHEMAS,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type RuntimeData,
+  resetFileReadState,
   withFileLock,
 } from '@brainstrike/agent';
 import { ToolInputError, type ToolOutputArtifactReference } from '@brainstrike/assistant-contract';
@@ -20,6 +22,10 @@ import {
   type CommandSessionPayloadTransform,
 } from '../../assistant-server/command-session-tools';
 import { ReadWorkspaceFileCursorRegistry } from '../../assistant-server/read-workspace-file-cursor-registry';
+import {
+  resetToolCallLoopGuards,
+  UNCHANGED_READ_STUB_MESSAGE,
+} from '../../assistant-server/tool-call-loop-guards';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -138,6 +144,8 @@ describe('assistant-tools read tools', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetFileReadState();
+    resetToolCallLoopGuards();
     for (const id of trackedWindowIds) {
       clearWindowRoleByWebContentsId(id);
     }
@@ -551,6 +559,63 @@ describe('assistant-tools read tools', () => {
     expect(result.truncated).toBe(false);
     expect(result.nextCursor).toBeNull();
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
+  it('deduplicates an unchanged fresh read and preserves its staleness observation', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const threadId = 'unchanged-read-thread';
+
+    try {
+      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath, threadId));
+      const executeRead = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+      const executeWrite = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+      const first = await executeRead({ path: '/README.md' });
+      expect(first.content).toContain('# Test Workspace');
+
+      // Isolate the stub path's own staleness write from the first content read.
+      resetFileReadState();
+      const stub = await executeRead({ path: '/README.md' });
+
+      expect(stub).toMatchObject({
+        content: UNCHANGED_READ_STUB_MESSAGE,
+        dedup: true,
+        nextCursor: null,
+        truncated: false,
+      });
+      expect(stub.content).not.toContain('# Test Workspace');
+      const absolutePath = realpathSync(path.join(workspaceRootPath, 'README.md'));
+      expect(getKnownFileMtime(threadId, absolutePath)).toEqual(expect.any(Number));
+
+      await expect(
+        executeWrite({ content: '# Updated after stub\n', path: '/README.md' })
+      ).resolves.toMatchObject({ created: false, path: '/README.md' });
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('refuses the third unchanged read and skips file I/O on the fourth identical call', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools(
+        workspaceRuntime(workspaceRootPath, 'read-refusal-thread')
+      );
+      const executeRead = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+
+      await executeRead({ path: '/README.md' });
+      await executeRead({ path: '/README.md' });
+      const third = await executeRead({ path: '/README.md' });
+      expect(third).toMatchObject({ ok: false, refused: true });
+      expect(third.error).toContain('3 consecutive attempts');
+
+      await fsPromises.unlink(path.join(workspaceRootPath, 'README.md'));
+      const fourth = await executeRead({ path: '/README.md' });
+      expect(fourth).toMatchObject({ ok: false, refused: true });
+      expect(fourth.error).toContain('4 consecutive attempts');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
   });
 
   it('treats provider-emitted null optional read args as omitted', async () => {

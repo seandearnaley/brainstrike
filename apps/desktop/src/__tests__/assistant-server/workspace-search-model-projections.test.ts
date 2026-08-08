@@ -2,8 +2,16 @@ import {
   applyToolModelOutputProjections,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  buildRepeatedCallRefusalResult,
+  buildRepeatedCallWarningText,
+  checkRepeatedToolCall,
+  mergeHintWithWarning,
+  resetToolCallLoopGuards,
+} from '../../assistant-server/tool-call-loop-guards';
 import {
   projectGlobWorkspaceModelOutput,
   projectGrepSearchModelOutput,
@@ -12,6 +20,10 @@ import {
 function serializedChars(value: unknown): number {
   return JSON.stringify(value).length;
 }
+
+beforeEach(() => {
+  resetToolCallLoopGuards();
+});
 
 describe('workspace search model projections', () => {
   it('projects a grep file survey as compact root-qualified lines with an advancing offset', () => {
@@ -473,6 +485,59 @@ describe('workspace search model projections', () => {
       'grepSearch model projection rejected hint: expected string or absent, received number'
     );
   });
+
+  it('renders third-call warnings folded into grep and glob hints', () => {
+    const grepArgs = { pattern: 'needle' };
+    const globArgs = { pattern: '*.ts' };
+    let grepCall = checkRepeatedToolCall('thread-warning', 'brainstrike.grepSearch', grepArgs);
+    let globCall = checkRepeatedToolCall('thread-warning', 'brainstrike.globWorkspace', globArgs);
+    for (let count = 0; count < 2; count += 1) {
+      grepCall = checkRepeatedToolCall('thread-warning', 'brainstrike.grepSearch', grepArgs);
+      globCall = checkRepeatedToolCall('thread-warning', 'brainstrike.globWorkspace', globArgs);
+    }
+    const grepWarning = buildRepeatedCallWarningText('brainstrike.grepSearch', grepCall.count);
+    const globWarning = buildRepeatedCallWarningText('brainstrike.globWorkspace', globCall.count);
+    const grepProjected = projectGrepSearchModelOutput({
+      candidatesTruncated: false,
+      files: [],
+      hint: mergeHintWithWarning('Existing grep guidance.', grepWarning),
+      liveEngine: 'ripgrep',
+      offset: 0,
+      outputMode: 'files',
+      scanLimited: false,
+      totalFiles: 0,
+      totalMatches: 0,
+      truncated: false,
+    });
+    const globProjected = projectGlobWorkspaceModelOutput({
+      count: 0,
+      hint: mergeHintWithWarning('Existing glob guidance.', globWarning),
+      matches: [],
+      offset: 0,
+      scanLimited: false,
+      totalMatches: 0,
+      truncated: false,
+    });
+
+    expect(grepCall).toEqual({ count: 3, status: 'warn' });
+    expect(globCall).toEqual({ count: 3, status: 'warn' });
+    expect(grepProjected.value).toContain(grepWarning);
+    expect(grepProjected.value).toContain('Existing grep guidance.');
+    expect(globProjected.value).toContain(globWarning);
+    expect(globProjected.value).toContain('Existing glob guidance.');
+  });
+
+  it('rejects fourth-call refusal objects with the typed projector marker', () => {
+    const grepRefusal = buildRepeatedCallRefusalResult('brainstrike.grepSearch', 4);
+    const globRefusal = buildRepeatedCallRefusalResult('brainstrike.globWorkspace', 4);
+
+    expect(() => projectGrepSearchModelOutput(grepRefusal)).toThrow(
+      ToolProjectionInputRejectedError
+    );
+    expect(() => projectGlobWorkspaceModelOutput(globRefusal)).toThrow(
+      ToolProjectionInputRejectedError
+    );
+  });
 });
 
 /**
@@ -560,6 +625,44 @@ describe('grep projection through the runtime dispatcher (fail-soft round trip)'
 
     expect(modelOutput.type).toBe('text');
     expect(modelOutput.value).toContain('did not complete successfully');
+  });
+
+  it('keeps loop-guard refusals non-throwing through the runtime dispatcher', () => {
+    const grepRefusal = buildRepeatedCallRefusalResult('brainstrike.grepSearch', 4);
+    const globRefusal = buildRepeatedCallRefusalResult('brainstrike.globWorkspace', 4);
+    const tools = applyToolModelOutputProjections(
+      {
+        globWorkspace: {
+          execute: () => globRefusal,
+          id: 'brainstrike.globWorkspace',
+          toModelOutput: projectGlobWorkspaceModelOutput,
+        } as never,
+        grepSearch: {
+          execute: () => grepRefusal,
+          id: 'brainstrike.grepSearch',
+          toModelOutput: projectGrepSearchModelOutput,
+        } as never,
+      },
+      new Map([
+        ['globWorkspace', 'brainstrike.globWorkspace'],
+        ['grepSearch', 'brainstrike.grepSearch'],
+      ])
+    );
+    const globProjection = (
+      tools['globWorkspace'] as {
+        toModelOutput?: (value: unknown) => unknown;
+      }
+    ).toModelOutput?.(globRefusal) as { type?: string; value?: string };
+    const grepProjection = (
+      tools['grepSearch'] as {
+        toModelOutput?: (value: unknown) => unknown;
+      }
+    ).toModelOutput?.(grepRefusal) as { type?: string; value?: string };
+
+    expect(globProjection.type).toBe('text');
+    expect(globProjection.value).toContain('refused');
+    expect(grepProjection.type).toBe('text');
+    expect(grepProjection.value).toContain('refused');
   });
 
   it('replays an exact stored grep projection unchanged through the dispatcher', () => {

@@ -18,6 +18,7 @@ import {
   type RuntimeData,
   recordKnownFileMtime,
 } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import {
   READ_WORKSPACE_FILE_CURSOR_HANDLE_LENGTH,
@@ -25,6 +26,13 @@ import {
   type ReadWorkspaceFileCursorScope,
   type ReadWorkspaceFileCursorState,
 } from './read-workspace-file-cursor-registry';
+import {
+  buildRepeatedCallRefusalResult,
+  checkUnchangedReadWindow,
+  type LoopGuardRefusalResult,
+  readWindowKey,
+  UNCHANGED_READ_STUB_MESSAGE,
+} from './tool-call-loop-guards';
 import { readStateScope } from './workspace-file-staleness';
 import { withStableWorkspaceFileLock } from './workspace-path-resolution';
 import { resolveWorkspaceRoot } from './workspace-roots';
@@ -550,6 +558,7 @@ function requireReadWorkspaceFileCursorScope(
 export interface ReadWorkspaceFileResult {
   readonly approxOutputTokens: number;
   readonly content: string;
+  readonly dedup?: boolean;
   readonly endLine: number;
   readonly nextCursor: string | null;
   readonly omittedChars: number;
@@ -560,6 +569,10 @@ export interface ReadWorkspaceFileResult {
   readonly tokenCount: null;
   readonly totalLines: number;
   readonly truncated: boolean;
+}
+
+export interface ReadWorkspaceFileLoopGuardOptions {
+  readonly threadScope: string;
 }
 
 function fitReadWorkspaceFileResult(args: {
@@ -639,11 +652,23 @@ function fitReadWorkspaceFileResult(args: {
   return best;
 }
 
-export async function runReadWorkspaceFile(
+export function runReadWorkspaceFile(
   input: ReadWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   cursorRegistry: ReadWorkspaceFileCursorRegistry | null
-): Promise<ReadWorkspaceFileResult> {
+): Promise<ReadWorkspaceFileResult>;
+export function runReadWorkspaceFile(
+  input: ReadWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined,
+  cursorRegistry: ReadWorkspaceFileCursorRegistry | null,
+  loopGuard: ReadWorkspaceFileLoopGuardOptions
+): Promise<ReadWorkspaceFileResult | LoopGuardRefusalResult>;
+export async function runReadWorkspaceFile(
+  input: ReadWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined,
+  cursorRegistry: ReadWorkspaceFileCursorRegistry | null,
+  loopGuard?: ReadWorkspaceFileLoopGuardOptions
+): Promise<ReadWorkspaceFileResult | LoopGuardRefusalResult> {
   const cursorScope = input.cursor ? requireReadWorkspaceFileCursorScope(runtimeData) : null;
   if (input.cursor && !cursorRegistry) {
     throw new Error('readWorkspaceFile continuation handles are unavailable in this read mode.');
@@ -674,6 +699,50 @@ export async function runReadWorkspaceFile(
       requestedPath,
       workspacePath: resolved.workspacePath,
     });
+    if (loopGuard && continuationCursor === null) {
+      const unchangedRead = checkUnchangedReadWindow(
+        loopGuard.threadScope,
+        readWindowKey({
+          endLine: input.endLine,
+          path: file.path,
+          rootId: root.rootId,
+          startLine: input.startLine,
+        }),
+        file.mtimeMs
+      );
+      if (unchangedRead.status !== 'fresh') {
+        // A deduplicated/refused read still confirms that the model's existing
+        // view matches the current file. Preserve that observation so the next
+        // edit does not fail the read-before-write staleness guard incorrectly.
+        recordKnownFileMtime(loopGuard.threadScope, file.absolutePath, file.mtimeMs);
+        if (unchangedRead.status === 'refuse') {
+          return buildRepeatedCallRefusalResult(
+            NATIVE_TOOL_ID.readWorkspaceFile,
+            unchangedRead.count
+          );
+        }
+        const startLine = Math.max(1, Math.min(input.startLine ?? 1, file.totalLines));
+        const endLine = Math.max(
+          startLine,
+          Math.min(input.endLine ?? file.totalLines, file.totalLines)
+        );
+        return {
+          approxOutputTokens: countTokensHeuristic(UNCHANGED_READ_STUB_MESSAGE),
+          content: UNCHANGED_READ_STUB_MESSAGE,
+          dedup: true,
+          endLine,
+          nextCursor: null,
+          omittedChars: 0,
+          path: file.path,
+          rootName: root.displayName,
+          size: file.size,
+          startLine,
+          tokenCount: null,
+          totalLines: file.totalLines,
+          truncated: false,
+        };
+      }
+    }
     const pageRequest = resolveReadWorkspaceFilePageRequest({
       cursor: continuationCursor,
       cursorLineLength: file.cursorLineLength,

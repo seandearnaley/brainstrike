@@ -20,6 +20,7 @@ import {
   type RenameWorkspaceFileInput,
   type RuntimeData,
   type RuntimeWorkspaceRoot,
+  StringReplaceError,
   type StringReplaceMatchType,
   type StringReplaceWorkspaceFileInput,
   type WriteWorkspaceFileInput,
@@ -44,6 +45,12 @@ import {
   triggerFileDeletionInvalidation,
   triggerRenamedDestinationReindex,
 } from './reindex-side-effects';
+import {
+  EDIT_FAILURE_HINT_MESSAGE,
+  editFailureHintApplies,
+  recordEditFailure,
+  resetEditFailureStreak,
+} from './tool-call-loop-guards';
 import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support';
 import {
   assertNoExternalEditSinceObserved,
@@ -59,6 +66,34 @@ import { readWorkspaceTextFile } from './workspace-text-file-reader';
 const logger = createLogger('DesktopAssistantTools');
 
 export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
+
+function applyStringReplaceWithLoopGuard(args: {
+  readonly fileContent: string;
+  readonly newStr: string;
+  readonly oldStr: string;
+  readonly path: string;
+  readonly rootId: string;
+  readonly scope: string;
+}): ReturnType<typeof applyStringReplace> {
+  try {
+    return applyStringReplace({
+      fileContent: args.fileContent,
+      newStr: args.newStr,
+      oldStr: args.oldStr,
+    });
+  } catch (error) {
+    if (
+      error instanceof StringReplaceError &&
+      (error.reason === 'ambiguous' || error.reason === 'not_found')
+    ) {
+      const failureCount = recordEditFailure(args.scope, args.rootId, args.path);
+      if (editFailureHintApplies(failureCount)) {
+        throw new StringReplaceError(error.reason, EDIT_FAILURE_HINT_MESSAGE);
+      }
+    }
+    throw error;
+  }
+}
 
 /**
  * Post-edit LSP diagnostics (report R2 Phase A), run AFTER the per-file lock
@@ -236,10 +271,13 @@ export async function runStringReplaceWorkspaceFile(
 
     // Pure fuzzy-match cascade. THROWS StringReplaceError on ambiguous/not-found
     // matches — never applies a low-confidence edit (no silent fallbacks).
-    const replacement = applyStringReplace({
+    const replacement = applyStringReplaceWithLoopGuard({
       fileContent: file.content,
       newStr: input.newStr,
       oldStr: input.oldStr,
+      path: resolved.workspacePath,
+      rootId: root.rootId,
+      scope,
     });
 
     const buffer = Buffer.from(replacement.newContent, 'utf8');
@@ -250,6 +288,7 @@ export async function runStringReplaceWorkspaceFile(
     }
 
     await writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
+    resetEditFailureStreak(scope, root.rootId, resolved.workspacePath);
     // Our own write is the scope's freshest observation — a follow-up edit in
     // the same thread must never trip the guard on it.
     await recordOwnWriteObservation(scope, resolved.absolutePath);

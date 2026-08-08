@@ -24,9 +24,13 @@ import type {
   LocalLlmHostGenerateRequest,
   LocalLlmHostRequestOptions,
 } from '@brainstrike/agent/local-llm';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
-import { requireTool } from './_tool-test-helpers';
+import {
+  EDIT_FAILURE_HINT_MESSAGE,
+  resetToolCallLoopGuards,
+} from '../../assistant-server/tool-call-loop-guards';
+import { requireTool, requireToolExecute } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -36,6 +40,10 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 const { streamMastraAgent } = await import('@brainstrike/agent');
 
 const USAGE = { completionTokens: 4, promptTokens: 8, totalTokens: 12 } as const;
+
+beforeEach(() => {
+  resetToolCallLoopGuards();
+});
 
 function createScriptedHostClient(args: {
   path: string;
@@ -164,6 +172,68 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
       const serialized = JSON.stringify(toolEventResults);
       expect(serialized).toContain('/src/config.ts');
       expect(serialized).toContain('"replaced":true');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('escalates the third same-path match failure and resets after success', async () => {
+    const workspaceRootPath = await fsPromises.mkdtemp(
+      path.join(os.tmpdir(), 'brainstrike-sr-guard-')
+    );
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'config.txt'),
+      'enabled=true\n',
+      'utf8'
+    );
+
+    try {
+      const tools = buildDesktopAssistantTools({
+        memory: { resourceId: 'edit-failure-resource', threadId: 'edit-failure-thread' },
+        workspaceRootPath,
+      } as RuntimeData);
+      const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
+      const missingInput = {
+        context: {
+          newStr: 'missing=true',
+          oldStr: 'missing=false',
+          path: '/config.txt',
+        },
+      };
+
+      await expect(executeTool(missingInput)).rejects.toMatchObject({
+        message: expect.not.stringContaining('Repeated string replacement failures'),
+        reason: 'not_found',
+      });
+      await expect(executeTool(missingInput)).rejects.toMatchObject({
+        message: expect.not.stringContaining('Repeated string replacement failures'),
+        reason: 'not_found',
+      });
+      await expect(
+        executeTool({
+          context: {
+            newStr: 'enabled=true',
+            oldStr: 'enabled=true',
+            path: '/config.txt',
+          },
+        })
+      ).rejects.toMatchObject({ reason: 'no_op' });
+      await expect(executeTool(missingInput)).rejects.toMatchObject({
+        message: EDIT_FAILURE_HINT_MESSAGE,
+        reason: 'not_found',
+      });
+
+      await executeTool({
+        context: {
+          newStr: 'enabled=false',
+          oldStr: 'enabled=true',
+          path: '/config.txt',
+        },
+      });
+      await expect(executeTool(missingInput)).rejects.toMatchObject({
+        message: expect.not.stringContaining('Repeated string replacement failures'),
+        reason: 'not_found',
+      });
     } finally {
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }

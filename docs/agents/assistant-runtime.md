@@ -1053,6 +1053,85 @@ this section and those tests.
 
 ---
 
+## LOOP GUARDS (BST-1188)
+
+The desktop assistant server applies three thread-scoped, main-process-memory
+guards to stop an agent from repeatedly reconfirming evidence it already has.
+This is a desktop native-tool capability boundary: web does not construct these
+tools, and no network round trip or persistent store participates.
+
+- **Repeated identical read/search calls.** `checkRepeatedToolCall` in
+  `apps/desktop/src/assistant-server/tool-call-loop-guards.ts` tracks stable,
+  recursively key-sorted arguments independently for each `(threadScope,
+  toolId)`. Calls one and two run normally, call three runs and carries a
+  warning, and call four or later is REFUSED without executing the underlying
+  tool. Different arguments reset ONLY that tool's streak; an intervening call
+  to another tool NEVER resets it. This applies only to
+  `NATIVE_TOOL_ID.grepSearch`, `NATIVE_TOOL_ID.globWorkspace`, and
+  `NATIVE_TOOL_ID.readWorkspaceFile` in `buildDesktopAssistantTools`.
+- **Unchanged file-read windows.** `checkUnchangedReadWindow` keys a fresh
+  `readWorkspaceFile` request by root, normalized workspace path, requested
+  `startLine`/`endLine`, and observed mtime. The first read returns content, the
+  second unchanged read returns `dedup: true` with
+  `UNCHANGED_READ_STUB_MESSAGE`, and the third returns the same non-throwing
+  hard-refusal shape used by the repeated-call guard. An mtime change resets the
+  window. A request with `cursor` is a continuation and MUST NEVER enter this
+  guard; paging must continue normally.
+- **Repeated string-replace failures.** `recordEditFailure` counts only
+  consecutive `StringReplaceError` failures whose reason is `ambiguous` or
+  `not_found`, keyed by thread, root, and normalized workspace path. On failure
+  three and later, `runStringReplaceWorkspaceFile` preserves the reason but
+  replaces the generic message with `EDIT_FAILURE_HINT_MESSAGE`, directing the
+  model to re-read fresh, widen `oldStr` with surrounding context, or use
+  `writeWorkspaceFile` for a full rewrite. `no_op` NEVER increments this streak.
+  A successful on-disk replacement resets the path's streak.
+- **One shared scope authority.** Every mechanism MUST receive
+  `threadScope = readStateScope(runtimeData)` from
+  `apps/desktop/src/assistant-server/workspace-file-staleness.ts`; no tool may
+  derive a second thread key. This intentionally shares identity with the
+  read-before-write mtime tracker.
+- **Refusal is data, NEVER an execution error.** `buildRepeatedCallRefusalResult`
+  returns `{ok:false, refused:true, error}` so the model receives a compact
+  decline and the run remains alive. For grep/glob, the object intentionally
+  lacks `outputMode`: `parseGrepToolResult` and
+  `parseGlobWorkspaceToolResult` reject it with
+  `ToolProjectionInputRejectedError`, then `projectExistingModelOutput` in
+  `packages/agent/src/mastra/tool-model-output.ts` catches that explicit marker
+  and emits the generic bounded projection. Other projector errors still fail
+  loudly. `readWorkspaceFile` already uses the generic JSON projection, so its
+  refusal passes directly.
+- **Warning projection is shape-aware.** The grep/glob purpose-built projectors
+  render only known fields, so `buildDesktopAssistantTools` MUST prepend the
+  third-call warning to `hint` with `mergeHintWithWarning`; an arbitrary extra
+  key would disappear. `readWorkspaceFile` uses its generic projection and may
+  carry `_warning` directly on a normal result. String-replace escalation stays
+  in the replacement error's model-facing `message`, also on the generic path;
+  it MUST NOT modify the verbatim matcher in
+  `packages/agent/src/tools/string-replace.ts`.
+- **The unguarded read caller is load-bearing.** `workspace-context-tools.ts`
+  calls `runReadWorkspaceFile` directly for bulk context and MUST see no loop
+  guard or widened return. The three-argument overload therefore remains
+  exactly `Promise<ReadWorkspaceFileResult>`; ONLY the four-argument overload
+  used by `buildDesktopAssistantTools` can return `LoopGuardRefusalResult`.
+- **Dedup still records knowledge.** Before an unchanged-read stub or refusal
+  returns, `runReadWorkspaceFile` MUST call `recordKnownFileMtime` with the
+  loop guard's scope and the file's canonical path/mtime. The bytes are not
+  resent, but the thread's knowledge is current; omitting this write corrupts
+  the next write-staleness decision.
+- **Ephemeral, not factory-reset state.** The three maps are process-local and
+  `resetToolCallLoopGuards` is exported ONLY for test isolation. This mirrors
+  `packages/agent/src/tools/file-read-state.ts` and its
+  `resetFileReadState`; it is NOT a persistent store and MUST NOT be wired into
+  factory reset.
+
+Paired proofs live in `tool-call-loop-guards.test.ts`,
+`workspace-search-model-projections.test.ts`,
+`assistant-tools-read.integration.test.ts`, and
+`string-replace-workspace-file-live-loop.test.ts`. When changing this flow,
+update this section and those tests.
+
+---
+
 ## PERMISSION ENGINE (TOOL APPROVAL)
 
 Mutation tools PROMPT for per-call approval by default. The permission policy
