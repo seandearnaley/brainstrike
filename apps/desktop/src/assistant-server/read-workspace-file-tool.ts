@@ -18,6 +18,7 @@ import {
   type RuntimeData,
   recordKnownFileMtime,
 } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import {
   READ_WORKSPACE_FILE_CURSOR_HANDLE_LENGTH,
@@ -26,6 +27,13 @@ import {
   type ReadWorkspaceFileCursorState,
 } from './read-workspace-file-cursor-registry';
 import { buildReadWorkspaceFileProjectionText } from './read-workspace-file-model-projection';
+import {
+  buildRepeatedCallRefusalResult,
+  checkUnchangedReadWindow,
+  type LoopGuardRefusalResult,
+  readWindowKey,
+  UNCHANGED_READ_STUB_MESSAGE,
+} from './tool-call-loop-guards';
 import { readStateScope } from './workspace-file-staleness';
 import { withStableWorkspaceFileLock } from './workspace-path-resolution';
 import { describeOpenRootTopology, resolveWorkspaceRoot } from './workspace-roots';
@@ -552,6 +560,7 @@ export interface ReadWorkspaceFileResult {
   readonly ambiguousRootNames?: string[];
   readonly approxOutputTokens: number;
   readonly content: string;
+  readonly dedup?: boolean;
   readonly endLine: number;
   readonly nextCursor: string | null;
   readonly omittedChars: number;
@@ -563,6 +572,10 @@ export interface ReadWorkspaceFileResult {
   readonly startLine: number;
   readonly totalLines: number;
   readonly truncated: boolean;
+}
+
+export interface ReadWorkspaceFileLoopGuardOptions {
+  readonly threadScope: string;
 }
 
 function fitReadWorkspaceFileResult(args: {
@@ -642,11 +655,23 @@ function fitReadWorkspaceFileResult(args: {
   return best;
 }
 
-export async function runReadWorkspaceFile(
+export function runReadWorkspaceFile(
   input: ReadWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   cursorRegistry: ReadWorkspaceFileCursorRegistry | null
-): Promise<ReadWorkspaceFileResult> {
+): Promise<ReadWorkspaceFileResult>;
+export function runReadWorkspaceFile(
+  input: ReadWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined,
+  cursorRegistry: ReadWorkspaceFileCursorRegistry | null,
+  loopGuard: ReadWorkspaceFileLoopGuardOptions
+): Promise<ReadWorkspaceFileResult | LoopGuardRefusalResult>;
+export async function runReadWorkspaceFile(
+  input: ReadWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined,
+  cursorRegistry: ReadWorkspaceFileCursorRegistry | null,
+  loopGuard?: ReadWorkspaceFileLoopGuardOptions
+): Promise<ReadWorkspaceFileResult | LoopGuardRefusalResult> {
   const cursorScope = input.cursor ? requireReadWorkspaceFileCursorScope(runtimeData) : null;
   if (input.cursor && !cursorRegistry) {
     throw new Error('readWorkspaceFile continuation handles are unavailable in this read mode.');
@@ -749,6 +774,61 @@ export async function runReadWorkspaceFile(
       maxChars,
       startPosition,
     });
+
+    // BST-1188 loop guard (report PR #2323 review): checked ONLY after a
+    // page has ALREADY been built successfully, and ONLY for a non-truncated
+    // page. Checking any earlier — e.g. right after the file scan, before
+    // `fitReadWorkspaceFileResult` can still throw (a `maxChars` too small to
+    // advance) — would falsely record an observation for a call that never
+    // produced a page, priming the model's very next (corrected) retry to
+    // look like a repeat of a read that never happened. Skipping a TRUNCATED
+    // page keeps the dedup stub from ever discarding the only `nextCursor`
+    // pointer to the rest of a large file: the stub always exists rather than
+    // resend content, and a partial page is not "the results have not
+    // changed" — it is the same partial slice the model would keep needing to
+    // page past regardless.
+    if (loopGuard && continuationCursor === null && !selected.result.truncated) {
+      const unchangedRead = checkUnchangedReadWindow(
+        loopGuard.threadScope,
+        readWindowKey({
+          endLine: input.endLine,
+          maxChars,
+          path: file.path,
+          rootId: root.rootId,
+          startLine: input.startLine,
+        }),
+        file.mtimeMs
+      );
+      if (unchangedRead.status !== 'fresh') {
+        // A deduplicated/refused read still confirms that the model's existing
+        // view matches the current file. Preserve that observation so the next
+        // edit does not fail the read-before-write staleness guard incorrectly.
+        recordKnownFileMtime(loopGuard.threadScope, file.absolutePath, file.mtimeMs);
+        if (unchangedRead.status === 'refuse') {
+          return buildRepeatedCallRefusalResult(
+            NATIVE_TOOL_ID.readWorkspaceFile,
+            unchangedRead.count
+          );
+        }
+        return {
+          ...topology,
+          approxOutputTokens: countTokensHeuristic(UNCHANGED_READ_STUB_MESSAGE),
+          content: UNCHANGED_READ_STUB_MESSAGE,
+          dedup: true,
+          endLine: selected.result.endLine,
+          nextCursor: null,
+          omittedChars: 0,
+          path: file.path,
+          rootId: root.rootId,
+          rootName: root.displayName,
+          size: file.size,
+          startLine: selected.result.startLine,
+          totalLines: file.totalLines,
+          truncated: false,
+        };
+      }
+    }
+
     return finishSuccessfulRead(selected.page, selected.result);
   });
 }

@@ -90,6 +90,7 @@ import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model
 import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runSkillScript } from './run-skill-script-tool';
+import { withRepeatedCallGuard } from './tool-call-loop-guards';
 import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-call-telemetry';
 import {
   logToolFailure,
@@ -112,6 +113,7 @@ import {
   runUpdateWorkspaceContextSelection,
   runUpdateWorkspaceTapestrySelections,
 } from './workspace-context-tools';
+import { readStateScope } from './workspace-file-staleness';
 import {
   projectFindWorkspaceSymbolModelOutput,
   projectLspInspectModelOutput,
@@ -237,8 +239,16 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          const result = await runGrepSearch(resolvedInput, runtimeData);
-          return attachGrepSearchTelemetry(resolvedInput, result);
+          return await withRepeatedCallGuard({
+            input: resolvedInput,
+            run: async () =>
+              attachGrepSearchTelemetry(
+                resolvedInput,
+                await runGrepSearch(resolvedInput, runtimeData)
+              ),
+            threadScope: readStateScope(runtimeData),
+            toolId: NATIVE_TOOL_ID.grepSearch,
+          });
         } catch (error) {
           logToolFailure('grepSearch failed', error, resolvedInput);
           throw error;
@@ -256,8 +266,16 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          const result = await runGlobWorkspace(resolvedInput, runtimeData);
-          return attachGlobWorkspaceTelemetry(resolvedInput, result);
+          return await withRepeatedCallGuard({
+            input: resolvedInput,
+            run: async () =>
+              attachGlobWorkspaceTelemetry(
+                resolvedInput,
+                await runGlobWorkspace(resolvedInput, runtimeData)
+              ),
+            threadScope: readStateScope(runtimeData),
+            toolId: NATIVE_TOOL_ID.globWorkspace,
+          });
         } catch (error) {
           logToolFailure('globWorkspace failed', error, resolvedInput);
           throw error;
@@ -358,7 +376,19 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          return await runReadWorkspaceFile(resolvedInput, runtimeData, readFileCursorRegistry);
+          // BST-1188: readWorkspaceFile deliberately does NOT use the plain
+          // identical-args repeated-call guard (`withRepeatedCallGuard`)
+          // other read/search tools use below — an args-only streak has no
+          // way to know the file changed between calls, so it would either
+          // permanently refuse a legitimate re-read after an edit (the
+          // refusal short-circuits BEFORE the file is ever checked) or stamp
+          // a "results have not changed" warning on content that in fact did
+          // change (PR #2323 review). The mtime-aware `readWorkspaceFile`
+          // loop guard below is the ONLY mechanism — it always re-reads the
+          // file first, so it can never go stale in that way.
+          return await runReadWorkspaceFile(resolvedInput, runtimeData, readFileCursorRegistry, {
+            threadScope: readStateScope(runtimeData),
+          });
         } catch (error) {
           logToolFailure('readWorkspaceFile failed', error, resolvedInput);
           throw error;

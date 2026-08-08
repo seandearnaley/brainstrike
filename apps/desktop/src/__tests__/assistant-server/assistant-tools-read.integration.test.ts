@@ -3,10 +3,12 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  getKnownFileMtime,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_INPUT_SCHEMAS,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type RuntimeData,
+  resetFileReadState,
   ToolProjectionInputRejectedError,
   withFileLock,
 } from '@brainstrike/agent';
@@ -25,6 +27,10 @@ import {
   type ReadWorkspaceFileResult,
   runReadWorkspaceFile,
 } from '../../assistant-server/read-workspace-file-tool';
+import {
+  resetToolCallLoopGuards,
+  UNCHANGED_READ_STUB_MESSAGE,
+} from '../../assistant-server/tool-call-loop-guards';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -171,6 +177,8 @@ describe('assistant-tools read tools', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetFileReadState();
+    resetToolCallLoopGuards();
     for (const id of trackedWindowIds) {
       clearWindowRoleByWebContentsId(id);
     }
@@ -586,6 +594,137 @@ describe('assistant-tools read tools', () => {
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
+  it('deduplicates an unchanged fresh read and preserves its staleness observation', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const threadId = 'unchanged-read-thread';
+
+    try {
+      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath, threadId));
+      const executeRead = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+      const executeWrite = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+      const first = await executeRead({ path: '/README.md' });
+      expect(first.content).toContain('# Test Workspace');
+
+      // Isolate the stub path's own staleness write from the first content read.
+      resetFileReadState();
+      const stub = await executeRead({ path: '/README.md' });
+
+      expect(stub).toMatchObject({
+        content: UNCHANGED_READ_STUB_MESSAGE,
+        dedup: true,
+        nextCursor: null,
+        truncated: false,
+      });
+      expect(stub.content).not.toContain('# Test Workspace');
+      const absolutePath = realpathSync(path.join(workspaceRootPath, 'README.md'));
+      expect(getKnownFileMtime(threadId, absolutePath)).toEqual(expect.any(Number));
+
+      await expect(
+        executeWrite({ content: '# Updated after stub\n', path: '/README.md' })
+      ).resolves.toMatchObject({ created: false, path: '/README.md' });
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('refuses the third unchanged read, then returns fresh content the moment the file changes', async () => {
+    // Regression for PR #2323 review (codex + claude, both flagged the same
+    // livelock): readWorkspaceFile MUST NOT use a plain identical-args streak
+    // that can refuse a call before ever checking the current file — that
+    // would refuse the model's next legitimate re-read forever after ANY
+    // edit landed while the streak sat at its cap. Only the mtime-aware
+    // window guard may refuse, and it always re-reads the file first, so an
+    // edit is never missed.
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools(
+        workspaceRuntime(workspaceRootPath, 'read-refusal-thread')
+      );
+      const executeRead = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+      const readmePath = path.join(workspaceRootPath, 'README.md');
+
+      const first = await executeRead({ path: '/README.md' });
+      expect(first.content).toContain('# Test Workspace');
+      const second = await executeRead({ path: '/README.md' });
+      expect(second).toMatchObject({ dedup: true });
+      const third = await executeRead({ path: '/README.md' });
+      expect(third).toMatchObject({ ok: false, refused: true });
+      expect(third.error).toContain('3 consecutive attempts');
+
+      // The file changes while the window guard is refusing.
+      await fsPromises.writeFile(readmePath, '# Updated after refusal\n', 'utf8');
+      const fourth = await executeRead({ path: '/README.md' });
+
+      expect(fourth).not.toMatchObject({ ok: false, refused: true });
+      expect(fourth.dedup).not.toBe(true);
+      expect(fourth.content).toContain('# Updated after refusal');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('does not stub a truncated page, and preserves its nextCursor for continuation', async () => {
+    // Regression for PR #2323 review (claude): the stub must never claim
+    // full-file coverage or discard the only `nextCursor` pointer to the
+    // rest of a file the FIRST read could not fit in one page.
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const bigPath = path.join(workspaceRootPath, 'big.txt');
+      const lines = Array.from({ length: 500 }, (_, index) => `line ${index}`);
+      await fsPromises.writeFile(bigPath, `${lines.join('\n')}\n`, 'utf8');
+      const tools = buildDesktopAssistantTools(
+        workspaceRuntime(workspaceRootPath, 'read-truncated-thread'),
+        { readWorkspaceFileCursorRegistry: new ReadWorkspaceFileCursorRegistry() }
+      );
+      const executeRead = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+
+      const first = await executeRead({ maxChars: 200, path: '/big.txt' });
+      expect(first.truncated).toBe(true);
+      expect(first.nextCursor).toEqual(expect.any(String));
+
+      const second = await executeRead({ maxChars: 200, path: '/big.txt' });
+
+      // Never dedup'd: a truncated page is not "the results have not
+      // changed" — it is the same partial slice the model still needs to
+      // page past, so it must keep its real content, truncated flag, and a
+      // usable nextCursor.
+      expect(second.dedup).not.toBe(true);
+      expect(second.truncated).toBe(true);
+      expect(second.nextCursor).toEqual(expect.any(String));
+      expect(second.content).toBe(first.content);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('treats a larger maxChars as a fresh request instead of an unchanged-window stub', async () => {
+    // Regression for PR #2323 review (codex + claude, same finding): two
+    // reads of the same path/range with DIFFERENT maxChars are not the same
+    // read — a bigger budget can return content the smaller one omitted.
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const bigPath = path.join(workspaceRootPath, 'big.txt');
+      const lines = Array.from({ length: 500 }, (_, index) => `line ${index}`);
+      await fsPromises.writeFile(bigPath, `${lines.join('\n')}\n`, 'utf8');
+      const tools = buildDesktopAssistantTools(
+        workspaceRuntime(workspaceRootPath, 'read-maxchars-thread')
+      );
+      const executeRead = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+
+      const small = await executeRead({ maxChars: 200, path: '/big.txt' });
+      expect(small.truncated).toBe(true);
+      const large = await executeRead({ maxChars: 12_000, path: '/big.txt' });
+
+      expect(large.dedup).not.toBe(true);
+      expect(large.content.length).toBeGreaterThan(small.content.length);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
   it('treats provider-emitted null optional read args as omitted', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
@@ -991,6 +1130,69 @@ describe('assistant-tools read tools', () => {
       expect(result.nextCursor).toBeNull();
       expect(() => toModelOutput(result)).not.toThrow();
       expect(toModelOutput(result).value).not.toContain('continue:');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  // BST-1188 loop guard × BST-1186 plain-text projection round trip
+  // (post-merge PR #2322 review): the mtime-aware unchanged-read guard in
+  // read-workspace-file-tool.ts returns a `ReadWorkspaceFileResult`-shaped
+  // `dedup: true` stub on a second identical fresh read, and a differently
+  // shaped `{ok:false,refused:true}` object on a third. Both flow straight
+  // through the SAME `toModelOutput` this file's other tests exercise — there
+  // is no separate bypass — so both must be proven against the real
+  // projector, not just the loop-guard module in isolation.
+  it('projects a loop-guard dedup stub through the real read header/content format', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools(
+        workspaceRuntime(workspaceRootPath, 'thread-read-loop-guard-dedup')
+      );
+      const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+      const toModelOutput = requireToolModelOutput<{ type: 'text'; value: string }>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      );
+
+      const first = await executeTool({ path: '/src/main.ts' });
+      expect(first.dedup).toBeUndefined();
+
+      const second = await executeTool({ path: '/src/main.ts' });
+      expect(second.dedup).toBe(true);
+      expect(second.content).toContain('File unchanged since last read');
+
+      expect(() => toModelOutput(second)).not.toThrow();
+      expect(toModelOutput(second).value).toBe(
+        `read /src/main.ts lines ${second.startLine}-${second.endLine}/${second.totalLines}\n${second.content}`
+      );
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('rejects a third-call read loop-guard refusal with the typed projector marker', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+
+    try {
+      const tools = buildDesktopAssistantTools(
+        workspaceRuntime(workspaceRootPath, 'thread-read-loop-guard-refusal')
+      );
+      const executeTool = requireToolExecute<
+        ReadWorkspaceFileResult | { error: string; ok: false; refused: true }
+      >(tools, 'brainstrike.readWorkspaceFile');
+      const toModelOutput = requireToolModelOutput<unknown>(tools, 'brainstrike.readWorkspaceFile');
+
+      await executeTool({ path: '/src/main.ts' });
+      await executeTool({ path: '/src/main.ts' });
+      const third = await executeTool({ path: '/src/main.ts' });
+
+      expect(third).toMatchObject({ ok: false, refused: true });
+      expect(() => toModelOutput(third)).toThrow(ToolProjectionInputRejectedError);
     } finally {
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }

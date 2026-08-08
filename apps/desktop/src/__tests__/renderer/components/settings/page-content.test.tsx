@@ -236,9 +236,9 @@ describe('Desktop SettingsPageContent', () => {
     expect(screen.getByLabelText('API Key')).toBeInTheDocument();
   });
 });
-vi.mock('@brainstrike/settings-ui/settings-page-content', async (importOriginal) => {
+vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@brainstrike/settings-ui/settings-page-content')>();
+    await importOriginal<typeof import('@brainstrike/settings-ui/settings-category-factories')>();
   return {
     ...actual,
     createSearchIndexingSettingsCategory: vi.fn(() => ({
