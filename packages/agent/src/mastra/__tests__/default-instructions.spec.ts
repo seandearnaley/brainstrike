@@ -421,6 +421,18 @@ describe('parallel tool-call guidance', () => {
 
     expect(instructions).not.toContain('identify every independent read, search, or command');
   });
+
+  it('advertises next-step parallelism for tool maps outside the search/read example set (webSearch, lspInspect)', () => {
+    const webSearchOnly = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_webSearch', 'brainstrike.webSearch']])
+    );
+    expect(webSearchOnly).toContain('identify every independent read, search, or command');
+
+    const lspInspectOnly = buildDefaultInstructions(
+      new Map<string, string>([['brainstrike_lspInspect', 'brainstrike.lspInspect']])
+    );
+    expect(lspInspectOnly).toContain('identify every independent read, search, or command');
+  });
 });
 
 describe('cross-tool safety guidance', () => {

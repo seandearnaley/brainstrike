@@ -27,7 +27,7 @@ export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.deleteWorkspaceFile]:
     'Permanently delete a single file in a chosen open workspace root and invalidate its index rows. DESTRUCTIVE and NOT recoverable through the tool; refuses directories (use executeCommand) and acts on a symlink itself (removes the link, never its target). Workspace-scoped; requires approval',
   [NATIVE_TOOL_ID.executeCommand]:
-    'Run a shell command for tests, builds, git, and other tools. NO sandbox: it can read or change anything the user can. Never run destructive commands unless explicitly requested. Requires per-call approval by default. Starts in a chosen open root; kills the process tree on timeout. Returns exitCode, bounded stdout/stderr tail, and durationMs. For filesystem reads/searches, use readWorkspaceFile, grepSearch, globWorkspace, or readWorkspaceDirectory instead of cat/head/tail, grep/rg, find, or ls',
+    'Run a shell command for tests, builds, git, and other tools. NO sandbox: it can read or change anything the user can. Never run destructive commands unless explicitly requested. Requires per-call approval by default. Starts in a chosen open root; kills the process tree on timeout. Returns exitCode, bounded stdout/stderr tail, and durationMs',
   [NATIVE_TOOL_ID.findWorkspaceSymbol]:
     "Locate a symbol's best-effort enclosing line range in a workspace file without returning whole-file content",
   [NATIVE_TOOL_ID.globWorkspace]:
@@ -70,7 +70,7 @@ export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.runSkillScript]:
     "Run an enabled Agent Skill's listed script with literal argv in a mounted root/cwd. Resolution and approval required",
   [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]:
-    'Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). A replaced result confirms the replacement landed; do not re-read solely to verify it',
+    'Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). matchType: "exact" confirms the replacement landed verbatim; do not re-read solely to verify it. Any other matchType means the fuzzy cascade matched — re-read that range if the exact result matters',
   [NATIVE_TOOL_ID.submitPlan]:
     'Submit a structured implementation plan (title, overview, ordered steps, optional risks/verification) for the user to Approve or Reject. The run PAUSES until they respond; rejection feedback is returned so you can revise and resubmit',
   [NATIVE_TOOL_ID.updateWorkspaceContextSelection]:

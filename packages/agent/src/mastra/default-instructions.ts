@@ -343,18 +343,33 @@ function buildSearchInstruction(names: ModelFacingToolNames): string {
 }
 
 /**
- * General parallel-call guidance. Emitted when at least one read, search, or
- * command tool is registered, without advertising unavailable tool names.
+ * General parallel-call guidance. Emitted when at least one read, search,
+ * inspect, or command tool is registered, without advertising unavailable
+ * tool names. Covers every read/search/inspect verb in ModelFacingToolNames
+ * (not just the tools named in the neighboring builders' example clauses) so
+ * a valid tool map that only registers, say, webSearch or lspInspect still
+ * gets the instruction.
  */
 function buildParallelCallInstruction(names: ModelFacingToolNames): string {
   const hasRelevantTool = [
-    names.grepSearch,
-    names.readWorkspaceFile,
-    names.globWorkspace,
+    names.browserGetPageText,
+    names.browserReadPage,
     names.executeCommand,
-    names.readWorkspaceDirectory,
+    names.findWorkspaceSymbol,
+    names.globWorkspace,
+    names.grepSearch,
     names.hybridSearch,
+    names.listEmbeddingSpaces,
+    names.listWorkspaceContext,
+    names.lspInspect,
     names.queryEmbeddingSpace,
+    names.readWorkspaceContext,
+    names.readWorkspaceDirectory,
+    names.readWorkspaceFile,
+    names.skillRead,
+    names.skillSearch,
+    names.webExtract,
+    names.webSearch,
   ].some(Boolean);
   if (!hasRelevantTool) {
     return '';
