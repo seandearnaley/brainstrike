@@ -6,9 +6,8 @@ import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createSearchIndexingSettingsCategory,
-  type SettingsCategory,
-  SettingsPageContent,
-} from '../settings-page-content';
+} from '../settings-category-factories';
+import { type SettingsCategory, SettingsPageContent } from '../settings-page-content';
 
 vi.mock('@brainstrike/ui', () => {
   const Input = (props: InputHTMLAttributes<HTMLInputElement>) => <input {...props} />;

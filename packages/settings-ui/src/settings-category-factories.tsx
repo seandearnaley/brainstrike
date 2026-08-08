@@ -1,0 +1,203 @@
+import { ThemeSettings } from '@brainstrike/ui';
+import { Bot, Cpu, Palette, Search, Settings, ShieldCheck, Sigma, Webhook } from 'lucide-react';
+import { ModelSelectionPage } from './settings/models/model-selection-page';
+import { LocalRuntimeSettingsSection } from './settings/runtimes/local-runtime-settings-section';
+import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
+import {
+  type HookReviewRoot,
+  HooksSettingsSection,
+} from './settings/system/hooks-settings-section';
+import { PermissionSettingsSection } from './settings/system/permission-settings-section';
+import { SearchIndexingSettingsSection } from './settings/system/search-indexing-settings-section';
+import { SubagentPersonasSettingsSection } from './settings/system/subagent-personas-settings-section';
+import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
+import type { SettingsCategory } from './settings-page-content';
+
+export function createAppearanceSettingsCategory(): SettingsCategory {
+  return {
+    content: <ThemeSettings />,
+    description: 'Choose your theme and personalize the interface for your workflow.',
+    icon: Palette,
+    id: 'appearance',
+    keywords: ['theme', 'color', 'display', 'dark mode'],
+    title: 'Appearance',
+  };
+}
+
+export function createTokenCountingSettingsCategory(): SettingsCategory {
+  return createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable: null });
+}
+
+export function createTokenCountingSettingsCategoryWithRuntimeSupport({
+  accurateRuntimeAvailable,
+}: {
+  accurateRuntimeAvailable: boolean | null;
+}): SettingsCategory {
+  return {
+    content: <TokenCountingSettingsSection accurateRuntimeAvailable={accurateRuntimeAvailable} />,
+    description: 'Control the tokenizer used for previews and chunk generation.',
+    icon: Sigma,
+    id: 'token-counting',
+    keywords: ['token', 'counting', 'tiktoken', 'preview', 'chunking'],
+    title: 'Token Counting',
+  };
+}
+
+export interface CreateFactoryResetSettingsCategoryOptions {
+  hasStoredFolders?: boolean;
+  inlineFixtureSetting?: {
+    available: boolean;
+    loading: boolean;
+    checked: boolean;
+    onChange: (checked: boolean) => void;
+  };
+  isWebPlatform?: boolean;
+  onClearStoredFolders?: () => void;
+}
+
+export function createFactoryResetSettingsCategory(
+  options?: CreateFactoryResetSettingsCategoryOptions
+): SettingsCategory {
+  return {
+    content: (
+      <FactoryResetSettingsSection
+        hasStoredFolders={options?.hasStoredFolders}
+        inlineFixtureSetting={options?.inlineFixtureSetting}
+        isWebPlatform={options?.isWebPlatform}
+        onClearStoredFolders={options?.onClearStoredFolders}
+      />
+    ),
+    description: 'Wipe application data and reset preferences.',
+    icon: Settings,
+    id: 'factory-reset',
+    keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences', 'stored folders'],
+    title: 'Factory Reset',
+  };
+}
+
+export function createModelRegistrySettingsCategory(options: {
+  assistantMemoryBackendAvailable: boolean;
+}): SettingsCategory {
+  return {
+    content: (
+      <ModelSelectionPage
+        assistantMemoryBackendAvailable={options.assistantMemoryBackendAvailable}
+      />
+    ),
+    description: 'Choose chat and embedding models, manage downloads, and configure providers.',
+    icon: Settings,
+    id: 'models',
+    keywords: [
+      'models',
+      'providers',
+      'llm',
+      'embedding',
+      'openai',
+      'anthropic',
+      'google',
+      'download',
+    ],
+    title: 'Models & Providers',
+  };
+}
+
+export function createSearchIndexingSettingsCategory(): SettingsCategory {
+  return {
+    content: <SearchIndexingSettingsSection />,
+    description: 'Choose the managed cache collection and control root-folder background indexing.',
+    icon: Search,
+    id: 'search-indexing',
+    keywords: ['search', 'indexing', 'background', 'cache', 'collection', 'embeddings'],
+    title: 'Search & Indexing',
+  };
+}
+
+export function createPermissionSettingsCategory(): SettingsCategory {
+  return {
+    content: <PermissionSettingsSection />,
+    description: 'Gate the assistant’s tools behind an allow / ask / deny policy.',
+    icon: ShieldCheck,
+    id: 'permissions',
+    keywords: [
+      'permissions',
+      'permission',
+      'policy',
+      'enforce',
+      'allow',
+      'ask',
+      'deny',
+      'yolo',
+      'tools',
+      'safety',
+      'guardrails',
+    ],
+    title: 'Permissions',
+  };
+}
+
+export function createSubagentPersonasSettingsCategory(): SettingsCategory {
+  return {
+    content: <SubagentPersonasSettingsSection />,
+    description: 'Control which subagent personas the assistant may delegate to.',
+    icon: Bot,
+    id: 'subagents',
+    keywords: [
+      'subagents',
+      'subagent',
+      'personas',
+      'persona',
+      'delegation',
+      'delegate',
+      'agents',
+      'explorer',
+      'analyst',
+    ],
+    title: 'Subagents',
+  };
+}
+
+export type { HookReviewRoot };
+
+export interface CreateHooksSettingsCategoryOptions {
+  readonly globalConfigPath?: string;
+  readonly roots?: readonly HookReviewRoot[];
+}
+
+export function createHooksSettingsCategory(
+  options: CreateHooksSettingsCategoryOptions = {}
+): SettingsCategory {
+  return {
+    content: (
+      <HooksSettingsSection
+        {...(options.roots ? { roots: options.roots } : {})}
+        {...(options.globalConfigPath ? { globalConfigPath: options.globalConfigPath } : {})}
+      />
+    ),
+    description: 'Approve a workspace’s shell hooks before they run at tool-lifecycle events.',
+    icon: Webhook,
+    id: 'hooks',
+    keywords: ['hooks', 'shell', 'lifecycle', 'pretooluse', 'posttooluse', 'trust', 'approve'],
+    title: 'Hooks',
+  };
+}
+
+export function createLocalRuntimeSettingsCategory(): SettingsCategory {
+  return {
+    content: <LocalRuntimeSettingsSection />,
+    description:
+      'Detect and configure local LLM servers (Ollama, LM Studio) for chat and embeddings.',
+    icon: Cpu,
+    id: 'local-runtimes',
+    keywords: [
+      'ollama',
+      'lm studio',
+      'lmstudio',
+      'local',
+      'runtime',
+      'localhost',
+      'gpu',
+      'self-hosted',
+    ],
+    title: 'Local Runtimes',
+  };
+}
