@@ -9,7 +9,7 @@ import {
 } from '@assistant-ui/react';
 import { useEffect } from 'react';
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { ThreadScrollRegion, ThreadScrollToBottom } from '../assistant-ui-panel';
 import { FollowUpQueueBridge, FollowUpQueueChips } from '../follow-up-queue';
@@ -243,6 +243,12 @@ const getButton = (): HTMLButtonElement =>
 const distanceFromBottom = (el: HTMLElement): number =>
   Math.abs(el.scrollHeight - el.scrollTop - el.clientHeight);
 
+const dispatchRunEvent = async (dispatch: () => void): Promise<void> => {
+  await act(async () => {
+    dispatch();
+  });
+};
+
 const waitForPinnedThread = async (): Promise<HTMLElement> => {
   await screen.findAllByTestId('thread-message');
   const viewport = getViewport();
@@ -270,15 +276,17 @@ describe('follow-up queue dispatch keeps stick-to-bottom pinned (BST-1039)', () 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-message').length).toBeGreaterThan(MESSAGE_COUNT);
     });
-    pushChunk();
+    await dispatchRunEvent(pushChunk);
 
     // Queue a follow-up mid-run: the REAL chip row mounts below the viewport,
     // shrinking it. A streaming chunk lands right after — production runs
     // stream constantly, and the content-resize is what re-sticks the library
     // after the shrink. Pinned follow survives this direction.
-    useFollowUpQueueStore.getState().enqueue(followUpQueueKey(THREAD_KEY), 'queued follow-up');
+    act(() => {
+      useFollowUpQueueStore.getState().enqueue(followUpQueueKey(THREAD_KEY), 'queued follow-up');
+    });
     await screen.findByTestId('assistant-follow-up-chip');
-    pushChunk();
+    await dispatchRunEvent(pushChunk);
     await waitFor(() => {
       expect(distanceFromBottom(viewport)).toBeLessThanOrEqual(1);
     });
@@ -290,7 +298,7 @@ describe('follow-up queue dispatch keeps stick-to-bottom pinned (BST-1039)', () 
     // dispatch IS a send, and the explicit request arms the library's
     // in-flight-scroll bookkeeping through the clamp window.
     scrollToBottomRequests.length = 0;
-    endNewestRun();
+    await dispatchRunEvent(endNewestRun);
     await waitFor(() => {
       expect(screen.queryByTestId('assistant-follow-up-chip')).not.toBeInTheDocument();
     });
@@ -302,8 +310,8 @@ describe('follow-up queue dispatch keeps stick-to-bottom pinned (BST-1039)', () 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-message').length).toBeGreaterThan(MESSAGE_COUNT + 2);
     });
-    pushChunk();
-    endNewestRun();
+    await dispatchRunEvent(pushChunk);
+    await dispatchRunEvent(endNewestRun);
 
     // The thread was pinned before the flush and the user never scrolled:
     // follow must still be engaged once the dust settles — bottom-pinned
@@ -331,8 +339,10 @@ describe('follow-up queue dispatch keeps stick-to-bottom pinned (BST-1039)', () 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-message').length).toBeGreaterThan(MESSAGE_COUNT);
     });
-    pushChunk();
-    useFollowUpQueueStore.getState().enqueue(followUpQueueKey(THREAD_KEY), 'queued follow-up');
+    await dispatchRunEvent(pushChunk);
+    act(() => {
+      useFollowUpQueueStore.getState().enqueue(followUpQueueKey(THREAD_KEY), 'queued follow-up');
+    });
     await screen.findByTestId('assistant-follow-up-chip');
 
     // The reader scrolls up mid-run: follow disengages by design.
@@ -342,7 +352,7 @@ describe('follow-up queue dispatch keeps stick-to-bottom pinned (BST-1039)', () 
     });
 
     scrollToBottomRequests.length = 0;
-    endNewestRun();
+    await dispatchRunEvent(endNewestRun);
     await waitFor(() => {
       expect(screen.queryByTestId('assistant-follow-up-chip')).not.toBeInTheDocument();
     });
@@ -353,8 +363,8 @@ describe('follow-up queue dispatch keeps stick-to-bottom pinned (BST-1039)', () 
     await waitFor(() => {
       expect(screen.getAllByTestId('thread-message').length).toBeGreaterThan(MESSAGE_COUNT + 2);
     });
-    pushChunk();
-    endNewestRun();
+    await dispatchRunEvent(pushChunk);
+    await dispatchRunEvent(endNewestRun);
 
     // No explicit scroll request, reading position untouched, affordance kept.
     await new Promise((resolvePause) => setTimeout(resolvePause, 300));
