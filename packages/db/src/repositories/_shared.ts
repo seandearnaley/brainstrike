@@ -127,6 +127,16 @@ class EmbeddingDimensionCache {
 const embeddingDimensionCache = new EmbeddingDimensionCache(MAX_CACHE_SIZE);
 
 /**
+ * Clears the process-local embedding-dimension cache for hermetic tests.
+ *
+ * @internal Test-only seam. Production repositories should rely on the bounded
+ * cache lifecycle rather than clearing it between operations.
+ */
+export function clearEmbeddingDimensionCache(): void {
+  embeddingDimensionCache.clear();
+}
+
+/**
  * Partition embedding set IDs into cached results and uncached IDs.
  */
 function partitionCachedIds(ids: string[]): {
