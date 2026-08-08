@@ -32,7 +32,7 @@ import {
   unstable_toolResultStream,
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   excludeApprovalActionMessages,
   isActionRunConfig,
@@ -1482,7 +1482,9 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     requestPreparationTimeoutMs,
   });
   const optionsRef = useRef<BrainstrikeDataStreamRuntimeOptions>(requestOptions);
-  optionsRef.current = requestOptions;
+  useEffect(() => {
+    optionsRef.current = requestOptions;
+  }, [requestOptions]);
   // Keep the runtime adapter identity stable across renders; it reads the
   // latest callbacks and request options through optionsRef at request time.
   const chatModelAdapter = useMemo(

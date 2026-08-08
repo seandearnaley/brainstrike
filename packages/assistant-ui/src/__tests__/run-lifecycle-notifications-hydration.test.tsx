@@ -166,6 +166,29 @@ describe('useRunLifecycleNotifications hydration guard', () => {
     expect(onRunFinished.mock.calls[0]?.[0]).toMatchObject({ id: 'e2' });
   });
 
+  it('delivers a new event only to the latest committed callback', () => {
+    const firstOnRunFinished = vi.fn();
+    const secondOnRunFinished = vi.fn();
+    const { rerender } = render(
+      <RunLifecycleNotificationBridge onRunFinished={firstOnRunFinished} />
+    );
+
+    rerender(<RunLifecycleNotificationBridge onRunFinished={secondOnRunFinished} />);
+    mockMessages = [
+      runEventMessage({
+        id: 'latest-callback-event',
+        kind: 'run.finished',
+        label: 'Done with current callback',
+        status: 'completed',
+        timestamp: ts,
+      }),
+    ];
+    rerender(<RunLifecycleNotificationBridge onRunFinished={secondOnRunFinished} />);
+
+    expect(firstOnRunFinished).not.toHaveBeenCalled();
+    expect(secondOnRunFinished).toHaveBeenCalledOnce();
+  });
+
   it('fires exactly once for a genuinely new tool-approval request arriving after mount', () => {
     mockMessages = [
       approvalMessage({ runId: 'run-1', toolCallId: 'call-1', toolName: 'brainstrike.editFile' }),
