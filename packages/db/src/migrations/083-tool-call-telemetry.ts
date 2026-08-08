@@ -15,11 +15,21 @@ import type { Migration } from './migration-runner';
  * `brainstrike_assistant_run_usage` table — this is a net-new counters ledger
  * outside any sync-related rework, so it is not a uuidv7-groundwork table.
  *
- * No retention bound yet (deliberate, review-flagged): grows one row per tool
- * call, cleared only by thread deletion or factory reset. An `occurred_at`
- * retention sweep (mirroring `DiagnosticEventsRepository.purge()`) is an
- * accepted follow-up once real usage volume is observed, not an oversight —
- * see docs/agents/database.md.
+ * Retention (BST-1198): rows older than 60 days are pruned by the existing
+ * scheduled-database-maintenance pass (`runScheduledDatabaseMaintenance` in
+ * `services/scheduled-database-maintenance.ts`, the same ANALYZE/VACUUM
+ * scheduler from #1716) — no separate cron/timer was added. An idle pass does
+ * a full age-bounded sweep and now also VACUUMs this table (it is in
+ * `DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES`, since PGlite has no
+ * autovacuum and an unVACUUMed DELETE only trades live rows for permanently
+ * dead pages); a pass while the job queue is active runs a cheap EXISTS guard
+ * probe first, then an oldest-first LIMIT-bounded sweep only when something
+ * is actually expired (mirroring the terminal-job prune split), so a busy
+ * queue cannot let telemetry rows accumulate unbounded. Both deletes filter
+ * on `occurred_at` alone — `tool_id, occurred_at DESC` above is `tool_id`-
+ * leading and cannot serve that predicate as an index scan, so migration 085
+ * adds a dedicated `occurred_at`-leading index for the retention sweep. See
+ * docs/agents/database.md for the full contract.
  */
 export const migration083ToolCallTelemetry: Migration = {
   down: 'DROP TABLE IF EXISTS brainstrike_tool_call_telemetry;',
