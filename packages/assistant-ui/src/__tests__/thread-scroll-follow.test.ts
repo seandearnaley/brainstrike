@@ -1,5 +1,7 @@
+import { renderHook } from '@testing-library/react';
+import { createElement, type PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { createThreadScrollFollow } from '../thread-scroll-follow';
+import { ThreadScrollFollowProvider, useThreadScrollFollow } from '../thread-scroll-follow';
 
 let mutationCallback: MutationCallback | null = null;
 let nextFrameId = 1;
@@ -55,7 +57,10 @@ const flushAnimationFrames = (): void => {
   }
 };
 
-describe('createThreadScrollFollow', () => {
+const FollowProvider = ({ children }: PropsWithChildren) =>
+  createElement(ThreadScrollFollowProvider, null, children);
+
+describe('ThreadScrollFollowProvider', () => {
   test('measures mutation-driven growth after layout settles', () => {
     let scrollHeight = 100;
     const clientHeight = 100;
@@ -76,7 +81,10 @@ describe('createThreadScrollFollow', () => {
     });
     Object.defineProperty(element, 'scrollTo', { value: scrollTo });
 
-    const follow = createThreadScrollFollow();
+    const { result, unmount } = renderHook(useThreadScrollFollow, {
+      wrapper: FollowProvider,
+    });
+    const follow = result.current;
     const detach = follow.attach(element);
     const callback = mutationCallback;
     if (!callback) {
@@ -106,5 +114,6 @@ describe('createThreadScrollFollow', () => {
     element.dispatchEvent(new Event('pointerdown'));
     expect(frameCallbacks.size).toBe(0);
     detach();
+    unmount();
   });
 });

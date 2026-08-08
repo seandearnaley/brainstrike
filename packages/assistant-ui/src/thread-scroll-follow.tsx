@@ -67,7 +67,7 @@ export interface ThreadScrollFollow {
   readonly subscribe: (listener: () => void) => () => void;
 }
 
-export function createThreadScrollFollow(): ThreadScrollFollow {
+function createThreadScrollFollow(): ThreadScrollFollow {
   let element: HTMLElement | null = null;
   let isAtBottom = true;
   /** True while a follow/explicit scroll is in flight and may still settle. */
