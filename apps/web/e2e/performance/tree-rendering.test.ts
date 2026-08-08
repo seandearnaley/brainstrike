@@ -50,6 +50,13 @@ test.describe('Performance: Tree Rendering', () => {
     return tree;
   };
 
+  const countDirectories = (tree: FileTree): number =>
+    Object.values(tree).reduce(
+      (count, entry) =>
+        count + (typeof entry === 'object' && entry !== null ? 1 + countDirectories(entry) : 0),
+      0
+    );
+
   const widenExplorerPanel = async (page: Page): Promise<void> => {
     const panel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
     const resizeHandle = getContextExplorerRightResizeHandle(page);
@@ -564,6 +571,7 @@ test.describe('Performance: Tree Rendering', () => {
     const expandAllButton = page.getByTestId('expand-all-button-small');
     const cancelButton = page.getByRole('button', { name: 'Cancel operation' });
     const initialExpandedCount = await getExpandedDirectoryCount(page);
+    const fullyExpandedCount = initialExpandedCount + countDirectories(tree);
 
     await expandAllButton.click();
 
@@ -589,6 +597,8 @@ test.describe('Performance: Tree Rendering', () => {
       timeout: 15_000,
     });
     await expect(expandAllButton).toBeEnabled();
-    expect(await getExpandedDirectoryCount(page)).toBeGreaterThan(initialExpandedCount);
+    const expandedCountAfterCancel = await getExpandedDirectoryCount(page);
+    expect(expandedCountAfterCancel).toBeGreaterThan(initialExpandedCount);
+    expect(expandedCountAfterCancel).toBeLessThan(fullyExpandedCount);
   });
 });
