@@ -588,6 +588,11 @@ export interface AgentStreamCapabilities<
       observerTarget: { readonly model: string; readonly provider: string } | undefined,
       getDatabase: AgentStreamDatabaseProvider<K['database']>
     ) => AsyncIterable<StreamChunk>;
+    readonly persistToolCallTelemetry: (
+      stream: AsyncIterable<StreamChunk>,
+      runId: string,
+      getDatabase: AgentStreamDatabaseProvider<K['database']>
+    ) => AsyncIterable<StreamChunk>;
     readonly recordHookRunOutcome: (
       database: K['database'],
       runId: string,
@@ -884,15 +889,19 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     // Run-event observer wrapper (a no-op when there is no runId to stamp).
     const observe = (source: AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> =>
       runId
-        ? capabilities.runPersistence.persistChildRunUsage(
-            capabilities.runPersistence.observeRunEvents(
-              source,
+        ? capabilities.runPersistence.persistToolCallTelemetry(
+            capabilities.runPersistence.persistChildRunUsage(
+              capabilities.runPersistence.observeRunEvents(
+                source,
+                runId,
+                queuedRunEvents,
+                getDatabase
+              ),
               runId,
-              queuedRunEvents,
+              resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings),
               getDatabase
             ),
             runId,
-            resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings),
             getDatabase
           )
         : source;

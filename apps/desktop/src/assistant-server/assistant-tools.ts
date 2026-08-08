@@ -89,6 +89,7 @@ import {
 import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runSkillScript } from './run-skill-script-tool';
+import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-call-telemetry';
 import {
   logToolFailure,
   parseToolExecuteInput,
@@ -235,7 +236,8 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          return await runGrepSearch(resolvedInput, runtimeData);
+          const result = await runGrepSearch(resolvedInput, runtimeData);
+          return attachGrepSearchTelemetry(resolvedInput, result);
         } catch (error) {
           logToolFailure('grepSearch failed', error, resolvedInput);
           throw error;
@@ -253,7 +255,8 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          return await runGlobWorkspace(resolvedInput, runtimeData);
+          const result = await runGlobWorkspace(resolvedInput, runtimeData);
+          return attachGlobWorkspaceTelemetry(resolvedInput, result);
         } catch (error) {
           logToolFailure('globWorkspace failed', error, resolvedInput);
           throw error;

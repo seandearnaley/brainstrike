@@ -17,6 +17,7 @@ import {
   THREAD_DELETE_SIDECAR_TABLES,
   THREAD_TITLE_SOURCE_METADATA_KEY,
   THREAD_TITLE_SOURCE_OM,
+  TOOL_CALL_TELEMETRY_TABLE,
   WORKSPACE_SNAPSHOTS_TABLE,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
@@ -775,6 +776,28 @@ CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_canvas_version_idx
   ON ${CANVAS_VERSIONS_TABLE} (canvas_id, version DESC);
+
+-- Privacy-safe per-tool model-output telemetry (BST-1190). Bootstrapped here
+-- AND created by migration 083 — keep the shape byte-identical to 083.
+-- Mirrored because the thread-delete cascade references every sidecar
+-- unconditionally; only desktop main writes rows during normal operation.
+CREATE TABLE IF NOT EXISTS ${TOOL_CALL_TELEMETRY_TABLE} (
+  id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  run_id text NOT NULL,
+  tool_id text NOT NULL,
+  occurred_at timestamptz NOT NULL DEFAULT NOW(),
+  model_facing_chars integer NOT NULL CHECK (model_facing_chars >= 0),
+  truncated boolean NOT NULL DEFAULT false,
+  zero_match boolean,
+  is_pagination_followup boolean NOT NULL DEFAULT false
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_thread_idx
+  ON ${TOOL_CALL_TELEMETRY_TABLE} (thread_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_tool_time_idx
+  ON ${TOOL_CALL_TELEMETRY_TABLE} (tool_id, occurred_at DESC);
 
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,

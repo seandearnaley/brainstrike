@@ -1093,6 +1093,26 @@ Paired tests: `migration-082-canvas-documents.test.ts`,
 case in `assistant-memory-repository.integration.test.ts`, and the reset
 registry/clear sentinels.
 
+## TOOL-CALL TOKEN TELEMETRY (BST-1190)
+
+`brainstrike_tool_call_telemetry` (migration 083 in BOTH runners) stores one
+row per observed final model projection. The model-output observer accumulates
+tool id, actual serialized model-facing characters, generic/typed truncation,
+and search-only zero-match/pagination booleans; a run-end internal stream chunk
+hands those samples to the desktop main-process persistence capability. The
+writer derives `thread_id` from the renderer-created run row with
+`INSERT ... SELECT`, warns without failing the turn on a missing run or write
+failure, and never accepts raw input/output fields. The renderer lazy-bootstrap
+mirrors migration 083 byte-for-byte because its thread-delete CTE references
+every registered sidecar unconditionally, even though it never writes rows.
+
+The table is FK-less because numbered migrations cannot depend on lazy Mastra
+parents. `THREAD_DELETE_SIDECAR_TABLES` removes thread rows; the reset registry
+owns all three table-enumerating reset paths. The shipped
+`token-spend-by-tool` lens aggregates calls, characters, truncation, zero-match,
+and the deliberate follow-up/first-page proxy without storing a search-session
+correlation key.
+
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 
 Per-run cost/outcome analytics over tables the assistant already writes.

@@ -13,6 +13,7 @@ import {
   readProviderRunError,
   type StreamChunk,
   sanitizeAssistantRunEventMetadata,
+  type ToolCallTelemetrySample,
 } from '@brainstrike/agent';
 import { AssistantRunErrorRepository } from '@brainstrike/db';
 import type { HookRunVerdict } from './hooks/run-verdict';
@@ -47,6 +48,7 @@ const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
+const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
 
 export async function* observeDesktopAssistantRunEvents(
   stream: AsyncIterable<StreamChunk>,
@@ -245,6 +247,106 @@ export async function* persistDesktopChildRunUsage(
       await persist(chunk.value);
     }
     yield chunk;
+  }
+}
+
+function isSearchTelemetryTool(toolId: string): boolean {
+  return (
+    toolId === 'grepSearch' ||
+    toolId === 'globWorkspace' ||
+    toolId.endsWith('.grepSearch') ||
+    toolId.endsWith('.globWorkspace')
+  );
+}
+
+/**
+ * Consume the internal run-end telemetry chunk and persist all of its samples
+ * in ONE multi-row `INSERT … SELECT … FROM unnest(...)` (review fix: N
+ * sequential awaited round-trips on single-connection PGlite, on the
+ * latency-critical stream path, blocked the terminal finish chunk behind
+ * every tool call). Every array parameter carries an explicit `::type[]`
+ * cast — `INSERT … SELECT`, unlike `INSERT … VALUES`, does not propagate the
+ * target column type back into the SELECT list, so an untyped bare `null`
+ * resolves to `text` and fails a `text → boolean` assignment for every
+ * non-search row (review fix; mirrors the `unnest($1::uuid[], $2::text[], …)`
+ * batch convention already used by `packages/db/src/queue/job-queue.ts`).
+ * The explicit parameter allowlist is the privacy boundary: no raw result,
+ * input, pattern, path, file content, or command text reaches SQL.
+ */
+export async function* persistDesktopToolCallTelemetry(
+  stream: AsyncIterable<StreamChunk>,
+  runId: string,
+  getDatabase: RunPersistenceDatabaseProvider
+): AsyncIterable<StreamChunk> {
+  const persistBatch = async (samples: readonly ToolCallTelemetrySample[]): Promise<void> => {
+    if (samples.length === 0) {
+      return;
+    }
+    const ids: string[] = [];
+    const toolIds: string[] = [];
+    const occurredAts: string[] = [];
+    const modelFacingChars: number[] = [];
+    const truncated: boolean[] = [];
+    const zeroMatch: (boolean | null)[] = [];
+    const isPaginationFollowup: boolean[] = [];
+    for (const sample of samples) {
+      const isSearch = isSearchTelemetryTool(sample.toolId);
+      ids.push(crypto.randomUUID());
+      toolIds.push(sample.toolId);
+      occurredAts.push(new Date(sample.occurredAt).toISOString());
+      modelFacingChars.push(sample.modelFacingChars);
+      truncated.push(sample.truncated);
+      zeroMatch.push(isSearch ? (sample.zeroMatch ?? null) : null);
+      isPaginationFollowup.push(isSearch ? sample.isPaginationFollowup : false);
+    }
+    try {
+      const database = await getDatabase();
+      const result = await database.query(
+        `INSERT INTO ${TOOL_CALL_TELEMETRY_TABLE}
+          (id, thread_id, run_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup)
+         SELECT gen.id, runs.thread_id, runs.id, gen.tool_id, gen.occurred_at, gen.model_facing_chars, gen.truncated, gen.zero_match, gen.is_pagination_followup
+         FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+         CROSS JOIN unnest(
+           $2::text[], $3::text[], $4::timestamptz[], $5::integer[], $6::boolean[], $7::boolean[], $8::boolean[]
+         ) AS gen(id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup)
+         WHERE runs.id = $1
+         RETURNING id`,
+        [
+          runId,
+          ids,
+          toolIds,
+          occurredAts,
+          modelFacingChars,
+          truncated,
+          zeroMatch,
+          isPaginationFollowup,
+        ]
+      );
+      if (result.rows.length !== samples.length) {
+        logger.warn('Tool-call telemetry batch has no thread-run row to attribute to', {
+          code: 'assistant_tool_call_telemetry_missing_run_row',
+          expectedRows: samples.length,
+          persistedRows: result.rows.length,
+          runId,
+        });
+      }
+    } catch (error: unknown) {
+      // Best-effort relative to the turn, but never silent.
+      logger.warn('Failed to persist tool-call telemetry batch', {
+        code: 'assistant_tool_call_telemetry_persist_failed',
+        error,
+        runId,
+        sampleCount: samples.length,
+      });
+    }
+  };
+
+  for await (const chunk of stream) {
+    if (chunk.type !== 'tool-call-telemetry') {
+      yield chunk;
+      continue;
+    }
+    await persistBatch(chunk.value);
   }
 }
 

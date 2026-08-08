@@ -1,6 +1,6 @@
 import type { TokenMeasurementCapability } from '@brainstrike/assistant-contract/provider-registry';
 import { createTool } from '@mastra/core/tools';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   createPreparedTokenMeasurement,
@@ -92,7 +92,7 @@ describe('run token diagnostics', () => {
       tools: { lookup: tool },
     });
 
-    diagnostics.recordModelOutput({
+    diagnostics.recordModelOutput('lookup', {
       type: 'text',
       value: `projected ${secret}`,
     });
@@ -109,6 +109,75 @@ describe('run token diagnostics', () => {
     expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
     expect(fields.modelVisibleProjectionTokens).toBeGreaterThan(0);
     expect(JSON.stringify(fields)).not.toContain(secret);
+  });
+
+  it('records privacy-safe per-tool model-facing characters and generic truncation', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+
+    diagnostics.recordModelOutput('grepSearch', {
+      type: 'json',
+      value: { omittedItems: 4, truncated: true },
+    });
+    diagnostics.recordModelOutput('readWorkspaceFile', {
+      type: 'text',
+      value: 'private file contents',
+    });
+
+    const telemetry = diagnostics.toolCallTelemetry();
+    expect(telemetry).toEqual([
+      {
+        isPaginationFollowup: false,
+        modelFacingChars: JSON.stringify({
+          type: 'json',
+          value: { omittedItems: 4, truncated: true },
+        }).length,
+        occurredAt: expect.any(Number),
+        toolId: 'grepSearch',
+        truncated: true,
+      },
+      {
+        isPaginationFollowup: false,
+        modelFacingChars: JSON.stringify({
+          type: 'text',
+          value: 'private file contents',
+        }).length,
+        occurredAt: expect.any(Number),
+        toolId: 'readWorkspaceFile',
+        truncated: false,
+      },
+    ]);
+    expect(JSON.stringify(telemetry)).not.toContain('private file contents');
+  });
+
+  it('recognizes the two truncation shapes that actually occur (budget-fit text, artifact-page next)', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+
+    // Budget-fit path (trimCollectionToBudget): the domain record's
+    // truncation marker survives JSON-stringified inside a text-typed wire
+    // value — never a top-level `{type:'json'}` field.
+    diagnostics.recordModelOutput('executeCommand', {
+      type: 'text',
+      value: JSON.stringify({ hint: 'narrow the request', omittedItems: 3, truncated: true }),
+    });
+    // Durable-artifact settlement page: json-typed, continuation signalled by
+    // a `next` object, no `truncated` key at all.
+    diagnostics.recordModelOutput('readWorkspaceFile', {
+      type: 'json',
+      value: { content: 'partial', next: { input: { cursor: 'c1' }, tool: 'readArtifact' } },
+    });
+    // A plain non-JSON text projection (e.g. grepSearch's compact format)
+    // must not be misread as truncated just because it fails to parse.
+    diagnostics.recordModelOutput('grepSearch', {
+      type: 'text',
+      value: 'Found 3 matches in 2 files',
+    });
+
+    const telemetry = diagnostics.toolCallTelemetry();
+    expect(telemetry.map((sample) => [sample.toolId, sample.truncated])).toEqual([
+      ['executeCommand', true],
+      ['readWorkspaceFile', true],
+      ['grepSearch', false],
+    ]);
   });
 
   it.each([
@@ -146,6 +215,61 @@ describe('run token diagnostics', () => {
     expect(serialized).not.toContain('secret-base64-payload');
   });
 
+  it('counts actual serialized media characters for telemetry even though token counting masks them', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+    const output = {
+      type: 'content',
+      value: [{ data: 'actual-base64-payload', mediaType: 'image/png', type: 'image-data' }],
+    };
+
+    diagnostics.recordModelOutput('imageTool', output);
+
+    expect(diagnostics.toolCallTelemetry()).toEqual([
+      {
+        isPaginationFollowup: false,
+        modelFacingChars: JSON.stringify(output).length,
+        occurredAt: expect.any(Number),
+        toolId: 'imageTool',
+        truncated: false,
+      },
+    ]);
+  });
+
+  it('keeps the shipped token measurement intact when the telemetry-only stringify throws', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+    const output = { type: 'text', value: 'ok' };
+    // `serializeModelOutputForTokenMeasurement` stringifies `compactMedia(output)`
+    // — a DIFFERENT object reference — while the telemetry char count
+    // stringifies `output` directly. Throwing only on the exact `output`
+    // reference reproduces "raw stringify fails (e.g. RangeError: Invalid
+    // string length on huge base64), masked stringify succeeds" without
+    // constructing a real oversized payload.
+    const realStringify = JSON.stringify.bind(JSON);
+    const stringifySpy = vi
+      .spyOn(JSON, 'stringify')
+      .mockImplementation((value: unknown, replacer?: unknown, space?: unknown) => {
+        if (value === output) {
+          throw new RangeError('Invalid string length');
+        }
+        return realStringify(value, replacer as never, space as never);
+      });
+
+    try {
+      diagnostics.recordModelOutput('lookup', output);
+    } finally {
+      stringifySpy.mockRestore();
+    }
+
+    // The telemetry sample is simply omitted...
+    expect(diagnostics.toolCallTelemetry()).toEqual([]);
+    // ...but the pre-existing, already-shipped token measurement still ran
+    // (best-effort telemetry failure must not degrade it — review fix).
+    const fields = diagnostics.toLogFields();
+    expect(fields.measurementStatus).toBe('measured');
+    expect(fields.modelVisibleProjectionCount).toBe(1);
+    expect(fields.modelVisibleProjectionTokens).toBeGreaterThan(0);
+  });
+
   it('keeps deterministic backstop totals when the optional counter fails', async () => {
     const diagnostics = await createRunTokenDiagnostics(
       {
@@ -158,7 +282,7 @@ describe('run token diagnostics', () => {
         },
       }
     );
-    diagnostics.recordModelOutput({ type: 'text', value: 'safe projection' });
+    diagnostics.recordModelOutput('lookup', { type: 'text', value: 'safe projection' });
 
     const logFields = diagnostics.toLogFields();
     expect(logFields).toMatchObject({
