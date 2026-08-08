@@ -1237,8 +1237,10 @@ describe('assistant-tools read tools', () => {
     } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
 
+    // contextLines is explicit: the default is 0 (BST-1193), and passing it
+    // here also proves optional params survive the context-envelope unwrap.
     const result = await executeTool({
-      context: { outputMode: 'content', pattern: 'needle' },
+      context: { contextLines: 1, outputMode: 'content', pattern: 'needle' },
     });
 
     // The internal chunk-locator fields (chunkId/chunkStartLine/chunkEndLine) are

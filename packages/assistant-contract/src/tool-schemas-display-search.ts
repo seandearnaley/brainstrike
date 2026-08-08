@@ -207,8 +207,8 @@ export const SEARCH_TOOL_SCHEMAS = {
         type: 'string',
       },
       {
-        default: 1,
-        description: "Lines of context before/after each match in 'content' mode",
+        default: 0,
+        description: "Lines of context before/after each 'content' match (opt-in)",
         max: 5,
         min: 0,
         name: 'contextLines',
@@ -227,7 +227,7 @@ export const SEARCH_TOOL_SCHEMAS = {
       {
         default: 'files',
         description:
-          "'files' (default) lists matching file paths with match counts; 'content' returns line-level matches with context",
+          "'files' (default) lists matching file paths with match counts; 'content' returns line-level matches",
         enumValues: ['files', 'content'],
         name: 'outputMode',
         required: false,

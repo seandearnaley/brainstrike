@@ -1109,7 +1109,12 @@ active budget. Proofs:
 (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 `grepSearch` and `globWorkspace` keep their complete typed raw pages for
 display, persistence, hooks, and reload, but their Mastra `toModelOutput`
-projections are deterministic line-oriented text. Since BST-1185 those
+projections are deterministic line-oriented text. Content mode returns NO
+context lines unless the caller opts in (`contextLines` defaults to 0 —
+BST-1193: searches locate, reads understand; the schema, the browser-safe
+display mirror in `tool-schemas-display-search.ts`, and the tool fallback
+must state the same default, pinned by
+`native-tool-display-schema-parity.spec.ts`). Since BST-1185 those
 projections are PATH-GROUPED and happy-path-silent: one file header per file
 (`rootName:path`, root prefix only when the producer's `openRoots` reports
 more than one open folder — the display name is a valid `root` selector, and
