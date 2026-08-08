@@ -94,7 +94,7 @@ export const GrepSearchInputSchema = z
       .min(0)
       .max(5)
       .optional()
-      .describe("Context lines in 'content' mode (default 1)"),
+      .describe("Context lines around each 'content' match (default 0; opt in when needed)"),
     filePaths: z
       .array(z.string().min(1))
       .max(1000)

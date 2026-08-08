@@ -361,7 +361,8 @@ function buildContentHint(
   offset: number,
   shownCount: number,
   hadPageItems: boolean,
-  serviceCap: number
+  serviceCap: number,
+  contextLines: number
 ): string | undefined {
   const morePagedMatches = offset + shownCount < mergedResult.totalMatches;
   if (!morePagedMatches) {
@@ -379,11 +380,14 @@ function buildContentHint(
     return;
   }
   // A single match (long line × contextLines) can exceed the whole budget; a
-  // hint repeating the same offset would loop the model. Skip past it.
+  // hint repeating the same offset would loop the model. Skip past it. The
+  // contextLines advice appears only when context was actually requested —
+  // advising "contextLines: 0" to a caller already at 0 is noise (BST-1193).
   if (shownCount === 0 && hadPageItems) {
+    const contextAdvice = contextLines > 0 ? ' and contextLines: 0' : '';
     return (
       `The match at offset ${offset} is too large to display within the output budget ` +
-      `(very long line). Continue with offset: ${offset + 1} and contextLines: 0, or scope with filePaths.`
+      `(very long line). Continue with offset: ${offset + 1}${contextAdvice}, or scope with filePaths.`
     );
   }
   const nextOffset = offset + shownCount;
@@ -396,10 +400,11 @@ function buildContentHint(
       'Narrow with filePaths or a more specific pattern to see the remaining matches.'
     );
   }
+  const contextAdvice =
+    contextLines > 0 ? ', or set contextLines: 0 to fit more matches per call' : '';
   return (
     `Showing matches ${offset + 1}-${nextOffset} of ${mergedResult.totalMatches}. ` +
-    `Continue with offset: ${nextOffset}, scope with filePaths, or set contextLines: 0 ` +
-    'to fit more matches per call.'
+    `Continue with offset: ${nextOffset}, scope with filePaths${contextAdvice}.`
   );
 }
 
@@ -408,7 +413,8 @@ function buildContentResult(
   offset: number,
   requestedMatches: number,
   serviceCap: number,
-  topology: OpenRootTopology
+  topology: OpenRootTopology,
+  contextLines: number
 ): GrepContentToolResult {
   // Strip the internal chunk-locator fields BEFORE budget-fitting so the token
   // budget reflects the trimmed model-facing shape (and never spends budget on
@@ -427,7 +433,8 @@ function buildContentResult(
       offset,
       matches.length,
       pagedMatches.length > 0,
-      serviceCap
+      serviceCap,
+      contextLines
     );
     return {
       candidatesTruncated: mergedResult.candidatesTruncated,
@@ -554,7 +561,10 @@ export async function runGrepSearch(
 
   const isRegex = input.isRegex ?? false;
   const caseSensitive = input.caseSensitive ?? false;
-  const contextLines = outputMode === 'files' ? 0 : (input.contextLines ?? 1);
+  // Context defaults to 0 (BST-1193): searches locate, reads understand.
+  // Every studied peer ships no context by default; the option remains for
+  // deliberate opt-in.
+  const contextLines = outputMode === 'files' ? 0 : (input.contextLines ?? 0);
   // Build the authoritative matcher up front: an invalid regex throws here
   // (BEFORE any DB or disk work), preserving the no-coercion contract, and the
   // SAME matcher instance drives the live pass so live + indexed match
@@ -624,7 +634,14 @@ export async function runGrepSearch(
     return parseGrepToolResult(
       outputMode === 'files'
         ? buildFilesResult(merged, offset, topology)
-        : buildContentResult(merged, offset, requestedMatches, INTERNAL_MATCH_CAP, topology)
+        : buildContentResult(
+            merged,
+            offset,
+            requestedMatches,
+            INTERNAL_MATCH_CAP,
+            topology,
+            contextLines
+          )
     );
   } catch (error) {
     logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });

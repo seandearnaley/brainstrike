@@ -58,7 +58,7 @@ describe('grep search tool', () => {
     expect(result.liveEngine).toBe('skipped');
   });
 
-  it('returns path:line matches with context in content mode', async () => {
+  it('returns bare path:line matches in content mode — context is opt-in (BST-1193)', async () => {
     queryMock.mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
     });
@@ -67,11 +67,13 @@ describe('grep search tool', () => {
       throw new Error('expected content mode result');
     }
     // The internal chunk-locator fields (chunkId/chunkStartLine/chunkEndLine) are
-    // stripped from the model-facing output to save tokens.
+    // stripped from the model-facing output to save tokens. contextLines
+    // defaults to 0: searches locate, reads understand — every studied peer
+    // ships no context by default (opencode has no option; hermes defaults 0).
     expect(result.matches).toEqual([
       {
-        after: ['omega'],
-        before: ['alpha'],
+        after: [],
+        before: [],
         line: 11,
         lineText: 'needle line',
         path: 'src/x.ts',
@@ -83,6 +85,49 @@ describe('grep search tool', () => {
     expect(match).not.toHaveProperty('chunkStartLine');
     expect(match).not.toHaveProperty('chunkEndLine');
     expect(result.truncated).toBe(false);
+  });
+
+  it('returns surrounding context when contextLines is requested explicitly', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
+    });
+    const result = await runGrepSearch(
+      { contextLines: 1, outputMode: 'content', pattern: 'needle' },
+      undefined
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.matches).toEqual([
+      {
+        after: ['omega'],
+        before: ['alpha'],
+        line: 11,
+        lineText: 'needle line',
+        path: 'src/x.ts',
+        source: 'index',
+      },
+    ]);
+  });
+
+  it('mentions contextLines in paging hints only when context was requested', async () => {
+    const lines = Array.from({ length: 6 }, (_, i) => `needle ${i}`).join('\n');
+    queryMock.mockResolvedValue({
+      rows: [{ content: lines, path: 'src/x.ts', start_line: 1 }],
+    });
+
+    const withContext = await runGrepSearch(
+      { contextLines: 1, maxResults: 2, outputMode: 'content', pattern: 'needle' },
+      undefined
+    );
+    expect(withContext.hint).toContain('contextLines: 0');
+
+    const defaultContext = await runGrepSearch(
+      { maxResults: 2, outputMode: 'content', pattern: 'needle' },
+      undefined
+    );
+    expect(defaultContext.hint).toContain('offset: 2');
+    expect(defaultContext.hint).not.toContain('contextLines');
   });
 
   it('pages content matches with offset and emits a continuation hint', async () => {
