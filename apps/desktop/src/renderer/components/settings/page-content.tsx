@@ -14,6 +14,7 @@ import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/inde
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import { ModelSelectionPage } from '@brainstrike/settings-ui/settings/models/model-selection-page';
+import { createApiKeysSettingsCategory } from '@brainstrike/settings-ui/settings/secrets/api-keys-settings-category';
 import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
 import { createSkillsSettingsCategory } from '@brainstrike/settings-ui/settings/system/skills-settings-category';
 import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settings-ui/settings/system/workspace-instructions-settings-category';
@@ -23,7 +24,6 @@ import {
   type ToolExecutionResult,
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
-  createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createHooksSettingsCategory,
