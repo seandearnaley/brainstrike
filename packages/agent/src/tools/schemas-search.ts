@@ -116,7 +116,7 @@ export const GrepSearchInputSchema = z
       .enum(['files', 'content'])
       .optional()
       .describe(
-        "'files' (default): paths + match counts. 'content': line matches + context; narrow with filePaths."
+        "'files' (default): paths + match counts. 'content': matching lines; narrow with filePaths."
       ),
     pattern: z.string().min(2).max(500).describe('Exact text (default) or JavaScript regex'),
     root: z.string().optional().describe(WORKSPACE_SEARCH_ROOT_DESCRIPTION),

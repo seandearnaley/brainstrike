@@ -356,14 +356,15 @@ function buildFilesResult(
   return result;
 }
 
-function buildContentHint(
-  mergedResult: MergedGrepResult,
-  offset: number,
-  shownCount: number,
-  hadPageItems: boolean,
-  serviceCap: number,
-  contextLines: number
-): string | undefined {
+function buildContentHint(args: {
+  mergedResult: MergedGrepResult;
+  offset: number;
+  shownCount: number;
+  hadPageItems: boolean;
+  serviceCap: number;
+  contextLines: number;
+}): string | undefined {
+  const { mergedResult, offset, shownCount, hadPageItems, serviceCap, contextLines } = args;
   const morePagedMatches = offset + shownCount < mergedResult.totalMatches;
   if (!morePagedMatches) {
     // Every reachable match is shown, but the candidate pool, bounded scan, or
@@ -408,14 +409,15 @@ function buildContentHint(
   );
 }
 
-function buildContentResult(
-  mergedResult: MergedGrepResult,
-  offset: number,
-  requestedMatches: number,
-  serviceCap: number,
-  topology: OpenRootTopology,
-  contextLines: number
-): GrepContentToolResult {
+function buildContentResult(args: {
+  mergedResult: MergedGrepResult;
+  offset: number;
+  requestedMatches: number;
+  serviceCap: number;
+  topology: OpenRootTopology;
+  contextLines: number;
+}): GrepContentToolResult {
+  const { mergedResult, offset, requestedMatches, serviceCap, topology, contextLines } = args;
   // Strip the internal chunk-locator fields BEFORE budget-fitting so the token
   // budget reflects the trimmed model-facing shape (and never spends budget on
   // fields the model never reads).
@@ -428,14 +430,14 @@ function buildContentResult(
     // either pass hit its own cap — same formula as files mode; the modes
     // must not diverge (BST-951).
     const truncated = offset + matches.length < mergedResult.totalMatches || mergedResult.truncated;
-    const hint = buildContentHint(
+    const hint = buildContentHint({
+      contextLines,
+      hadPageItems: pagedMatches.length > 0,
       mergedResult,
       offset,
-      matches.length,
-      pagedMatches.length > 0,
       serviceCap,
-      contextLines
-    );
+      shownCount: matches.length,
+    });
     return {
       candidatesTruncated: mergedResult.candidatesTruncated,
       liveEngine: mergedResult.liveEngine,
@@ -634,14 +636,14 @@ export async function runGrepSearch(
     return parseGrepToolResult(
       outputMode === 'files'
         ? buildFilesResult(merged, offset, topology)
-        : buildContentResult(
-            merged,
+        : buildContentResult({
+            contextLines,
+            mergedResult: merged,
             offset,
             requestedMatches,
-            INTERNAL_MATCH_CAP,
+            serviceCap: INTERNAL_MATCH_CAP,
             topology,
-            contextLines
-          )
+          })
     );
   } catch (error) {
     logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });
