@@ -6,6 +6,7 @@ import { type RuntimeData, resetFileReadState, withFileLock } from '@brainstrike
 import type { ToolInputError } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireToolExecute } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
 
@@ -71,12 +72,12 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
-// Split from the 5,101-line assistant-tools.integration.test.ts (BST-976):
-// one suite per service seam, sharing the fixture module and repeating the
-// vi.mock preamble per file (hoisting is per-importing-module).
+// Split from assistant-tools.integration.test.ts (BST-976): one suite per
+// service seam; the vi.mock preamble is repeated because hoisting is per file.
 describe('assistant-tools write tools', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetToolCallLoopGuards();
   });
 
   describe('writeWorkspaceFile', () => {
