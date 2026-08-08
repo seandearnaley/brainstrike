@@ -13,14 +13,17 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { NATIVE_TOOL_RESULT_CHAR_BUDGET, type RuntimeData } from '@brainstrike/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
   buildTruncationMarker,
   disposeLiveChildProcesses,
+  type ExecuteCommandToolResult,
   fitHeadAndTailToCharBudget,
   resolveShellInvocation,
   runExecuteCommand,
   type ShellOutputStreamPart,
 } from '../../assistant-server/execute-command-tool';
+import { requireTool, requireToolExecute } from './_tool-test-helpers';
 
 const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerInfoMock: vi.fn(),
@@ -54,6 +57,17 @@ async function makeWorkspace(prefix = 'brainstrike-exec-unit-'): Promise<string>
 
 function singleRoot(rootPath: string): RuntimeData {
   return { workspaceRootPath: rootPath } as RuntimeData;
+}
+
+function requireExecuteCommandModelOutput(
+  tools: NonNullable<RuntimeData['mastraTools']>
+): (output: unknown) => { type: 'text'; value: string } {
+  const tool = requireTool(tools, 'brainstrike.executeCommand');
+  const toModelOutput = (tool as { toModelOutput?: (output: unknown) => unknown }).toModelOutput;
+  if (typeof toModelOutput !== 'function') {
+    throw new Error("Expected tool 'brainstrike.executeCommand' to have a model output projection");
+  }
+  return (output: unknown) => toModelOutput.call(tool, output) as { type: 'text'; value: string };
 }
 
 /** True only while the OS still has a process with this pid. */
@@ -179,6 +193,9 @@ describe('runExecuteCommand — happy path', () => {
     expect(result.signal).toBeNull();
     expect(result.cwd).toBe(root);
     expect(typeof result.durationMs).toBe('number');
+    expect(result.rootId).toBe(root);
+    expect(result.openRoots).toBeUndefined();
+    expect(result.ambiguousRootNames).toBeUndefined();
   });
 
   it('starts in the workspace root by default (pwd === root)', async () => {
@@ -186,6 +203,45 @@ describe('runExecuteCommand — happy path', () => {
     const result = await runExecuteCommand({ command: 'pwd' }, singleRoot(root));
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe(root);
+  });
+
+  it('executes and projects through the registered desktop tool', async () => {
+    const root = await makeWorkspace();
+    const tools = buildDesktopAssistantTools(singleRoot(root));
+    const execute = requireToolExecute<ExecuteCommandToolResult>(
+      tools,
+      'brainstrike.executeCommand'
+    );
+    const toModelOutput = requireExecuteCommandModelOutput(tools);
+
+    const result = await execute({ command: 'echo hello' });
+
+    expect(toModelOutput(result)).toEqual({
+      type: 'text',
+      value: `exec exit=0 ${(result.durationMs / 1000).toFixed(1)}s\nhello\n`,
+    });
+  });
+});
+
+describe('runExecuteCommand — root topology', () => {
+  it('threads same-name multi-root topology and the selected root id', async () => {
+    const rootA = await makeWorkspace('brainstrike-exec-multiroot-a-');
+    const rootB = await makeWorkspace('brainstrike-exec-multiroot-b-');
+    const runtimeData = {
+      workspaceRoots: [
+        { displayName: 'Twin', path: rootA, rootId: 'root-a' },
+        { displayName: 'twin', path: rootB, rootId: 'root-b' },
+      ],
+    } as RuntimeData;
+
+    const result = await runExecuteCommand(
+      { command: 'echo selected', root: 'root-a' },
+      runtimeData
+    );
+
+    expect(result.rootId).toBe('root-a');
+    expect(result.openRoots).toBe(2);
+    expect(result.ambiguousRootNames).toEqual(['twin']);
   });
 });
 

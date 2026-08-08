@@ -64,6 +64,7 @@ import {
   runInspectCommandSessions,
   runManageCommandSession,
 } from './command-session-tools';
+import { projectExecuteCommandModelOutput } from './execute-command-model-projection';
 import { runExecuteCommand } from './execute-command-tool';
 import {
   runDeleteWorkspaceFile,
@@ -893,6 +894,7 @@ export function buildDesktopAssistantTools(
     },
     id: NATIVE_TOOL_ID.executeCommand,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],
+    toModelOutput: projectExecuteCommandModelOutput,
   };
 
   const skillScriptResolver = dependencies.skillScriptResolver;

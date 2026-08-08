@@ -11,7 +11,11 @@ import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
-import { resolveWorkspaceRoot } from './workspace-roots';
+import {
+  describeOpenRootTopology,
+  type OpenRootTopology,
+  resolveWorkspaceRoot,
+} from './workspace-roots';
 
 export const EXECUTE_COMMAND_TOOL_ID = NATIVE_TOOL_ID.executeCommand;
 
@@ -95,6 +99,7 @@ export function resolveShellInvocation(
 }
 
 export interface ExecuteCommandToolResult {
+  ambiguousRootNames?: string[];
   command: string;
   /** Absolute, containment-checked directory the command started in. */
   cwd: string;
@@ -106,6 +111,9 @@ export interface ExecuteCommandToolResult {
   exitCode: number | null;
   /** Actionable next step when output was truncated to fit the model budget. */
   hint?: string;
+  openRoots?: number;
+  /** Durable id of the workspace root the command was resolved against. */
+  rootId: string;
   /** Display name of the workspace root the command was resolved against. */
   rootName: string;
   /** Terminating signal name when the process was killed (else null). */
@@ -207,11 +215,11 @@ async function resolveCommandCwd(
   runtimeData: RuntimeData | undefined,
   rootQualifier: string | undefined,
   requestedCwd: string | undefined
-): Promise<{ cwd: string; rootName: string }> {
+): Promise<{ cwd: string; rootId: string; rootName: string }> {
   const root = resolveWorkspaceRoot(runtimeData, rootQualifier);
   const canonicalRootPath = await fsPromises.realpath(root.path);
   if (requestedCwd === undefined || requestedCwd.trim().length === 0) {
-    return { cwd: canonicalRootPath, rootName: root.displayName };
+    return { cwd: canonicalRootPath, rootId: root.rootId, rootName: root.displayName };
   }
   // A relative cwd is resolved against the root; an absolute cwd is taken as-is.
   // Either way the canonical (symlink-resolved) result must be inside the root.
@@ -239,7 +247,7 @@ async function resolveCommandCwd(
       `cwd "${requestedCwd}" resolves outside the workspace root "${root.displayName}". A command's start directory must be inside an open folder.`
     );
   }
-  return { cwd: canonicalCwd, rootName: root.displayName };
+  return { cwd: canonicalCwd, rootId: root.rootId, rootName: root.displayName };
 }
 
 export interface SpawnOutcome {
@@ -565,7 +573,7 @@ export function fitHeadAndTailToCharBudget(
  * language that implies tail-only retention (e.g. advising `| tail -n N`,
  * which would discard the head content this feature exists to preserve).
  */
-const TRUNCATION_HINT =
+export const TRUNCATION_HINT =
   'Output was truncated to fit the budget; the start and end of each stream are shown with a marker where content was omitted (stdout prioritized). Re-run scoped to produce less output, or filter with grep/sed, if you need the omitted middle.';
 
 /**
@@ -591,9 +599,11 @@ function buildResult(args: {
   cwd: string;
   durationMs: number;
   outcome: SpawnOutcome;
+  rootId: string;
   rootName: string;
+  topology: OpenRootTopology;
 }): ExecuteCommandToolResult {
-  const { command, cwd, durationMs, outcome, rootName } = args;
+  const { command, cwd, durationMs, outcome, rootId, rootName, topology } = args;
   // Strip ANSI before budgeting so escape codes never reach the model or
   // consume the token budget.
   const stdoutText = stripAnsi(outcome.stdout);
@@ -639,10 +649,12 @@ function buildResult(args: {
       : { text: '', truncated: false };
     const truncated = fittedStdout.truncated || fittedStderr.truncated;
     return {
+      ...topology,
       command: echoedCommand,
       cwd,
       durationMs,
       exitCode: outcome.exitCode,
+      rootId,
       rootName,
       signal: outcome.signal,
       stderr: fittedStderr.text,
@@ -702,7 +714,8 @@ export async function runExecuteCommand(
   runtimeData: RuntimeData | undefined,
   options?: { signal?: AbortSignal | undefined; stream?: ShellOutputStreamer | undefined }
 ): Promise<ExecuteCommandToolResult> {
-  const { cwd, rootName } = await resolveCommandCwd(runtimeData, input.root, input.cwd);
+  const topology = describeOpenRootTopology(runtimeData);
+  const { cwd, rootId, rootName } = await resolveCommandCwd(runtimeData, input.root, input.cwd);
   const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
   const startedAt = Date.now();
@@ -731,5 +744,13 @@ export async function runExecuteCommand(
     });
   }
 
-  return buildResult({ command: input.command, cwd, durationMs, outcome, rootName });
+  return buildResult({
+    command: input.command,
+    cwd,
+    durationMs,
+    outcome,
+    rootId,
+    rootName,
+    topology,
+  });
 }
