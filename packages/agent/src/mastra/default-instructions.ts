@@ -672,7 +672,6 @@ export function buildDefaultInstructions(
     selectionLine,
     'Keep retrieval budgets small. If truncated: true, follow its hint to fetch only missing data and report consequential omissions.',
     parallelCallInstruction,
-    'Issue independent read-only lookups together in one step.',
     'If an expected native tool is unavailable, name its ID; use an alternative only if it still answers the user.',
     'When asked, list callable tool IDs with brief descriptions.',
     'Only run state-changing tools after the user confirms.',
