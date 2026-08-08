@@ -9,9 +9,10 @@ import {
   TOOL_DESCRIPTIONS,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
+import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireTool, requireToolExecute } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -80,6 +81,10 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 // one suite per service seam, sharing the fixture module and repeating the
 // vi.mock preamble per file (hoisting is per-importing-module).
 describe('assistant-tools multi-root read tools', () => {
+  beforeEach(() => {
+    resetToolCallLoopGuards();
+  });
+
   async function createTwoRootWorkspace(): Promise<{
     rootA: string;
     rootB: string;

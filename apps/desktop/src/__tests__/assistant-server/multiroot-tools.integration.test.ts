@@ -14,7 +14,7 @@ import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import { FileChunkRepository, migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { dbHolder } = vi.hoisted(() => ({ dbHolder: { db: null as unknown } }));
 
@@ -27,6 +27,7 @@ vi.mock('electron', () => ({
 }));
 
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireToolExecute } from './_tool-test-helpers';
 
 const ROOT_A = { displayName: 'ProjectA', rootId: 'root-a' };
@@ -59,6 +60,10 @@ function twoRootRuntime(): RuntimeData {
 }
 
 describe('multi-root assistant tools (real PGlite + real roots)', () => {
+  beforeEach(() => {
+    resetToolCallLoopGuards();
+  });
+
   beforeAll(async () => {
     // 1. Real on-disk roots that share a relative path with distinct content.
     rootAPath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-mr-a-'));
