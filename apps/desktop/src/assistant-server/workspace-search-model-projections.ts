@@ -26,7 +26,6 @@ import {
 export type WorkspaceSearchTextModelOutput = WorkspaceTextModelOutput;
 
 const MAX_LINE_TEXT_CHARS = 600;
-const MAX_ROOT_LABEL_CHARS = 160;
 
 function isOptionalString(value: unknown): value is string | null | undefined {
   return value === undefined || value === null || typeof value === 'string';
@@ -92,6 +91,9 @@ function parseGlobWorkspaceToolResult(output: unknown): GlobWorkspaceToolResult 
       output['count'] === output['matches'].length &&
       isNonNegativeInteger(output['offset']) &&
       (output['openRoots'] === undefined || isPositiveInteger(output['openRoots'])) &&
+      (output['ambiguousRootNames'] === undefined ||
+        (Array.isArray(output['ambiguousRootNames']) &&
+          output['ambiguousRootNames'].every((name) => typeof name === 'string'))) &&
       typeof output['scanLimited'] === 'boolean' &&
       isNonNegativeInteger(output['totalMatches']) &&
       typeof output['truncated'] === 'boolean'
@@ -110,9 +112,22 @@ function parseGlobWorkspaceToolResult(output: unknown): GlobWorkspaceToolResult 
  * pathological oversized path therefore overflows the char budget naturally
  * and the fitting loop OMITS that item with an advancing offset — the same
  * omit-don't-mangle ruling the legacy `read_args` rows enforced.
+ *
+ * A LEADING whitespace character is escaped so a hostile filename cannot
+ * mimic an indented `  N: text` match row; combined with line-break escaping
+ * a path can never create a new projection line. A path that merely LOOKS
+ * like a header or continuation still renders inline on its own single line —
+ * an accepted residual documented in assistant-providers.md.
  */
 function projectionPath(value: string): string {
-  return escapeProjectionPathLineBreaks(value);
+  const escaped = escapeProjectionPathLineBreaks(value);
+  if (escaped.startsWith(' ')) {
+    return `\\x20${escaped.slice(1)}`;
+  }
+  if (escaped.startsWith('\t')) {
+    return `\\t${escaped.slice(1)}`;
+  }
+  return escaped;
 }
 
 /** The minimal per-item root fields the label resolver reads. */
@@ -121,19 +136,33 @@ interface RootLabelledItem {
   rootName?: string | null;
 }
 
+/** The result-envelope topology fields the label resolver reads. */
+interface RootTopologyEnvelope {
+  ambiguousRootNames?: string[];
+  openRoots?: number;
+}
+
 /**
  * Per-result root-label policy (BST-1185): file headers carry a root prefix
  * ONLY when more than one folder is open — the producer says so via
  * `openRoots` (with a defensive fallback to "this page spans several roots").
  * The label is the root display name, which `resolveWorkspaceRoot` accepts as
- * a `root` selector; when two distinct roots on the page share a display name
- * (name resolution would throw as ambiguous), the durable root id is used for
- * those items instead. Single-root and unrooted results get bare paths.
+ * a `root` selector. Ambiguity is decided against the FULL open-root
+ * inventory via the producer's `ambiguousRootNames` (a page may contain one
+ * root of a twin pair), with page-local twin detection kept as defence in
+ * depth; ambiguous names fall back to the durable root id. Labels are
+ * SELECTORS and are therefore emitted verbatim (line breaks escaped, never
+ * clipped, whitespace preserved) — an oversized label overflows the budget
+ * and its item is omitted, exactly like an oversized path. Single-root and
+ * unrooted results get bare paths.
  */
 function buildRootLabelResolver(
-  openRoots: number | undefined,
+  envelope: RootTopologyEnvelope,
   items: readonly RootLabelledItem[]
 ): (item: RootLabelledItem) => string | null {
+  const globallyAmbiguous = new Set(
+    (envelope.ambiguousRootNames ?? []).map((name) => name.toLowerCase())
+  );
   const distinctRootIds = new Set<string>();
   const rootIdsByName = new Map<string, Set<string>>();
   for (const item of items) {
@@ -149,17 +178,21 @@ function buildRootLabelResolver(
       rootIdsByName.set(key, ids);
     }
   }
-  const multiRoot = (openRoots ?? 0) > 1 || distinctRootIds.size > 1;
+  const multiRoot = (envelope.openRoots ?? 0) > 1 || distinctRootIds.size > 1;
   if (!multiRoot) {
     return () => null;
   }
   return (item) => {
     const name = item.rootName?.trim();
-    if (name && (rootIdsByName.get(name.toLowerCase())?.size ?? 0) <= 1) {
-      return clipEnd(name, MAX_ROOT_LABEL_CHARS, 'root-name');
+    if (
+      name &&
+      !globallyAmbiguous.has(name.toLowerCase()) &&
+      (rootIdsByName.get(name.toLowerCase())?.size ?? 0) <= 1
+    ) {
+      return escapeProjectionPathLineBreaks(name);
     }
     if (item.rootId) {
-      return clipEnd(item.rootId, MAX_ROOT_LABEL_CHARS, 'root-id');
+      return escapeProjectionPathLineBreaks(item.rootId);
     }
     return null;
   };
@@ -244,7 +277,11 @@ function fileGroupKey(item: RootLabelledItem & { path: string }): string {
  * Path-grouped content rendering (BST-1185): one file-header line per file,
  * then `  <line>: <text>` rows — ripgrep's own convention, with `-` marking
  * context rows. Context line numbers are derived from the match line (the
- * producer supplies the immediately adjacent lines). The per-row
+ * producer supplies the immediately adjacent lines). Rows within a file are
+ * MERGED: overlapping context from adjacent matches emits each physical line
+ * exactly once, match rows win over context rows, and line numbers stay
+ * monotonic (PR #2313 review — the naive per-match emission duplicated
+ * adjacent lines and ran the number column backwards). The per-row
  * `read_args=` JSON envelope, repeated root name, and `source=` label are
  * gone; the read recipe lives in the tool descriptions once.
  */
@@ -253,23 +290,45 @@ function renderContentItems(
   rootLabel: (item: RootLabelledItem) => string | null
 ): string[] {
   const lines: string[] = [];
+  let groupRows = new Map<number, { isMatch: boolean; text: string }>();
   let previousGroup: string | null = null;
+
+  const flushGroup = (): void => {
+    const ordered = Array.from(groupRows.entries()).sort(([a], [b]) => a - b);
+    for (const [line, row] of ordered) {
+      lines.push(
+        `  ${line}${row.isMatch ? ':' : '-'} ${clipEnd(
+          row.text,
+          MAX_LINE_TEXT_CHARS,
+          row.isMatch ? 'line' : 'context'
+        )}`
+      );
+    }
+    groupRows = new Map();
+  };
+
   for (const match of matches) {
     const group = fileGroupKey(match);
     if (group !== previousGroup) {
+      flushGroup();
       lines.push(fileHeaderLine(match, rootLabel));
       previousGroup = group;
     }
     match.before.forEach((text, index) => {
-      lines.push(
-        `  ${match.line - match.before.length + index}- ${clipEnd(text, MAX_LINE_TEXT_CHARS, 'context')}`
-      );
+      const line = match.line - match.before.length + index;
+      if (!groupRows.get(line)?.isMatch) {
+        groupRows.set(line, { isMatch: false, text });
+      }
     });
-    lines.push(`  ${match.line}: ${clipEnd(match.lineText, MAX_LINE_TEXT_CHARS, 'line')}`);
+    groupRows.set(match.line, { isMatch: true, text: match.lineText });
     match.after.forEach((text, index) => {
-      lines.push(`  ${match.line + 1 + index}- ${clipEnd(text, MAX_LINE_TEXT_CHARS, 'context')}`);
+      const line = match.line + 1 + index;
+      if (!groupRows.get(line)?.isMatch) {
+        groupRows.set(line, { isMatch: false, text });
+      }
     });
   }
+  flushGroup();
   return lines;
 }
 
@@ -359,7 +418,7 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
   }
   const result = parseGrepToolResult(output);
   const items = result.outputMode === 'files' ? result.files : result.matches;
-  const rootLabel = buildRootLabelResolver(result.openRoots, items);
+  const rootLabel = buildRootLabelResolver(result, items);
   const note = result.liveNote
     ? `note: ${clipEnd(result.liveNote, MAX_LINE_TEXT_CHARS, 'note')}`
     : null;
@@ -434,7 +493,7 @@ function globContinuation(
 
 export function projectGlobWorkspaceModelOutput(output: unknown): WorkspaceSearchTextModelOutput {
   const result = parseGlobWorkspaceToolResult(output);
-  const rootLabel = buildRootLabelResolver(result.openRoots, result.matches);
+  const rootLabel = buildRootLabelResolver(result, result.matches);
   const keptLines: string[] = [];
   let kept = 0;
 

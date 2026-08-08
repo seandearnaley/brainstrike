@@ -278,6 +278,40 @@ export function resolveFocusedWorkspaceRoot(
 }
 
 /**
+ * Root-topology fields the search-result envelopes carry for the model
+ * projections (BST-1185). `openRoots` is present only when more than one
+ * folder is open (the projection's root-prefix trigger); `ambiguousRootNames`
+ * lists the LOWERCASED display names shared by more than one open root, so
+ * the projection can fall back to root ids for names `resolveWorkspaceRoot`
+ * would reject as ambiguous — ambiguity is a property of the full open-root
+ * inventory, never of one result page.
+ */
+export interface OpenRootTopology {
+  ambiguousRootNames?: string[];
+  openRoots?: number;
+}
+
+export function describeOpenRootTopology(runtimeData: RuntimeData | undefined): OpenRootTopology {
+  const roots = getWorkspaceRoots(runtimeData);
+  if (roots.length <= 1) {
+    return {};
+  }
+  const countsByName = new Map<string, number>();
+  for (const root of roots) {
+    const key = root.displayName.toLowerCase();
+    countsByName.set(key, (countsByName.get(key) ?? 0) + 1);
+  }
+  const ambiguousRootNames = Array.from(countsByName.entries())
+    .filter(([, count]) => count > 1)
+    .map(([name]) => name)
+    .sort();
+  return {
+    openRoots: roots.length,
+    ...(ambiguousRootNames.length > 0 ? { ambiguousRootNames } : {}),
+  };
+}
+
+/**
  * Resolve an optional root selector while honoring a durable thread binding.
  * Callers whose historical omission semantics mean "all roots" use this
  * helper: an explicit selector or thread binding narrows to one root; only a

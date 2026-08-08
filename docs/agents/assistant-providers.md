@@ -1134,11 +1134,18 @@ budget omits raw page items does the projector calculate an earlier advancing
 advances; when search or candidate limits yield an empty page with no reachable
 next offset, it instead gives terminal query-refinement guidance. A truncated
 result without producer guidance throws instead of guessing. Match lines and
-context are clipped with an explicit omitted-character marker; paths are NEVER
-clipped (a clipped path is an unusable selector) — a pathological oversized
-path overflows the budget and its item is omitted with an advancing offset.
-Malformed result shapes throw a content-free diagnostic naming the rejected
-field rather than falling back to generic JSON. The grep producer and projector
+context are clipped with an explicit omitted-character marker; paths and root
+labels are NEVER clipped or whitespace-collapsed (a mangled selector is
+unusable) — a pathological oversized selector overflows the budget and its
+item is omitted with an advancing offset. Root-name ambiguity is decided by
+the PRODUCER against the full open-root inventory (`ambiguousRootNames` on
+the envelope; `describeOpenRootTopology`), never page-locally. SETTLED
+filename-forgery ruling (PR #2313): line breaks and a leading whitespace
+character in paths are escaped, so a hostile filename can never create a new
+projection line nor mimic an indented match row; a filename that merely
+resembles a header or continuation string still renders inline on its own
+single line and is an accepted residual — do not reintroduce per-row quoting
+to chase it. The grep producer and projector
 share one runtime result contract. The projector also recognizes its own
 canonical bounded text envelope when Mastra replays a stored model projection
 while preparing a later same-run step; that replay is idempotent and does not

@@ -20,6 +20,14 @@ export interface GrepFileSummary {
 }
 
 interface GrepToolResultBase {
+  /**
+   * Lowercased display names shared by MORE THAN ONE open root, present only
+   * when non-empty. Ambiguity is a property of the FULL open-root inventory —
+   * a page can contain one root of a twin pair, and `resolveWorkspaceRoot`
+   * would still reject the shared name — so the producer computes this and
+   * the projection falls back to root ids for these names (PR #2313 review).
+   */
+  ambiguousRootNames?: string[];
   candidatesTruncated: boolean;
   hint?: string;
   liveEngine: 'ripgrep' | 'js-walk' | 'skipped';
@@ -144,6 +152,16 @@ function requireGrepBase(record: Record<string, unknown>): void {
   const openRoots = record['openRoots'];
   if (openRoots !== undefined && !isPositiveInteger(openRoots)) {
     rejectField('openRoots', 'positive integer or absent', openRoots);
+  }
+  const ambiguousRootNames = record['ambiguousRootNames'];
+  if (
+    ambiguousRootNames !== undefined &&
+    !(
+      Array.isArray(ambiguousRootNames) &&
+      ambiguousRootNames.every((name) => typeof name === 'string')
+    )
+  ) {
+    rejectField('ambiguousRootNames', 'string array or absent', ambiguousRootNames);
   }
   if (typeof record['scanLimited'] !== 'boolean') {
     rejectField('scanLimited', 'boolean', record['scanLimited']);

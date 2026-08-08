@@ -8,7 +8,12 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { processFilter } from '@brainstrike/utils';
 import { Minimatch } from 'minimatch';
 import { walkWorkspaceRoot } from './workspace-file-walk';
-import { getWorkspaceRoots, resolveOptionalWorkspaceRoot } from './workspace-roots';
+import {
+  describeOpenRootTopology,
+  getWorkspaceRoots,
+  type OpenRootTopology,
+  resolveOptionalWorkspaceRoot,
+} from './workspace-roots';
 
 export const GLOB_WORKSPACE_TOOL_ID = NATIVE_TOOL_ID.globWorkspace;
 
@@ -25,6 +30,12 @@ export interface GlobWorkspaceMatch {
 }
 
 export interface GlobWorkspaceToolResult {
+  /**
+   * Lowercased display names shared by more than one OPEN root, present only
+   * when non-empty — the projection falls back to root ids for these (the
+   * shared name would be an ambiguous selector; see workspace-roots.ts).
+   */
+  ambiguousRootNames?: string[];
   /** Count of matches in this page (matches.length). */
   count: number;
   /** Actionable next step when the result was truncated or scan-limited. */
@@ -116,11 +127,11 @@ function buildResult(args: {
    */
   totalMatches: number;
   offset: number;
-  /** Open-root count when >1 (projection root-prefix trigger); else absent. */
-  openRoots: number | undefined;
+  /** Open-root topology (count + globally ambiguous names) when >1 root. */
+  topology: OpenRootTopology;
   scanLimited: boolean;
 }): GlobWorkspaceToolResult {
-  const { windowMatches, totalMatches, offset, openRoots, scanLimited } = args;
+  const { windowMatches, totalMatches, offset, topology, scanLimited } = args;
   const pagedMatches = windowMatches.slice(offset);
   // The hint is built INSIDE the fitted candidate so it can never push the
   // serialized result back over the budget.
@@ -149,7 +160,7 @@ function buildResult(args: {
       scanLimited,
       totalMatches,
       truncated,
-      ...(openRoots === undefined ? {} : { openRoots }),
+      ...topology,
       ...(hint ? { hint } : {}),
     };
   });
@@ -194,11 +205,10 @@ export async function runGlobWorkspace(
   // total is threaded through so the hint/`totalMatches` report the real total,
   // not the capped window size.
   const limited = allMatches.slice(0, offset + limit);
-  const openRootCount = getWorkspaceRoots(runtimeData).length;
   return buildResult({
     offset,
-    openRoots: openRootCount > 1 ? openRootCount : undefined,
     scanLimited,
+    topology: describeOpenRootTopology(runtimeData),
     totalMatches: allMatches.length,
     windowMatches: limited,
   });
