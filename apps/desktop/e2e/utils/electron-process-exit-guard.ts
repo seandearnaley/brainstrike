@@ -1,8 +1,10 @@
 interface ElectronProcessLike {
+  readonly exitCode: number | null;
   once(
     event: 'exit',
     listener: (code: number | null, signal: NodeJS.Signals | null) => void
   ): unknown;
+  readonly signalCode: NodeJS.Signals | null;
 }
 
 interface ObservedProcessState {
@@ -11,7 +13,7 @@ interface ObservedProcessState {
 
 function formatUnexpectedExit(code: number | null, signal: NodeJS.Signals | null): Error {
   return new Error(
-    `Electron process exited unexpectedly before intentional close completed (code=${code ?? 'null'}, signal=${signal ?? 'none'})`
+    `Electron process exited unexpectedly before intentional close began (code=${code ?? 'null'}, signal=${signal ?? 'none'})`
   );
 }
 
@@ -29,9 +31,7 @@ export class ElectronProcessExitGuard {
     this.observedProcesses.set(process, state);
     this.launchedProcessCount += 1;
     process.once('exit', (code, signal) => {
-      const exitedCleanlyDuringIntentionalClose =
-        state.intentionalCloseStarted && code === 0 && signal === null;
-      if (exitedCleanlyDuringIntentionalClose || this.unexpectedExit) {
+      if (state.intentionalCloseStarted || this.unexpectedExit) {
         return;
       }
       this.unexpectedExit = formatUnexpectedExit(code, signal);
@@ -42,6 +42,10 @@ export class ElectronProcessExitGuard {
     const state = this.observedProcesses.get(process);
     if (!state) {
       throw new Error('Electron process exit guard cannot close an unobserved process');
+    }
+    if (process.exitCode !== null || process.signalCode !== null) {
+      this.unexpectedExit ??= formatUnexpectedExit(process.exitCode, process.signalCode);
+      return;
     }
     state.intentionalCloseStarted = true;
   }

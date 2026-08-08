@@ -69,11 +69,13 @@ class ElectronHarness {
 
   async restart(): Promise<ElectronAppContext> {
     if (this.context) {
-      await this.closeContext(this.context);
+      const context = this.context;
+      this.context = null;
+      this.hasProvidedWindow = false;
+      await this.closeAndAssert(context);
       await new Promise((resolve) => {
         setTimeout(resolve, 250);
       });
-      this.exitGuard.assertHealthy();
     }
 
     this.context = await this.launchContext();
@@ -83,11 +85,19 @@ class ElectronHarness {
 
   async dispose(): Promise<void> {
     if (!this.context) {
-      this.exitGuard.assertHealthy();
       return;
     }
 
     const context = this.context;
+    try {
+      await this.closeAndAssert(context);
+    } finally {
+      this.context = null;
+      this.hasProvidedWindow = false;
+    }
+  }
+
+  private async closeAndAssert(context: ElectronAppContext): Promise<void> {
     let closeError: unknown;
     let closeFailed = false;
     try {
@@ -95,15 +105,26 @@ class ElectronHarness {
     } catch (error) {
       closeFailed = true;
       closeError = error;
-    } finally {
-      this.context = null;
-      this.hasProvidedWindow = false;
     }
 
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-    this.exitGuard.assertHealthy();
+    let healthError: unknown;
+    let healthCheckFailed = false;
+    try {
+      this.exitGuard.assertHealthy();
+    } catch (error) {
+      healthCheckFailed = true;
+      healthError = error;
+    }
+
+    if (closeFailed && healthCheckFailed) {
+      throw new AggregateError(
+        [healthError, closeError],
+        'Electron process health check and intentional close both failed'
+      );
+    }
+    if (healthCheckFailed) {
+      throw healthError;
+    }
     if (closeFailed) {
       throw closeError;
     }

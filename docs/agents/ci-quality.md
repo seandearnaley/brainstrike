@@ -658,14 +658,17 @@ shape exceptions: each inspects a build artifact, so it takes a bundle
 
 Desktop E2E fixture teardown is a correctness boundary, not cleanup-only.
 Every process launched by `ElectronHarness` is registered with
-`ElectronProcessExitGuard`. A signal, non-zero exit, or clean exit before the
-fixture begins intentional close fails the owning Playwright test with the
-recorded code and signal, even when the test body already passed. A clean
-code-0 exit is accepted only after intentional close begins. The guard also
-requires at least one observed launch whenever the Electron fixture is used,
-so a smoke command cannot pass vacuously after launch wiring is accidentally
-removed. Restart uses the same close/guard path and must surface close failures;
-do not restore the former warn-and-relaunch behavior.
+`ElectronProcessExitGuard`. Any exit before the fixture begins intentional
+close fails the owning Playwright test with the recorded code and signal, even
+when the test body already passed. Once intentional close begins, both graceful
+exit and the harness's bounded forced-termination path are accepted. Before
+marking a close intentional, the guard checks the child process's recorded exit
+state so a reaped process cannot be misclassified while its Node `exit` event is
+still pending. The anti-vacuity floor applies after a context successfully
+launches; a skipped test or a launch that already threw is not replaced by a
+fixture-teardown error. Restart uses the same close/guard path and must surface
+close failures; if close and process health both fail, both errors are retained.
+Do not restore the former warn-and-relaunch behavior.
 
 ### E2E lane-coverage contract (BST-1010)
 

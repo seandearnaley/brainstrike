@@ -3,8 +3,18 @@ import { describe, expect, it } from 'vitest';
 import { ElectronProcessExitGuard } from '../../e2e/utils/electron-process-exit-guard';
 
 class FakeElectronProcess extends EventEmitter {
+  exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
+
   exit(code: number | null, signal: NodeJS.Signals | null): void {
+    this.exitCode = code;
+    this.signalCode = signal;
     this.emit('exit', code, signal);
+  }
+
+  recordExitWithoutEmitting(code: number | null, signal: NodeJS.Signals | null): void {
+    this.exitCode = code;
+    this.signalCode = signal;
   }
 }
 
@@ -17,7 +27,7 @@ describe('ElectronProcessExitGuard', () => {
     process.exit(null, 'SIGABRT');
 
     expect(() => guard.assertHealthy()).toThrowError(
-      'Electron process exited unexpectedly before intentional close completed (code=null, signal=SIGABRT)'
+      'Electron process exited unexpectedly before intentional close began (code=null, signal=SIGABRT)'
     );
   });
 
@@ -29,7 +39,7 @@ describe('ElectronProcessExitGuard', () => {
     process.exit(0, null);
 
     expect(() => guard.assertHealthy()).toThrowError(
-      'Electron process exited unexpectedly before intentional close completed (code=0, signal=none)'
+      'Electron process exited unexpectedly before intentional close began (code=0, signal=none)'
     );
   });
 
@@ -42,6 +52,30 @@ describe('ElectronProcessExitGuard', () => {
     process.exit(0, null);
 
     expect(() => guard.assertHealthy()).not.toThrow();
+  });
+
+  it('accepts a forced exit after intentional teardown begins', () => {
+    const guard = new ElectronProcessExitGuard();
+    const process = new FakeElectronProcess();
+    guard.observe(process);
+    guard.beginIntentionalClose(process);
+
+    process.exit(null, 'SIGKILL');
+
+    expect(() => guard.assertHealthy()).not.toThrow();
+  });
+
+  it('fails when the process exited before teardown but its exit event is still pending', () => {
+    const guard = new ElectronProcessExitGuard();
+    const process = new FakeElectronProcess();
+    guard.observe(process);
+    process.recordExitWithoutEmitting(null, 'SIGABRT');
+
+    guard.beginIntentionalClose(process);
+
+    expect(() => guard.assertHealthy()).toThrowError(
+      'Electron process exited unexpectedly before intentional close began (code=null, signal=SIGABRT)'
+    );
   });
 
   it('fails the anti-vacuity floor when no Electron process launched', () => {
