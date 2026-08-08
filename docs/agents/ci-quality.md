@@ -654,6 +654,22 @@ tree than CI is a second, weaker verdict wearing the same name).
 shape exceptions: each inspects a build artifact, so it takes a bundle
 `directory` instead of a repo root.
 
+### Desktop E2E process-exit guard (BST-1087)
+
+Desktop E2E fixture teardown is a correctness boundary, not cleanup-only.
+Every process launched by `ElectronHarness` is registered with
+`ElectronProcessExitGuard`. Any exit before the fixture begins intentional
+close fails the owning Playwright test with the recorded code and signal, even
+when the test body already passed. Once intentional close begins, both graceful
+exit and the harness's bounded forced-termination path are accepted. Before
+marking a close intentional, the guard checks the child process's recorded exit
+state so a reaped process cannot be misclassified while its Node `exit` event is
+still pending. The anti-vacuity floor applies after a context successfully
+launches; a skipped test or a launch that already threw is not replaced by a
+fixture-teardown error. Restart uses the same close/guard path and must surface
+close failures; if close and process health both fail, both errors are retained.
+Do not restore the former warn-and-relaunch behavior.
+
 ### E2E lane-coverage contract (BST-1010)
 
 `scripts/e2e-lane-coverage.mjs` (paired test:
