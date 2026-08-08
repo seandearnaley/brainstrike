@@ -4,6 +4,7 @@ import {
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
 } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
 import {
   projectGlobWorkspaceModelOutput,
   projectGrepSearchModelOutput,
@@ -57,7 +58,8 @@ describe('workspace search model projections', () => {
         'continue: reuse the prior brainstrike.grepSearch input; Showing 2 of 30 matching files. Continue with offset: 12.',
       ].join('\n'),
     });
-    expect(serializedChars(projected)).toBeLessThanOrEqual(
+    // BST-1195 recalibrated this boundary to decoded model-visible text.
+    expect(decodedChars([projected.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
   });
@@ -348,7 +350,7 @@ describe('workspace search model projections', () => {
     expect(projected.value).toContain(
       'continue: reuse the prior brainstrike.grepSearch input; Showing matches 1-1 of 18. Continue with offset: 1 or narrow with filePaths.'
     );
-    expect(serializedChars(projected)).toBeLessThanOrEqual(
+    expect(decodedChars([projected.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
   });
@@ -569,7 +571,7 @@ describe('workspace search model projections', () => {
 
     expect(serializedChars(raw)).toBeGreaterThan(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET);
     expect(serializedChars(raw)).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
-    expect(serializedChars(projected)).toBeLessThanOrEqual(
+    expect(decodedChars([projected.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(serializedChars(projected)).toBeLessThan(serializedChars(raw) * 0.7);
@@ -644,7 +646,8 @@ describe('workspace search model projections', () => {
 
     expect(serializedChars(raw)).toBeGreaterThan(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET);
     expect(serializedChars(raw)).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
-    expect(serializedChars(projected)).toBeLessThanOrEqual(
+    // BST-1195 recalibrated this boundary to decoded model-visible text.
+    expect(decodedChars([projected.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(serializedChars(projected)).toBeLessThan(serializedChars(raw) * 0.7);
@@ -687,13 +690,13 @@ describe('workspace search model projections', () => {
       truncated: true,
     });
 
-    expect(serializedChars(grepProjected)).toBeLessThanOrEqual(
+    expect(decodedChars([grepProjected.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(grepProjected.value).toMatch(
       /continue: reuse the prior brainstrike\.grepSearch input with offset=\d+$/
     );
-    expect(serializedChars(globProjected)).toBeLessThanOrEqual(
+    expect(decodedChars([globProjected.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(globProjected.value).toMatch(

@@ -5,12 +5,12 @@ import {
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
+  decodedWorkspaceTextModelOutputChars as decodedChars,
   escapeProjectionPathLineBreaks as escapePathLineBreaks,
   isNonNegativeInteger,
   isPositiveInteger,
   isRecord,
   makeWorkspaceTextModelOutput as output,
-  serializedWorkspaceTextModelOutputChars as serializedChars,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers';
@@ -253,7 +253,7 @@ function fitSemanticContext(result: SemanticResult, fixed: readonly string[]): s
     return [...fixed];
   }
   const full = [...fixed, ...result.context.split('\n')];
-  if (serializedChars(full) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(full) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     return full;
   }
   const codePoints = Array.from(result.context);
@@ -269,7 +269,7 @@ function fitSemanticContext(result: SemanticResult, fixed: readonly string[]): s
       `projection_omitted_context_chars=${codePoints.length - midpoint}`,
       refinement,
     ];
-    if (serializedChars(candidate) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       low = midpoint;
     } else {
       high = midpoint - 1;
@@ -281,7 +281,7 @@ function fitSemanticContext(result: SemanticResult, fixed: readonly string[]): s
     `projection_omitted_context_chars=${codePoints.length - low}`,
     refinement,
   ];
-  if (serializedChars(fitted) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(fitted) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     throw new RangeError('queryEmbeddingSpace model projection cannot fit required metadata');
   }
   return fitted;
@@ -305,7 +305,7 @@ function projectUnavailable(result: UnavailableResult): WorkspaceRetrievalTextMo
         ]
       : []),
   ];
-  if (serializedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     throw new RangeError('queryEmbeddingSpace unavailable projection exceeds its budget');
   }
   return output(lines);
@@ -367,14 +367,14 @@ export function projectHybridSearchModelOutput(raw: unknown): WorkspaceRetrieval
   for (const item of result.results) {
     const itemLines = hybridItemLines(item);
     const candidate = buildHybridLines(result, [...keptLines, ...itemLines], kept + 1);
-    if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       break;
     }
     keptLines.push(...itemLines);
     kept += 1;
   }
   const lines = buildHybridLines(result, keptLines, kept);
-  if (serializedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     throw new RangeError('hybridSearch model projection cannot fit required metadata');
   }
   return output(lines);

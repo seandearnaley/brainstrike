@@ -432,11 +432,13 @@ export {
   toJsonSafe,
 } from './stream/json';
 export {
+  decodedTextModelOutputChars,
   fitItemsToCharBudget,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_TOOL_RESULT_TOKENS,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
+  PROJECTION_ENVELOPE_RESERVE_CHARS,
 } from './stream/tool-output-limits';
 export {
   clearToolRegistry,

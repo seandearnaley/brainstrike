@@ -11,11 +11,11 @@ import type {
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
+  decodedWorkspaceTextModelOutputChars as decodedChars,
   isNonNegativeInteger,
   isPositiveInteger,
   isRecord,
   makeWorkspaceTextModelOutput as makeTextModelOutput,
-  serializedWorkspaceTextModelOutputChars as serializedChars,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers';
@@ -191,7 +191,7 @@ function assertProjectionFits(
   toolName: 'findWorkspaceSymbol' | 'lspInspect',
   lines: readonly string[]
 ): void {
-  if (serializedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     return;
   }
   throw new RangeError(
@@ -247,7 +247,7 @@ export function projectFindWorkspaceSymbolModelOutput(
       SYMBOL_INSPECTION_GUIDANCE,
       ...(continuation ? [continuation] : []),
     ];
-    if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       break;
     }
     keptLines.push(...matchLines);
@@ -373,7 +373,7 @@ export function projectLspInspectModelOutput(output: unknown): WorkspaceInspecti
       candidate.value,
       ...(omitted ? [omitted] : []),
     ];
-    if (serializedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       continue;
     }
     keptLines.push(candidate.value);

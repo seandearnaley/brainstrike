@@ -821,22 +821,23 @@ and per-root partial indexes were measured and rejected
 whole-set searches never run the counts. Do not "optimize" selective filtered
 searches back onto the ANN index without re-running that benchmark.
 
-Tool output budget (anti-thrash contract): budgets are token-denominated and
-enforced deterministically on serialized chars at 4 chars/token (mirrors
-`countTokensHeuristic`). Native producers self-bound result lists via
-`fitItemsToCharBudget`; `readWorkspaceFile` emits 1-based line-numbered pages
-and self-bounds its plain-text model projection to the 6000-character domain
-budget before returning. The tool's binary search fits against that same real
-projection. BST-1186 fits more file content because one compact header plus an
-optional footer has lower fixed overhead than the raw result's metadata keys
-and object punctuation, not because JSON escaping creates budget headroom: a
-content newline costs the same two serialized characters in either envelope.
-The actual escaping win is on the model wire, where text projections carry
-literal newlines instead of `\n` digraphs and therefore cost fewer/cheaper
-tokens. Follow-up: the serialized-character budget still over-charges every
-text projector roughly 2x per newline because it measures the JSON-serialized
-envelope instead of wire text; correcting that is a separate, larger,
-cross-cutting opportunity rather than a `readWorkspaceFile`-only change.
+Tool output budget (anti-thrash contract): budgets are token-denominated at 4
+chars/token (mirrors `countTokensHeuristic`). Native producers self-bound
+result lists via `fitItemsToCharBudget`. Purpose-built domain projections
+(`readWorkspaceFile`, `grepSearch`, `globWorkspace`, `querySelf`,
+`findWorkspaceSymbol`/`lspInspect`, workspace-context, and
+workspace-retrieval, plus `webSearch` and `webExtract`) self-fit against the
+6000-character `MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET` using decoded text
+length.
+`decodedWorkspaceTextModelOutputChars` counts code points in the value the
+model actually reads and adds the small fixed
+`PROJECTION_ENVELOPE_RESERVE_CHARS` reserve; it does not measure
+`JSON.stringify(...).length`. A newline therefore costs one character, not
+two, so line-dense pages fit roughly twice as much content at the same budget
+as they did before BST-1195. The generic/default non-domain projection path
+and the `boundToolOutputForModel` transport guard are unaffected: they still
+measure serialized JSON characters at their own higher 8000- and
+12000-character ceilings as defence in depth.
 If the requested page exceeds the envelope, it shortens the page and returns a
 26-character random `nextCursor` handle that resumes at the exact source line
 and column, including within a long generated/minified line. The authoritative

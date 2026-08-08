@@ -9,11 +9,11 @@ import {
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
+  decodedWorkspaceTextModelOutputChars as decodedChars,
   escapeProjectionPathLineBreaks as escapePathLineBreaks,
   isNonNegativeInteger,
   isRecord,
   makeWorkspaceTextModelOutput as makeOutput,
-  serializedWorkspaceTextModelOutputChars as serializedChars,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers';
 
@@ -450,7 +450,7 @@ function buildLines(result: ListWorkspaceContextResult, state: ProjectionState):
 }
 
 function fits(result: ListWorkspaceContextResult, state: ProjectionState): boolean {
-  return serializedChars(buildLines(result, state)) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
+  return decodedChars(buildLines(result, state)) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
 }
 
 function fitSelectedFiles(result: ListWorkspaceContextResult, state: ProjectionState): void {
@@ -551,7 +551,7 @@ export function projectListWorkspaceContextModelOutput(
   fitContextDetails(result, state);
 
   const lines = buildLines(result, state);
-  if (serializedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     throw new RangeError(
       `listWorkspaceContext model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
     );
