@@ -4,7 +4,6 @@ import {
   diagnosticsRetentionSelectors,
   useDiagnosticsRetentionStore,
 } from '@brainstrike/app-state/stores/diagnostics-retention-store';
-import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
 import type { LoggingPreferences } from '@brainstrike/logging';
 import { LogLevel } from '@brainstrike/logging';
 import {
@@ -25,13 +24,13 @@ import {
   Switch,
   useToast,
 } from '@brainstrike/ui';
-import {
-  downloadBlobFile,
-  formatTimestampedDownloadFilename,
-} from '@brainstrike/utils/browser-download';
 import { Download, FolderOpen, RefreshCw, Trash2 } from 'lucide-react';
-import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
-import { type LogSourceAdapter, LogViewer } from './log-viewer-components/log-viewer';
+import { type ReactNode, useMemo, useState } from 'react';
+import { LogViewer } from './log-viewer-components/log-viewer';
+import type { LoggingSettingsSectionProps } from './logging-settings-types';
+import { useDiagnosticsPurgeAction } from './use-diagnostics-purge-action';
+import { useDurableNdjsonExport } from './use-durable-ndjson-export';
+import { useLoggingPreferencesSync } from './use-logging-preferences-sync';
 
 const LOG_LEVEL_OPTIONS: LogLevel[] = [
   LogLevel.TRACE,
@@ -43,114 +42,16 @@ const LOG_LEVEL_OPTIONS: LogLevel[] = [
   LogLevel.SILENT,
 ];
 
-interface FileCapabilities {
-  canSelectDestination: boolean;
-  defaultDestination?: string | null;
-  fileLoggingSupported: boolean;
-  reason?: string | null;
-}
+export type { LogSourceAdapter } from './log-viewer-components/log-source-adapter';
+export type {
+  DurableNdjsonExportResult,
+  LoggingSettingsSectionProps,
+} from './logging-settings-types';
 
-/**
- * Structural mirror of `@brainstrike/app-shell`'s `DurableLogExportResult`
- * (`packages/app-shell/src/diagnostics/durable-log-source.ts`) — declared
- * locally rather than imported, same reason as `onExportDurableNdjson`'s doc
- * comment below: `app-shell` already depends on `preferences`, so importing
- * its type here would be circular. TypeScript's structural typing makes the
- * duplication safe as long as the shapes stay in sync.
- */
-export interface DurableNdjsonExportResult {
-  readonly exportedCount: number;
-  readonly ndjson: string;
-  readonly totalCount: number;
-  readonly truncated: boolean;
-}
-
-export interface LoggingSettingsSectionProps {
-  busy?: boolean;
-  durableLogSource?: LogSourceAdapter;
-  fileCapabilities?: FileCapabilities;
-  logSource?: LogSourceAdapter;
-  onCommitPreferences?: (
-    preferences: LoggingPreferences
-  ) => Promise<LoggingPreferences | undefined>;
-  /**
-   * Exports the durable source's bounded query as NDJSON text (Flight
-   * Recorder P2a Task 6) for the "Export NDJSON" button, rendered only when
-   * both this and `durableLogSource` are present and Persistent errors is
-   * selected. Threaded as a standalone callback rather than widening
-   * `durableLogSource` to `app-shell`'s `DurableLogSource` type: `app-shell`
-   * already depends on `preferences`, so importing app-shell's type here
-   * would be circular. Callers that build `durableLogSource` from
-   * `useDurableLogSource()` (which returns the widened adapter) pass
-   * `() => durableLogSource.exportNdjson()` for this prop.
-   */
-  onExportDurableNdjson?: () => Promise<DurableNdjsonExportResult>;
-  onOpenLogDestination?: (target: string | null) => Promise<boolean>;
-  /**
-   * Purges diagnostic events past the user's configured retention limits
-   * (Flight Recorder P2b Task 4) and resolves with the deleted row count,
-   * for the Diagnostics Retention card's "Purge now" button. Threaded as a
-   * callback prop for the same reason as `onExportDurableNdjson` above:
-   * `app-shell` already depends on `preferences`, so a repository import
-   * here would be circular. Callers build this from
-   * `useDiagnosticsPurge()` (`@brainstrike/app-shell/diagnostics`), which
-   * wraps `DiagnosticEventsRepository.purge()` with the Task 1 store's
-   * `maxAgeDays`/`maxRows`. When it is absent (no database handle), the card
-   * still renders its persisted retention selectors and omits only the
-   * "Purge now" row.
-   */
-  onPurgeNow?: () => Promise<number>;
-  onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
-  onSelectLogDestination?: () => Promise<string | null>;
-  runtime: 'browser' | 'electron-renderer';
-  /**
-   * Why durable diagnostic capture stopped, or `null` while healthy (Flight
-   * Recorder P2b Task 5). Callers read
-   * `useDiagnosticSinkHealthStore(...)` from
-   * `@brainstrike/app-shell/diagnostics`.
-   *
-   * This prop is the ONLY way a broken sink can reach a user. The two
-   * `LogRecord` -> `DiagnosticEvent` converters skip records scoped to
-   * `DIAGNOSTIC_SINK_SCOPE` (a loop guard stopping the sink from logging its
-   * own failures back into itself), so a disabled sink never appears in the
-   * durable table or the Persistent log view — those would just look empty,
-   * which reads as "no errors happened" rather than "errors are no longer
-   * being recorded". Surfacing it is the design's §4.3 honest-degradation
-   * requirement.
-   */
-  sinkHealthReason?: string | null;
-}
-
-export type { LogSourceAdapter };
-
+type FileCapabilities = NonNullable<LoggingSettingsSectionProps['fileCapabilities']>;
 type LogSourceMode = 'persistent' | 'session';
 
 const DURABLE_EMPTY_STATE_TEXT = 'No durable warn+ events recorded.';
-
-/**
- * Mirrors `DIAGNOSTIC_EVENTS_PURGE_LIMIT` in
- * `packages/db/src/repositories/diagnostic-events-repository.ts` (500 rows
- * per delete inside `purge()`). Hardcoded rather than imported for the same
- * reason `diagnostics-retention-store.ts` hardcodes its own defaults: this
- * file must not import `@brainstrike/db`'s heavy barrel (`onPurgeNow` is a
- * callback prop precisely to avoid that). Used only as a heuristic for
- * whether a purge may not have fully drained a large backlog. It is a
- * deliberately IMPRECISE heuristic biased toward over-warning: `purge()`
- * returns the SUM of its two independently-capped deletes (aged rows +
- * over-cap rows), so a count at or above this threshold does not prove
- * either delete actually hit its cap — 300 aged + 250 over-cap trips it
- * with neither near the limit. Over-warning ("more may remain" when nothing
- * does) costs the user one redundant click; under-warning would imply a
- * full drain that did not happen, which is the failure this project bans.
- * An exact signal would need `purge()` to return per-delete counts. Drift
- * is caught test-side in BOTH directions:
- * `logging-settings-section.test.tsx` resolves `onPurgeNow` with the REAL
- * exported `DIAGNOSTIC_EVENTS_PURGE_LIMIT` (asserting the "may remain"
- * copy, which catches a DROP below this threshold) and with `LIMIT - 1`
- * (asserting the plain copy, which catches a RISE above it), so either
- * divergence fails RED instead of silently mis-warning.
- */
-const DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD = 500;
 
 function formatLogLevel(level: LogLevel): string {
   return level.charAt(0).toUpperCase() + level.slice(1).toLowerCase();
@@ -186,80 +87,33 @@ export function LoggingSettingsSection({
   onPurgeNow,
   sinkHealthReason,
 }: LoggingSettingsSectionProps) {
-  const preferences = useLoggingPreferencesStore((state) => state.preferences);
-  const updatePreferences = useLoggingPreferencesStore((state) => state.updatePreferences);
-  const setPreferences = useLoggingPreferencesStore((state) => state.setPreferences);
-  const resetPreferences = useLoggingPreferencesStore((state) => state.resetPreferences);
-  const [isSyncing, setIsSyncing] = useState(false);
   const [logSourceMode, setLogSourceMode] = useState<LogSourceMode>('session');
-  const [isExportingDurableNdjson, setIsExportingDurableNdjson] = useState(false);
-  const [isPurgingNow, setIsPurgingNow] = useState(false);
   const { toast } = useToast();
-  const updateTokenRef = useRef(0);
+  const {
+    applyNestedUpdates,
+    applyUpdates,
+    handleOpenDestination,
+    handleRedactChange,
+    handleReset,
+    handleSelectDestination,
+    isSyncing,
+    preferences,
+  } = useLoggingPreferencesSync({
+    onCommitPreferences,
+    onOpenLogDestination,
+    onResetPreferences,
+    onSelectLogDestination,
+    toast,
+  });
+  const { handlePurgeNow, isPurgingNow } = useDiagnosticsPurgeAction({ onPurgeNow, toast });
+  const { handleExportDurableNdjson, isExportingDurableNdjson } = useDurableNdjsonExport({
+    onExportDurableNdjson,
+    toast,
+  });
   const pending = busy || isSyncing;
   const usingDurableLogSource = Boolean(durableLogSource) && logSourceMode === 'persistent';
   const activeLogSource = usingDurableLogSource ? durableLogSource : logSource;
   const activeEmptyStateText = usingDurableLogSource ? DURABLE_EMPTY_STATE_TEXT : undefined;
-
-  const commitPreferences = useCallback(
-    async (nextPreferences: LoggingPreferences) => {
-      if (!onCommitPreferences) {
-        return;
-      }
-      setIsSyncing(true);
-      try {
-        const result = await onCommitPreferences(nextPreferences);
-        if (result) {
-          setPreferences(result);
-        }
-      } catch (error) {
-        setIsSyncing(false);
-        const message = error instanceof Error ? error.message : String(error);
-        toast({
-          description: message,
-          title: 'Failed to update logging preferences',
-          variant: 'destructive',
-        });
-        throw error;
-      }
-      setIsSyncing(false);
-    },
-    [onCommitPreferences, setPreferences, toast]
-  );
-
-  const clonePreferences = useCallback(
-    (prefs: LoggingPreferences): LoggingPreferences => ({
-      ...prefs,
-      file: { ...prefs.file },
-      redactPaths: [...prefs.redactPaths],
-    }),
-    []
-  );
-
-  const applyUpdates = useCallback(
-    async (updates: Partial<LoggingPreferences>) => {
-      const previous = clonePreferences(useLoggingPreferencesStore.getState().preferences);
-      updatePreferences(updates);
-      const requestId = updateTokenRef.current + 1;
-      updateTokenRef.current = requestId;
-      const next = clonePreferences(useLoggingPreferencesStore.getState().preferences);
-      try {
-        await commitPreferences(next);
-      } catch {
-        if (updateTokenRef.current === requestId) {
-          setPreferences(previous);
-        }
-      }
-    },
-    [clonePreferences, commitPreferences, setPreferences, updatePreferences]
-  );
-
-  const applyNestedUpdates = useCallback(
-    async (updates: Partial<LoggingPreferences['file']>) => {
-      await applyUpdates({ file: { ...preferences.file, ...updates } });
-    },
-    [applyUpdates, preferences.file]
-  );
 
   const logLevelItems = useMemo(
     () =>
@@ -271,192 +125,11 @@ export function LoggingSettingsSection({
     []
   );
 
-  const handleRedactChange = useCallback(
-    async (value: string) => {
-      const entries = value
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0);
-      await applyUpdates({ redactPaths: entries });
-    },
-    [applyUpdates]
-  );
-
-  const handleSelectDestination = useCallback(async () => {
-    if (!onSelectLogDestination) {
-      return;
-    }
-    setIsSyncing(true);
-    try {
-      const selected = await onSelectLogDestination();
-      if (!selected) {
-        setIsSyncing(false);
-        return;
-      }
-      await applyNestedUpdates({ destination: selected, enabled: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({
-        description: message,
-        title: 'Failed to update log destination',
-        variant: 'destructive',
-      });
-    }
-    setIsSyncing(false);
-  }, [applyNestedUpdates, onSelectLogDestination, toast]);
-
-  const handleOpenDestination = useCallback(async () => {
-    if (!onOpenLogDestination) {
-      return;
-    }
-    const currentDestination = preferences.file.destination;
-    const success = await onOpenLogDestination(currentDestination);
-    if (!success) {
-      toast({
-        description: currentDestination
-          ? `Path "${currentDestination}" is not accessible.`
-          : 'No log file destination is configured.',
-        title: 'Unable to open log file',
-        variant: 'destructive',
-      });
-    }
-  }, [onOpenLogDestination, preferences.file.destination, toast]);
-
-  const handleReset = useCallback(async () => {
-    const previous = useLoggingPreferencesStore.getState().preferences;
-    resetPreferences();
-    const next = useLoggingPreferencesStore.getState().preferences;
-    try {
-      if (onResetPreferences) {
-        setIsSyncing(true);
-        await onResetPreferences(next);
-      }
-      await commitPreferences(next);
-      toast({ title: 'Logging preferences reset' });
-    } catch (error) {
-      setPreferences(previous);
-      toast({
-        description: error instanceof Error ? error.message : 'Unknown error occurred.',
-        title: 'Failed to reset logging preferences',
-        variant: 'destructive',
-      });
-    }
-    setIsSyncing(false);
-  }, [commitPreferences, onResetPreferences, resetPreferences, setPreferences, toast]);
-
-  // Same shape as `handleReset` above: the catch branch never rethrows, so
-  // `setIsPurgingNow(false)` unconditionally after the try/catch is reached
-  // on both the success and failure paths — no `finally` needed (a
-  // `TryStatement` with a `finally` clause blocks React Compiler's automatic
-  // memoization for this whole component, react-doctor `react-hooks-js/todo`,
-  // error severity — the same rule that failed a required check on P2a's
-  // `handleExportDurableNdjson`).
-  const handlePurgeNow = useCallback(async () => {
-    if (!onPurgeNow) {
-      return;
-    }
-    setIsPurgingNow(true);
-    try {
-      const deletedCount = await onPurgeNow();
-      toast({
-        description:
-          deletedCount >= DIAGNOSTIC_PURGE_MAY_REMAIN_THRESHOLD
-            ? `Purged ${deletedCount} diagnostic events (more may remain; run again).`
-            : `Purged ${deletedCount} diagnostic events.`,
-        title: 'Diagnostics purged',
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({
-        description: message,
-        title: 'Failed to purge diagnostic events',
-        variant: 'destructive',
-      });
-    }
-    setIsPurgingNow(false);
-  }, [onPurgeNow, toast]);
-
   const fileDestinationLabel = useMemo(
     () =>
       deriveDestinationLabel(preferences.file.destination, fileCapabilities?.defaultDestination),
     [fileCapabilities?.defaultDestination, preferences.file.destination]
   );
-
-  // Mirrors `handleExportLogs` in log-viewer.tsx: Blob -> object URL ->
-  // anchor click -> revoke. This is the honest web equivalent of the
-  // desktop rotating `brainstrike-errors.ndjson` file (design doc §7). The
-  // export promise is awaited unwrapped (no try/catch inside
-  // `onExportDurableNdjson` itself) so a query rejection surfaces here and
-  // gets a visible toast rather than silently producing an empty download.
-  // Like `handleExportLogs`, an empty result skips the download — but
-  // (unlike that silent early-return) tells the user why via a
-  // non-destructive toast, since "nothing happened" is otherwise
-  // indistinguishable from a broken button. `isExportingDurableNdjson`
-  // guards against rapid double-clicks firing concurrent exports, each
-  // re-querying up to `DURABLE_LOG_SOURCE_MAX_ROWS` rows.
-  //
-  // The DOM guard runs BEFORE the query (matching `handleExportLogs`), not
-  // after: awaiting a full bounded query only to discard the result in a
-  // non-DOM environment would run real work for nothing. No `try/finally`
-  // here on purpose — a `TryStatement` with a `finally` clause blocks React
-  // Compiler's automatic memoization for this whole component (react-doctor
-  // `react-hooks-js/todo`, error severity). `setIsExportingDurableNdjson(false)`
-  // instead runs unconditionally right after the try/catch: the catch branch
-  // never rethrows, so that line is reached on both the success and failure
-  // paths exactly like a `finally` would, without the compiler-blocking
-  // construct.
-  const handleExportDurableNdjson = useCallback(async () => {
-    if (!onExportDurableNdjson) {
-      return;
-    }
-    if (typeof window === 'undefined') {
-      return;
-    }
-    setIsExportingDurableNdjson(true);
-    try {
-      const { exportedCount, ndjson, totalCount, truncated } = await onExportDurableNdjson();
-      if (ndjson.length === 0) {
-        toast({
-          description: 'There are no durable warn+ events to export.',
-          title: 'No diagnostics to export',
-        });
-      } else {
-        // Truncation is visible in two places, never silently: the filename
-        // itself (so it survives outside this session, e.g. in a Downloads
-        // folder) and the toast below (with the exact N of M counts). The
-        // NDJSON body stays pure NDJSON — no metadata line — so "every line
-        // is a diagnostic event" still holds for the file contents.
-        //
-        // `downloadBlobFile` resolves via the desktop save bridge when it
-        // exists; on the web anchor route it owns the object URL's lifetime,
-        // so a click that throws into the catch below cannot leak one
-        // export's worth of NDJSON per retry.
-        await downloadBlobFile({
-          blob: new Blob([ndjson], { type: 'application/x-ndjson' }),
-          filename: formatTimestampedDownloadFilename({
-            extension: 'ndjson',
-            generatedAt: new Date(),
-            name: 'brainstrike-errors',
-            suffix: truncated ? `recent${exportedCount}` : null,
-          }),
-        });
-        if (truncated) {
-          toast({
-            description: `Exported the most recent ${exportedCount} of ${totalCount} warn+ events. Older events were not included.`,
-            title: 'Export truncated',
-          });
-        }
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({
-        description: message,
-        title: 'Failed to export diagnostics',
-        variant: 'destructive',
-      });
-    }
-    setIsExportingDurableNdjson(false);
-  }, [onExportDurableNdjson, toast]);
 
   return (
     <div className="space-y-6">

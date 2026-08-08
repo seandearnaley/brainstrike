@@ -10,10 +10,6 @@ import {
   TablePagination,
   type useToast,
 } from '@brainstrike/ui';
-import {
-  downloadBlobFile,
-  formatTimestampedDownloadFilename,
-} from '@brainstrike/utils/browser-download';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import {
   type CellContext,
@@ -23,7 +19,7 @@ import {
   type SortingState,
   useTable,
 } from '@tanstack/react-table';
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { useCallback, useMemo, useReducer, useState } from 'react';
 import {
   ALL_CODES_VALUE,
   ALL_SOURCES_VALUE,
@@ -33,6 +29,7 @@ import {
 import { getLogRecordCode, getLogRecordSource } from './log-diagnostic-metadata';
 import { LogList } from './log-list';
 import { LogRecordDetailDialog, LogRowActions } from './log-record-detail-dialog';
+import type { LogSourceAdapter } from './log-source-adapter';
 import { type LogTableFeatures, logTableFeatures } from './log-table-features';
 import { LogToolbar } from './log-toolbar';
 import {
@@ -45,11 +42,10 @@ import {
   serializeArgs,
   sortLogRecords,
 } from './log-utils';
+import { useLogExport } from './use-log-export';
+import { useLogRecordSource } from './use-log-record-source';
 
-export interface LogSourceAdapter {
-  getInitialRecords?: () => Promise<readonly LogRecord[]>;
-  subscribe?: (handler: (records: readonly LogRecord[]) => void) => () => void;
-}
+export type { LogSourceAdapter } from './log-source-adapter';
 
 interface LogViewerProps {
   emptyStateText?: string;
@@ -73,8 +69,6 @@ const DEFAULT_RETENTION_LIMIT = 2000;
 const DEFAULT_PAGE_SIZE = 50;
 const ALL_SCOPES_VALUE = '__all__';
 const NO_SCOPE_VALUE = '__none__';
-const LOG_SUBSCRIPTION_DEBOUNCE_MS = 100;
-
 const LOG_LEVEL_ITEMS = LOG_LEVEL_OPTIONS.map((level) => (
   <SelectItem key={level} value={level}>
     {level.charAt(0).toUpperCase() + level.slice(1).toLowerCase()}
@@ -465,63 +459,19 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
     },
     [retentionLimit]
   );
-
-  useEffect(() => {
-    if (!logSource) {
-      dispatch({ records: [], type: 'SET_LOG_RECORDS' });
-      return;
-    }
-    let cancelled = false;
-    let pendingSubscriptionRecords: readonly LogRecord[] | null = null;
-    let subscriptionTimerId: number | null = null;
-
-    if (logSource.getInitialRecords) {
-      dispatch({ loading: true, type: 'SET_LOGS_LOADING' });
-      logSource
-        .getInitialRecords()
-        .then((initial) => {
-          if (!cancelled && initial) {
-            dispatch({ records: applyRetentionLimit(initial), type: 'SET_LOG_RECORDS' });
-          }
-        })
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : String(error);
-          toast({
-            description: message,
-            title: 'Failed to load logs',
-            variant: 'destructive',
-          });
-        })
-        .finally(() => {
-          if (!cancelled) {
-            dispatch({ loading: false, type: 'SET_LOGS_LOADING' });
-          }
-        });
-    }
-
-    const unsubscribe = logSource.subscribe?.((records) => {
-      pendingSubscriptionRecords = records;
-      if (subscriptionTimerId !== null) {
-        window.clearTimeout(subscriptionTimerId);
-      }
-      subscriptionTimerId = window.setTimeout(() => {
-        subscriptionTimerId = null;
-        const pendingRecords = pendingSubscriptionRecords;
-        pendingSubscriptionRecords = null;
-        if (!(cancelled || pendingRecords === null)) {
-          dispatch({ records: applyRetentionLimit(pendingRecords), type: 'SET_LOG_RECORDS' });
-        }
-      }, LOG_SUBSCRIPTION_DEBOUNCE_MS);
-    });
-
-    return () => {
-      cancelled = true;
-      if (subscriptionTimerId !== null) {
-        window.clearTimeout(subscriptionTimerId);
-      }
-      unsubscribe?.();
-    };
-  }, [applyRetentionLimit, logSource, toast]);
+  const onRecordsChange = useCallback((records: readonly LogRecord[]) => {
+    dispatch({ records, type: 'SET_LOG_RECORDS' });
+  }, []);
+  const onLoadingChange = useCallback((loading: boolean) => {
+    dispatch({ loading, type: 'SET_LOGS_LOADING' });
+  }, []);
+  const { refreshLogs } = useLogRecordSource({
+    applyRetentionLimit,
+    logSource,
+    onLoadingChange,
+    onRecordsChange,
+    toast,
+  });
 
   const filteredRecords = useMemo(() => {
     const levelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(logLevelFilter));
@@ -606,66 +556,15 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
 
   const rows = table.getRowModel().rows;
 
-  const handleRefreshLogs = async () => {
-    const getInitialRecords = logSource?.getInitialRecords;
-    if (!getInitialRecords) {
-      return;
-    }
-    dispatch({ loading: true, type: 'SET_LOGS_LOADING' });
-    try {
-      const records = await getInitialRecords();
-      dispatch({ records: applyRetentionLimit(records), type: 'SET_LOG_RECORDS' });
-      dispatch({ loading: false, type: 'SET_LOGS_LOADING' });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({
-        description: message,
-        title: 'Failed to refresh logs',
-        variant: 'destructive',
-      });
-      dispatch({ loading: false, type: 'SET_LOGS_LOADING' });
-    }
-  };
-
-  const handleExportLogs = async () => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    const exportRows = table.getPrePaginatedRowModel().rows;
-    if (exportRows.length === 0) {
-      return;
-    }
-    const exportData = exportRows.map((row) => row.original.originalRecord);
-    const exportPayload = {
-      exportedAt: new Date().toISOString(),
-      recordCount: exportData.length,
-      records: exportData,
-      sourceCoverage: buildSourceCoverage(exportData),
-    };
-    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
-      type: 'application/json',
-    });
-    try {
-      // `downloadBlobFile` resolves via the desktop save bridge when it
-      // exists; on the web anchor route it owns the object URL's lifetime —
-      // deferred revoke on the success path, immediate on the throwing one.
-      await downloadBlobFile({
-        blob,
-        filename: formatTimestampedDownloadFilename({
-          extension: 'json',
-          generatedAt: new Date(),
-          name: 'brainstrike-logs',
-        }),
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast({
-        description: message,
-        title: 'Failed to export logs',
-        variant: 'destructive',
-      });
-    }
-  };
+  const getExportRecords = useCallback(
+    () => table.getPrePaginatedRowModel().rows.map((row) => row.original.originalRecord),
+    [table]
+  );
+  const handleExportLogs = useLogExport({
+    getExportRecords,
+    sourceCoverage: buildSourceCoverage,
+    toast,
+  });
 
   const handleSortNewestFirstChange = useCallback((value: boolean) => {
     dispatch({ sorting: [{ desc: value, id: 'timestamp' }], type: 'SET_SORTING' });
@@ -750,7 +649,7 @@ export function LogViewer({ logSource, toast, emptyStateText }: LogViewerProps) 
           onExport={handleExportLogs}
           onLevelChange={(level) => dispatch({ level, type: 'SET_LOG_LEVEL_FILTER' })}
           onPageSizeChange={handlePageSizeChange}
-          onRefresh={handleRefreshLogs}
+          onRefresh={refreshLogs}
           onRetentionChange={(limit) => dispatch({ limit, type: 'SET_RETENTION_LIMIT' })}
           onScopeChange={(scope) => dispatch({ scope, type: 'SET_SCOPE_FILTER' })}
           onSearchChange={(filter) => dispatch({ filter, type: 'SET_GLOBAL_FILTER' })}
