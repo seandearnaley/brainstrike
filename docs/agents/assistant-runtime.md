@@ -1168,15 +1168,21 @@ of that review; do not relitigate without re-reading it).
   loop guard's scope and the file's canonical path/mtime. The bytes are not
   resent, but the thread's knowledge is current; omitting this write corrupts
   the next write-staleness decision.
-- **Ephemeral, not factory-reset state — and NOT bounded.** The three maps are
-  process-local and `resetToolCallLoopGuards` is exported ONLY for test
+- **Ephemeral, not factory-reset state — and now bounded (BST-1197).** The three
+  maps are process-local and `resetToolCallLoopGuards` is exported ONLY for test
   isolation; this mirrors `packages/agent/src/tools/file-read-state.ts` and its
-  `resetFileReadState` and MUST NOT be wired into factory reset. Unlike that
-  module, these maps have NO LRU eviction — a long desktop session reading many
-  distinct files accumulates one `unchangedReadWindows` entry per distinct
-  `(root, path, range, maxChars)` ever read in a thread, unbounded (PR #2323
-  review, deliberately deferred: port `file-read-state.ts`'s bounded-LRU
-  treatment if this ever proves to matter in practice).
+  `resetFileReadState` and MUST NOT be wired into factory reset. Each per-thread
+  map holds at most 8 keys, using that module's insertion-order,
+  delete-then-set LRU-on-write technique. One shared activity tracker across
+  all three mechanisms holds at most 256 thread scopes; overflow evicts the
+  least-recently-active scope from every store. These bounds are lossless for
+  immediate-repeat detection: every call re-touches its exact tool, read-window,
+  or path identity, so a genuine streak remains hot and cannot be evicted. A
+  key is forgotten only after 8 other identities intervene, when the calls are
+  no longer meaningfully in a row and restarting at fresh/one is correct. The
+  same argument holds one level up: a scope inactive behind 256 other active
+  threads is not in the middle of a loop-guard-relevant streak, so its next
+  call correctly starts fresh.
 
 Paired proofs live in `tool-call-loop-guards.test.ts`,
 `loop-guard-projection-round-trip.test.ts`,
