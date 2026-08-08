@@ -372,6 +372,55 @@ export class RunTokenDiagnostics {
     return this.#toolDefinitionBreakdown;
   }
 
+  /**
+   * Telemetry-only sample push, deliberately independent of the token
+   * measurement in `recordModelOutput`: `serializeModelOutputForTokenMeasurement`
+   * masks inline media (`compactMedia`) specifically so it cannot throw on a
+   * huge base64 payload, but the telemetry figure wants the ACTUAL
+   * model-facing char count including media. A failure here (e.g.
+   * `RangeError: Invalid string length`) must not degrade the pre-existing,
+   * already-shipped token measurement — best-effort telemetry stays
+   * best-effort (review fix); the sample is simply omitted for this call.
+   */
+  #pushToolCallTelemetrySample(toolId: string, output: unknown): void {
+    let modelFacingChars: number | undefined;
+    try {
+      modelFacingChars = JSON.stringify(output)?.length;
+    } catch {
+      modelFacingChars = undefined;
+    }
+    if (modelFacingChars === undefined) {
+      return;
+    }
+    const metadata = readToolCallTelemetryMetadata(output);
+    this.#toolCallTelemetry.push({
+      isPaginationFollowup: metadata?.isPaginationFollowup ?? false,
+      modelFacingChars,
+      occurredAt: Date.now(),
+      toolId,
+      truncated: detectGenericTruncation(output) || (metadata?.truncated ?? false),
+      ...(metadata ? { zeroMatch: metadata.zeroMatch } : {}),
+    });
+  }
+
+  /**
+   * Telemetry-only sink for delegated/subagent tool outputs (BST-1196).
+   * Pushes a `ToolCallTelemetrySample` so per-tool spend telemetry captures
+   * subagent tool calls too, WITHOUT touching the `#projection` aggregate
+   * below. `modelVisibleProjection*` (surfaced via `toLogFields`) is a
+   * reconciliation signal against `providerReportedPromptTokens` — what the
+   * PARENT model actually saw in ITS prompt. A subagent tool output never
+   * enters the parent's prompt (only the delegation's final result does), so
+   * folding it into that aggregate would inflate
+   * `modelVisibleProjectionCount/Tokens/SerializedCharacters` against an
+   * unchanged `providerReportedPromptTokens` for every run that delegates,
+   * corrupting the exact reconciliation this log exists to provide (review
+   * fix).
+   */
+  recordSubagentToolOutput(toolId: string, output: unknown): void {
+    this.#pushToolCallTelemetrySample(toolId, output);
+  }
+
   recordModelOutput(toolId: string, output: unknown): void {
     this.#projection.count += 1;
     let serialized: string;
@@ -382,31 +431,7 @@ export class RunTokenDiagnostics {
       return;
     }
 
-    // Telemetry-only measurement, deliberately independent of the token
-    // measurement above: `serializeModelOutputForTokenMeasurement` masks
-    // inline media (`compactMedia`) specifically so it cannot throw on a huge
-    // base64 payload, but the telemetry figure wants the ACTUAL model-facing
-    // char count including media. A failure here (e.g. `RangeError: Invalid
-    // string length`) must not degrade the pre-existing, already-shipped
-    // token measurement — best-effort telemetry stays best-effort (review
-    // fix); the sample is simply omitted for this call.
-    let modelFacingChars: number | undefined;
-    try {
-      modelFacingChars = JSON.stringify(output)?.length;
-    } catch {
-      modelFacingChars = undefined;
-    }
-    if (modelFacingChars !== undefined) {
-      const metadata = readToolCallTelemetryMetadata(output);
-      this.#toolCallTelemetry.push({
-        isPaginationFollowup: metadata?.isPaginationFollowup ?? false,
-        modelFacingChars,
-        occurredAt: Date.now(),
-        toolId,
-        truncated: detectGenericTruncation(output) || (metadata?.truncated ?? false),
-        ...(metadata ? { zeroMatch: metadata.zeroMatch } : {}),
-      });
-    }
+    this.#pushToolCallTelemetrySample(toolId, output);
 
     const sample = this.#measurement.measure(serialized);
     this.#projection.backstopTokens += sample.backstopTokens;

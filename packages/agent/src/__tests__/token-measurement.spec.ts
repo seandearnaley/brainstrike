@@ -180,6 +180,49 @@ describe('run token diagnostics', () => {
     ]);
   });
 
+  it('records subagent tool outputs as telemetry WITHOUT inflating the parent-run projection aggregate (BST-1196 review fix)', async () => {
+    const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
+
+    // A subagent/persona-delegated tool call: must land in per-tool
+    // telemetry, but must NOT feed `modelVisibleProjection*` — that
+    // aggregate reconciles against `providerReportedPromptTokens`, i.e. what
+    // the PARENT model actually saw in its OWN prompt, which a child tool
+    // output never enters.
+    diagnostics.recordSubagentToolOutput('brainstrike.grepSearch', {
+      type: 'text',
+      value: 'child tool result',
+    });
+
+    const telemetryAfterSubagentOnly = diagnostics.toolCallTelemetry();
+    expect(telemetryAfterSubagentOnly).toHaveLength(1);
+    expect(telemetryAfterSubagentOnly[0]).toMatchObject({
+      toolId: 'brainstrike.grepSearch',
+    });
+
+    const fieldsAfterSubagentOnly = diagnostics.toLogFields();
+    expect(fieldsAfterSubagentOnly.modelVisibleProjectionCount).toBe(0);
+    expect(fieldsAfterSubagentOnly.modelVisibleProjectionTokens).toBe(0);
+
+    // A subsequent PRIMARY tool call still accumulates into the projection
+    // aggregate as before — the split is additive, not a regression of the
+    // primary path.
+    diagnostics.recordModelOutput('grepSearch', {
+      type: 'text',
+      value: 'parent tool result',
+    });
+
+    const telemetryAfterBoth = diagnostics.toolCallTelemetry();
+    expect(telemetryAfterBoth).toHaveLength(2);
+    expect(telemetryAfterBoth.map((sample) => sample.toolId)).toEqual([
+      'brainstrike.grepSearch',
+      'grepSearch',
+    ]);
+
+    const fieldsAfterBoth = diagnostics.toLogFields();
+    expect(fieldsAfterBoth.modelVisibleProjectionCount).toBe(1);
+    expect(fieldsAfterBoth.modelVisibleProjectionTokens).toBeGreaterThan(0);
+  });
+
   it.each([
     'anthropic',
     'openai',
