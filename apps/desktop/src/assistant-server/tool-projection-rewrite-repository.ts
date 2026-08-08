@@ -30,6 +30,7 @@ import {
   type ToolExecuteRunContext,
 } from './tool-execute-support';
 import { readStateScope } from './workspace-file-staleness';
+import { escapeProjectionPathLineBreaks } from './workspace-model-projection-helpers';
 import { projectGrepSearchModelOutput } from './workspace-search-model-projections';
 
 const logger = createLogger('ToolProjectionRewriteRepository');
@@ -160,7 +161,13 @@ function parseReadProjectionResult(value: unknown): ReadProjectionResult | undef
 }
 
 export function buildReadSupersededMarker(result: ReadProjectionResult): string {
-  return `${readProjectionHeaderPrefix()}${result.path} lines ${result.startLine}-${result.endLine}/${result.totalLines} [superseded — see the later read of this file]`;
+  // Mirrors read-workspace-file-model-projection.ts's own `read ` header
+  // convention (PR #2322, merged) so a collapsed marker still reads as a
+  // natural continuation of that format; the path is escaped the same way
+  // that live projector escapes it so an embedded newline in a filename can
+  // never break the marker's single-line invariant.
+  const escapedPath = escapeProjectionPathLineBreaks(result.path);
+  return `${readProjectionHeaderPrefix()}${escapedPath} lines ${result.startLine}-${result.endLine}/${result.totalLines} [superseded — see the later read of this file]`;
 }
 
 export function buildGrepSupersededMarker(outputMode: GrepToolResult['outputMode']): string {
