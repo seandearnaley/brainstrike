@@ -1130,11 +1130,14 @@ tools, and no network round trip or persistent store participates.
   loop guard's scope and the file's canonical path/mtime. The bytes are not
   resent, but the thread's knowledge is current; omitting this write corrupts
   the next write-staleness decision.
-- **Ephemeral, not factory-reset state.** The three maps are process-local and
-  `resetToolCallLoopGuards` is exported ONLY for test isolation. This mirrors
-  `packages/agent/src/tools/file-read-state.ts` and its
-  `resetFileReadState`; it is NOT a persistent store and MUST NOT be wired into
-  factory reset.
+- **Ephemeral, not factory-reset state.** The three maps are process-local.
+  `resetToolCallLoopGuards` serves test isolation AND one production caller:
+  after BST-1192 commits a stale-read projection rewrite batch, it resets that
+  exact `readStateScope(runtimeData)` thread. A dedup stub must never refer the
+  model to an earlier result the newly committed overlay will collapse on the
+  next replay. This mirrors `packages/agent/src/tools/file-read-state.ts` and
+  its `resetFileReadState`; it is NOT a persistent store and MUST NOT be wired
+  into factory reset.
 
 Paired proofs live in `tool-call-loop-guards.test.ts`,
 `workspace-search-model-projections.test.ts`,

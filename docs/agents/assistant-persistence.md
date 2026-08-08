@@ -852,6 +852,53 @@ Paired tests: `migration-079-mind-ops-log.test.ts`, the tombstone cases in
 `pglite-memory-store.integration.spec.ts`, and
 `prompt-item-repository.test.ts`.
 
+## STALE TOOL-PROJECTION REWRITE OVERLAYS (BST-1192, LAYER 1)
+
+Desktop native workspace inspection history is compacted at the transient
+provider-request boundary without mutating Mastra-owned message content.
+
+- **Where state lives:**
+  `brainstrike_assistant_tool_projection_rewrites` (migration 084 in BOTH
+  runners plus the byte-identical app-shell bootstrap mirror; no FKs because
+  numbered migrations run without Mastra's lazy tables). `tool_call_id` is the
+  primary key; `thread_id` owns cleanup; `rewrite_id` groups one committed
+  batch for diagnostics; `superseded_by_tool_call_id` is the live-evidence
+  guard; `marker_text` is the exact compact replay; `original_chars` records
+  the serialized model-projection approximation used for diagnostics. The
+  table is registered in the reset registry and the shared thread-delete
+  sidecar cascade.
+- **Detection and batching are desktop-local and restart-safe.** After a
+  successful `readWorkspaceFile` or `grepSearch`, and after a successful
+  `writeWorkspaceFile` or `stringReplaceWorkspaceFile`, desktop scans the
+  thread's visible persisted tool invocations and excludes calls already in
+  the overlay. Overlapping reads of the same resolved file supersede earlier
+  reads; either supported edit supersedes all earlier reads of that file; an
+  identical normalized grep pattern/scope supersedes the earlier grep. No
+  in-memory pending queue exists. Reclaimable size is the serialized projected
+  result length minus the serialized text-marker length — an honest character
+  approximation, never token-exactness. One transaction commits the whole
+  pending batch only at 65,536 reclaimable characters or more; below threshold
+  it writes nothing.
+- **Replay rewriting is surgical and transient.** The agent-side Mastra input
+  processor receives the fully built AI-SDK prompt and replaces only matching
+  `tool-result.output` values with text markers. It runs before provider-history
+  compatibility and the final contiguous token limiter. An absent desktop
+  lookup capability omits the processor; an empty lookup or inert diff returns
+  `undefined` and preserves the golden path.
+- **Rewind self-heals without undo state.** Before applying X's overlay
+  (`superseded_by_tool_call_id = Y`), the processor verifies that Y is still
+  present somewhere in the CURRENT prompt. Mastra's five rewind-aware read
+  paths have already removed tombstoned messages by this point. If rewind hid
+  Y, X replays its original durable content; no stored invocation result was
+  ever overwritten, so there is no content-loss or rollback log.
+- **A committed batch resets loop guards for the same thread scope.** Desktop
+  calls `resetToolCallLoopGuards(readStateScope(runtimeData))` only after a
+  transaction inserted overlay rows. This prevents an unchanged-read dedup
+  stub from referring to evidence the new batch will collapse. Below-threshold
+  scans do not reset the guards.
+
+Layer 2 recency-window pruning is deliberately outside this contract/pass.
+
 ## CONVERSATION REWIND TOMBSTONES (BST-1115)
 
 Soft rewind hides a contiguous suffix of a thread without destroying it, so a

@@ -1030,18 +1030,25 @@ describe('mastra streaming integration', () => {
   });
 
   it('passes configured agent loop limits and input token compaction to agent.stream', async () => {
+    const memory = {
+      getMergedThreadConfig: () => ({ generateTitle: false }),
+      id: 'memory-instance',
+    };
     setMockStreamParts([{ type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } }]);
 
     const iterator = await streamMastraAgent(
       [{ id: 'u1', parts: [{ text: 'inspect the workspace', type: 'text' }], role: 'user' }],
       {
+        memory: memory as never,
         runtime: {
           agentLoop: {
             inputTokenLimit: 8192,
             maxSteps: 12,
           },
           apiKey: 'test-key',
+          memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
           provider: 'openai',
+          toolProjectionRewriteLookup: { listActiveRewrites: async () => new Map() },
           workspaceSkills: {} as never,
         } as never,
       }
@@ -1061,6 +1068,7 @@ describe('mastra streaming integration', () => {
     expect(options.inputProcessors?.map((processor) => processor.id)).toEqual([
       'skills-processor',
       'tool-call-filter',
+      'tool-projection-rewrite',
       'provider-history-compat',
       'openai-tool-search-history-compat',
       'openai-duplicate-item-compat',

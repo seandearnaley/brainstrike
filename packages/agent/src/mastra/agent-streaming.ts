@@ -112,6 +112,7 @@ import {
   resolveDelegationPersona,
   type ToolLifecycleState,
 } from './tool-lifecycle-processors';
+import { buildToolProjectionRewriteInputProcessor } from './tool-projection-rewrite-processor';
 import type { BrainstrikeToolSearchProcessor } from './tool-search-runtime';
 
 const logger = createLogger('MastraAgent');
@@ -912,6 +913,10 @@ function buildToolLoopOptions(
   const openAIDuplicateItemCompat = buildOpenAIDuplicateItemCompatInputProcessor(
     runtimeData?.provider ?? ''
   );
+  const toolProjectionRewrite = buildToolProjectionRewriteInputProcessor(
+    runtimeData?.toolProjectionRewriteLookup,
+    runtimeData?.memory?.threadId
+  );
   const tokenLimiter = inputTokenLimit
     ? new ProjectionAwareTokenLimiter({
         limit: inputTokenLimit,
@@ -934,6 +939,7 @@ function buildToolLoopOptions(
     skillsProcessor,
     toolSearchProcessor,
     toolHistoryFilter,
+    toolProjectionRewrite,
     historyCompat,
     openAIToolSearchHistoryCompat,
     openAIDuplicateItemCompat,

@@ -10,9 +10,10 @@
  * site so one thread never inherits another thread's streak.
  *
  * This mirrors `packages/agent/src/tools/file-read-state.ts`: state lasts only
- * for the desktop main-process lifetime, and the reset export exists ONLY for
- * test isolation. It is ephemeral execution state, not persisted application
- * state, and MUST NOT be wired into factory reset.
+ * for the desktop main-process lifetime. Tests reset it for isolation, and a
+ * committed stale-read projection batch resets the affected production thread
+ * so no dedup stub can point at evidence the batch just collapsed. It is still
+ * ephemeral execution state and MUST NOT be wired into factory reset.
  */
 
 interface RepeatedToolCallState {
@@ -217,7 +218,11 @@ export function editFailureHintApplies(count: number): boolean {
   return count >= 3;
 }
 
-/** Clear ephemeral state for test isolation; never called by production reset. */
+/**
+ * Clear ephemeral state for test isolation or after a production projection
+ * rewrite commit. This is never part of factory reset; that reset destroys the
+ * process-local maps with the process/profile lifecycle already.
+ */
 export function resetToolCallLoopGuards(threadScope?: string): void {
   if (threadScope === undefined) {
     repeatedToolCalls.clear();
