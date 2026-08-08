@@ -1923,6 +1923,24 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       /Live metadata unavailable.*OpenRouter request failed/
     );
+    expect(screen.getByRole('status')).toHaveClass('text-destructive');
+  });
+
+  it('renders live metadata loading as neutral status', () => {
+    render(
+      <ProviderSettingsPanel
+        modelName="anthropic/claude-sonnet-4.6"
+        onSettingsChange={vi.fn()}
+        openRouterModelMetadataLookup={{ state: 'loading' }}
+        providerId="openrouter"
+        settings={{}}
+      />
+    );
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent(/Checking live OpenRouter metadata/);
+    expect(status).toHaveClass('text-muted-foreground');
+    expect(status).not.toHaveClass('text-destructive');
   });
 
   it('surfaces missing built-in OpenRouter limits instead of silently guessing', () => {

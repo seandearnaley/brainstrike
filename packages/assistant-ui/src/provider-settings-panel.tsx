@@ -91,7 +91,10 @@ interface OpenRouterModelLimits {
   outputReservation: number;
   outputWarning?: string;
   sourceLabel: string;
-  statusMessage?: string;
+  status?: {
+    kind: 'error' | 'loading';
+    message: string;
+  };
   usesConfiguredOutput: boolean;
   warning?: string;
 }
@@ -184,11 +187,19 @@ function resolveOpenRouterModelLimits(
     sourceLabel,
     usesConfiguredOutput: typeof settings.maxOutputTokens === 'number',
     ...(lookup?.state === 'loading'
-      ? { statusMessage: 'Checking live OpenRouter metadata; using the built-in catalog.' }
+      ? {
+          status: {
+            kind: 'loading' as const,
+            message: 'Checking live OpenRouter metadata; using the built-in catalog.',
+          },
+        }
       : {}),
     ...(lookup?.state === 'error'
       ? {
-          statusMessage: `Live metadata unavailable: ${lookup.message}. Using the built-in catalog.`,
+          status: {
+            kind: 'error' as const,
+            message: `Live metadata unavailable: ${lookup.message}. Using the built-in catalog.`,
+          },
         }
       : {}),
     ...(lookup?.state === 'resolved' && lookup.snapshot.freshness === 'stale-cache'
@@ -674,9 +685,12 @@ function OpenRouterModelLimitsCard({ limits }: { limits: OpenRouterModelLimits |
       </p>
       <p>Source: {limits.sourceLabel}</p>
       {limits.outputWarning ? <p className="text-destructive">{limits.outputWarning}</p> : null}
-      {limits.statusMessage ? (
-        <p className="text-destructive" role="status">
-          {limits.statusMessage}
+      {limits.status ? (
+        <p
+          className={limits.status.kind === 'error' ? 'text-destructive' : 'text-muted-foreground'}
+          role="status"
+        >
+          {limits.status.message}
         </p>
       ) : null}
       {limits.warning ? (
