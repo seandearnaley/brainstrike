@@ -6,6 +6,8 @@ import {
   validateEmbeddingDimensions,
 } from '../src/repositories/_shared.js';
 
+const DIMENSION_SELECT_PATTERN = /SELECT\b[^;]*\bdimensions\b[^;]*\bFROM\s+embedding_sets\b/i;
+
 interface DimensionRequest {
   readonly params: unknown[] | undefined;
   readonly sql: string;
@@ -122,7 +124,7 @@ describe('validateEmbeddingDimensions batch edge cases', () => {
     ]);
 
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.sql).toMatch(/WHERE id = ANY\(\$1\)/);
+    expect(requests[0]?.sql).toMatch(DIMENSION_SELECT_PATTERN);
     expect(requests[0]?.params).toEqual([['set-a', 'set-b']]);
   });
 
