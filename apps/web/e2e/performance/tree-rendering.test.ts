@@ -16,8 +16,7 @@ import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
 test.describe('Performance: Tree Rendering', () => {
   const restoredResizeObserverRootName = 'restored-resize-observer-test';
-  const rootIdPattern =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+  const restoredResizeObserverRootId = '5c08aa55-145b-4ba5-a27d-89e35856088a';
 
   // Create a large file tree for stress testing
   const createLargeFileTree = (depth: number, breadth: number): FileTree => {
@@ -60,6 +59,7 @@ test.describe('Performance: Tree Rendering', () => {
   const widenExplorerPanel = async (page: Page): Promise<void> => {
     const panel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
     const resizeHandle = getContextExplorerRightResizeHandle(page);
+    const initialWidth = await panel.evaluate((element) => element.clientWidth);
     const handleBox = await resizeHandle.boundingBox();
     if (!handleBox) {
       throw new Error('Explorer resize handle was unavailable.');
@@ -71,7 +71,9 @@ test.describe('Performance: Tree Rendering', () => {
     await page.mouse.down();
     await page.mouse.move(startX - 320, startY, { steps: 20 });
     await page.mouse.up();
-    await expect.poll(() => panel.evaluate((element) => element.clientWidth)).toBeGreaterThan(280);
+    await expect
+      .poll(() => panel.evaluate((element) => element.clientWidth))
+      .toBeGreaterThan(initialWidth + 1);
   };
 
   const installResizeObserverTracker = async (page: Page) => {
@@ -156,7 +158,9 @@ test.describe('Performance: Tree Rendering', () => {
   const setupRestoredResizeObserverTree = async (page: Page): Promise<void> => {
     const tree = createExpandAllPerfTree(24, 10);
     await installResizeObserverTracker(page);
-    await mockBrowserApis(page, restoredResizeObserverRootName, tree);
+    await mockBrowserApis(page, restoredResizeObserverRootName, tree, {
+      rootId: restoredResizeObserverRootId,
+    });
 
     const home = new HomePage(page);
     await home.goto({ waitForDatabase: false });
@@ -528,14 +532,18 @@ test.describe('Performance: Tree Rendering', () => {
     await expect(page.getByTestId('expand-all-button-small')).toBeEnabled({ timeout: 30_000 });
 
     const persistedSnapshot = await persistCurrentExplorerStoreSnapshot(page);
-    expect(persistedSnapshot.currentFolderId).not.toBe(restoredResizeObserverRootName);
-    expect(persistedSnapshot.currentFolderId).toMatch(rootIdPattern);
+    expect(persistedSnapshot.currentFolderId).toBe(restoredResizeObserverRootId);
     expect(persistedSnapshot.topLevelExpandedCount).toBeGreaterThan(0);
     expect(persistedSnapshot.folderExpandedCount).toBeGreaterThan(0);
 
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: false });
-    await restoreInlineFixture(page, restoredResizeObserverRootName, tree);
+    await restoreInlineFixture(
+      page,
+      restoredResizeObserverRootName,
+      tree,
+      restoredResizeObserverRootId
+    );
 
     await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => getExpandedDirectoryCount(page)).toBeGreaterThan(0);

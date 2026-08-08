@@ -7,11 +7,13 @@ export interface FileTree {
 interface Options {
   clipboard?: boolean;
   directoryReadDelayMs?: number;
+  rootId?: string;
 }
 
 interface MockBrowserApisPayload {
   directoryReadDelayMs: number;
   enableClipboard: boolean;
+  rootId: string | undefined;
   rootName: string;
   tree: FileTree;
 }
@@ -24,6 +26,7 @@ function buildMockBrowserApisScript(payload: MockBrowserApisPayload): string {
   window.__brainstrike_e2e_expose_file_explorer_store__ = true;
   const fixture = {
     name: payload.rootName,
+    ...(payload.rootId === undefined ? {} : { rootId: payload.rootId }),
     tree: payload.tree,
   };
   const fixtureOptions = payload.directoryReadDelayMs > 0
@@ -92,6 +95,7 @@ export async function mockBrowserApis(
   const payload: MockBrowserApisPayload = {
     directoryReadDelayMs: options.directoryReadDelayMs ?? 0,
     enableClipboard: options.clipboard ?? false,
+    rootId: options.rootId,
     rootName,
     tree,
   };
