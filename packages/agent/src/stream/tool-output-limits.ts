@@ -24,6 +24,11 @@ export const MAX_MODEL_TOOL_RESULT_CHAR_BUDGET =
  * PostToolUse guidance inside the total model-result envelope.
  */
 export const MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS = 1500;
+/**
+ * BST-1195: desktop domain projectors self-fit decoded model-visible text via
+ * decodedWorkspaceTextModelOutputChars. The generic transport guard below
+ * still measures full JSON-serialized output at its higher ceiling.
+ */
 export const MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET =
   MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS * APPROX_CHARS_PER_TOKEN;
 const TOOL_RESULT_PREVIEW_CHARS = 8000;

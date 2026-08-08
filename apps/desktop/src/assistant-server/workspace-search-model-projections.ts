@@ -13,12 +13,12 @@ import {
 } from './grep-search-result-contract';
 import {
   clipProjectionEnd as clipEnd,
+  decodedWorkspaceTextModelOutputChars as decodedChars,
   escapeProjectionPathLineBreaks,
   isNonNegativeInteger,
   isPositiveInteger,
   isRecord,
   makeWorkspaceTextModelOutput as makeTextModelOutput,
-  serializedWorkspaceTextModelOutputChars as serializedChars,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers';
@@ -212,7 +212,7 @@ function assertProjectionFits(
   toolName: 'globWorkspace' | 'grepSearch',
   lines: readonly string[]
 ): void {
-  if (serializedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     return;
   }
   throw new RangeError(
@@ -410,7 +410,7 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
       output['value'].startsWith(grepProjectionHeaderPrefix('content')))
   ) {
     const replayed = { type: 'text' as const, value: output['value'] };
-    if (serializedChars([replayed.value]) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars([replayed.value]) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       throw new RangeError(
         `grepSearch stored model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
       );
@@ -447,7 +447,7 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
       ...warningLines,
       ...(continuation ? [continuation] : []),
     ];
-    if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       break;
     }
     keptLines = candidateLines;
@@ -524,7 +524,7 @@ export function projectGlobWorkspaceModelOutput(output: unknown): WorkspaceSearc
       ...warningLines,
       ...(continuation ? [continuation] : []),
     ];
-    if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       break;
     }
     keptLines.push(itemLine);

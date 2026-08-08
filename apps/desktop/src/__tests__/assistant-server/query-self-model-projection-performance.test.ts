@@ -1,8 +1,8 @@
 import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
 import { expect, it, vi } from 'vitest';
 
-const { serializedCharsSpy } = vi.hoisted(() => ({
-  serializedCharsSpy: vi.fn(),
+const { decodedCharsSpy } = vi.hoisted(() => ({
+  decodedCharsSpy: vi.fn(),
 }));
 
 vi.mock('../../assistant-server/workspace-model-projection-helpers', async (importOriginal) => {
@@ -13,9 +13,9 @@ vi.mock('../../assistant-server/workspace-model-projection-helpers', async (impo
 
   return {
     ...actual,
-    serializedWorkspaceTextModelOutputChars: (lines: readonly string[]) => {
-      serializedCharsSpy();
-      return actual.serializedWorkspaceTextModelOutputChars(lines);
+    decodedWorkspaceTextModelOutputChars: (lines: readonly string[]) => {
+      decodedCharsSpy();
+      return actual.decodedWorkspaceTextModelOutputChars(lines);
     },
   };
 });
@@ -28,7 +28,7 @@ it('bounds full-projection serialization while fitting the maximum row fixture',
     cells: [wideCell, wideCell],
   }));
 
-  serializedCharsSpy.mockClear();
+  decodedCharsSpy.mockClear();
   const projection = projectQuerySelfModelOutput({
     columns: ['a', 'b'],
     estimatedCost: 42,
@@ -44,5 +44,5 @@ it('bounds full-projection serialization while fitting the maximum row fixture',
   // Linear decrement-and-reserialize needed 188 full serializations on this
   // fixture. Largest-prefix search stays logarithmic; the bound avoids coupling
   // the test to incidental header widths or the final fit assertion.
-  expect(serializedCharsSpy.mock.calls.length).toBeLessThanOrEqual(12);
+  expect(decodedCharsSpy.mock.calls.length).toBeLessThanOrEqual(12);
 });

@@ -22,9 +22,9 @@ import {
 } from '@brainstrike/agent';
 import type { QuerySelfResult } from './query-self-tool';
 import {
+  decodedWorkspaceTextModelOutputChars as decodedChars,
   isRecord,
   makeWorkspaceTextModelOutput as makeTextModelOutput,
-  serializedWorkspaceTextModelOutputChars as serializedChars,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers';
@@ -85,7 +85,7 @@ function escapeCell(value: string): string {
  */
 function fitLargestPrefix(itemCount: number, buildLines: (kept: number) => string[]): string[] {
   const full = buildLines(itemCount);
-  if (serializedChars(full) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(full) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     return full;
   }
 
@@ -95,7 +95,7 @@ function fitLargestPrefix(itemCount: number, buildLines: (kept: number) => strin
   while (low <= high) {
     const kept = Math.floor((low + high) / 2);
     const candidate = buildLines(kept);
-    if (serializedChars(candidate) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       best = candidate;
       low = kept + 1;
     } else {
@@ -144,7 +144,7 @@ function fitLines(header: string, body: readonly string[], note: (dropped: numbe
 }
 
 function assertProjectionFits(lines: readonly string[]): void {
-  if (serializedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     return;
   }
   throw new RangeError(
@@ -270,7 +270,7 @@ function projectPlan(result: Extract<QuerySelfResult, { kind: 'plan' }>): string
   const lines = result.plan.map((line) => clipPlanLine(escapeCell(line)));
   const header = `plan | analyzed=${result.analyzed}`;
 
-  if (serializedChars([header, ...lines]) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars([header, ...lines]) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     return [header, ...lines];
   }
 

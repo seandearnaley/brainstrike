@@ -3,6 +3,7 @@ import {
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import {
+  decodedWorkspaceTextModelOutputChars,
   escapeProjectionPathLineBreaks,
   isNonNegativeInteger,
   isPositiveInteger,
@@ -113,7 +114,10 @@ export function projectReadWorkspaceFileModelOutput(
     output['value'].startsWith('read ')
   ) {
     const replayed = makeWorkspaceTextModelOutput([output['value']]);
-    if (JSON.stringify(replayed).length > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (
+      decodedWorkspaceTextModelOutputChars([replayed.value]) >
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    ) {
       throw new RangeError(
         `readWorkspaceFile stored model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
       );
@@ -123,7 +127,10 @@ export function projectReadWorkspaceFileModelOutput(
 
   const result = parseReadWorkspaceFileResult(unwrapLegacyJsonProjection(output));
   const projected = buildReadWorkspaceFileProjectionText(result);
-  if (JSON.stringify(projected).length > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (
+    decodedWorkspaceTextModelOutputChars([projected.value]) >
+    MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+  ) {
     throw new RangeError(
       `readWorkspaceFile model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
     );

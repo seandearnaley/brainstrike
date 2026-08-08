@@ -55,6 +55,37 @@ export function makeWorkspaceTextModelOutput(lines: readonly string[]): Workspac
   return { type: 'text', value: lines.join('\n') };
 }
 
-export function serializedWorkspaceTextModelOutputChars(lines: readonly string[]): number {
-  return JSON.stringify(makeWorkspaceTextModelOutput(lines)).length;
+/**
+ * Fixed reserve added on top of the decoded value length when measuring a
+ * domain projection against MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET.
+ *
+ * Value derivation (BST-1195): the OLD ruler measured
+ * `JSON.stringify({ type: 'text', value }).length`, which for the empty
+ * string is exactly 26 (`{"type":"text","value":""}.length === 26`) — the
+ * fixed structural overhead of the envelope. JSON escaping can only ADD
+ * characters relative to the raw string (never remove), and code-point
+ * counting can only be <= UTF-16 length (astral pairs collapse). Therefore
+ * for ANY string X: codePointLength(X) + 26 <= JSON.stringify({type:'text',
+ * value:X}).length. Using 26 here guarantees the new (decoded) measurement
+ * is NEVER larger than the old (serialized) measurement was for the same
+ * text — a stored projection that fit the old budget is guaranteed to still
+ * fit the new one on replay. Do not "round up" this constant without
+ * re-deriving the proof above.
+ */
+export const PROJECTION_ENVELOPE_RESERVE_CHARS = 26;
+
+/**
+ * The ONE domain-projection budget ruler (BST-1195). Tokens come from the
+ * DECODED string the model actually reads, where a literal newline is ONE
+ * character — not from the JSON-serialized `{"type":"text","value":"..."}`
+ * envelope, which doubles every newline/quote/backslash. Every domain
+ * projector MUST measure fit through this function against
+ * MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET; no site-local
+ * JSON.stringify(...).length math is allowed. Pass the same `lines` array
+ * you would pass to makeWorkspaceTextModelOutput; for a value you already
+ * have as a single string (e.g. replaying a stored projection's `value`
+ * field), pass it as a one-element array `[value]`.
+ */
+export function decodedWorkspaceTextModelOutputChars(lines: readonly string[]): number {
+  return Array.from(lines.join('\n')).length + PROJECTION_ENVELOPE_RESERVE_CHARS;
 }

@@ -1,5 +1,6 @@
 import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
 import {
   projectHybridSearchModelOutput,
   projectQueryEmbeddingSpaceModelOutput,
@@ -118,7 +119,8 @@ describe('workspace retrieval model projections', () => {
     const projected = projectQueryEmbeddingSpaceModelOutput(raw);
 
     expect(serializedChars(raw)).toBeGreaterThan(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET);
-    expect(serializedChars(projected)).toBeLessThanOrEqual(
+    // BST-1195 recalibrated this boundary to decoded model-visible text.
+    expect(decodedChars([projected.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(projected.value).toContain('projection_omitted_context_chars=');
@@ -204,7 +206,7 @@ describe('workspace retrieval model projections', () => {
 
     const projected = projectHybridSearchModelOutput(raw);
 
-    expect(serializedChars(projected)).toBeLessThanOrEqual(
+    expect(decodedChars([projected.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
     );
     expect(projected.value).toContain('projection_omitted_results=');
