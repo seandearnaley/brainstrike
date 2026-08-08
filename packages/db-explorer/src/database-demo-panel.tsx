@@ -286,7 +286,6 @@ export function DatabaseDemoPanel({
   });
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const upsertCachedCollection = useVectorStatusUIStore((s) => s.upsertCachedCollection);
-  const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
   const managedCollectionId = useBackgroundIndexingPreferencesStore((s) => s.managedCollectionId);
   const isManagedCollection = Boolean(
     activeCollectionId &&
@@ -300,7 +299,6 @@ export function DatabaseDemoPanel({
   const showSettings = useDatabaseDemoStore((s) => s.showSettings);
   const recordPage = useDatabaseDemoStore((s) => s.recordPage);
   const recordPageSize = useDatabaseDemoStore((s) => s.recordPageSize);
-  const resetRecordPagination = useDatabaseDemoStore((s) => s.resetRecordPagination);
   const setRecordPage = useDatabaseDemoStore((s) => s.setRecordPage);
   const setRecordPageSize = useDatabaseDemoStore((s) => s.setRecordPageSize);
   const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
@@ -311,7 +309,7 @@ export function DatabaseDemoPanel({
   const resolveActiveCollectionId = useCallback(() => activeCollectionId, [activeCollectionId]);
 
   // Read import state from Zustand store (shared with VectorStatus for query pausing)
-  const isImportActive = useVectorStatusUIStore((s) => s.isImporting);
+  const isImportActive = useImportActivitySync();
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
 
   const data = useDatabaseDemoData({
@@ -343,9 +341,6 @@ export function DatabaseDemoPanel({
   const activeCollectionCountsPending = collectionCountsStatus === 'pending';
   useDatabaseDemoPagination({
     activeCollectionId,
-    recordPage,
-    resetRecordPagination,
-    setRecordPage,
     totalPages: recordPagination.totalPages,
   });
 
@@ -396,19 +391,15 @@ export function DatabaseDemoPanel({
     toast,
   });
 
-  useImportActivitySync(importFlow.isImporting, setIsImporting);
-
   useEmbeddingQueueRegistration(embeddingQueue);
   useDatabaseDemoTestHook({
     activeCollectionId,
     isImporting: importFlow.isImporting,
     progress: importFlow.progress,
     recordCount: records.length,
-    recordPagination: {
-      currentPage: recordPagination.currentPage,
-      pageSize: recordPagination.pageSize,
-      totalRecords: recordPagination.totalRecords,
-    },
+    recordCurrentPage: recordPagination.currentPage,
+    recordPageSize: recordPagination.pageSize,
+    recordTotalRecords: recordPagination.totalRecords,
     selectedFileCount: importFlow.selectedFileCount,
   });
 

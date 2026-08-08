@@ -84,17 +84,19 @@ export function DatabaseDemoPrimaryPanel({
         data-testid="database-panel-toolbar"
       >
         <div className="flex h-full items-center justify-between @[360px]:gap-2 gap-1 @[360px]:px-4 px-2">
-          <Button
-            aria-label="New"
-            className="h-7 gap-1.5 @[360px]:px-2.5 px-2 font-medium text-xs"
-            onClick={collectionDialogs.handleCreateCollection}
-            size="sm"
-            title="Create new collection"
-            variant="ghost"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span className="@[360px]:inline hidden">New</span>
-          </Button>
+          <div className="flex min-w-0 items-center">
+            <Button
+              aria-label="New"
+              className="h-7 gap-1.5 @[360px]:px-2.5 px-2 font-medium text-xs"
+              onClick={collectionDialogs.handleCreateCollection}
+              size="sm"
+              title="Create new collection"
+              variant="ghost"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span className="@[360px]:inline hidden">New</span>
+            </Button>
+          </div>
 
           <div className="flex min-w-0 items-center @[360px]:gap-2 gap-1">
             <TooltipProvider delayDuration={200}>

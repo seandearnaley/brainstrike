@@ -1,19 +1,31 @@
-import type { ImportProgress } from '@brainstrike/db';
 import { useEffect } from 'react';
 import type { EnhancedImportProgress } from '../types';
 
-type DatabaseDemoImportProgress = EnhancedImportProgress & ImportProgress;
+type DatabaseDemoImportProgress = EnhancedImportProgress;
 
 interface DatabaseDemoImportTestSnapshot {
   activeCollectionId: string | null;
   isImporting: boolean;
   progress: {
+    chunkingProgress: {
+      chunksCreated: number;
+      currentFile: string;
+      filesProcessed: number;
+      strategyUsed: string;
+      totalFiles: number;
+    } | null;
     completed: number;
     current: string;
     errors: Array<{ error: string; file: string }>;
     phase: DatabaseDemoImportProgress['phase'];
     total: number;
   } | null;
+  recordCount: number;
+  recordPagination: {
+    currentPage: number;
+    pageSize: number;
+    totalRecords: number;
+  };
   selectedFileCount: number;
 }
 
@@ -37,11 +49,9 @@ interface UseDatabaseDemoTestHookOptions {
   readonly isImporting: boolean;
   readonly progress: DatabaseDemoImportProgress | null;
   readonly recordCount: number;
-  readonly recordPagination: {
-    readonly currentPage: number;
-    readonly pageSize: number;
-    readonly totalRecords: number;
-  };
+  readonly recordCurrentPage: number;
+  readonly recordPageSize: number;
+  readonly recordTotalRecords: number;
   readonly selectedFileCount: number;
 }
 
@@ -50,7 +60,9 @@ export function useDatabaseDemoTestHook({
   isImporting,
   progress,
   recordCount,
-  recordPagination,
+  recordCurrentPage,
+  recordPageSize,
+  recordTotalRecords,
   selectedFileCount,
 }: UseDatabaseDemoTestHookOptions): void {
   useEffect(() => {
@@ -81,7 +93,11 @@ export function useDatabaseDemoTestHook({
             }
           : null,
         recordCount,
-        recordPagination,
+        recordPagination: {
+          currentPage: recordCurrentPage,
+          pageSize: recordPageSize,
+          totalRecords: recordTotalRecords,
+        },
         selectedFileCount,
       }),
     };
@@ -89,5 +105,14 @@ export function useDatabaseDemoTestHook({
     return () => {
       window.__brainstrikeDatabaseDemoTestHooks__ = undefined;
     };
-  }, [activeCollectionId, isImporting, progress, recordCount, recordPagination, selectedFileCount]);
+  }, [
+    activeCollectionId,
+    isImporting,
+    progress,
+    recordCount,
+    recordCurrentPage,
+    recordPageSize,
+    recordTotalRecords,
+    selectedFileCount,
+  ]);
 }
