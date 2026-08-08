@@ -113,6 +113,24 @@ function resolveOpenRouterSourceLabel(lookup: OpenRouterModelMetadataLookup | un
   }
 }
 
+function resolveOpenRouterStatus(
+  lookup: OpenRouterModelMetadataLookup | undefined
+): OpenRouterModelLimits['status'] {
+  if (lookup?.state === 'loading') {
+    return {
+      kind: 'loading',
+      message: 'Checking live OpenRouter metadata; using the built-in catalog.',
+    };
+  }
+  if (lookup?.state === 'error') {
+    return {
+      kind: 'error',
+      message: `Live metadata unavailable: ${lookup.message}. Using the built-in catalog.`,
+    };
+  }
+  return;
+}
+
 function resolveOpenRouterOutputReservation(
   settings: AssistantProviderSettings,
   profileModel: OpenRouterAutoProfileModel | undefined,
@@ -166,6 +184,7 @@ function resolveOpenRouterModelLimits(
     maxOutputTokens
   );
   const sourceLabel = resolveOpenRouterSourceLabel(lookup);
+  const status = resolveOpenRouterStatus(lookup);
   let effectiveInputBudget: number | undefined;
   try {
     effectiveInputBudget = deriveEffectiveInputBudget(contextWindow, outputReservation);
@@ -186,22 +205,7 @@ function resolveOpenRouterModelLimits(
       : {}),
     sourceLabel,
     usesConfiguredOutput: typeof settings.maxOutputTokens === 'number',
-    ...(lookup?.state === 'loading'
-      ? {
-          status: {
-            kind: 'loading' as const,
-            message: 'Checking live OpenRouter metadata; using the built-in catalog.',
-          },
-        }
-      : {}),
-    ...(lookup?.state === 'error'
-      ? {
-          status: {
-            kind: 'error' as const,
-            message: `Live metadata unavailable: ${lookup.message}. Using the built-in catalog.`,
-          },
-        }
-      : {}),
+    ...(status ? { status } : {}),
     ...(lookup?.state === 'resolved' && lookup.snapshot.freshness === 'stale-cache'
       ? { warning: lookup.snapshot.warning }
       : {}),
