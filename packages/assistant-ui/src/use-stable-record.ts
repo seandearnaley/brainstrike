@@ -29,6 +29,13 @@ function shallowEqualRecords<T>(a: Record<string, T>, b: Record<string, T>): boo
  * children observe it. This avoids a ref write that can leak from discarded
  * concurrent work, while shallow-equal follow-up records reuse the committed
  * identity without an effect-delayed value.
+ *
+ * CALLER CONTRACT: `record` must be memoized (or otherwise stable across a
+ * re-render of the same component with unchanged inputs). A record whose
+ * values get fresh identities on every render pass never reaches
+ * shallow-equality, so the render-phase update re-fires forever and React
+ * throws "Too many re-renders". An actual value change also costs one extra
+ * render pass of the calling component, unlike the previous ref implementation.
  */
 export function useStableRecord<T>(record: Record<string, T>): Record<string, T> {
   const [stableRecord, setStableRecord] = useState(record);
