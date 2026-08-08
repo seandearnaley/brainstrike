@@ -89,13 +89,7 @@ import {
 import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runSkillScript } from './run-skill-script-tool';
-import {
-  buildRepeatedCallRefusalResult,
-  buildRepeatedCallWarningText,
-  checkRepeatedToolCall,
-  isLoopGuardRefusal,
-  withRepeatedCallGuard,
-} from './tool-call-loop-guards';
+import { withRepeatedCallGuard } from './tool-call-loop-guards';
 import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-call-telemetry';
 import {
   logToolFailure,
@@ -381,34 +375,19 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          const threadScope = readStateScope(runtimeData);
-          const loopGuard = checkRepeatedToolCall(
-            threadScope,
-            NATIVE_TOOL_ID.readWorkspaceFile,
-            resolvedInput
-          );
-          if (loopGuard.status === 'refuse') {
-            return buildRepeatedCallRefusalResult(
-              NATIVE_TOOL_ID.readWorkspaceFile,
-              loopGuard.count
-            );
-          }
-          const result = await runReadWorkspaceFile(
-            resolvedInput,
-            runtimeData,
-            readFileCursorRegistry,
-            { threadScope }
-          );
-          if (loopGuard.status === 'warn' && !isLoopGuardRefusal(result) && result.dedup !== true) {
-            return {
-              ...result,
-              _warning: buildRepeatedCallWarningText(
-                NATIVE_TOOL_ID.readWorkspaceFile,
-                loopGuard.count
-              ),
-            };
-          }
-          return result;
+          // BST-1188: readWorkspaceFile deliberately does NOT use the plain
+          // identical-args repeated-call guard (`withRepeatedCallGuard`)
+          // other read/search tools use below — an args-only streak has no
+          // way to know the file changed between calls, so it would either
+          // permanently refuse a legitimate re-read after an edit (the
+          // refusal short-circuits BEFORE the file is ever checked) or stamp
+          // a "results have not changed" warning on content that in fact did
+          // change (PR #2323 review). The mtime-aware `readWorkspaceFile`
+          // loop guard below is the ONLY mechanism — it always re-reads the
+          // file first, so it can never go stale in that way.
+          return await runReadWorkspaceFile(resolvedInput, runtimeData, readFileCursorRegistry, {
+            threadScope: readStateScope(runtimeData),
+          });
         } catch (error) {
           logToolFailure('readWorkspaceFile failed', error, resolvedInput);
           throw error;

@@ -88,7 +88,12 @@ function applyStringReplaceWithLoopGuard(args: {
     ) {
       const failureCount = recordEditFailure(args.scope, args.rootId, args.path);
       if (editFailureHintApplies(failureCount)) {
-        throw new StringReplaceError(error.reason, EDIT_FAILURE_HINT_MESSAGE);
+        // APPEND, never replace: `error.message` carries the fuzzy-matcher's
+        // specific diagnostic (matched line numbers, the "diverged after N
+        // lines" cascade) — the single most actionable fact for widening
+        // oldStr, and precisely what the model has the least ability to
+        // guess after two prior failures (PR #2323 review).
+        throw new StringReplaceError(error.reason, `${error.message} ${EDIT_FAILURE_HINT_MESSAGE}`);
       }
     }
     throw error;
@@ -176,6 +181,12 @@ export async function runWriteWorkspaceFile(
       requestedPath: input.path,
       resolved,
     });
+    // A full-rewrite is the recovery path the edit-failure hint itself
+    // recommends (BST-1188) — it must clear the path's stringReplace failure
+    // streak too, or the NEXT unrelated stringReplace miss on this path still
+    // gets the escalated message even though the model just took the
+    // suggested recovery action (PR #2323 review).
+    resetEditFailureStreak(scope, root.rootId, resolved.workspacePath);
     // Our own write is the scope's freshest observation — consecutive writes
     // must never trip the guard on themselves.
     await recordOwnWriteObservation(scope, resolved.absolutePath);
