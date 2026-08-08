@@ -84,6 +84,14 @@ describe('projectExecuteCommandModelOutput', () => {
     ['grep needle file.txt', 124],
     ['cd foo && grep needle file.txt', 1],
     ['FOO=bar grep needle file.txt', 1],
+    // PR #2339 review: a compound/pipelined command's FINAL exit code does
+    // not belong to the leading token, so any shell operator that can
+    // rebind it disqualifies the annotation outright.
+    ['grep needle file.txt; false', 1],
+    ['diff a a && false', 1],
+    ["grep needle . | xargs sed -i 's/a/b/'", 1],
+    ['grep needle f || fallback-cmd', 1],
+    ['diff a b | tee out', 1],
   ])('does not guess an interpretation for %s at exit %s', (command, exitCode) => {
     const projected = projectExecuteCommandModelOutput(
       resultFixture({ command, exitCode, stdout: '' })
@@ -215,14 +223,59 @@ describe('projectExecuteCommandModelOutput', () => {
     expect(projection.value).toContain('refused');
   });
 
-  it('throws a budget-naming RangeError instead of double-truncating stream content', () => {
+  it('self-fits a legal producer result that falls between the native and domain budgets', () => {
+    // PR #2339 review: the producer bounds itself to NATIVE_TOOL_RESULT_CHAR_BUDGET
+    // (11,000 chars) — a plain, untruncated `cat`/test-run/`git log` result of
+    // 3,500 + 3,500 = 7,000 stream chars is a completely ordinary, legal
+    // producer result. Rendering it verbatim exceeds the tighter 6,000-char
+    // domain budget, so the projection must self-fit rather than throw.
     const oversized = resultFixture({
       stderr: 'e'.repeat(3500),
       stdout: 'o'.repeat(3500),
     });
 
-    expect(() => projectExecuteCommandModelOutput(oversized)).toThrow(RangeError);
-    expect(() => projectExecuteCommandModelOutput(oversized)).toThrow(
+    const projected = projectExecuteCommandModelOutput(oversized);
+
+    expect(JSON.stringify(projected).length).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(projected.value).toContain('truncated');
+    expect(projected.value).toContain('o'.repeat(10)); // head of stdout survives
+    expect(projected.value).toContain('e'.repeat(10)); // head of stderr survives
+    expect(projected.value).toContain('chars omitted');
+    expect(projected.value.split('\n').at(-1)).toBe(TRUNCATION_HINT);
+  });
+
+  it('self-fits a single-stream result at the higher end of the native budget', () => {
+    // Thread 1's own example: ~7,000 chars of stdout alone, well within what
+    // buildResult accepts (up to ~9,800 content chars), still needs fitting
+    // to the tighter 6,000-char domain budget.
+    const projected = projectExecuteCommandModelOutput(
+      resultFixture({ stdout: Array.from({ length: 400 }, (_, i) => `line ${i}`).join('\n') })
+    );
+
+    expect(JSON.stringify(projected).length).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(projected.value).toContain('line 0');
+    expect(projected.value).toContain('line 399');
+  });
+
+  it('throws a budget-naming RangeError only when even a zero-content envelope cannot fit', () => {
+    // Genuinely unreachable in production (the fixed header/root/hint
+    // overhead is far under the 6,000-char budget on its own), but the
+    // guard is exercised directly here per the established
+    // self-fit-then-throw-only-as-unreachable-assertion contract.
+    const unfittable = resultFixture({
+      ambiguousRootNames: ['workspace'],
+      openRoots: 2,
+      rootId: 'x'.repeat(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET),
+      rootName: 'workspace',
+      stdout: '',
+    });
+
+    expect(() => projectExecuteCommandModelOutput(unfittable)).toThrow(RangeError);
+    expect(() => projectExecuteCommandModelOutput(unfittable)).toThrow(
       String(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET)
     );
   });

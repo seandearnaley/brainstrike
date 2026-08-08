@@ -3,11 +3,23 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
+import { fitHeadAndTailToCharBudget, TRUNCATION_HINT } from './execute-command-tool';
+import {
+  escapeProjectionPathLineBreaks,
+  isNonNegativeInteger,
+  isPositiveInteger,
+  isRecord,
+  makeWorkspaceTextModelOutput,
+  type WorkspaceTextModelOutput,
+} from './workspace-model-projection-helpers';
 
-export interface ExecuteCommandTextModelOutput {
-  type: 'text';
-  value: string;
-}
+// Only the STRUCTURAL helpers above (type guards, the line-break escaper, the
+// {type,value} constructor) are shared. Budget-FITTING logic stays local to
+// this file (see fitProjectionToBudget below) rather than reusing
+// clipProjectionEnd/clipProjectionMiddle/serializedWorkspaceTextModelOutputChars
+// from workspace-model-projection-helpers.ts, since those measurement helpers
+// are mid-rewrite under BST-1195 — PR #2339 review settled this split.
+export type ExecuteCommandTextModelOutput = WorkspaceTextModelOutput;
 
 interface ExecuteCommandProjectionResult {
   ambiguousRootNames?: string[];
@@ -24,27 +36,6 @@ interface ExecuteCommandProjectionResult {
   stdout: string;
   timedOut: boolean;
   truncated: boolean;
-}
-
-// Tiny local copies pending post-BST-1195 unification with workspace-model-projection-helpers.ts.
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
-}
-
-function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0;
-}
-
-function escapeProjectionLabelLineBreaks(value: string): string {
-  return value
-    .replace(/\r/gu, String.raw`\r`)
-    .replace(/\n/gu, String.raw`\n`)
-    .replace(/\u2028/gu, String.raw`\u2028`)
-    .replace(/\u2029/gu, String.raw`\u2029`);
 }
 
 function parseExecuteCommandResult(output: unknown): ExecuteCommandProjectionResult {
@@ -86,10 +77,10 @@ function resolveRootLabel(result: ExecuteCommandProjectionResult): string | null
     (result.ambiguousRootNames ?? []).map((rootName) => rootName.toLowerCase())
   );
   if (name && !ambiguous.has(name.toLowerCase())) {
-    return escapeProjectionLabelLineBreaks(name);
+    return escapeProjectionPathLineBreaks(name);
   }
   if (result.rootId) {
-    return escapeProjectionLabelLineBreaks(result.rootId);
+    return escapeProjectionPathLineBreaks(result.rootId);
   }
   return null;
 }
@@ -99,6 +90,19 @@ const EXIT_CODE_INTERPRETATIONS: Readonly<Record<string, string>> = {
   'grep:1': 'no matches',
   'rg:1': 'no matches',
 };
+
+/**
+ * A compound or pipelined command's FINAL exit code does not necessarily
+ * belong to the leading token: `grep needle f; false` exits 1 from `false`,
+ * not a failed grep, and `diff a b | tee out` exits from `tee`, not `diff`.
+ * Any shell operator that can REBIND which command's status the shell
+ * reports disqualifies the annotation outright — pipe and logical-AND/OR
+ * share `|`/`&` characters (one check covers all three), plus sequencing
+ * `;` and an explicit `return`. This is deliberately whole-command, not
+ * leading-token-relative: the hazard is exit-code rebinding ANYWHERE in the
+ * command, not just before the first token (PR #2339 review).
+ */
+const EXIT_CODE_REBINDING_PATTERN = /[|;&]|\breturn\b/u;
 
 function resolveExecutedBinaryName(command: string): string | null {
   const firstToken = command.trim().split(/\s+/u)[0];
@@ -115,6 +119,9 @@ function resolveExecutedBinaryName(command: string): string | null {
 
 function resolveExitCodeInterpretation(result: ExecuteCommandProjectionResult): string | null {
   if (result.exitCode === null) {
+    return null;
+  }
+  if (EXIT_CODE_REBINDING_PATTERN.test(result.command)) {
     return null;
   }
   const binaryName = resolveExecutedBinaryName(result.command);
@@ -152,7 +159,81 @@ function buildExecuteCommandProjection(
   if (result.hint && result.hint.length > 0) {
     lines.push(result.hint);
   }
-  return { type: 'text', value: lines.join('\n') };
+  return makeWorkspaceTextModelOutput(lines);
+}
+
+/**
+ * Self-fit stdout/stderr down to the tighter domain budget when the
+ * producer's own NATIVE_TOOL_RESULT_CHAR_BUDGET-fitted result (up to 11,000
+ * chars) still doesn't fit MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET (6,000
+ * chars) — a legal, ordinary producer result (a `cat` of a 9 KB file, a test
+ * run, `git log`) rendered verbatim can land in that gap. Every other
+ * purpose-built projector in this codebase self-fits rather than throwing
+ * for a case this common (PR #2339 review); RangeError is reserved for the
+ * genuinely unreachable case where even a zero-content envelope doesn't fit.
+ *
+ * Reuses fitHeadAndTailToCharBudget — the SAME head+tail-with-marker shape
+ * the producer already applies — via the identical stdout-priority 60/40
+ * content-budget bisection buildResult uses, so this can only ever TIGHTEN
+ * retention, never re-expand or double-truncate differently.
+ */
+function fitProjectionToBudget(
+  result: ExecuteCommandProjectionResult,
+  budget: number
+): ExecuteCommandTextModelOutput {
+  const hasStdout = result.stdout.length > 0;
+  const hasStderr = result.stderr.length > 0;
+
+  const build = (contentBudget: number): ExecuteCommandTextModelOutput => {
+    let stdoutBudget: number;
+    let stderrBudget: number;
+    if (hasStdout && hasStderr) {
+      stdoutBudget = Math.floor(contentBudget * 0.6);
+      stderrBudget = contentBudget - stdoutBudget;
+    } else if (hasStdout) {
+      stdoutBudget = contentBudget;
+      stderrBudget = 0;
+    } else {
+      stdoutBudget = 0;
+      stderrBudget = contentBudget;
+    }
+    const fittedStdout = hasStdout
+      ? fitHeadAndTailToCharBudget(result.stdout, stdoutBudget)
+      : { text: '', truncated: false };
+    const fittedStderr = hasStderr
+      ? fitHeadAndTailToCharBudget(result.stderr, stderrBudget)
+      : { text: '', truncated: false };
+    const truncated = result.truncated || fittedStdout.truncated || fittedStderr.truncated;
+    // exactOptionalPropertyTypes: an optional `hint?: string` must be OMITTED
+    // when absent, never explicitly set to `undefined` — so `hint` is only
+    // added here when this fit newly truncated content the producer's own
+    // hint didn't already cover; an existing hint passes through unmodified
+    // via the `...result` spread below.
+    const needsFreshHint = truncated && result.hint === undefined;
+    return buildExecuteCommandProjection({
+      ...result,
+      ...(needsFreshHint ? { hint: TRUNCATION_HINT } : {}),
+      stderr: fittedStderr.text,
+      stdout: fittedStdout.text,
+      truncated,
+    });
+  };
+
+  const nominalContentBudget = result.stdout.length + result.stderr.length;
+  let low = 0;
+  let high = nominalContentBudget;
+  let best = build(0);
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = build(mid);
+    if (JSON.stringify(candidate).length <= budget) {
+      best = candidate;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best;
 }
 
 export function projectExecuteCommandModelOutput(output: unknown): ExecuteCommandTextModelOutput {
@@ -165,7 +246,7 @@ export function projectExecuteCommandModelOutput(output: unknown): ExecuteComman
     typeof output['value'] === 'string' &&
     output['value'].startsWith('exec ')
   ) {
-    const replayed = { type: 'text' as const, value: output['value'] };
+    const replayed = makeWorkspaceTextModelOutput([output['value']]);
     if (JSON.stringify(replayed).length > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
       throw new RangeError(
         `executeCommand stored model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
@@ -176,10 +257,15 @@ export function projectExecuteCommandModelOutput(output: unknown): ExecuteComman
 
   const result = parseExecuteCommandResult(output);
   const projected = buildExecuteCommandProjection(result);
-  if (JSON.stringify(projected).length > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (JSON.stringify(projected).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    return projected;
+  }
+
+  const fitted = fitProjectionToBudget(result, MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET);
+  if (JSON.stringify(fitted).length > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
     throw new RangeError(
-      `executeCommand model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+      `executeCommand model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget even after self-fitting`
     );
   }
-  return projected;
+  return fitted;
 }
