@@ -15,6 +15,7 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   disposeLiveChildProcesses,
+  fitHeadAndTailToCharBudget,
   resolveShellInvocation,
   runExecuteCommand,
   type ShellOutputStreamPart,
@@ -91,6 +92,45 @@ afterEach(async () => {
   }
 });
 
+describe('fitHeadAndTailToCharBudget — character-based retention', () => {
+  it('returns under-budget text unchanged without reporting truncation', () => {
+    const text = 'alpha\nbeta\ngamma';
+
+    expect(fitHeadAndTailToCharBudget(text, text.length)).toEqual({
+      text,
+      truncated: false,
+    });
+  });
+
+  it('keeps a 40/60 head-and-tail split with an exact omission marker', () => {
+    const text = Array.from(
+      { length: 20 },
+      (_, index) => `line-${index.toString().padStart(2, '0')}`
+    ).join('\n');
+
+    const result = fitHeadAndTailToCharBudget(text, 80);
+
+    expect(text).toHaveLength(159);
+    expect(result.truncated).toBe(true);
+    expect(result.text).toHaveLength(80);
+    expect(result.text.startsWith(text.slice(0, 10))).toBe(true);
+    expect(result.text).toContain('[… output truncated: 133 chars omitted of 159 total …]');
+    expect(result.text.endsWith(text.slice(-16))).toBe(true);
+  });
+
+  it('keeps non-empty head and tail content from one oversized line', () => {
+    const text = `${'H'.repeat(100)}${'M'.repeat(100)}${'T'.repeat(100)}`;
+
+    const result = fitHeadAndTailToCharBudget(text, 100);
+
+    expect(result.truncated).toBe(true);
+    expect(result.text).toHaveLength(100);
+    expect(result.text.startsWith('H'.repeat(18))).toBe(true);
+    expect(result.text).toContain('[… output truncated: 254 chars omitted of 300 total …]');
+    expect(result.text.endsWith('T'.repeat(28))).toBe(true);
+  });
+});
+
 describe('runExecuteCommand — happy path', () => {
   it('runs echo and surfaces exitCode 0 with stdout', async () => {
     const root = await makeWorkspace();
@@ -112,14 +152,36 @@ describe('runExecuteCommand — happy path', () => {
   });
 });
 
+describe('runExecuteCommand — command echo bounding', () => {
+  it('echoes a command at the 200-character boundary unchanged', async () => {
+    const root = await makeWorkspace();
+    const command = `printf ok #${'x'.repeat(200 - 'printf ok #'.length)}`;
+
+    const result = await runExecuteCommand({ command }, singleRoot(root));
+
+    expect(command).toHaveLength(200);
+    expect(result.command).toBe(command);
+  });
+
+  it('echoes only the first 200 characters plus an explicit truncation note', async () => {
+    const root = await makeWorkspace();
+    const command = `printf ok #${'x'.repeat(240)}`;
+    const note = '… [command truncated: full command is in the tool call input]';
+
+    const result = await runExecuteCommand({ command }, singleRoot(root));
+
+    expect(command.length).toBeGreaterThan(200);
+    expect(result.command.slice(0, 200)).toBe(command.slice(0, 200));
+    expect(result.command.slice(200)).toBe(note);
+    expect(result.command).not.toContain(command);
+  });
+});
+
 describe('runExecuteCommand — truncated flag (no false positive on empty streams)', () => {
-  // Regression: an EMPTY stream is `''`, and `''.split('\n')` is `['']` (length
-  // 1, one empty line) — NOT `[]`. Under the absent stream's 0 budget,
-  // fitTailToCharBudget treated that single empty line as a dropped line and
-  // reported truncated:true. That flipped the overall result to truncated + a
-  // bogus "Output was truncated… re-run piping through | tail" hint on the COMMON
-  // case (any command writing to only one stream, or a silent command), pushing
-  // the model into needless re-runs. An absent stream must never be "truncated".
+  // Regression guard: an ABSENT stream must never flip the overall result to
+  // truncated + a bogus "Output was truncated… re-run piping through | tail"
+  // hint on the COMMON case (output on only one stream, or a silent command).
+  // Keep the raw hasStdout/hasStderr gate even as fitting internals evolve.
 
   it('reports truncated=false when only stdout has output (empty stderr)', async () => {
     const root = await makeWorkspace();
@@ -279,9 +341,9 @@ describe('runExecuteCommand — abort kills the tree', () => {
 describe('runExecuteCommand — output bounding (no unbounded result)', () => {
   it('truncates huge output with a hint instead of returning it all', async () => {
     const root = await makeWorkspace();
-    // ~200k lines of "x" — far above the model token budget.
+    // ~50k numbered lines — far above the model budget but below the raw cap.
     const result = await runExecuteCommand(
-      { command: 'seq 1 200000 | sed "s/.*/x/"', timeoutMs: 30_000 },
+      { command: 'seq 1 50000', timeoutMs: 30_000 },
       singleRoot(root)
     );
     expect(result.exitCode).toBe(0);
@@ -289,8 +351,10 @@ describe('runExecuteCommand — output bounding (no unbounded result)', () => {
     expect(result.hint).toBeTruthy();
     // The serialized result must be bounded (well under a megabyte of text).
     expect(JSON.stringify(result).length).toBeLessThan(20_000);
-    // Tail bias: the LAST lines survive, so the final value is present.
-    expect(result.stdout).toContain('x');
+    expect(result.stdout).toContain('[… output truncated:');
+    // Both the early diagnostic context and the most-recent output survive.
+    expect(result.stdout.startsWith('1\n2\n3\n')).toBe(true);
+    expect(result.stdout.endsWith('49999\n50000\n')).toBe(true);
   });
 });
 

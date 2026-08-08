@@ -23,6 +23,8 @@ const REDACTED_CWD_LOG_VALUE = { redacted: true } as const;
 const DEFAULT_TIMEOUT_MS = 120_000;
 /** Hard ceiling on the per-call timeout so a bad value cannot wedge the host. */
 const MAX_TIMEOUT_MS = 600_000;
+/** Maximum command-input characters repeated in the model-facing result. */
+const MAX_ECHOED_COMMAND_CHARS = 200;
 /**
  * Hard ceiling on RAW captured output bytes. Independent of (and larger than)
  * the model-facing token budget: this stops a runaway command from filling
@@ -108,9 +110,9 @@ export interface ExecuteCommandToolResult {
   rootName: string;
   /** Terminating signal name when the process was killed (else null). */
   signal: string | null;
-  /** Budget-fitted tail of captured stderr (most-recent lines win). */
+  /** Budget-fitted head and tail of captured stderr (early + recent context). */
   stderr: string;
-  /** Budget-fitted tail of captured stdout (most-recent lines win). */
+  /** Budget-fitted head and tail of captured stdout (early + recent context). */
   stdout: string;
   /** True when the command was killed because it exceeded its timeout. */
   timedOut: boolean;
@@ -487,45 +489,63 @@ function runShellCommand(args: {
   });
 }
 
-/** Keep the largest TAIL (last N lines) of `lines` that fits `charBudget`. */
-function fitTailToCharBudget(
-  lines: readonly string[],
+/**
+ * Build the visible omission marker separately so tests can pin the exact
+ * model-facing contract and its character cost when output is budget-fitted.
+ */
+export function buildTruncationMarker(omittedChars: number, totalChars: number): string {
+  return `[… output truncated: ${omittedChars} chars omitted of ${totalChars} total …]`;
+}
+
+/**
+ * Keep early diagnostics and recent status from oversized output within one
+ * hard character budget. Exported so the single-line slicing boundary and the
+ * marker-inclusive size invariant can be tested without spawning a process.
+ */
+export function fitHeadAndTailToCharBudget(
+  text: string,
   charBudget: number
 ): {
   text: string;
   truncated: boolean;
 } {
-  if (charBudget <= 0 || lines.length === 0) {
-    return { text: '', truncated: lines.length > 0 };
+  if (text.length <= charBudget) {
+    return { text, truncated: false };
   }
-  // Walk from the LAST line backwards, accumulating until the next line would
-  // overflow. +1 per joined newline.
-  const kept: string[] = [];
-  let used = 0;
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const line = lines[i] ?? '';
-    const cost = line.length + (kept.length > 0 ? 1 : 0);
-    if (used + cost > charBudget) {
-      break;
-    }
-    kept.push(line);
-    used += cost;
-  }
-  kept.reverse();
-  return { text: kept.join('\n'), truncated: kept.length < lines.length };
+
+  const boundedBudget = Math.max(0, Math.floor(charBudget));
+  const totalChars = text.length;
+  // N can never have more digits than M, so the N=M marker reserves the
+  // maximum marker width before retained content receives the remaining room.
+  const reservedMarkerLength = buildTruncationMarker(totalChars, totalChars).length;
+  const retainedBudget = Math.max(0, boundedBudget - reservedMarkerLength);
+  const headBudget = Math.floor(retainedBudget * 0.4);
+  const tailBudget = retainedBudget - headBudget;
+  const head = text.slice(0, headBudget);
+  const tail = tailBudget > 0 ? text.slice(-tailBudget) : '';
+  const omittedChars = totalChars - head.length - tail.length;
+  const marker = buildTruncationMarker(omittedChars, totalChars);
+
+  // The worst-case reservation already guarantees this bound. Keep the final
+  // slice as cheap defensive insurance for pathologically tiny budgets.
+  return {
+    text: `${head}${marker}${tail}`.slice(0, boundedBudget),
+    truncated: true,
+  };
 }
 
 /**
- * Bound captured output to the model token budget, keeping the TAIL (the most
- * recent lines — where errors and final status live). ANSI escape codes are
- * stripped FIRST: test runners, builds, and git emit color/cursor escapes that
- * pollute the model-facing text and waste the token budget.
+ * Bound captured output to the model token budget, keeping a 40% HEAD for early
+ * diagnostics and a 60% TAIL for recent output and final status. ANSI escape
+ * codes are stripped FIRST: test runners, builds, and git emit color/cursor
+ * escapes that pollute the model-facing text and waste the token budget.
  *
  * FAIR SPLIT (deterministic, stdout-priority): the two streams are budgeted
  * INDEPENDENTLY so a chatty stderr (build/test progress is commonly on stderr)
  * can never starve the stdout result the model actually wants. stdout gets the
  * larger share of the per-stream budget and any leftover; stderr keeps a
- * guaranteed minimum tail. Each stream then keeps its own most-recent lines.
+ * guaranteed minimum share. Each non-empty stream then applies its own 40/60
+ * character split, with the truncation marker charged to that same budget.
  */
 function buildResult(args: {
   command: string;
@@ -535,17 +555,16 @@ function buildResult(args: {
   rootName: string;
 }): ExecuteCommandToolResult {
   const { command, cwd, durationMs, outcome, rootName } = args;
-  // Strip ANSI before line-splitting/budgeting so escape codes never reach the
-  // model or consume the token budget.
-  const stdoutLines = stripAnsi(outcome.stdout).split('\n');
-  const stderrLines = stripAnsi(outcome.stderr).split('\n');
+  // Strip ANSI before budgeting so escape codes never reach the model or
+  // consume the token budget.
+  const stdoutText = stripAnsi(outcome.stdout);
+  const stderrText = stripAnsi(outcome.stderr);
 
   // The echoed command can be up to the schema max (10k chars); bound it so it
   // cannot blow the result envelope (the model already knows what it sent).
-  const MaxEchoedCommandChars = 500;
   const echoedCommand =
-    command.length > MaxEchoedCommandChars
-      ? `${command.slice(0, MaxEchoedCommandChars)}…`
+    command.length > MAX_ECHOED_COMMAND_CHARS
+      ? `${command.slice(0, MAX_ECHOED_COMMAND_CHARS)}… [command truncated: full command is in the tool call input]`
       : command;
 
   // Reserve a small envelope for the base fields + hint, then split the rest:
@@ -568,17 +587,14 @@ function buildResult(args: {
     stderrBudget = contentBudget;
   }
 
-  // An ABSENT stream is `''`, which `.split('\n')` turns into `['']` (one empty
-  // line, length 1 — NOT `[]`). Fitting that under the stream's 0 budget would
-  // count the empty line as dropped and report truncated:true — a false "output
-  // was truncated" on the COMMON case (a silent command, or output on only one
-  // stream). Only fit streams that actually have content; an absent stream is
-  // never truncated.
+  // Preserve the raw pre-ANSI guard: an ABSENT stream is never truncated. This
+  // prevents a false "output was truncated" result for silent commands and the
+  // common case where only one stream has content.
   const fittedStdout = hasStdout
-    ? fitTailToCharBudget(stdoutLines, stdoutBudget)
+    ? fitHeadAndTailToCharBudget(stdoutText, stdoutBudget)
     : { text: '', truncated: false };
   const fittedStderr = hasStderr
-    ? fitTailToCharBudget(stderrLines, stderrBudget)
+    ? fitHeadAndTailToCharBudget(stderrText, stderrBudget)
     : { text: '', truncated: false };
   const truncated = fittedStdout.truncated || fittedStderr.truncated;
 
