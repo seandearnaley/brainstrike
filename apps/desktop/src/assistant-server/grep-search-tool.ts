@@ -23,7 +23,12 @@ import {
   parseGrepToolResult,
 } from './grep-search-result-contract';
 import { type LiveGrepResult, runLiveGrep } from './live-grep';
-import { getWorkspaceRoots, resolveOptionalWorkspaceRoot } from './workspace-roots';
+import {
+  describeOpenRootTopology,
+  getWorkspaceRoots,
+  type OpenRootTopology,
+  resolveOptionalWorkspaceRoot,
+} from './workspace-roots';
 
 const logger = createLogger('AssistantGrepSearchTool');
 
@@ -310,7 +315,11 @@ function buildFilesHint(args: {
   );
 }
 
-function buildFilesResult(mergedResult: MergedGrepResult, offset: number): GrepFilesToolResult {
+function buildFilesResult(
+  mergedResult: MergedGrepResult,
+  offset: number,
+  topology: OpenRootTopology
+): GrepFilesToolResult {
   const allFiles = aggregateFileSummaries(mergedResult.matches);
   const pagedFiles = allFiles.slice(offset);
 
@@ -339,6 +348,7 @@ function buildFilesResult(mergedResult: MergedGrepResult, offset: number): GrepF
       totalFiles: allFiles.length,
       totalMatches: mergedResult.totalMatches,
       truncated,
+      ...topology,
       ...(mergedResult.liveNote ? { liveNote: mergedResult.liveNote } : {}),
       ...(hint ? { hint } : {}),
     };
@@ -397,7 +407,8 @@ function buildContentResult(
   mergedResult: MergedGrepResult,
   offset: number,
   requestedMatches: number,
-  serviceCap: number
+  serviceCap: number,
+  topology: OpenRootTopology
 ): GrepContentToolResult {
   // Strip the internal chunk-locator fields BEFORE budget-fitting so the token
   // budget reflects the trimmed model-facing shape (and never spends budget on
@@ -428,6 +439,7 @@ function buildContentResult(
       skippedMissingLineMetadata: mergedResult.skippedMissingLineMetadata,
       totalMatches: mergedResult.totalMatches,
       truncated,
+      ...topology,
       ...(mergedResult.liveNote ? { liveNote: mergedResult.liveNote } : {}),
       ...(hint ? { hint } : {}),
     };
@@ -603,10 +615,16 @@ export async function runGrepSearch(
 
     const merged = mergeGrepMatches(serviceResult, liveResult);
 
+    // The projection prefixes file headers with root names only when several
+    // folders are OPEN (not merely matched), so the open-root topology —
+    // count plus globally ambiguous display names — rides the result
+    // envelope; single-root stays absent and unprefixed (BST-1185).
+    const topology = describeOpenRootTopology(runtimeData);
+
     return parseGrepToolResult(
       outputMode === 'files'
-        ? buildFilesResult(merged, offset)
-        : buildContentResult(merged, offset, requestedMatches, INTERNAL_MATCH_CAP)
+        ? buildFilesResult(merged, offset, topology)
+        : buildContentResult(merged, offset, requestedMatches, INTERNAL_MATCH_CAP, topology)
     );
   } catch (error) {
     logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });

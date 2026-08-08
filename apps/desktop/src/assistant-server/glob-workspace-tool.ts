@@ -8,7 +8,12 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { processFilter } from '@brainstrike/utils';
 import { Minimatch } from 'minimatch';
 import { walkWorkspaceRoot } from './workspace-file-walk';
-import { getWorkspaceRoots, resolveOptionalWorkspaceRoot } from './workspace-roots';
+import {
+  describeOpenRootTopology,
+  getWorkspaceRoots,
+  type OpenRootTopology,
+  resolveOptionalWorkspaceRoot,
+} from './workspace-roots';
 
 export const GLOB_WORKSPACE_TOOL_ID = NATIVE_TOOL_ID.globWorkspace;
 
@@ -25,6 +30,12 @@ export interface GlobWorkspaceMatch {
 }
 
 export interface GlobWorkspaceToolResult {
+  /**
+   * Lowercased display names shared by more than one OPEN root, present only
+   * when non-empty — the projection falls back to root ids for these (the
+   * shared name would be an ambiguous selector; see workspace-roots.ts).
+   */
+  ambiguousRootNames?: string[];
   /** Count of matches in this page (matches.length). */
   count: number;
   /** Actionable next step when the result was truncated or scan-limited. */
@@ -32,6 +43,11 @@ export interface GlobWorkspaceToolResult {
   /** Matches returned in this page (self-bounded to the output budget). */
   matches: GlobWorkspaceMatch[];
   offset: number;
+  /**
+   * Count of OPEN workspace roots, present only when more than one folder is
+   * open — drives the projection's root-name prefix on match rows (BST-1185).
+   */
+  openRoots?: number;
   /**
    * True when at least one root's file-visit cap was hit, so more matches may
    * exist that were never reached. Never silent — surfaced for the model.
@@ -111,9 +127,11 @@ function buildResult(args: {
    */
   totalMatches: number;
   offset: number;
+  /** Open-root topology (count + globally ambiguous names) when >1 root. */
+  topology: OpenRootTopology;
   scanLimited: boolean;
 }): GlobWorkspaceToolResult {
-  const { windowMatches, totalMatches, offset, scanLimited } = args;
+  const { windowMatches, totalMatches, offset, topology, scanLimited } = args;
   const pagedMatches = windowMatches.slice(offset);
   // The hint is built INSIDE the fitted candidate so it can never push the
   // serialized result back over the budget.
@@ -142,6 +160,7 @@ function buildResult(args: {
       scanLimited,
       totalMatches,
       truncated,
+      ...topology,
       ...(hint ? { hint } : {}),
     };
   });
@@ -189,6 +208,7 @@ export async function runGlobWorkspace(
   return buildResult({
     offset,
     scanLimited,
+    topology: describeOpenRootTopology(runtimeData),
     totalMatches: allMatches.length,
     windowMatches: limited,
   });

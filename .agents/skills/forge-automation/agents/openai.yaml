@@ -1,4 +1,0 @@
-interface:
-  display_name: "Forge Automation"
-  short_description: "Implement one agent-ready Brainstrike ticket reliably"
-  default_prompt: "Use $forge-automation to run the Brainstrike Forge small-ticket implementer charter."

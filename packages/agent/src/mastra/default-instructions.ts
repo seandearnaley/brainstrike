@@ -289,7 +289,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.updateWorkspaceContextSelection || names.updateWorkspaceTapestrySelections
       ? ' Selection write-back accepts root; otherwise selection targets the Focused root.'
       : '';
-  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (reported selection), and exact root selectors; ${names.listWorkspaceContext} refreshes the detailed inventory plus selection/index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results provide copyable read_args with root and path.${writeBackNote}`;
+  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (reported selection), and exact root selectors; ${names.listWorkspaceContext} refreshes the detailed inventory plus selection/index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results prefix each file header with its root name when several folders are open — pass that root name as "root" when reading.${writeBackNote}`;
 }
 
 /**
