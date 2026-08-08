@@ -21,4 +21,21 @@ describe('API keys settings category module boundary', () => {
     );
     expect(categorySource).toContain('export function createApiKeysSettingsCategory');
   });
+
+  it('routes application category-factory imports through the factory-only module', async () => {
+    const consumerPaths = [
+      resolve(SRC_ROOT, '../../../apps/desktop/src/renderer/components/settings/page-content.tsx'),
+      resolve(SRC_ROOT, '../../../apps/web/src/app/settings/page-content.tsx'),
+    ];
+
+    for (const consumerPath of consumerPaths) {
+      const consumerSource = await readFile(consumerPath, 'utf8');
+      expect(consumerSource).toContain(
+        "from '@brainstrike/settings-ui/settings-category-factories'"
+      );
+      expect(consumerSource).not.toMatch(
+        /import\s*\{[^}]*createAppearanceSettingsCategory[^}]*\}\s*from '@brainstrike\/settings-ui\/settings-page-content'/
+      );
+    }
+  });
 });

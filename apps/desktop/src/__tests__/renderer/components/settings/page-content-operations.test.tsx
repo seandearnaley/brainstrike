@@ -151,11 +151,25 @@ vi.mock('@brainstrike/settings-ui/settings/system/notification-settings-category
 }));
 
 vi.mock('@brainstrike/settings-ui/settings-page-content', () => ({
-  createApiKeysSettingsCategory: () => ({
-    content: <div data-testid="api-keys-category" />,
-    id: 'api-keys',
-    title: 'API Keys',
-  }),
+  SettingsPageContent: ({
+    categories,
+    defaultCategoryId,
+  }: {
+    categories: Array<{ content: React.ReactNode; id: string; title: string }>;
+    defaultCategoryId: string;
+  }) => (
+    <div data-default-category-id={defaultCategoryId} data-testid="settings-layout">
+      {categories.map((category) => (
+        <span data-testid="settings-category-title" key={category.id}>
+          {category.title}
+        </span>
+      ))}
+      {categories.find(({ id }) => id === 'embedding-models')?.content}
+    </div>
+  ),
+}));
+
+vi.mock('@brainstrike/settings-ui/settings-category-factories', () => ({
   createAppearanceSettingsCategory: () => ({
     content: <div data-testid="appearance-category" />,
     id: 'appearance',
@@ -197,22 +211,6 @@ vi.mock('@brainstrike/settings-ui/settings-page-content', () => ({
       id: 'token-counting',
       title: 'Token Counting',
     })),
-  SettingsPageContent: ({
-    categories,
-    defaultCategoryId,
-  }: {
-    categories: Array<{ content: React.ReactNode; id: string; title: string }>;
-    defaultCategoryId: string;
-  }) => (
-    <div data-default-category-id={defaultCategoryId} data-testid="settings-layout">
-      {categories.map((category) => (
-        <span data-testid="settings-category-title" key={category.id}>
-          {category.title}
-        </span>
-      ))}
-      {categories.find(({ id }) => id === 'embedding-models')?.content}
-    </div>
-  ),
 }));
 
 vi.mock('@brainstrike/app-state/automation-overrides', () => ({
