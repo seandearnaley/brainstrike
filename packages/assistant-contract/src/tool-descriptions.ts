@@ -70,7 +70,7 @@ export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.runSkillScript]:
     "Run an enabled Agent Skill's listed script with literal argv in a mounted root/cwd. Resolution and approval required",
   [NATIVE_TOOL_ID.stringReplaceWorkspaceFile]:
-    'Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval)',
+    'Surgically edit a file in a chosen open workspace root by replacing one oldStr block with newStr (fuzzy-matched; refuses ambiguous matches; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). matchType "exact" confirms verbatim placement; other matchTypes are fuzzy — re-read for precision',
   [NATIVE_TOOL_ID.submitPlan]:
     'Submit a structured implementation plan (title, overview, ordered steps, optional risks/verification) for the user to Approve or Reject. The run PAUSES until they respond; rejection feedback is returned so you can revise and resubmit',
   [NATIVE_TOOL_ID.updateWorkspaceContextSelection]:
@@ -82,7 +82,7 @@ export const TOOL_DESCRIPTIONS = {
   [NATIVE_TOOL_ID.webSearch]:
     'Search the web for current docs, APIs, error messages, and library usage. SENDS YOUR QUERY TO AN EXTERNAL WEB-SEARCH SERVICE (the model provider\'s built-in search when available, otherwise Tavily). Returns a clear "unavailable" message (not an error) when no provider-native search and no Tavily key are configured',
   [NATIVE_TOOL_ID.writeWorkspaceFile]:
-    'Write or create a UTF-8 file in a chosen open workspace root (overwrites existing content; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval)',
+    'Write or create a UTF-8 file in a chosen open workspace root (overwrites existing content; refuses if the file changed on disk since you last read it — re-read and retry; workspace-scoped, requires approval). bytesWritten confirms it landed; skip re-reading',
   [NATIVE_TOOL_ID.skill]:
     "Activate an Agent Skill by name: loads the skill's full SKILL.md instructions into the conversation, plus a listing of its bundled references/scripts/assets. Read-only; activate proactively when a task matches a skill's description",
   [NATIVE_TOOL_ID.skillRead]:
