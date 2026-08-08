@@ -26,8 +26,8 @@
  *   NO scroll behavior: `scrollTo`'s default `'auto'` routes through CSS
  *   `scroll-behavior`, so the global `prefers-reduced-motion` override in
  *   globals.css keeps applying.
- * - `pointerdown` cancels an in-flight follow so a user grabbing the
- *   scrollbar mid-scroll wins immediately.
+ * - Pointer, wheel, and touch intent cancel both an in-flight follow and any
+ *   scheduled post-layout measurement so user navigation wins immediately.
  */
 import {
   createContext,
