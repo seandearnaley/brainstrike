@@ -43,7 +43,7 @@ interface MockQueueState {
   latencyStats: { avgMs: number; p50Ms: number; p95Ms: number };
   queueCounts: { failed: number; queued: number; running: number; succeeded: number };
   recentErrorCount: number;
-  retryFailed: ReturnType<typeof vi.fn>;
+  retryFailed: ReturnType<typeof vi.fn<() => Promise<void>>>;
   telemetryTrend: Array<{
     throughput: number;
     latencyP95: number;
@@ -86,7 +86,7 @@ function createVectorStatusMockState(): VectorStatusMockState {
       latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
       queueCounts: { failed: 0, queued: 0, running: 0, succeeded: 0 },
       recentErrorCount: 0,
-      retryFailed: vi.fn().mockResolvedValue(undefined),
+      retryFailed: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
       telemetryTrend: [],
       throughput: 0,
       validateApiKey: vi.fn().mockResolvedValue({ valid: true }),
@@ -340,15 +340,20 @@ beforeEach(() => {
 });
 
 describe('vector status mock state', () => {
-  it('creates independent state and function mocks', () => {
-    const first = createVectorStatusMockState();
-    const second = createVectorStatusMockState();
+  let previousRetryFailed: MockQueueState['retryFailed'] | undefined;
 
-    first.queueState.queueCounts.failed = 3;
+  it('records mock identity and state in one test', () => {
+    mockState.queueState.queueCounts.failed = 3;
+    mockState.queueState.retryFailed();
+    previousRetryFailed = mockState.queueState.retryFailed;
 
-    expect(second.queueState.queueCounts.failed).toBe(0);
-    expect(second.workerControls.startWorker).not.toBe(first.workerControls.startWorker);
-    expect(second.workerControls.startWorker).not.toHaveBeenCalled();
+    expect(previousRetryFailed).toBeDefined();
+  });
+
+  it('does not leak state, mock identity, or calls into the next test', () => {
+    expect(mockState.queueState.queueCounts.failed).toBe(0);
+    expect(mockState.queueState.retryFailed).not.toBe(previousRetryFailed);
+    expect(mockState.queueState.retryFailed).not.toHaveBeenCalled();
   });
 });
 
