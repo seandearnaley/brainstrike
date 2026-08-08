@@ -94,8 +94,9 @@ import {
   buildRepeatedCallWarningText,
   checkRepeatedToolCall,
   isLoopGuardRefusal,
-  mergeHintWithWarning,
+  withRepeatedCallGuard,
 } from './tool-call-loop-guards';
+import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-call-telemetry';
 import {
   logToolFailure,
   parseToolExecuteInput,
@@ -243,25 +244,16 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          const loopGuard = checkRepeatedToolCall(
-            readStateScope(runtimeData),
-            NATIVE_TOOL_ID.grepSearch,
-            resolvedInput
-          );
-          if (loopGuard.status === 'refuse') {
-            return buildRepeatedCallRefusalResult(NATIVE_TOOL_ID.grepSearch, loopGuard.count);
-          }
-          const result = await runGrepSearch(resolvedInput, runtimeData);
-          if (loopGuard.status === 'warn') {
-            return {
-              ...result,
-              hint: mergeHintWithWarning(
-                result.hint,
-                buildRepeatedCallWarningText(NATIVE_TOOL_ID.grepSearch, loopGuard.count)
+          return await withRepeatedCallGuard({
+            input: resolvedInput,
+            run: async () =>
+              attachGrepSearchTelemetry(
+                resolvedInput,
+                await runGrepSearch(resolvedInput, runtimeData)
               ),
-            };
-          }
-          return result;
+            threadScope: readStateScope(runtimeData),
+            toolId: NATIVE_TOOL_ID.grepSearch,
+          });
         } catch (error) {
           logToolFailure('grepSearch failed', error, resolvedInput);
           throw error;
@@ -279,25 +271,16 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          const loopGuard = checkRepeatedToolCall(
-            readStateScope(runtimeData),
-            NATIVE_TOOL_ID.globWorkspace,
-            resolvedInput
-          );
-          if (loopGuard.status === 'refuse') {
-            return buildRepeatedCallRefusalResult(NATIVE_TOOL_ID.globWorkspace, loopGuard.count);
-          }
-          const result = await runGlobWorkspace(resolvedInput, runtimeData);
-          if (loopGuard.status === 'warn') {
-            return {
-              ...result,
-              hint: mergeHintWithWarning(
-                result.hint,
-                buildRepeatedCallWarningText(NATIVE_TOOL_ID.globWorkspace, loopGuard.count)
+          return await withRepeatedCallGuard({
+            input: resolvedInput,
+            run: async () =>
+              attachGlobWorkspaceTelemetry(
+                resolvedInput,
+                await runGlobWorkspace(resolvedInput, runtimeData)
               ),
-            };
-          }
-          return result;
+            threadScope: readStateScope(runtimeData),
+            toolId: NATIVE_TOOL_ID.globWorkspace,
+          });
         } catch (error) {
           logToolFailure('globWorkspace failed', error, resolvedInput);
           throw error;

@@ -141,6 +141,33 @@ export function mergeHintWithWarning(
   return existingHint ? `${warningText} ${existingHint}` : warningText;
 }
 
+/**
+ * Mechanism 1 for a `hint`-bearing result (grepSearch/globWorkspace): refuse
+ * without running `run` at all on the 4th+ consecutive identical call, else
+ * run it and fold a warning into its `hint` on the 3rd. `run`'s result is
+ * mutated in place (never spread into a new object) so callers that tag the
+ * SAME object elsewhere (e.g. WeakMap-keyed telemetry) keep that tag.
+ */
+export async function withRepeatedCallGuard<TResult extends { hint?: string }>(args: {
+  readonly input: unknown;
+  readonly run: () => Promise<TResult>;
+  readonly threadScope: string;
+  readonly toolId: string;
+}): Promise<LoopGuardRefusalResult | TResult> {
+  const loopGuard = checkRepeatedToolCall(args.threadScope, args.toolId, args.input);
+  if (loopGuard.status === 'refuse') {
+    return buildRepeatedCallRefusalResult(args.toolId, loopGuard.count);
+  }
+  const result = await args.run();
+  if (loopGuard.status === 'warn') {
+    result.hint = mergeHintWithWarning(
+      result.hint,
+      buildRepeatedCallWarningText(args.toolId, loopGuard.count)
+    );
+  }
+  return result;
+}
+
 export function readWindowKey(args: {
   readonly endLine: number | null | undefined;
   readonly path: string;

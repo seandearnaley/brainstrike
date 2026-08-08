@@ -289,7 +289,7 @@ function buildMultiRootInstruction(names: ModelFacingToolNames): string {
     names.updateWorkspaceContextSelection || names.updateWorkspaceTapestrySelections
       ? ' Selection write-back accepts root; otherwise selection targets the Focused root.'
       : '';
-  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (reported selection), and exact root selectors; ${names.listWorkspaceContext} refreshes the detailed inventory plus selection/index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results provide copyable read_args with root and path.${writeBackNote}`;
+  return `The initial workspace-root manifest reports the Main root (assistant run), Focused root (reported selection), and exact root selectors; ${names.listWorkspaceContext} refreshes the detailed inventory plus selection/index state. Paths are root-relative. With several roots, pass "root" to path-based calls${exampleNote}; bare paths are ambiguous and there is no implicit Main-root fallback. Search results prefix each file header with its root name when several folders are open — pass that root name as "root" when reading.${writeBackNote}`;
 }
 
 /**
@@ -343,6 +343,41 @@ function buildSearchInstruction(names: ModelFacingToolNames): string {
 }
 
 /**
+ * General parallel-call guidance. Emitted when at least one read, search,
+ * inspect, or command tool is registered, without advertising unavailable
+ * tool names. Covers every read/search/inspect verb in ModelFacingToolNames
+ * (not just the tools named in the neighboring builders' example clauses) so
+ * a valid tool map that only registers, say, webSearch or lspInspect still
+ * gets the instruction.
+ */
+function buildParallelCallInstruction(names: ModelFacingToolNames): string {
+  const hasRelevantTool = [
+    names.browserGetPageText,
+    names.browserReadPage,
+    names.executeCommand,
+    names.findWorkspaceSymbol,
+    names.globWorkspace,
+    names.grepSearch,
+    names.hybridSearch,
+    names.listEmbeddingSpaces,
+    names.listWorkspaceContext,
+    names.lspInspect,
+    names.queryEmbeddingSpace,
+    names.readWorkspaceContext,
+    names.readWorkspaceDirectory,
+    names.readWorkspaceFile,
+    names.skillRead,
+    names.skillSearch,
+    names.webExtract,
+    names.webSearch,
+  ].some(Boolean);
+  if (!hasRelevantTool) {
+    return '';
+  }
+  return 'Batch independent reads, searches, or commands into one turn.';
+}
+
+/**
  * Guidance for the shell execution tool. Emitted only when the tool is
  * available (the permission policy did not deny it), so an unavailable verb is
  * never advertised. The wording is honest: there is NO sandbox, and by default
@@ -353,7 +388,15 @@ function buildExecuteCommandInstruction(names: ModelFacingToolNames): string {
   if (!names.executeCommand) {
     return '';
   }
-  return `${names.executeCommand} runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.`;
+  const boundedRoutes = [
+    names.readWorkspaceFile,
+    names.grepSearch,
+    names.globWorkspace,
+    names.readWorkspaceDirectory,
+  ].filter((name): name is string => Boolean(name));
+  const routingClause =
+    boundedRoutes.length > 0 ? ` Prefer ${boundedRoutes.join(', ')} instead.` : '';
+  return `${names.executeCommand} runs arbitrary shell commands with NO sandbox. Prefer read-only commands; run destructive commands only when the user explicitly requested that exact action.${routingClause}`;
 }
 
 /**
@@ -539,6 +582,7 @@ export function buildDefaultInstructions(
     : '';
   const multiRootInstruction = buildMultiRootInstruction(names);
   const searchInstruction = buildSearchInstruction(names);
+  const parallelCallInstruction = buildParallelCallInstruction(names);
   const hybridSearchClause = names.hybridSearch
     ? `Use ${names.hybridSearch} when a lookup mixes conceptual intent with distinctive exact terms.`
     : '';
@@ -640,7 +684,7 @@ export function buildDefaultInstructions(
     curationInstruction,
     selectionLine,
     'Keep retrieval budgets small. If truncated: true, follow its hint to fetch only missing data and report consequential omissions.',
-    'Issue independent read-only lookups together in one step.',
+    parallelCallInstruction,
     'If an expected native tool is unavailable, name its ID; use an alternative only if it still answers the user.',
     'When asked, list callable tool IDs with brief descriptions.',
     'Only run state-changing tools after the user confirms.',

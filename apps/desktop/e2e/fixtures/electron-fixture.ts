@@ -10,6 +10,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
+import { ElectronProcessExitGuard } from '../utils/electron-process-exit-guard';
 import { loadElectronHelpers } from '../utils/load-electron-helpers';
 import { resetToAppHome } from '../utils/test-reset';
 
@@ -19,6 +20,7 @@ interface ElectronHarnessOptions {
 
 class ElectronHarness {
   private context: ElectronAppContext | null = null;
+  private readonly exitGuard = new ElectronProcessExitGuard();
   private hasProvidedWindow = false;
   private readonly maxRendererRecoveryAttempts = 1;
 
@@ -37,10 +39,7 @@ class ElectronHarness {
 
   async ensureContext(): Promise<ElectronAppContext> {
     if (!this.context) {
-      const { launchElectronApp } = await loadElectronHelpers();
-      this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
-        disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
-      });
+      this.context = await this.launchContext();
       return this.context;
     }
 
@@ -70,21 +69,16 @@ class ElectronHarness {
 
   async restart(): Promise<ElectronAppContext> {
     if (this.context) {
-      try {
-        const { closeElectronApp } = await loadElectronHelpers();
-        await closeElectronApp(this.context);
-        await new Promise((resolve) => {
-          setTimeout(resolve, 250);
-        });
-      } catch (error) {
-        console.warn('Failed to close Electron app during restart:', error);
-      }
+      const context = this.context;
+      this.context = null;
+      this.hasProvidedWindow = false;
+      await this.closeAndAssert(context);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 250);
+      });
     }
 
-    const { launchElectronApp } = await loadElectronHelpers();
-    this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
-      disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
-    });
+    this.context = await this.launchContext();
     this.hasProvidedWindow = false;
     return this.context;
   }
@@ -94,13 +88,61 @@ class ElectronHarness {
       return;
     }
 
+    const context = this.context;
     try {
-      const { closeElectronApp } = await loadElectronHelpers();
-      await closeElectronApp(this.context);
+      await this.closeAndAssert(context);
     } finally {
       this.context = null;
       this.hasProvidedWindow = false;
     }
+  }
+
+  private async closeAndAssert(context: ElectronAppContext): Promise<void> {
+    let closeError: unknown;
+    let closeFailed = false;
+    try {
+      await this.closeContext(context);
+    } catch (error) {
+      closeFailed = true;
+      closeError = error;
+    }
+
+    let healthError: unknown;
+    let healthCheckFailed = false;
+    try {
+      this.exitGuard.assertHealthy();
+    } catch (error) {
+      healthCheckFailed = true;
+      healthError = error;
+    }
+
+    if (closeFailed && healthCheckFailed) {
+      throw new AggregateError(
+        [healthError, closeError],
+        'Electron process health check and intentional close both failed'
+      );
+    }
+    if (healthCheckFailed) {
+      throw healthError;
+    }
+    if (closeFailed) {
+      throw closeError;
+    }
+  }
+
+  private async closeContext(context: ElectronAppContext): Promise<void> {
+    this.exitGuard.beginIntentionalClose(context.app.process());
+    const { closeElectronApp } = await loadElectronHelpers();
+    await closeElectronApp(context);
+  }
+
+  private async launchContext(): Promise<ElectronAppContext> {
+    const { launchElectronApp } = await loadElectronHelpers();
+    const context = await launchElectronApp(this.debugPort, this.userDataDir, {
+      disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
+    });
+    this.exitGuard.observe(context.app.process());
+    return context;
   }
 
   private async prepareFreshWindow(page: Page): Promise<Page> {
@@ -235,8 +277,11 @@ export const test = base.extend<ElectronTestFixtures>({
     try {
       await use(harness);
     } finally {
-      await harness.dispose();
-      await removeElectronUserDataDir(userDataDir);
+      try {
+        await harness.dispose();
+      } finally {
+        await removeElectronUserDataDir(userDataDir);
+      }
     }
   },
 

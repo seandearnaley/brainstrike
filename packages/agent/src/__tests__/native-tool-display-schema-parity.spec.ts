@@ -180,6 +180,19 @@ describe('native tool display schema parity', () => {
    * the runtime also required it for `mode=explain`, and the display schema's
    * `mode` description enumerated three of the four modes it accepts.
    */
+  it('pins the grepSearch contextLines default the display mirror advertises (BST-1193)', () => {
+    // The effective default lives in tool code (`input.contextLines ?? 0` in
+    // grep-search-tool.ts), not in Zod, so parity cannot be derived — pin it.
+    // A display mirror advertising a context default the tool no longer has
+    // would teach the settings inspector (and the model) stale behavior.
+    const display = NATIVE_TOOL_SCHEMAS['brainstrike.grepSearch'];
+    const contextLines = display.parameters.find((parameter) => parameter.name === 'contextLines');
+    expect(contextLines?.default).toBe(0);
+    // The mode description must not promise context that is now opt-in.
+    const outputMode = display.parameters.find((parameter) => parameter.name === 'outputMode');
+    expect(outputMode?.description ?? '').not.toContain('context');
+  });
+
   it('pins the querySelf prose that keeps going stale', () => {
     const display = NATIVE_TOOL_SCHEMAS['brainstrike.querySelf'];
     const zodShape = objectShape(

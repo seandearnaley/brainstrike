@@ -6,6 +6,9 @@ import {
 } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import type { ToolsInput } from '@mastra/core/agent';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
+import { TOOL_RESULT_TRUNCATED_CODE } from '../stream/tool-output-limits';
+import type { ToolCallTelemetrySample } from '../types';
+import { readToolCallTelemetryMetadata } from './tool-call-telemetry';
 
 const MAX_FAILURE_MESSAGE_CHARACTERS = 240;
 const INLINE_MEDIA_TYPES = new Set(['file-data', 'image-data', 'media']);
@@ -61,6 +64,54 @@ export interface RunTokenDiagnosticsLogOptions {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+/**
+ * Generic (non-search-tool) truncation signal for the telemetry sample.
+ * `{type:'json', value:{truncated:true}}` almost never occurs in practice —
+ * neither real truncation mechanism produces it directly (review fix):
+ *
+ * 1. Budget-fit truncation (`stream/tool-output-limits.ts`'s
+ *    `trimCollectionToBudget` / the opaque-preview fallback) stamps
+ *    `truncated`/`omittedItems`/`code: TOOL_RESULT_TRUNCATED_CODE` on the
+ *    DOMAIN record, which the generic projector then JSON-stringifies into a
+ *    `{type:'text', value: '<json string>'}` wire shape — the marker survives
+ *    inside the string, not as a structured field.
+ * 2. Durable-artifact settlement pages (`tool-output-artifact-reader.ts`'s
+ *    `buildModelPage`) ARE `{type:'json', value:{...}}`, but signal
+ *    continuation via a `next: {input,tool}` object, never a `truncated` key.
+ *
+ * Bespoke domain projectors (grepSearch, globWorkspace) never reach here for
+ * their OWN truncation flag — they attach it via the WeakMap telemetry
+ * channel on the raw result before projection, read by the caller of
+ * `recordModelOutput` via `readToolCallTelemetryMetadata`.
+ */
+function detectGenericTruncation(output: unknown): boolean {
+  if (!isRecord(output)) {
+    return false;
+  }
+  const value = output['value'];
+  if (output['type'] === 'json' && isRecord(value)) {
+    return value['truncated'] === true || isRecord(value['next']);
+  }
+  if (output['type'] === 'text' && typeof value === 'string') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      // Plain-text projector output (e.g. a bespoke compact format) — no
+      // structured signal available here; not every text-typed tool result
+      // is JSON, and that is not itself a truncation indicator.
+      return false;
+    }
+    return (
+      isRecord(parsed) &&
+      (parsed['truncated'] === true ||
+        typeof parsed['omittedItems'] === 'number' ||
+        parsed['code'] === TOOL_RESULT_TRUNCATED_CODE)
+    );
+  }
+  return false;
 }
 
 function normalizeFailureMessage(error: unknown): string {
@@ -288,6 +339,7 @@ export class RunTokenDiagnostics {
   readonly #toolDefinitionCount: number;
   readonly #toolDefinitionFailure?: FailedMeasurement;
   readonly #toolDefinitionMeasurement?: TokenMeasurementSample;
+  readonly #toolCallTelemetry: ToolCallTelemetrySample[] = [];
 
   constructor(params: {
     capability: TokenMeasurementCapability;
@@ -320,7 +372,7 @@ export class RunTokenDiagnostics {
     return this.#toolDefinitionBreakdown;
   }
 
-  recordModelOutput(output: unknown): void {
+  recordModelOutput(toolId: string, output: unknown): void {
     this.#projection.count += 1;
     let serialized: string;
     try {
@@ -328,6 +380,32 @@ export class RunTokenDiagnostics {
     } catch {
       this.#projection.failure ??= failedMeasurement('projection-serialization-failed');
       return;
+    }
+
+    // Telemetry-only measurement, deliberately independent of the token
+    // measurement above: `serializeModelOutputForTokenMeasurement` masks
+    // inline media (`compactMedia`) specifically so it cannot throw on a huge
+    // base64 payload, but the telemetry figure wants the ACTUAL model-facing
+    // char count including media. A failure here (e.g. `RangeError: Invalid
+    // string length`) must not degrade the pre-existing, already-shipped
+    // token measurement — best-effort telemetry stays best-effort (review
+    // fix); the sample is simply omitted for this call.
+    let modelFacingChars: number | undefined;
+    try {
+      modelFacingChars = JSON.stringify(output)?.length;
+    } catch {
+      modelFacingChars = undefined;
+    }
+    if (modelFacingChars !== undefined) {
+      const metadata = readToolCallTelemetryMetadata(output);
+      this.#toolCallTelemetry.push({
+        isPaginationFollowup: metadata?.isPaginationFollowup ?? false,
+        modelFacingChars,
+        occurredAt: Date.now(),
+        toolId,
+        truncated: detectGenericTruncation(output) || (metadata?.truncated ?? false),
+        ...(metadata ? { zeroMatch: metadata.zeroMatch } : {}),
+      });
     }
 
     const sample = this.#measurement.measure(serialized);
@@ -340,6 +418,11 @@ export class RunTokenDiagnostics {
       return;
     }
     this.#projection.tokenCount += sample.tokenCount;
+  }
+
+  /** Counts, sizes, ids, and booleans only; never projected content. */
+  toolCallTelemetry(): readonly ToolCallTelemetrySample[] {
+    return this.#toolCallTelemetry.map((entry) => ({ ...entry }));
   }
 
   toLogFields(options: RunTokenDiagnosticsLogOptions = {}): Record<string, number | string> {

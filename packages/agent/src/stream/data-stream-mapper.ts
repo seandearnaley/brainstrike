@@ -373,6 +373,10 @@ export class DataStreamMapper {
       case 'child-run-usage':
         yield* this.handleChildRunUsage(chunk);
         return;
+      case 'tool-call-telemetry':
+        // Internal desktop persistence payload. A run without a durable run id
+        // has no writer wrapper, so never expose it to the renderer.
+        return;
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
         return;

@@ -985,23 +985,17 @@ describe('assistant-tools read tools', () => {
 
     expect(grepToModelOutput(grepRaw)).toEqual({
       type: 'text',
-      value: [
-        'grep files | page=1-1/1 | matches=1 | live=ripgrep | candidates_truncated=false | scan_limited=false',
-        'read_args={"path":"/src/x.ts","root":"root-a","startLine":11} | root_name="alpha" | matches=1 | source=both',
-      ].join('\n'),
+      value: ['grep files 1-1/1 matches=1', '/src/x.ts:11 (1 match)'].join('\n'),
     });
     expect(globToModelOutput(globRaw)).toEqual({
       type: 'text',
-      value: [
-        'glob | page=1-1/1 | scan_limited=false',
-        'read_args={"path":"/src/x.ts","root":"root-a"} | root_name="alpha"',
-      ].join('\n'),
+      value: ['glob 1-1/1', '/src/x.ts'].join('\n'),
     });
     expect(grepRaw).toEqual(grepBefore);
     expect(globRaw).toEqual(globBefore);
   });
 
-  it('hands grep read_args directly into an exact read in a multi-root workspace', async () => {
+  it('hands the compact root-prefixed grep header into an exact read in a multi-root workspace', async () => {
     const rootA = await createWorkspaceFixture();
     const rootB = await createWorkspaceFixture();
     const tools = buildDesktopAssistantTools({
@@ -1032,6 +1026,7 @@ describe('assistant-tools read tools', () => {
         ],
         liveEngine: 'ripgrep',
         offset: 0,
+        openRoots: 2,
         outputMode: 'files',
         scanLimited: false,
         totalFiles: 1,
@@ -1039,11 +1034,17 @@ describe('assistant-tools read tools', () => {
         truncated: false,
       });
       expect(projected.type).toBe('text');
-      const match = projected.value.match(/read_args=(\{.*\}) \| root_name=/u);
-      expect(match?.[1]).toBeDefined();
-      const readInput = NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.readWorkspaceFile'].parse(
-        JSON.parse(match?.[1] ?? '')
-      );
+      // The compact format's read recipe (BST-1185): the file row is
+      // `rootName:path:firstLine (N matches)` — the root NAME is a valid
+      // `root` selector for the read tools, and the row's line number is the
+      // startLine. Parse exactly what a model would parse.
+      const match = projected.value.match(/^([^:\n]+):(\/[^\n]*):(\d+) \(/mu);
+      expect(match?.[1]).toBe('beta');
+      const readInput = NATIVE_TOOL_INPUT_SCHEMAS['brainstrike.readWorkspaceFile'].parse({
+        path: match?.[2],
+        root: match?.[1],
+        startLine: Number(match?.[3]),
+      });
 
       await expect(executeReadWorkspaceFile(readInput)).resolves.toMatchObject({
         content: '2: line 2\n3: line 3\n4: line 4',
@@ -1301,8 +1302,10 @@ describe('assistant-tools read tools', () => {
     } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
 
+    // contextLines is explicit: the default is 0 (BST-1193), and passing it
+    // here also proves optional params survive the context-envelope unwrap.
     const result = await executeTool({
-      context: { outputMode: 'content', pattern: 'needle' },
+      context: { contextLines: 1, outputMode: 'content', pattern: 'needle' },
     });
 
     // The internal chunk-locator fields (chunkId/chunkStartLine/chunkEndLine) are

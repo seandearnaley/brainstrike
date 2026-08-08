@@ -350,6 +350,24 @@ export interface StreamChunkChildRunUsage {
   type: 'child-run-usage';
   value: AssistantChildRunUsage;
 }
+/**
+ * Internal run-end payload consumed by the desktop durable telemetry sink.
+ * `occurredAt` is captured at the actual tool-call/projection moment (epoch
+ * ms), not at run-end flush time — a long run's calls must not all collapse
+ * onto the same timestamp (review fix).
+ */
+export interface ToolCallTelemetrySample {
+  readonly isPaginationFollowup: boolean;
+  readonly modelFacingChars: number;
+  readonly occurredAt: number;
+  readonly toolId: string;
+  readonly truncated: boolean;
+  readonly zeroMatch?: boolean;
+}
+export interface StreamChunkToolCallTelemetry {
+  readonly type: 'tool-call-telemetry';
+  readonly value: readonly ToolCallTelemetrySample[];
+}
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
@@ -406,6 +424,7 @@ export type StreamChunk =
   | StreamChunkRunEvent
   | StreamChunkShellOutput
   | StreamChunkText
+  | StreamChunkToolCallTelemetry
   | StreamChunkTool
   | StreamChunkToolApprovalRequired
   | StreamChunkToolSuspendRequired

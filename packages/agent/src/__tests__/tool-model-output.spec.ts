@@ -24,6 +24,10 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
+import {
+  attachToolCallTelemetryMetadata,
+  readToolCallTelemetryMetadata,
+} from '../mastra/tool-call-telemetry';
 import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
 import { ToolProjectionInputRejectedError } from '../mastra/tool-projection-input-rejected';
 import { SKILL_ACTIVATION_RESULT_TOKEN_BUDGET } from '../stream/tool-output-limits';
@@ -89,7 +93,30 @@ describe('applyToolModelOutputProjections', () => {
     expect(modelOutput?.value).toContain('output was truncated');
     expect(modelOutput?.value).not.toContain(rawOnlyTail);
     expect(modelOutput?.value?.length).toBeLessThanOrEqual(12_000);
-    expect(observeProjection).toHaveBeenCalledExactlyOnceWith(modelOutput);
+    expect(observeProjection).toHaveBeenCalledExactlyOnceWith('filesystem.read_file', modelOutput);
+  });
+
+  it('delivers private typed metadata on the final projected value without changing its shape', () => {
+    const rawOutput = attachToolCallTelemetryMetadata(
+      { matches: [], totalMatches: 0 },
+      { isPaginationFollowup: true, truncated: true, zeroMatch: true }
+    );
+    const observer = vi.fn();
+    const projected = applyToolModelOutputProjections(
+      { search: asTool({ execute: () => rawOutput, id: 'search' }) },
+      new Map([['search', 'brainstrike.grepSearch']]),
+      observer
+    );
+
+    const modelOutput = (projected['search'] as TestTool).toModelOutput?.(rawOutput);
+
+    expect(observer).toHaveBeenCalledExactlyOnceWith('brainstrike.grepSearch', modelOutput);
+    expect(readToolCallTelemetryMetadata(modelOutput)).toEqual({
+      isPaginationFollowup: true,
+      truncated: true,
+      zeroMatch: true,
+    });
+    expect(JSON.stringify(modelOutput)).not.toContain('isPaginationFollowup');
   });
 
   it('preserves an existing domain-specific projection unchanged', () => {
@@ -1012,7 +1039,10 @@ describe('fail-soft domain projection', () => {
     return { type: 'text', value: 'grep files | page=1-1/1' };
   };
 
-  function projectThroughDispatcher(output: unknown, observer?: (value: unknown) => void): unknown {
+  function projectThroughDispatcher(
+    output: unknown,
+    observer?: (toolName: string, value: unknown) => void
+  ): unknown {
     const tool = asTool({
       execute: () => output,
       id: 'grep_like',
@@ -1043,7 +1073,7 @@ describe('fail-soft domain projection', () => {
 
     expect(modelOutput.type).toBe('text');
     expect(modelOutput.value).toContain('call-1');
-    expect(observer).toHaveBeenCalledExactlyOnceWith(modelOutput);
+    expect(observer).toHaveBeenCalledExactlyOnceWith('brainstrike.grepSearch', modelOutput);
   });
 
   it('logs the rejected value shape — keys only, never content', () => {

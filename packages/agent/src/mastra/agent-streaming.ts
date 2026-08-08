@@ -998,6 +998,7 @@ async function* streamChunksFromMastra({
   titleMessages,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   let titleGenerationTask: Promise<void> | undefined;
+  const toolCallTelemetryState = { emitted: false };
   const toolNames = new Map<string, string>();
   const lifecycleState: ToolLifecycleState = {
     delegationLifecycle: createDelegationLifecycleTracker(),
@@ -1074,6 +1075,7 @@ async function* streamChunksFromMastra({
       // completion callback fired before Mastra emitted this part, so the
       // child's usage must not land after a finishing part closes the stream.
       yield* drainDelegationUsageChunks(delegationUsage);
+      yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
       for (const chunk of chunks) {
         yield chunk;
       }
@@ -1089,16 +1091,22 @@ async function* streamChunksFromMastra({
     const endChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
       : makeMissingFinishStreamChunks(lifecycleState);
+    yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
     for (const chunk of endChunks) {
       yield chunk;
     }
   } catch (error) {
     if (!isStreamWatchdogError(error)) {
+      // Best-effort telemetry must not be lost on an ordinary stream/projector
+      // failure after earlier tool calls already completed — drain whatever
+      // was accumulated before propagating the failure (review fix).
+      yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
       throw error;
     }
     const terminalChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
       : makeStreamWatchdogTermination(error, lifecycleState, runtimeData);
+    yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
     for (const chunk of terminalChunks) {
       yield chunk;
     }
@@ -1251,6 +1259,21 @@ function logTokenDiagnostics(
     return;
   }
   logger.info(context, 'mastra run token measurement recorded');
+}
+
+function* drainToolCallTelemetryChunks(
+  terminal: boolean,
+  runtime: MastraAgentRuntime,
+  state: { emitted: boolean }
+): Generator<StreamChunk> {
+  if (!(terminal && !state.emitted)) {
+    return;
+  }
+  state.emitted = true;
+  const value = runtime.tokenDiagnostics.toolCallTelemetry();
+  if (value.length > 0) {
+    yield { type: 'tool-call-telemetry', value };
+  }
 }
 
 async function createStreamIteratorFromRuntime({

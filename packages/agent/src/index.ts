@@ -209,6 +209,11 @@ export {
   MAX_DELEGATIONS_PER_RUN,
   shouldEnablePersonas,
 } from './mastra/subagent-delegation';
+export type { ToolCallTelemetryMetadata } from './mastra/tool-call-telemetry';
+export {
+  attachToolCallTelemetryMetadata,
+  readToolCallTelemetryMetadata,
+} from './mastra/tool-call-telemetry';
 export { applyToolModelOutputProjections } from './mastra/tool-model-output';
 export {
   projectToolOutputArtifactPage,
@@ -667,4 +672,5 @@ export type {
   StreamChunkTool,
   StreamChunkToolApprovalRequired,
   StreamIterator,
+  ToolCallTelemetrySample,
 } from './types';

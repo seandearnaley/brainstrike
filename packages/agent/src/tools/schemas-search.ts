@@ -94,7 +94,7 @@ export const GrepSearchInputSchema = z
       .min(0)
       .max(5)
       .optional()
-      .describe("Context lines in 'content' mode (default 1)"),
+      .describe("Context lines around each 'content' match (default 0; opt in when needed)"),
     filePaths: z
       .array(z.string().min(1))
       .max(1000)
@@ -116,7 +116,7 @@ export const GrepSearchInputSchema = z
       .enum(['files', 'content'])
       .optional()
       .describe(
-        "'files' (default): paths + match counts. 'content': line matches + context; narrow with filePaths."
+        "'files' (default): paths + match counts. 'content': matching lines; narrow with filePaths."
       ),
     pattern: z.string().min(2).max(500).describe('Exact text (default) or JavaScript regex'),
     root: z.string().optional().describe(WORKSPACE_SEARCH_ROOT_DESCRIPTION),

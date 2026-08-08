@@ -21,6 +21,10 @@ import {
   readMcpMultimodalOutput,
 } from './mcp-multimodal-output';
 import {
+  readToolCallTelemetryMetadata,
+  transferToolCallTelemetryMetadata,
+} from './tool-call-telemetry';
+import {
   readSettledToolOutputModelProjection,
   readSettledToolOutputProjectionSource,
 } from './tool-output-artifact-settlement';
@@ -33,7 +37,7 @@ type ExecutableToolWithModelOutput = ToolsInput[string] & {
   readonly toModelOutput?: (output: unknown) => unknown;
 };
 
-export type ModelOutputProjectionObserver = (output: unknown) => void;
+export type ModelOutputProjectionObserver = (toolName: string, output: unknown) => void;
 
 const POST_TOOL_CONTEXT_LABEL = 'Post-tool context: ';
 const POST_TOOL_CONTEXT_TRUNCATION_SUFFIX = '… [post-tool context truncated]';
@@ -611,8 +615,10 @@ function projectExistingModelOutput(
 }
 
 function observeModelOutput(
+  toolName: string,
   output: unknown,
-  observer: ModelOutputProjectionObserver | undefined
+  observer: ModelOutputProjectionObserver | undefined,
+  telemetrySource: unknown
 ): unknown {
   if (!observer) {
     return output;
@@ -623,12 +629,21 @@ function observeModelOutput(
     typeof (output as { then?: unknown }).then === 'function'
   ) {
     return Promise.resolve(output).then((resolved) => {
-      observer(resolved);
+      transferToolCallTelemetryMetadata(telemetrySource, resolved);
+      observer(toolName, resolved);
       return resolved;
     });
   }
-  observer(output);
+  transferToolCallTelemetryMetadata(telemetrySource, output);
+  observer(toolName, output);
   return output;
+}
+
+function readTelemetrySource(output: unknown): unknown {
+  const projectionSource = readSettledToolOutputProjectionSource(output);
+  const envelope = readHookResultEnvelope(projectionSource);
+  const domainOutput = envelope ? envelope.result : projectionSource;
+  return readToolCallTelemetryMetadata(domainOutput) ? domainOutput : output;
 }
 
 /**
@@ -667,8 +682,10 @@ export function applyToolModelOutputProjections(
         enumerable: true,
         value: (output: unknown) =>
           observeModelOutput(
+            originalToolName,
             projectExistingModelOutput(originalToolName, originalProjection, cloned, output),
-            observer
+            observer,
+            readTelemetrySource(output)
           ),
         writable: true,
       });
@@ -680,7 +697,12 @@ export function applyToolModelOutputProjections(
       configurable: true,
       enumerable: true,
       value: (output: unknown) =>
-        observeModelOutput(projectDefaultModelOutput(originalToolName, output), observer),
+        observeModelOutput(
+          originalToolName,
+          projectDefaultModelOutput(originalToolName, output),
+          observer,
+          readTelemetrySource(output)
+        ),
       writable: true,
     });
     projected[toolId] = cloned;

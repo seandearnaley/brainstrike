@@ -288,6 +288,18 @@ and never reinterpret arbitrary lookalike domain objects. `grepSearch` pins this
 with the exact `{ type: 'text', value: 'grep …' }` replay that previously
 terminated a hosted Claude verification run.
 
+`ModelOutputProjectionObserver` receives `(toolName, output)` at this final
+projection seam. `RunTokenDiagnostics` uses it to retain one privacy-safe
+per-call sample (tool id, actual serialized model-facing character count, and
+booleans only), then emits one internal `tool-call-telemetry` chunk before the
+terminal finish. Desktop consumes that chunk through the run-persistence
+capability and writes migration 083's durable ledger; a run without that host
+capability discards the internal chunk before renderer serialization. Generic
+truncation is recognized only from final `{type:'json', value:{truncated:true}}`
+projections. `grepSearch` and `globWorkspace` attach zero-match, request-offset,
+and typed truncation metadata to their raw result in a private WeakMap before
+projection, so no projected-text parsing or user search data enters telemetry.
+
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
 `toModelOutput`. Non-media results above 12,000 UTF-8 bytes are fully retained

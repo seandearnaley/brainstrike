@@ -104,9 +104,18 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
     // lack rg) and both yield identical matches. The js-walk fallback is pinned
     // in its own dedicated test below; here we only assert the live pass ran.
     expect(result.liveEngine).not.toBe('skipped');
-    expect(projectGrepSearchModelOutput(result).value).toContain(
-      'read_args={"path":"src/fresh.ts"'
-    );
+    // End-to-end format regression (BST-1185): real tool result → compact
+    // path-grouped projection, no per-row envelope, silent happy-path header.
+    // The live engine is an environment detail (CI runners lack rg): ripgrep
+    // yields a fully silent header; the js-walk fallback surfaces exactly its
+    // own degradation flag and nothing else.
+    const projected = projectGrepSearchModelOutput(result).value;
+    expect(projected.split('\n')[0]).toMatch(/^grep content 1-1\/1( \| live=js-walk)?$/);
+    expect(projected).toContain('src/fresh.ts');
+    expect(projected).toContain('  1: const FRESHLY_EDITED_TOKEN = 42;');
+    expect(projected).not.toContain('read_args=');
+    expect(projected).not.toContain('source=');
+    expect(projected).not.toContain('candidates_truncated');
   });
 
   it('files mode: a fresh-only file is surveyed and labelled live', async () => {
@@ -120,7 +129,8 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
     expect(result.files).toHaveLength(1);
     expect(result.files[0]?.path).toBe('a/only-on-disk.ts');
     expect(result.files[0]?.source).toBe('live');
-    expect(projectGrepSearchModelOutput(result).value).toContain('grep files | page=1-1/1');
+    expect(projectGrepSearchModelOutput(result).value).toContain('grep files 1-1/1 matches=1');
+    expect(projectGrepSearchModelOutput(result).value).toContain('a/only-on-disk.ts:1 (1 match)');
   });
 
   it('projects the producer zero-match variant without inventing a fallback result', async () => {
@@ -136,9 +146,7 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
       totalMatches: 0,
       truncated: false,
     });
-    expect(projectGrepSearchModelOutput(result).value).toContain(
-      'grep files | page=empty@offset=0/0'
-    );
+    expect(projectGrepSearchModelOutput(result).value).toContain('grep files empty@offset=0/0');
   });
 });
 
