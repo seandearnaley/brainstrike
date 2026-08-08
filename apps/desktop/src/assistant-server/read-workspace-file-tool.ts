@@ -26,6 +26,7 @@ import {
   type ReadWorkspaceFileCursorScope,
   type ReadWorkspaceFileCursorState,
 } from './read-workspace-file-cursor-registry';
+import { buildReadWorkspaceFileProjectionText } from './read-workspace-file-model-projection';
 import {
   buildRepeatedCallRefusalResult,
   checkUnchangedReadWindow,
@@ -35,7 +36,7 @@ import {
 } from './tool-call-loop-guards';
 import { readStateScope } from './workspace-file-staleness';
 import { withStableWorkspaceFileLock } from './workspace-path-resolution';
-import { resolveWorkspaceRoot } from './workspace-roots';
+import { describeOpenRootTopology, resolveWorkspaceRoot } from './workspace-roots';
 import { MAX_READ_WORKSPACE_FILE_BYTES } from './workspace-text-file-reader';
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
@@ -556,17 +557,19 @@ function requireReadWorkspaceFileCursorScope(
 }
 
 export interface ReadWorkspaceFileResult {
+  readonly ambiguousRootNames?: string[];
   readonly approxOutputTokens: number;
   readonly content: string;
   readonly dedup?: boolean;
   readonly endLine: number;
   readonly nextCursor: string | null;
   readonly omittedChars: number;
+  readonly openRoots?: number;
   readonly path: string;
+  readonly rootId: string;
   readonly rootName: string;
   readonly size: number;
   readonly startLine: number;
-  readonly tokenCount: null;
   readonly totalLines: number;
   readonly truncated: boolean;
 }
@@ -610,7 +613,7 @@ function fitReadWorkspaceFileResult(args: {
     );
   }
   if (
-    JSON.stringify({ type: 'json', value: emptyResult }).length >
+    JSON.stringify(buildReadWorkspaceFileProjectionText(emptyResult)).length >
     MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
   ) {
     throw new RangeError(
@@ -685,6 +688,7 @@ export async function runReadWorkspaceFile(
   if (!requestedPath) {
     throw new Error('readWorkspaceFile requires path when starting a new read.');
   }
+  const topology = describeOpenRootTopology(runtimeData);
   // Resolve both before and after acquiring the per-file lock. A symlink can
   // be retargeted while this read waits; only read when both resolutions name
   // the same canonical file so containment and the staleness tracker share
@@ -712,6 +716,7 @@ export async function runReadWorkspaceFile(
     const startLine = startPosition.line;
     const projectedCursor = 'x'.repeat(READ_WORKSPACE_FILE_CURSOR_HANDLE_LENGTH);
     const buildResult = (page: ReadWorkspaceFilePage): ReadWorkspaceFileResult => ({
+      ...topology,
       approxOutputTokens: countTokensHeuristic(page.content),
       content: page.content,
       endLine: page.lastLine,
@@ -722,20 +727,17 @@ export async function runReadWorkspaceFile(
         file.requestedEndOffset
       ),
       path: file.path,
+      rootId: root.rootId,
       rootName: root.displayName,
       size: file.size,
       startLine,
-      tokenCount: null,
       totalLines: file.totalLines,
       truncated: page.nextPosition !== null,
     });
-    const buildModelOutput = (result: ReturnType<typeof buildResult>) => ({
-      type: 'json' as const,
-      value: result,
-    });
     const fitsResultBudgets = (result: ReturnType<typeof buildResult>): boolean =>
       JSON.stringify(result).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET &&
-      JSON.stringify(buildModelOutput(result)).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
+      JSON.stringify(buildReadWorkspaceFileProjectionText(result)).length <=
+        MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
     const finishSuccessfulRead = (
       page: ReadWorkspaceFilePage,
       result: ReturnType<typeof buildResult>
@@ -809,6 +811,7 @@ export async function runReadWorkspaceFile(
           );
         }
         return {
+          ...topology,
           approxOutputTokens: countTokensHeuristic(UNCHANGED_READ_STUB_MESSAGE),
           content: UNCHANGED_READ_STUB_MESSAGE,
           dedup: true,
@@ -816,10 +819,10 @@ export async function runReadWorkspaceFile(
           nextCursor: null,
           omittedChars: 0,
           path: file.path,
+          rootId: root.rootId,
           rootName: root.displayName,
           size: file.size,
           startLine: selected.result.startLine,
-          tokenCount: null,
           totalLines: file.totalLines,
           truncated: false,
         };
