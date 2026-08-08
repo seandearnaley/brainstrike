@@ -2,7 +2,17 @@ import { buildPruneJobsStatement, type JobState } from '../queue/job-queue.js';
 
 export const DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
 export const DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS = 60 * 60 * 1000;
-export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = ['job_queue'] as const;
+// BST-1198 review follow-up: brainstrike_tool_call_telemetry must be VACUUMed
+// too, not just pruned. PGlite has no autovacuum launcher (see the ANALYZE
+// comment below), so without this the retention DELETE only trades live rows
+// for permanently-dead pages — heap and index disk usage keep growing at the
+// same rate, just with dead tuples instead of rows. Listing it here also gets
+// it ANALYZEd (via `VACUUM (ANALYZE)`), which the token-spend-by-tool lens
+// planner previously never got.
+export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = [
+  'job_queue',
+  'brainstrike_tool_call_telemetry',
+] as const;
 // PGlite runs a single standalone backend with no autovacuum launcher, so
 // column statistics are never collected unless maintenance runs ANALYZE
 // explicitly (plain VACUUM does not build histograms). These tables grow to
@@ -204,17 +214,53 @@ async function pruneToolCallTelemetry(
   return normalizeCount(result.rows[0]?.count);
 }
 
+interface ExistsRow {
+  readonly present: boolean;
+}
+
+// Cheap-guard probe (BST-1198 review follow-up): the migration-085
+// occurred_at-leading index makes this an index scan that stops at the first
+// match, so it stays fast even on a large table. The common case on the
+// active-queue path is that nothing is past the cutoff yet, and without this
+// probe every ~10-minute tick would still pay for planning and running the
+// bounded DELETE below for zero deletions.
+async function hasExpiredToolCallTelemetry(
+  db: ScheduledDatabaseMaintenanceDb,
+  olderThanIso: string
+): Promise<boolean> {
+  const result = await db.query<ExistsRow>(
+    `SELECT EXISTS (
+       SELECT 1 FROM ${TOOL_CALL_TELEMETRY_TABLE}
+        WHERE occurred_at < $1
+     ) AS present`,
+    [olderThanIso]
+  );
+  const present = result.rows[0]?.present;
+  if (typeof present !== 'boolean') {
+    throw new Error(`Invalid database maintenance EXISTS probe result: ${String(present)}`);
+  }
+  return present;
+}
+
 async function pruneToolCallTelemetryBounded(
   db: ScheduledDatabaseMaintenanceDb,
   olderThanIso: string,
   limit: number
 ): Promise<number> {
+  if (!(await hasExpiredToolCallTelemetry(db, olderThanIso))) {
+    return 0;
+  }
+  // ORDER BY occurred_at ASC mirrors DiagnosticEventsRepository.purge()'s
+  // oldest-first bounded shape (diagnostic-events-repository.ts): once the
+  // eligible backlog exceeds `limit`, the oldest rows are evicted first
+  // instead of an arbitrary subset.
   const result = await db.query<CountRow>(
     `WITH del AS (
        DELETE FROM ${TOOL_CALL_TELEMETRY_TABLE}
         WHERE id IN (
           SELECT id FROM ${TOOL_CALL_TELEMETRY_TABLE}
            WHERE occurred_at < $1
+           ORDER BY occurred_at ASC
            LIMIT $2
         )
        RETURNING 1
@@ -298,10 +344,15 @@ export async function runScheduledDatabaseMaintenance(
       activeOlderThanIso,
       activePruneLimit
     );
-    // Telemetry pruning is a bounded, index-backed age DELETE unrelated to job
-    // queue VACUUM cost, so it still runs (bounded) while the queue is busy —
-    // otherwise a long-running backfill would let telemetry rows accumulate
-    // unbounded for the same reason job rows once did.
+    // Telemetry pruning is a bounded age DELETE unrelated to job queue VACUUM
+    // cost, so it still runs (bounded) while the queue is busy — otherwise a
+    // long-running backfill would let telemetry rows accumulate unbounded for
+    // the same reason job rows once did. The migration-085 occurred_at-leading
+    // index makes the guard probe and the DELETE itself index scans rather
+    // than sequential scans (the migration-083 composite index alone cannot
+    // serve this tool_id-less predicate); pruneToolCallTelemetryBounded also
+    // skips the DELETE entirely when nothing is past the cutoff, which is the
+    // common case on a ~10-minute tick.
     const telemetryActiveOlderThanIso = new Date(
       startedAtMs - toolCallTelemetryRetentionMs
     ).toISOString();
@@ -327,9 +378,20 @@ export async function runScheduledDatabaseMaintenance(
 
   const olderThanIso = new Date(startedAtMs - retentionMs).toISOString();
   const telemetryOlderThanIso = new Date(startedAtMs - toolCallTelemetryRetentionMs).toISOString();
-  // VACUUM/ANALYZE cannot be wrapped in a normal transaction. If VACUUM or
-  // ANALYZE fails after pruning, the next idle maintenance pass retries them;
-  // deleted terminal rows stay deleted.
+  // These four awaits are deliberately sequential, not Promise.all'd:
+  // 1. PGlite runs a single standalone WASM Postgres backend with no
+  //    connection pool (see the PGLITE EXTENSION INVARIANT / durability-gate
+  //    notes in docs/agents/database.md) — statements issued concurrently on
+  //    one connection are still serialized by the engine, so Promise.all
+  //    buys zero real parallelism here, only a misleading appearance of it.
+  // 2. There is a genuine data dependency: VACUUM (ANALYZE) on job_queue and
+  //    brainstrike_tool_call_telemetry must observe the dead tuples that
+  //    pruneTerminalJobs/pruneToolCallTelemetry just created in THOSE SAME
+  //    tables to reclaim them. Racing the prune and its own table's VACUUM
+  //    via Promise.all would be a correctness regression, not just a missed
+  //    optimization — VACUUM/ANALYZE also cannot be wrapped in a normal
+  //    transaction. If VACUUM or ANALYZE fails after pruning, the next idle
+  //    maintenance pass retries them; deleted terminal rows stay deleted.
   const prunedTerminalJobs = await pruneTerminalJobs(db, olderThanIso);
   const prunedToolCallTelemetryRows = await pruneToolCallTelemetry(db, telemetryOlderThanIso);
   const vacuumedTables = await vacuumTables(db, vacuumTableNames);

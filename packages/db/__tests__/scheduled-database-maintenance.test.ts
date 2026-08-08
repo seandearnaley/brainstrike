@@ -172,7 +172,7 @@ describe('scheduled database maintenance', () => {
       analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
       prunedTerminalJobs: 3,
       status: 'completed',
-      vacuumedTables: ['job_queue'],
+      vacuumedTables: ['job_queue', 'brainstrike_tool_call_telemetry'],
     });
     expect(await countJobs(db)).toBe(1);
   });
@@ -204,6 +204,7 @@ describe('scheduled database maintenance', () => {
 
     expect(statements).toEqual([
       'VACUUM (ANALYZE) job_queue',
+      'VACUUM (ANALYZE) brainstrike_tool_call_telemetry',
       'ANALYZE file_chunks',
       'ANALYZE file_records',
       'ANALYZE embedding_cache',
@@ -211,7 +212,7 @@ describe('scheduled database maintenance', () => {
     expect(result).toMatchObject({
       analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
       status: 'completed',
-      vacuumedTables: ['job_queue'],
+      vacuumedTables: ['job_queue', 'brainstrike_tool_call_telemetry'],
     });
   });
 
@@ -272,6 +273,7 @@ describe('scheduled database maintenance', () => {
       )
     ).rejects.toThrow('analyze exploded');
     expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) job_queue');
+    expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) brainstrike_tool_call_telemetry');
   });
 
   it('routes VACUUM/ANALYZE through the maintenance exec channel when available', async () => {
@@ -296,11 +298,14 @@ describe('scheduled database maintenance', () => {
     // ordinary exec/query use the short request timeout and can abandon a large
     // VACUUM/ANALYZE mid-flight, so every maintenance statement must prefer it.
     expect(maintenanceExec).toHaveBeenCalledWith('VACUUM (ANALYZE) job_queue');
+    expect(maintenanceExec).toHaveBeenCalledWith(
+      'VACUUM (ANALYZE) brainstrike_tool_call_telemetry'
+    );
     expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_chunks');
     expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_records');
     expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE embedding_cache');
     expect(exec).not.toHaveBeenCalled();
-    expect(result.vacuumedTables).toEqual(['job_queue']);
+    expect(result.vacuumedTables).toEqual(['job_queue', 'brainstrike_tool_call_telemetry']);
     expect(result.analyzedTables).toEqual(['file_chunks', 'file_records', 'embedding_cache']);
   });
 
@@ -446,6 +451,52 @@ describe('scheduled database maintenance', () => {
       const result = await service.query(parsed.lens.sql, { params: values.values });
 
       expect(result.rows).toEqual([['grepSearch', 2, 400, 200, 0.5, 0.5, 2]]);
+    });
+
+    it('skips the bounded DELETE entirely while active when nothing is past the cutoff (cheap-guard EXISTS probe)', async () => {
+      const queue = new JobQueue(db);
+      await createJobWithState(db, queue, 'queued', RECENT_ISO);
+      await insertToolCallTelemetry(db, 'recent-1', TELEMETRY_RECENT_ISO);
+      const statements: string[] = [];
+      const trackingDb = {
+        query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) => {
+          statements.push(sql);
+          return await db.query<TRecord>(sql, params as unknown[]);
+        },
+      };
+
+      const result = await runScheduledDatabaseMaintenance(trackingDb, {
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+      });
+
+      expect(result).toMatchObject({ prunedToolCallTelemetryRows: 0, status: 'partial' });
+      expect(await countToolCallTelemetry(db)).toBe(1);
+      expect(statements.some((sql) => sql.includes('EXISTS'))).toBe(true);
+      expect(
+        statements.some((sql) => sql.includes('DELETE FROM brainstrike_tool_call_telemetry'))
+      ).toBe(false);
+    });
+
+    it('evicts the oldest rows first when the active-queue backlog exceeds the bound (ORDER BY occurred_at ASC)', async () => {
+      const queue = new JobQueue(db);
+      await createJobWithState(db, queue, 'queued', RECENT_ISO);
+      await insertToolCallTelemetry(db, 'oldest', '2026-01-01T00:00:00.000Z');
+      await insertToolCallTelemetry(db, 'older', '2026-01-05T00:00:00.000Z');
+      await insertToolCallTelemetry(db, 'old', '2026-01-10T00:00:00.000Z');
+      await insertToolCallTelemetry(db, 'less-old', '2026-01-15T00:00:00.000Z');
+
+      const result = await runScheduledDatabaseMaintenance(db, {
+        activePruneLimit: 2,
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+      });
+
+      expect(result).toMatchObject({ prunedToolCallTelemetryRows: 2, status: 'partial' });
+      const remaining = await db.query<{ id: string }>(
+        'SELECT id FROM brainstrike_tool_call_telemetry ORDER BY occurred_at ASC'
+      );
+      expect(remaining.rows.map((row) => row.id)).toEqual(['old', 'less-old']);
     });
   });
 });

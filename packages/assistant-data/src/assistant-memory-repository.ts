@@ -778,7 +778,8 @@ CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_canvas_version_idx
   ON ${CANVAS_VERSIONS_TABLE} (canvas_id, version DESC);
 
 -- Privacy-safe per-tool model-output telemetry (BST-1190). Bootstrapped here
--- AND created by migration 083 — keep the shape byte-identical to 083.
+-- AND created by migrations 083 (table + thread/tool_time indexes) and 085
+-- (occurred_at index, BST-1198) — keep the shape byte-identical to both.
 -- Mirrored because the thread-delete cascade references every sidecar
 -- unconditionally; only desktop main writes rows during normal operation.
 CREATE TABLE IF NOT EXISTS ${TOOL_CALL_TELEMETRY_TABLE} (
@@ -798,6 +799,11 @@ CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_tool_time_idx
   ON ${TOOL_CALL_TELEMETRY_TABLE} (tool_id, occurred_at DESC);
+
+-- Migration 085 (BST-1198): occurred_at-leading index for the scheduled
+-- retention sweep, which filters on occurred_at alone (no tool_id predicate).
+CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_occurred_at_idx
+  ON ${TOOL_CALL_TELEMETRY_TABLE} (occurred_at);
 
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,

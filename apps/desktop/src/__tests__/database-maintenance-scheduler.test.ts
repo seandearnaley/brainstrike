@@ -18,7 +18,7 @@ const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   prunedToolCallTelemetryRows: 7,
   startedAt: '2026-05-01T12:00:00.000Z',
   status: 'completed',
-  vacuumedTables: ['job_queue'],
+  vacuumedTables: ['job_queue', 'brainstrike_tool_call_telemetry'],
 };
 
 function createQueuedCounts(
@@ -105,7 +105,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
         prunedTerminalJobs: 2,
         prunedToolCallTelemetryRows: 7,
-        vacuumedTables: ['job_queue'],
+        vacuumedTables: ['job_queue', 'brainstrike_tool_call_telemetry'],
       }),
       'Scheduled database maintenance completed'
     );
