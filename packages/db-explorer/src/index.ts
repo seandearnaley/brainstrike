@@ -29,7 +29,6 @@ export * from './types';
 // Core Hooks
 export { useDatabaseDemoData } from './use-database-demo-data';
 export { useImportFlow } from './use-import-flow';
-export { usePendingChunks } from './use-pending-chunks';
 export {
   formatPackedContext,
   type TokenCountLookup,
