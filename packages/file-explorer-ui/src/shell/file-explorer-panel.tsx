@@ -39,6 +39,7 @@ import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { FilterStatus } from '../file-explorer-status-components';
 import { useExplorerScrollRestore } from '../hooks/use-explorer-scroll-restore';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
+import { collectVisibleFileSelectionKeys } from '../indexing/visible-file-selection-keys';
 import { RestorationStatus } from '../restoration-status';
 import { formatCompactSelectionCount } from '../selection-count-format';
 import { SelectionCounter } from '../selection-counter';
@@ -418,16 +419,6 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     [adapterResolveFileForIndexing, fileSystemAdapter]
   );
 
-  // This hook automatically indexes selected files when TokenCacheProvider is present.
-  // Only pass `webFileHandleResolver` when the active adapter advertises it so we don't
-  // trip `exactOptionalPropertyTypes` with an explicit-`undefined` value.
-  useBackgroundTokenIndexerIntegration({
-    electronFileReader,
-    fileTree: stableFileTree,
-    selectedFiles: selectedFilePaths,
-    ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
-  });
-
   const [quickFilter, setQuickFilter, clearQuickFilter] = useFileExplorerStoreSelector(
     (s) => [s.quickFilter, s.setQuickFilter, s.clearQuickFilter] as const
   );
@@ -454,6 +445,26 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     }
     return Array.from(visible);
   }, [quickFilteredTree]);
+
+  // Composite keys for the same visible set, feeding the background indexer's
+  // second (visible/expanded) trigger so the tree can show real token counts
+  // for rows the user only expanded. See BST-1207 decision D2.
+  const visibleFileSelectionKeys = useMemo(
+    () => collectVisibleFileSelectionKeys(quickFilteredTree ?? []),
+    [quickFilteredTree]
+  );
+
+  // This hook automatically indexes selected AND visible files when a
+  // TokenCacheProvider is present. Only pass `webFileHandleResolver` when the
+  // active adapter advertises it so we don't trip `exactOptionalPropertyTypes`
+  // with an explicit-`undefined` value.
+  useBackgroundTokenIndexerIntegration({
+    electronFileReader,
+    fileTree: stableFileTree,
+    selectedFiles: selectedFilePaths,
+    visibleFiles: visibleFileSelectionKeys,
+    ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
+  });
 
   // displayedFiles are only needed by the legacy "fallback select-all" path.
   // In desktop, recursive select-all should always be available and this stays false.

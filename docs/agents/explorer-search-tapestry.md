@@ -246,6 +246,43 @@ must also prove excluded directories are rejected before `readDirectory` is
 called. Provider/service tests own policy-switch cancellation and stale-progress
 suppression.
 
+### Token indexing has TWO trigger sources (BST-1207, decision D2)
+
+Separate from the Workspace Index above, per-file TOKEN counting is driven by
+`useBackgroundTokenIndexerIntegration`. It has two trigger sources, and both go
+through the SAME `triggerIndexing` → `planTokenIndexingDispatch` path, so the
+binary/size exclusions and the indexed/in-flight de-duplication are shared:
+
+1. **Selection** (original). Adaptive debounce; the user is waiting on it.
+2. **Visible/expanded rows** (`visibleFiles` prop, implemented in
+   `packages/file-explorer-ui/src/indexing/use-visible-file-token-indexing.ts`).
+   Feeds the tree grid's token column for rows the user only expanded. It is
+   **cached-first** — each folder's persistent cache is warmed once via
+   `preloadFolder`, then every key the hot cache can already answer is dropped
+   and marked indexed — and **throttled** behind the selection trigger with a
+   `VISIBLE_FILE_INDEXING_DEBOUNCE_MS` floor. Because the Explorer tree is
+   lazily enumerated, "in the tree" already means "visible or under an expanded
+   directory"; `collectVisibleFileSelectionKeys` walks the quick-filtered tree
+   and keys by `node.rootFolderId` so forest roots stay distinct.
+
+Do not add a third trigger, and do not let the visible trigger outrun the
+selection trigger — the selection is what the user is blocked on.
+
+Per-row metadata for the tree grid (tokens/size/type + directory rollups) is
+read through `FileRowMetadataStore`
+(`packages/file-explorer-ui/src/indexing/file-row-metadata-store.ts`), a
+per-composite-key external store. Rules that must hold: an uncounted file reads
+`pending` and a binary reads `excluded` (never a silent zero); a directory
+rollup is only `complete` when the subtree is fully enumerated AND every
+descendant's metadata has landed, otherwise it is an explicit `partial` marker;
+and a count landing for one key must not re-render any other row. Invalidation
+rides the token cache's `cacheVersion` and the `FILE_EXPLORER_REFRESH_EVENT`
+below — no third channel, no polling. Paired tests:
+`packages/file-explorer-ui/src/__tests__/file-row-metadata-store.test.ts`,
+`packages/file-explorer-ui/src/__tests__/file-row-metadata-render-stability.test.tsx`,
+`packages/file-explorer-ui/src/__tests__/use-file-row-metadata-store.test.tsx`,
+`packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration-visible-files.test.tsx`.
+
 ---
 
 ## EXPLORER TREE LIVE REFRESH

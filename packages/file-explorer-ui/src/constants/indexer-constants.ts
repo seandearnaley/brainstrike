@@ -48,6 +48,17 @@ export const TOKEN_INDEXER_IO_BATCH_SIZE = 8;
 export const TOKEN_INDEXER_BATCH_YIELD_MS = 16;
 
 /**
+ * Debounce floor for the VISIBLE-file indexing trigger (BST-1207, decision D2).
+ *
+ * Visible/expanded rows are indexed so the tree grid can show real token counts
+ * without the user selecting anything, but that work must never race ahead of
+ * the selection trigger — the user's explicit selection is what they are
+ * waiting on. The floor also absorbs scroll/expand churn, which changes the
+ * visible set far more often than a selection changes.
+ */
+export const VISIBLE_FILE_INDEXING_DEBOUNCE_MS = 1000;
+
+/**
  * Debounce delay for file handle map rebuild in milliseconds.
  *
  * Waits for the tree to stabilize before rebuilding the expensive

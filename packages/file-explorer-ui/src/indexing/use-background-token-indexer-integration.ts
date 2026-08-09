@@ -45,6 +45,7 @@ import {
 } from './background-token-indexer-selection-shrink';
 import { resolveBackgroundIndexerWorkerUrlHref } from './resolve-token-cache-worker-url';
 import { useOptionalTokenCacheContext } from './token-cache-context';
+import { useVisibleFileTokenIndexing } from './use-visible-file-token-indexing';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
 
@@ -90,6 +91,18 @@ export interface UseBackgroundTokenIndexerIntegrationProps {
   onTokenResolved?: (compositeKey: string, tokenCount: number) => void;
   /** Set of selected file composite keys (folderId::path format) */
   selectedFiles: Set<string>;
+  /**
+   * Composite keys of the files currently VISIBLE in the tree — rendered rows
+   * plus everything under an expanded directory (BST-1207, decision D2).
+   *
+   * This is a SECOND, lower-priority trigger source: it lets the tree grid show
+   * real token counts for rows the user merely expanded, without waiting for a
+   * selection. It is cached-first (the folder's persistent cache is warmed and
+   * consulted before anything is dispatched), throttled behind the selection
+   * trigger, and runs through the same dispatch planner, so binary/size policy
+   * and the indexed/in-flight de-duplication apply unchanged.
+   */
+  visibleFiles?: ReadonlySet<string>;
   /**
    * Web-only fallback to resolve a real `FileSystemFileHandle` for a selected file path
    * when neither the FileTreeIndex nor the local handle map has a cached entry.
@@ -259,6 +272,7 @@ export function useBackgroundTokenIndexerIntegration({
   selectedFiles,
   onTokenResolved,
   electronFileReader,
+  visibleFiles,
   webFileHandleResolver,
 }: UseBackgroundTokenIndexerIntegrationProps): UseBackgroundTokenIndexerIntegrationReturn {
   // Get the token cache context (may be null if not in provider)
@@ -324,6 +338,11 @@ export function useBackgroundTokenIndexerIntegration({
   fileTreeRef.current = fileTree;
   const selectedFilesSizeRef = useRef(selectedFiles.size);
   selectedFilesSizeRef.current = selectedFiles.size;
+  // The handle map is what BOTH triggers read, so "is there work to do?" has to
+  // count visible files as well — otherwise a workspace with nothing selected
+  // never builds a map and the visible trigger can never dispatch.
+  const visibleFilesSizeRef = useRef(visibleFiles?.size ?? 0);
+  visibleFilesSizeRef.current = visibleFiles?.size ?? 0;
 
   /**
    * Compute root fingerprint from fileTree for detecting root folder changes.
@@ -410,14 +429,16 @@ export function useBackgroundTokenIndexerIntegration({
 
       // Use refs to get current values at execution time (not stale closure values)
       const currentSelectedSize = selectedFilesSizeRef.current;
+      const currentVisibleSize = visibleFilesSizeRef.current;
       const currentFileTree = fileTreeRef.current;
 
-      // Skip rebuild if no files selected and no pending operations
-      // This avoids expensive tree traversal when the map won't be used
-      if (currentSelectedSize === 0 && inFlightRef.current.size === 0) {
+      // Skip rebuild when neither trigger has work and nothing is in flight.
+      // This avoids expensive tree traversal when the map won't be used.
+      if (currentSelectedSize === 0 && currentVisibleSize === 0 && inFlightRef.current.size === 0) {
         logger.debug('Skipping handle map rebuild - no active operations', {
           inFlightCount: inFlightRef.current.size,
           selectedCount: currentSelectedSize,
+          visibleCount: currentVisibleSize,
         });
         return;
       }
@@ -454,8 +475,13 @@ export function useBackgroundTokenIndexerIntegration({
     // Mark map as stale immediately
     fileHandleMapStaleRef.current = true;
 
-    // Only schedule rebuild if there's active work (use ref to avoid dependency on selectedFiles)
-    if (selectedFilesSizeRef.current > 0 || inFlightRef.current.size > 0) {
+    // Only schedule rebuild if there's active work (use refs to avoid depending
+    // on the selected/visible set identities)
+    if (
+      selectedFilesSizeRef.current > 0 ||
+      visibleFilesSizeRef.current > 0 ||
+      inFlightRef.current.size > 0
+    ) {
       scheduleRebuildIfNeeded();
     }
 
@@ -471,12 +497,13 @@ export function useBackgroundTokenIndexerIntegration({
    * Effect B (need-driven): Watch selection size but only act on 0 → >0 transition.
    * This handles the case where selection becomes non-empty and we need the map.
    */
+  const indexableFileCount = selectedFiles.size + (visibleFiles?.size ?? 0);
   useEffect(() => {
     const prevSize = previousSelectionSizeForMapRef.current;
-    previousSelectionSizeForMapRef.current = selectedFiles.size;
+    previousSelectionSizeForMapRef.current = indexableFileCount;
 
     // Only act on 0 → >0 transition
-    const isZeroToNonZero = prevSize === 0 && selectedFiles.size > 0;
+    const isZeroToNonZero = prevSize === 0 && indexableFileCount > 0;
     if (!isZeroToNonZero) {
       return;
     }
@@ -484,20 +511,20 @@ export function useBackgroundTokenIndexerIntegration({
     // Only rebuild if stale or empty
     const needsRebuild = fileHandleMapStaleRef.current || fileHandleMapRef.current.size === 0;
     if (!needsRebuild) {
-      logger.debug('Selection became non-empty but map is fresh, skipping rebuild');
+      logger.debug('Indexable files became non-empty but map is fresh, skipping rebuild');
       return;
     }
 
-    logger.debug('Selection transition 0 → >0, checking if rebuild needed', {
+    logger.debug('Indexable file transition 0 → >0, checking if rebuild needed', {
       hasIndex: !!indexGetHandleRef.current,
       isStale: fileHandleMapStaleRef.current,
       mapSize: fileHandleMapRef.current.size,
-      newSize: selectedFiles.size,
+      newSize: indexableFileCount,
     });
 
     // Note: scheduleRebuildIfNeeded will short-circuit if FileTreeIndex is available
     scheduleRebuildIfNeeded();
-  }, [selectedFiles.size, scheduleRebuildIfNeeded]);
+  }, [indexableFileCount, scheduleRebuildIfNeeded]);
 
   // Stable ref for onTokenResolved to avoid callback instability
   const onTokenResolvedRef = useRef(onTokenResolved);
@@ -1178,6 +1205,19 @@ export function useBackgroundTokenIndexerIntegration({
 
     return () => clearTimeout(timeoutId);
   }, [selectedFiles, triggerIndexing, tokenCacheIsOperational, fileHandleMapSize, indexGetHandle]);
+
+  useVisibleFileTokenIndexing({
+    fileHandleMapRef,
+    fileHandleMapSize,
+    indexedFilesRef,
+    indexGetHandleRef,
+    indexVersion,
+    inFlightRef,
+    isTokenCacheOperational: tokenCacheIsOperational,
+    tokenCacheRef,
+    triggerIndexing,
+    visibleFiles,
+  });
 
   // Clear indexed files cache when file tree changes significantly
   // biome-ignore lint/plugin: Intentional effect to reset cache when folder is cleared - not an event handler
