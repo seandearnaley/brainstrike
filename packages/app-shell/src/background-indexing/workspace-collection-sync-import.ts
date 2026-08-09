@@ -165,6 +165,22 @@ export function getContentIndexingError(result: FileContentResult): string | nul
   return null;
 }
 
+function assertFileContentResult(
+  result: unknown,
+  compositeKey: string
+): asserts result is FileContentResult {
+  if (typeof result !== 'object' || result === null || !('status' in result)) {
+    throw new Error(`File content processor returned malformed scan result for ${compositeKey}.`);
+  }
+  if (
+    (result.status === 'accessible' && 'content' in result && typeof result.content === 'string') ||
+    (result.status === 'inaccessible' && 'message' in result && typeof result.message === 'string')
+  ) {
+    return;
+  }
+  throw new Error(`File content processor returned malformed scan result for ${compositeKey}.`);
+}
+
 export function flattenFileNodes(nodes: readonly IFileNode[]): IFileNode[] {
   const fileNodes: IFileNode[] = [];
   for (const node of nodes) {
@@ -237,12 +253,12 @@ async function collectDiscoveredPreparedFiles(args: {
 }> {
   const discoveredFiles: Array<DiscoveredPreparedFile | null> = [];
   let excludedEntries = 0;
-  for (const [compositeKey, result] of Object.entries(args.fileContents)) {
-    const metadata = args.metadataByKey.get(compositeKey);
-    if (!metadata) {
-      discoveredFiles.push(null);
-      continue;
+  for (const [compositeKey, metadata] of args.metadataByKey) {
+    if (!Object.hasOwn(args.fileContents, compositeKey)) {
+      throw new Error(`File content processor omitted scan result for ${compositeKey}.`);
     }
+    const result: unknown = args.fileContents[compositeKey];
+    assertFileContentResult(result, compositeKey);
     const indexingError = getContentIndexingError(result);
     if (indexingError) {
       excludedEntries += 1;

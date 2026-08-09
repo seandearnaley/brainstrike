@@ -1642,9 +1642,14 @@ describe('WorkspaceCollectionSyncService', () => {
         update: vi.fn(async () => null),
       },
       fileContentProcessor: {
-        processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
-        })),
+        processFiles: vi.fn(async (requests: readonly { compositeKey: string }[]) =>
+          Object.fromEntries(
+            requests.map((request) => [
+              request.compositeKey,
+              { content: unchangedContent, status: 'accessible' as const },
+            ])
+          )
+        ),
       },
       fileRecordRepository: {
         findById: vi.fn(async () => null),

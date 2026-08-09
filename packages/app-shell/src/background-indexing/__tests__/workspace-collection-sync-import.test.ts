@@ -318,6 +318,54 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     ]);
   });
 
+  it('fails closed when the content processor omits a requested scan result', async () => {
+    const processFiles = vi.fn(async () => ({}));
+
+    await expect(
+      collectPreparedChangesInBatches({
+        abortSignal: new AbortController().signal,
+        existingEntries: [],
+        fileContentProcessor: { processFiles },
+        fileNodes: [makeFileNode('changed.ts', 42, 1000)],
+        fileSystemAdapter: {} as FileSystemAdapter,
+        onCurrentFile: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: ROOT,
+        rootPath: ROOT,
+      })
+    ).rejects.toThrow('File content processor omitted scan result');
+  });
+
+  it('fails closed when the content processor returns a malformed scan result', async () => {
+    const processFiles = vi.fn(async (requests: readonly FileContentRequest[]) => ({
+      [requests[0]?.compositeKey ?? 'missing']: { status: 'accessible' },
+    })) as unknown as FileContentProcessor['processFiles'];
+
+    await expect(
+      collectPreparedChangesInBatches({
+        abortSignal: new AbortController().signal,
+        existingEntries: [],
+        fileContentProcessor: { processFiles },
+        fileNodes: [makeFileNode('changed.ts', 42, 1000)],
+        fileSystemAdapter: {} as FileSystemAdapter,
+        onCurrentFile: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: ROOT,
+        rootPath: ROOT,
+      })
+    ).rejects.toThrow('File content processor returned malformed scan result');
+  });
+
   it('skips reading files whose size and mtime match the stored entry', async () => {
     const { processor, readPaths } = createRecordingProcessor();
     // The unchanged entry deliberately stores a NON-matching content hash to prove
