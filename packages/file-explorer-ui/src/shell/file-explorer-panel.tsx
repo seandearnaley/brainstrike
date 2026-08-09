@@ -53,6 +53,7 @@ import { persistFileExplorerStateImmediately } from '../utils/persist-file-explo
 import { applyQuickFilterToTree, collectVisibleFiles } from '../utils/quick-filter-tree';
 import { ExplorerColumnVisibilityControls } from './explorer-column-visibility-controls';
 import { ExplorerColumnsProvider, useExplorerColumnsValue } from './explorer-columns-context';
+import { ExplorerSortProvider } from './explorer-sort-context';
 import {
   CompactToolbarActions,
   FilterChipsToggleButton,
@@ -1278,9 +1279,11 @@ FileExplorerPanelInner.displayName = 'FileExplorerPanelInner';
  * tree context (the inner panel and the sidebar sections both consume it).
  */
 export const FileExplorerPanel = ({ selectionActions }: FileExplorerPanelProps = {}) => (
-  <ForestTreeActionsProvider>
-    <FileExplorerPanelInner selectionActions={selectionActions} />
-  </ForestTreeActionsProvider>
+  <ExplorerSortProvider>
+    <ForestTreeActionsProvider>
+      <FileExplorerPanelInner selectionActions={selectionActions} />
+    </ForestTreeActionsProvider>
+  </ExplorerSortProvider>
 );
 
 FileExplorerPanel.displayName = 'FileExplorerPanel';

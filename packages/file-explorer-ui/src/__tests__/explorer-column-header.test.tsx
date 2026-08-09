@@ -18,8 +18,9 @@ import {
   type ExplorerMetadataColumnId,
   useExplorerColumnVisibilityStore,
 } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
+import { useExplorerSortStateStore } from '@brainstrike/app-state/stores/explorer-sort-state-store';
 import type { IFileNode } from '@brainstrike/types';
-import { act, render, renderHook } from '@testing-library/react';
+import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import type { RefObject } from 'react';
 import { useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,6 +37,7 @@ import {
   resolveVisibleMetadataColumnIds,
   useExplorerColumnsValue,
 } from '../shell/explorer-columns-context';
+import { ExplorerSortProvider } from '../shell/explorer-sort-context';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
@@ -80,29 +82,31 @@ function ForestHarness({
     visibleMetadataColumnIds: columnIds,
   });
   return (
-    <FileRowMetadataProvider value={rowMetadata.contextValue}>
-      <ExplorerColumnsProvider
-        value={{
-          areMetadataColumnsSuppressed: false,
-          columnWidths,
-          visibleMetadataColumnIds: columnIds,
-        }}
-      >
-        <ExplorerColumnHeader
-          columnWidths={columnWidths}
-          scrollerRef={scrollerRef}
-          visibleMetadataColumnIds={columnIds}
-        />
-        <div data-testid="forest-sections-scroll" ref={scrollerRef}>
-          <OptimizedFileTree
-            fileTree={SECTION_TREE}
-            folderId={ROOT}
-            loadingFiles={new Set()}
-            scrollParentRef={scrollerRef}
+    <ExplorerSortProvider>
+      <FileRowMetadataProvider value={rowMetadata.contextValue}>
+        <ExplorerColumnsProvider
+          value={{
+            areMetadataColumnsSuppressed: false,
+            columnWidths,
+            visibleMetadataColumnIds: columnIds,
+          }}
+        >
+          <ExplorerColumnHeader
+            columnWidths={columnWidths}
+            scrollerRef={scrollerRef}
+            visibleMetadataColumnIds={columnIds}
           />
-        </div>
-      </ExplorerColumnsProvider>
-    </FileRowMetadataProvider>
+          <div data-testid="forest-sections-scroll" ref={scrollerRef}>
+            <OptimizedFileTree
+              fileTree={SECTION_TREE}
+              folderId={ROOT}
+              loadingFiles={new Set()}
+              scrollParentRef={scrollerRef}
+            />
+          </div>
+        </ExplorerColumnsProvider>
+      </FileRowMetadataProvider>
+    </ExplorerSortProvider>
   );
 }
 
@@ -124,6 +128,7 @@ async function renderForest(
 describe('forest column header', () => {
   beforeEach(() => {
     useExplorerColumnSizesStore.getState().reset();
+    useExplorerSortStateStore.getState().reset();
   });
 
   it('lays out the same columns, in the same order, at the same widths as the section table', async () => {
@@ -167,9 +172,42 @@ describe('forest column header', () => {
     expect(headers).toEqual(['Name', 'Tokens']);
   });
 
-  it('renders nothing at all when the grid is name-only', async () => {
+  it('keeps the sortable Name header when the grid is name-only', async () => {
     const container = await renderForest([]);
-    expect(container.querySelector('[data-testid="explorer-column-header"]')).toBeNull();
+    const header = container.querySelector('[data-testid="explorer-column-header"]');
+    expect(header).not.toBeNull();
+    expect(Array.from(header?.querySelectorAll('th') ?? [], (cell) => cell.textContent)).toEqual([
+      'Name',
+    ]);
+  });
+
+  it('uses the shared asc -> desc -> default cycle and exposes aria-sort', async () => {
+    const container = await renderForest(['tokens']);
+    const nameHeader = container.querySelector<HTMLTableCellElement>(
+      '[data-testid="explorer-column-header"] [data-column-id="name"]'
+    );
+    const nameButton = nameHeader?.querySelector('button');
+    if (!(nameHeader && nameButton)) {
+      throw new Error('expected sortable Name header');
+    }
+
+    fireEvent.click(nameButton);
+    expect(useExplorerSortStateStore.getState().sortState).toEqual({
+      direction: 'asc',
+      field: 'name',
+    });
+    expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+
+    fireEvent.click(nameButton);
+    expect(useExplorerSortStateStore.getState().sortState).toEqual({
+      direction: 'desc',
+      field: 'name',
+    });
+    expect(nameHeader).toHaveAttribute('aria-sort', 'descending');
+
+    fireEvent.click(nameButton);
+    expect(useExplorerSortStateStore.getState().sortState).toBeNull();
+    expect(nameHeader).not.toHaveAttribute('aria-sort');
   });
 
   /**
