@@ -23,6 +23,10 @@ export interface ProgressEvent {
   total: number;
 }
 
+export type FileContentReadResult =
+  | { content: string; status: 'accessible' }
+  | { message: string; status: 'inaccessible' };
+
 export interface FileContentWorkerOptions {
   concurrency?: number;
   fileSystemAdapter: FileSystemAdapter;
@@ -79,15 +83,15 @@ export function createFileContentWorker({
     onProgress?: (e: ProgressEvent) => void,
     abortSignal?: AbortSignal
   ) {
-    const results: Record<string, string> = {};
+    const results: Record<string, FileContentReadResult> = {};
     let index = 0;
     let active = 0;
     let completed = 0;
     const total = queue.length;
 
-    return new Promise<Record<string, string>>((resolve, reject) => {
+    return new Promise<Record<string, FileContentReadResult>>((resolve, reject) => {
       let settled = false;
-      const finishResolve = (value: Record<string, string>): void => {
+      const finishResolve = (value: Record<string, FileContentReadResult>): void => {
         if (settled) {
           return;
         }
@@ -132,7 +136,7 @@ export function createFileContentWorker({
         if (settled) {
           return;
         }
-        results[key] = content;
+        results[key] = { content, status: 'accessible' };
         finalizeRequest(request);
       };
       const handleRequestFailure = (request: FileReadRequest, error: unknown): void => {
@@ -140,7 +144,7 @@ export function createFileContentWorker({
           return;
         }
         const message = error instanceof FileContentError ? error.message : 'Error accessing file';
-        results[request.compositeKey] = message;
+        results[request.compositeKey] = { message, status: 'inaccessible' };
         finalizeRequest(request);
       };
       const scheduleRequest = async (request: FileReadRequest): Promise<void> => {
@@ -244,7 +248,7 @@ export function createFileContentWorker({
     options?: {
       abortSignal?: AbortSignal;
     }
-  ): Promise<Record<string, string>> {
+  ): Promise<Record<string, FileContentReadResult>> {
     return runQueue(requests, onProgress, options?.abortSignal);
   };
 }

@@ -7,9 +7,12 @@ import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils/file-content';
 import {
   createFileContentWorker,
+  type FileContentReadResult,
   type FileContentWorker,
   type FileReadRequest,
 } from '@brainstrike/workers/file-content-worker';
+
+export type FileContentResult = FileContentReadResult;
 
 export interface FileContentProcessor {
   processFiles: (
@@ -18,7 +21,7 @@ export interface FileContentProcessor {
     options?: {
       abortSignal?: AbortSignal;
     }
-  ) => Promise<Record<string, string>>;
+  ) => Promise<Record<string, FileContentResult>>;
 }
 
 export interface FileContentRequest {
@@ -106,7 +109,7 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
     options?: {
       abortSignal?: AbortSignal;
     }
-  ): Promise<Record<string, string>> {
+  ): Promise<Record<string, FileContentResult>> {
     throwIfAborted(options?.abortSignal);
     const fileReadRequests: FileReadRequest[] = requests.map((req) => ({
       compositeKey: req.compositeKey,
@@ -128,8 +131,8 @@ export class DirectFileContentProcessor implements FileContentProcessor {
     options?: {
       abortSignal?: AbortSignal;
     }
-  ): Promise<Record<string, string>> {
-    const results: Record<string, string> = {};
+  ): Promise<Record<string, FileContentResult>> {
+    const results: Record<string, FileContentResult> = {};
     let completed = 0;
     const total = requests.length;
 
@@ -137,10 +140,10 @@ export class DirectFileContentProcessor implements FileContentProcessor {
       throwIfAborted(options?.abortSignal);
       try {
         const content = await this.processFile(request);
-        results[request.compositeKey] = content;
+        results[request.compositeKey] = { content, status: 'accessible' };
       } catch (err: unknown) {
         const msg = err instanceof FileContentError ? err.message : 'Error accessing file';
-        results[request.compositeKey] = msg;
+        results[request.compositeKey] = { message: msg, status: 'inaccessible' };
       }
 
       completed++;

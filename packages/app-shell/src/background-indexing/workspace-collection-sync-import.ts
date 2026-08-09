@@ -15,6 +15,7 @@ import {
   createFileContentProcessor,
   type FileContentProcessor,
   type FileContentRequest,
+  type FileContentResult,
 } from '@brainstrike/file-explorer-hooks';
 import {
   backfillEmbeddingSetAssignments,
@@ -30,7 +31,7 @@ import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/
 import { createLogger } from '@brainstrike/logging';
 import { createEmbeddingJobQueuePort } from '@brainstrike/pipeline';
 import type { IFileNode } from '@brainstrike/types';
-import { BINARY_CONTENT_MESSAGE } from '@brainstrike/types';
+
 import { generateContentHash } from '@brainstrike/utils';
 import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { buildRootFolderCacheIdentityKey } from './root-folder-cache-reconciliation';
@@ -152,28 +153,16 @@ interface DiscoveredPreparedFile {
   size: number;
 }
 
-const INACCESSIBLE_CONTENT_PREFIXES = ['File not accessible', 'File too large:'] as const;
-const INACCESSIBLE_CONTENT_VALUES = new Set([BINARY_CONTENT_MESSAGE, 'Error accessing file']);
 const NULL_BYTE_CONTENT_ERROR = 'File contains null bytes and cannot be indexed.';
 
-export function getContentIndexingError(content: string): string | null {
-  if (INACCESSIBLE_CONTENT_VALUES.has(content)) {
-    return content;
+export function getContentIndexingError(result: FileContentResult): string | null {
+  if (result.status === 'inaccessible') {
+    return result.message;
   }
-  const inaccessiblePrefix = INACCESSIBLE_CONTENT_PREFIXES.find((prefix) =>
-    content.startsWith(prefix)
-  );
-  if (inaccessiblePrefix) {
-    return content;
-  }
-  if (content.includes('\0')) {
+  if (result.content.includes('\0')) {
     return NULL_BYTE_CONTENT_ERROR;
   }
   return null;
-}
-
-function isContentAccessible(content: string): boolean {
-  return getContentIndexingError(content) === null;
 }
 
 export function flattenFileNodes(nodes: readonly IFileNode[]): IFileNode[] {
@@ -239,7 +228,7 @@ async function toMutableRecord(
 }
 
 async function collectDiscoveredPreparedFiles(args: {
-  fileContents: Record<string, string>;
+  fileContents: Record<string, FileContentResult>;
   metadataByKey: Map<string, FileBatchPreparation>;
   rootId: string;
 }): Promise<{
@@ -248,13 +237,13 @@ async function collectDiscoveredPreparedFiles(args: {
 }> {
   const discoveredFiles: Array<DiscoveredPreparedFile | null> = [];
   let excludedEntries = 0;
-  for (const [compositeKey, content] of Object.entries(args.fileContents)) {
+  for (const [compositeKey, result] of Object.entries(args.fileContents)) {
     const metadata = args.metadataByKey.get(compositeKey);
     if (!metadata) {
       discoveredFiles.push(null);
       continue;
     }
-    const indexingError = getContentIndexingError(content);
+    const indexingError = getContentIndexingError(result);
     if (indexingError) {
       excludedEntries += 1;
       logger.debug('Workspace Index skipped file content that cannot be indexed', {
@@ -264,6 +253,10 @@ async function collectDiscoveredPreparedFiles(args: {
       discoveredFiles.push(null);
       continue;
     }
+    if (result.status !== 'accessible') {
+      throw new Error('Inaccessible file content result is missing an indexing error.');
+    }
+    const { content } = result;
     discoveredFiles.push({
       compositeKey,
       contentHash: await generateContentHash(content),
@@ -476,13 +469,20 @@ async function applyBackgroundImportBatch(args: {
 
 function getSkippedBatchContentError(
   change: PreparedCacheChange,
-  batchContents: Readonly<Record<string, string>>
+  batchContents: Readonly<Record<string, FileContentResult>>
 ): string {
-  const content = batchContents[change.compositeKey];
-  if (content === undefined) {
+  const result = batchContents[change.compositeKey];
+  if (result === undefined) {
     return 'Background cache import descriptor is missing.';
   }
-  return getContentIndexingError(content) ?? content;
+  const indexingError = getContentIndexingError(result);
+  if (indexingError) {
+    return indexingError;
+  }
+  if (result.status !== 'accessible') {
+    throw new Error('Inaccessible file content result is missing an indexing error.');
+  }
+  return result.content;
 }
 
 function buildBatchedEnhancedImportProgress(args: {
@@ -925,9 +925,9 @@ export async function runRootFolderCacheImport(args: {
       const fileContents = Object.fromEntries(
         batch
           .map((change) => {
-            const content = batchContents[change.compositeKey];
-            return content !== undefined && isContentAccessible(content)
-              ? ([change.compositeKey, content] as const)
+            const result = batchContents[change.compositeKey];
+            return result?.status === 'accessible' && getContentIndexingError(result) === null
+              ? ([change.compositeKey, result.content] as const)
               : null;
           })
           .filter((entry): entry is readonly [string, string] => entry !== null)
