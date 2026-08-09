@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const E2E_ROOTS = ['apps/web/e2e', 'apps/desktop/e2e'];
-const HARDCODED_OPTION_NAME = /getByRole\(\s*['"]option['"]\s*,\s*\{[^}]*name:\s*['"`]/;
+const HARDCODED_OPTION_NAME = /getByRole\(\s*['"]option['"]\s*,\s*\{[^}]*name:\s*(?:['"`]|\/)/;
 
 function collectE2eSpecs(relativeDirectory) {
   const specs = [];
@@ -61,8 +61,9 @@ function categoryLabelViolations(source) {
   return violations;
 }
 
-test('MONEY TEST: one derived selector cannot hide a second hardcoded option label', () => {
-  const source = `
+for (const hardcodedName of ["'Analysis'", '/Retrieval/']) {
+  test(`MONEY TEST: a derived selector cannot hide hardcoded ${hardcodedName}`, () => {
+    const source = `
     import {
       NATIVE_TOOL_DEFAULTS,
       TOOL_CATEGORIES,
@@ -75,17 +76,20 @@ test('MONEY TEST: one derived selector cannot hide a second hardcoded option lab
       'option',
       { exact: true, name: TOOL_CATEGORY_LABEL }
     ).click();
-    await page.getByRole('option', { exact: true, name: 'Analysis' }).click();
+    await page.getByRole('option', { exact: true, name: ${hardcodedName} }).click();
   `;
 
-  assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
-});
+    assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
+  });
+}
 
-test('discovers both current readWorkspaceContext category-filter specs', () => {
-  assert.ok(
-    AI_TOOLS_SPECS.length >= 2,
-    'expected at least the web and desktop readWorkspaceContext category-filter specs'
-  );
+test('discovers a readWorkspaceContext category-filter spec in every E2E root', () => {
+  for (const root of E2E_ROOTS) {
+    assert.ok(
+      AI_TOOLS_SPECS.some((relativePath) => relativePath.startsWith(`${root}${path.sep}`)),
+      `expected a readWorkspaceContext category-filter spec under ${root}`
+    );
+  }
 });
 
 for (const relativePath of AI_TOOLS_SPECS) {
