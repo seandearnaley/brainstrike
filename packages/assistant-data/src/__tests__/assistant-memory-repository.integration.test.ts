@@ -2429,7 +2429,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   });
 
-  it('bootstraps the migration-084 tool projection rewrite shape for thread deletion', async () => {
+  it('bootstraps the migration-084/087 tool projection rewrite shape for thread deletion', async () => {
     const dataDir = createPgliteTestDataDir('tool-projection-rewrite-bootstrap-shape');
     const db = await wasmLoader.createPGlite(dataDir);
     try {
@@ -2447,6 +2447,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         'thread_id',
         'rewrite_id',
         'superseded_by_tool_call_id',
+        'kind',
         'marker_text',
         'original_chars',
         'created_at',

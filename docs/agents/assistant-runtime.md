@@ -445,7 +445,7 @@ an isolated description, schema estimate, or hand-built provider payload is
 not sufficient evidence.
 
 The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
-ProjectionSafeToolCallFilter → ProviderHistoryCompat →
+ProjectionSafeToolCallFilter → ToolProjectionRewriteProcessor → ProviderHistoryCompat →
 OpenAIToolSearchHistoryCompat → OpenAIDuplicateItemCompat →
 ProjectionAwareTokenLimiter. The OpenAI-only compatibility seams are absent for
 every other provider; token limiting is always last. OpenAIDuplicateItemCompat

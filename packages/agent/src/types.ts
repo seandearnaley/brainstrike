@@ -20,11 +20,20 @@ import type { LocalLlmHostClient } from './providers/local/llm-host-client';
 import type { AssistantRunEvent } from './run-events';
 import type { AgentHookRunner } from './tools/hook-runner';
 
-export interface ToolProjectionRewriteEntry {
+interface ToolProjectionRewriteEntryBase {
   readonly markerText: string;
-  readonly supersededByToolCallId: string;
   readonly toolCallId: string;
 }
+
+export type ToolProjectionRewriteEntry =
+  | (ToolProjectionRewriteEntryBase & {
+      readonly kind: 'prune';
+      readonly supersededByToolCallId: null;
+    })
+  | (ToolProjectionRewriteEntryBase & {
+      readonly kind: 'supersession';
+      readonly supersededByToolCallId: string;
+    });
 
 /** Desktop-injected, read-only access to durable request-build overlays. */
 export interface ToolProjectionRewriteLookup {

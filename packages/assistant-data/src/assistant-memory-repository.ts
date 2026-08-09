@@ -839,19 +839,49 @@ CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_model_idx
 CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_occurred_at_idx
   ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (occurred_at);
 
--- Superseded native-tool model-projection overlays (BST-1192). Bootstrapped
--- here AND created by migration 084 — keep the shape byte-identical to 084.
--- The thread-delete cascade references every sidecar unconditionally; only
--- desktop main writes rows during normal operation.
+-- Native-tool model-projection overlays (BST-1192/BST-1200). Bootstrapped
+-- here AND created by migrations 084 + 087 — this renderer-executed bootstrap
+-- covers a FRESH table (CREATE TABLE branch) with the final shape, and adds
+-- the ONLY column an already-084-shaped table can be missing (ADD COLUMN IF
+-- NOT EXISTS is additive, never destructive). It deliberately does NOT run
+-- ALTER COLUMN superseded_by_tool_call_id DROP NOT NULL, nor ADD CONSTRAINT
+-- brainstrike_tool_projection_rewrite_kind_superseder_check: this SQL string
+-- executes through the desktop renderer's db:exec IPC channel, and
+-- db-ipc.ts's assertRendererSql guard (DESTRUCTIVE_SCHEMA_SQL_PATTERN)
+-- matches ANY 'ALTER TABLE ... DROP ...' statement (including DROP NOT
+-- NULL) as destructive schema SQL and rejects it outright, which broke
+-- thread loading (and therefore the whole assistant panel mount) for every
+-- desktop user until this was caught by a hard E2E failure (BST-1200 PR
+-- #2355 review; do NOT reintroduce a nested backtick in this comment block,
+-- it prematurely terminates the enclosing TS template literal and breaks the
+-- build). Desktop main's migration 087 (both runners) is already
+-- authoritative for the nullable column and CHECK constraint on desktop:
+-- Electron main's own PGlite connection runs migrations directly, with no
+-- IPC boundary and no db-ipc.ts guard in the way. "only desktop main
+-- writes rows during normal operation" (below) means web never inserts a
+-- kind = 'prune' row, so an un-relaxed NOT NULL here is harmless on web:
+-- the thread-delete cascade only needs the TABLE and the kind COLUMN to
+-- exist, never the exact constraint topology.
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE} (
   tool_call_id text PRIMARY KEY,
   thread_id text NOT NULL,
   rewrite_id text NOT NULL,
-  superseded_by_tool_call_id text NOT NULL,
+  superseded_by_tool_call_id text,
+  kind text NOT NULL DEFAULT 'supersession'
+    CHECK (kind IN ('supersession', 'prune')),
   marker_text text NOT NULL,
   original_chars integer NOT NULL CHECK (original_chars >= 0),
-  created_at timestamptz NOT NULL DEFAULT NOW()
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  CONSTRAINT brainstrike_tool_projection_rewrite_kind_superseder_check
+    CHECK (
+      (kind = 'supersession' AND superseded_by_tool_call_id IS NOT NULL)
+      OR (kind = 'prune' AND superseded_by_tool_call_id IS NULL)
+    )
 );
+
+ALTER TABLE ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE}
+  ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'supersession'
+  CHECK (kind IN ('supersession', 'prune'));
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_tool_projection_rewrites_thread_idx
   ON ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE} (thread_id);
