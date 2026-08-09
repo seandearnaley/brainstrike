@@ -165,6 +165,18 @@ async function openExplorerCompactMenu(window: Page): Promise<Locator> {
 
   await clickElectronControl(compactActions);
 
+  // Radix publishes aria-controls from a discrete-event state update, so poll
+  // rather than reading once: a slow renderer would otherwise raise a hard
+  // "missing aria-controls" with no retry, in the very lane this de-flakes.
+  //
+  // Poll the HANDLE, never a re-query. Radix marks the rest of the page
+  // aria-hidden while the menu is open, so the trigger leaves the accessibility
+  // tree the moment it is clicked and `getByRole(...)` then reports
+  // "element(s) not found". That is exactly why the handle is captured up front.
+  await expect
+    .poll(async () => await compactActionsHandle.getAttribute('aria-controls'))
+    .toMatch(/\S/);
+
   const menuId = await compactActionsHandle.getAttribute('aria-controls');
   if (!menuId) {
     throw new Error('Compact Explorer actions trigger is missing aria-controls');
@@ -743,7 +755,12 @@ test.describe('Desktop filter presets', () => {
   });
 
   test('keeps the selected preset after app restart', async ({ electron, window }) => {
-    test.setTimeout(90_000);
+    // 120s (the config default) rather than 90s: on the restoration-failed
+    // path this test serially spends the 15s restore wait, selectMockRoot's own
+    // mount wait, ensureViewFiltersExpanded's 15s + 20s, and TWO 45s preset-DB
+    // polls. At 90s that path reports a bare "Test timeout exceeded" instead of
+    // the assertion that actually failed.
+    test.setTimeout(120_000);
 
     await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
