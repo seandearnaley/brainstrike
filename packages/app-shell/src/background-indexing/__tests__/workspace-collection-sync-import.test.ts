@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildRootFolderCacheIdentityKey } from '../root-folder-cache-reconciliation';
 import {
   collectPreparedChangesInBatches,
+  flattenFileNodes,
   type PreparedCacheChange,
   partitionPreparationsByStatCache,
   runRootFolderCacheImport,
@@ -245,6 +246,43 @@ function makeFileNode(relativePath: string, size: number, mtimeMs: number | null
   }
   return node;
 }
+
+function makeDirectoryNode(name: string, depth: number, children: IFileNode[]): IFileNode {
+  return {
+    children,
+    depth,
+    handle: {} as never,
+    name,
+    path: `${ROOT}/${name}`,
+    rootFolderId: ROOT,
+    selectionState: 'checked',
+    type: 'directory',
+  };
+}
+
+describe('flattenFileNodes', () => {
+  it('preserves depth-first file traversal order', () => {
+    const first = makeFileNode('first.ts', 1, null);
+    const nestedFirst = makeFileNode('nested/first.ts', 1, null);
+    const nestedSecond = makeFileNode('nested/second.ts', 1, null);
+    const last = makeFileNode('last.ts', 1, null);
+
+    expect(
+      flattenFileNodes([first, makeDirectoryNode('nested', 1, [nestedFirst, nestedSecond]), last])
+    ).toEqual([first, nestedFirst, nestedSecond, last]);
+  });
+
+  it('flattens a deeply nested tree without overflowing the call stack', () => {
+    const leaf = makeFileNode('deep.ts', 1, null);
+    let tree: IFileNode[] = [leaf];
+
+    for (let depth = 100_000; depth > 0; depth -= 1) {
+      tree = [makeDirectoryNode(`directory-${depth}`, depth, tree)];
+    }
+
+    expect(flattenFileNodes(tree)).toEqual([leaf]);
+  });
+});
 
 async function hashForRecordedContent(relativePath: string): Promise<string> {
   const { generateContentHash } = await import('@brainstrike/utils');
