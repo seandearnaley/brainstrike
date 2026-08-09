@@ -2,6 +2,7 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract/assistant-stream-session';
+import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-suspend';
 import type { Page } from '@playwright/test';
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -19,13 +20,20 @@ export interface AssistantMockOptions {
   readonly message?: string;
   readonly models?: Record<string, string>;
   readonly provider?: string;
-  readonly variant?: 'simple' | 'detailed' | 'tool' | 'tool-error' | 'stream-error';
+  readonly variant?:
+    | 'simple'
+    | 'detailed'
+    | 'tool'
+    | 'tool-error'
+    | 'stream-error'
+    | 'network-suspend';
 }
 
 interface AssistantMockInstallPayload {
   readonly assistantMessageId: string;
   readonly models: Record<string, string>;
   readonly provider: string;
+  readonly resumeStreamChunks?: Array<{ delayMs: number; payload: string }>;
   readonly streamChunks: Array<{ delayMs: number; payload: string }>;
   readonly streamEventIdHeaderName: string;
   readonly streamMessageIdHeaderName: string;
@@ -79,13 +87,18 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
   const encoder = new TextEncoder();
   const originalFetch = globals.fetch.bind(globals);
 
-  function createMockResponse(signal: AbortSignal | undefined): Response {
+  function createMockResponse(
+    signal: AbortSignal | undefined,
+    configuredChunks?: Array<{ delayMs: number; payload: string }>
+  ): Response {
     const activeConfig = globals.__assistantMockConfig;
     if (!activeConfig) {
       throw new Error('Assistant mock config is unavailable.');
     }
 
-    const streamChunks = activeConfig.streamChunks.map((chunk) => ({ ...chunk }));
+    const streamChunks = (configuredChunks ?? activeConfig.streamChunks).map((chunk) => ({
+      ...chunk,
+    }));
     const chunkQueue = streamChunks.map((chunk) => ({ ...chunk }));
     let chunkIndex = 0;
     let aborted = false;
@@ -171,6 +184,15 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
     }
   }
 
+  function selectConfiguredStreamChunks(): Array<{ delayMs: number; payload: string }> | undefined {
+    const activeConfig = globals.__assistantMockConfig;
+    const requestCount = globals.__assistantMockRequests?.length ?? 0;
+    if (requestCount > 1 && activeConfig?.resumeStreamChunks) {
+      return activeConfig.resumeStreamChunks;
+    }
+    return activeConfig?.streamChunks;
+  }
+
   globals.fetch = async (input, init) => {
     const url =
       typeof input === 'string' ? input : input instanceof Request ? input.url : String(input);
@@ -187,7 +209,7 @@ function installAssistantMockInPage(payload: AssistantMockInstallPayload): void 
       (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase() === 'POST'
     ) {
       await recordAssistantRequestBody(input, init);
-      return createMockResponse(init?.signal ?? undefined);
+      return createMockResponse(init?.signal ?? undefined, selectConfiguredStreamChunks());
     }
 
     return originalFetch(input, init);
@@ -256,6 +278,21 @@ function buildAssistantStreamChunks(
       writeAssistantText(options.message);
       writeFinish('stop', { completionTokens: 8, promptTokens: 5 });
       return chunks;
+    case 'network-suspend':
+      enqueueChunk('aui-data', {
+        data: {
+          runId: 'run-network-e2e',
+          suspendPayload: {
+            allowedDomains: ['pypi.org', '*.githubusercontent.com'],
+            kind: 'network',
+          },
+          toolCallId: 'call-network-e2e',
+          toolName: 'brainstrike.runPython',
+        },
+        name: TOOL_SUSPEND_DATA_NAME,
+      });
+      writeFinish('stop', { completionTokens: 0, promptTokens: 5 });
+      return chunks;
     case 'tool': {
       const toolCallId = createToolCallId();
       const args = { limit: 3, query: 'mock retrieval query' };
@@ -303,6 +340,23 @@ function buildAssistantStreamChunks(
   }
 }
 
+function buildResumeStreamChunks(assistantMessageId: string): Array<{
+  delayMs: number;
+  payload: string;
+}> {
+  const encode = (code: string, value: unknown): string => `${code}:${JSON.stringify(value)}\n`;
+  const usage = { inputTokens: 5, outputTokens: 2 };
+  return [
+    { delayMs: 0, payload: encode('f', { messageId: assistantMessageId, path: [] }) },
+    { delayMs: 0, payload: encode('0', 'Network decision resumed.') },
+    {
+      delayMs: 0,
+      payload: encode('e', { finishReason: 'stop', isContinued: false, usage }),
+    },
+    { delayMs: 0, payload: encode('d', { finishReason: 'stop', path: [], usage }) },
+  ];
+}
+
 export async function setupAssistantMock(
   page: Page,
   options?: AssistantMockOptions
@@ -324,6 +378,9 @@ export async function setupAssistantMock(
     assistantMessageId,
     models: merged.models,
     provider: merged.provider,
+    ...(merged.variant === 'network-suspend'
+      ? { resumeStreamChunks: buildResumeStreamChunks(`${assistantMessageId}-resume`) }
+      : {}),
     streamChunks: buildAssistantStreamChunks(merged, assistantMessageId),
     streamEventIdHeaderName: ASSISTANT_STREAM_EVENT_ID_HEADER,
     streamMessageIdHeaderName: ASSISTANT_STREAM_MESSAGE_ID_HEADER,
