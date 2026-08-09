@@ -22,7 +22,10 @@
  */
 
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { createLogger } from '@brainstrike/logging';
 import type { FileRowDirectorySubtree } from './file-row-metadata-store';
+
+const logger = createLogger('FileRowMetadataSourceRegistry');
 
 /**
  * "This subtree is not fully enumerated." Frozen and shared so a rollup
@@ -62,12 +65,44 @@ interface DecodedKey {
   path: string;
 }
 
+/**
+ * Two failures reach this module and they are NOT the same thing:
+ *
+ * - **Unregistered root** — legitimate and transient. A section's tree has
+ *   unmounted (or has not registered yet) while a cell is still subscribed.
+ *   The honest answer is "not enumerated", and it resolves itself.
+ * - **Malformed composite key** — an invariant violation. Nothing will ever
+ *   resolve it, so reporting it as unfinished work would mask a bug behind a
+ *   placeholder that promises a value that is never coming. It is logged at
+ *   ERROR, once per offending key so a render loop cannot flood the log.
+ */
+const reportedMalformedKeys = new Set<string>();
+/** Bound the dedupe set so a pathological caller cannot grow it without limit. */
+const MAX_REPORTED_MALFORMED_KEYS = 100;
+
+function reportMalformedKey(compositeKey: string, error: unknown): void {
+  if (reportedMalformedKeys.has(compositeKey)) {
+    return;
+  }
+  if (reportedMalformedKeys.size < MAX_REPORTED_MALFORMED_KEYS) {
+    reportedMalformedKeys.add(compositeKey);
+  }
+  logger.error('Malformed composite key reached the file-row metadata registry', {
+    compositeKey,
+    error,
+  });
+}
+
+/** Test seam: the dedupe set is module state and would leak across cases. */
+export function __resetMalformedKeyReportingForTests(): void {
+  reportedMalformedKeys.clear();
+}
+
 function decodeOrNull(compositeKey: string): DecodedKey | null {
   try {
     return decodeFileSelection(compositeKey);
-  } catch {
-    // A malformed key can only come from a caller bug; the store treats the
-    // absence of data as `pending`/`partial`, which is the honest answer here.
+  } catch (error) {
+    reportMalformedKey(compositeKey, error);
     return null;
   }
 }

@@ -26,6 +26,7 @@ import {
 import { ExplorerColumnHeader } from '../shell/explorer-column-header';
 import {
   ExplorerColumnsProvider,
+  resolveExplorerColumnWidths,
   resolveVisibleMetadataColumnIds,
 } from '../shell/explorer-columns-context';
 import OptimizedFileTree from '../tree/optimized-file-tree';
@@ -52,15 +53,39 @@ function colWidths(scope: Element | null): (string | undefined)[] {
   return Array.from(cols, (col) => (col as HTMLTableColElement).style.width || undefined);
 }
 
-function ForestHarness({ columnIds }: { columnIds: readonly ExplorerMetadataColumnId[] }) {
+function ForestHarness({
+  availableWidth,
+  columnIds,
+}: {
+  availableWidth: number;
+  columnIds: readonly ExplorerMetadataColumnId[];
+}) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const rowMetadata = useExplorerRowMetadata();
+  // The real production path: persisted widths shrunk to the panel, then fed to
+  // BOTH the header and the section tables from one place.
+  // Subscribed, exactly as `useExplorerColumnsValue` does in production, so a
+  // resize re-renders both sides of the scroller boundary.
+  const sizes = useExplorerColumnSizesStore((state) => state.sizes);
+  const columnWidths = resolveExplorerColumnWidths({
+    availableWidth,
+    sizes,
+    visibleMetadataColumnIds: columnIds,
+  });
   return (
     <FileRowMetadataProvider value={rowMetadata.contextValue}>
       <ExplorerColumnsProvider
-        value={{ areMetadataColumnsSuppressed: false, visibleMetadataColumnIds: columnIds }}
+        value={{
+          areMetadataColumnsSuppressed: false,
+          columnWidths,
+          visibleMetadataColumnIds: columnIds,
+        }}
       >
-        <ExplorerColumnHeader scrollerRef={scrollerRef} visibleMetadataColumnIds={columnIds} />
+        <ExplorerColumnHeader
+          columnWidths={columnWidths}
+          scrollerRef={scrollerRef}
+          visibleMetadataColumnIds={columnIds}
+        />
         <div data-testid="forest-sections-scroll" ref={scrollerRef}>
           <OptimizedFileTree
             fileTree={SECTION_TREE}
@@ -74,11 +99,15 @@ function ForestHarness({ columnIds }: { columnIds: readonly ExplorerMetadataColu
   );
 }
 
-async function renderForest(columnIds: readonly ExplorerMetadataColumnId[]): Promise<HTMLElement> {
+/** `availableWidth: 0` means "unmeasured", which passes widths through as-is. */
+async function renderForest(
+  columnIds: readonly ExplorerMetadataColumnId[],
+  availableWidth = 0
+): Promise<HTMLElement> {
   const result = await act(async () =>
     render(
       <FileExplorerTestWrapper>
-        <ForestHarness columnIds={columnIds} />
+        <ForestHarness availableWidth={availableWidth} columnIds={columnIds} />
       </FileExplorerTestWrapper>
     )
   );
@@ -136,6 +165,41 @@ describe('forest column header', () => {
     expect(container.querySelector('[data-testid="explorer-column-header"]')).toBeNull();
   });
 
+  /**
+   * The defect this pins, reproduced live before the fix: with all three
+   * metadata columns dragged to their 160px maximum inside a ~354px panel, the
+   * 480px of fixed columns left the Name column at ZERO — filenames vanished —
+   * and the trailing column was clipped off-panel with no way to reach it (the
+   * section wrapper is `overflow-hidden` per the TreeGrid contract, so the
+   * overflow could not even become a scrollbar). Widths must shrink to fit, and
+   * the header must shrink with the body.
+   */
+  it('shrinks to fit — and stays aligned — when persisted widths exceed the panel', async () => {
+    for (const columnId of ['type', 'tokens', 'size'] as const) {
+      act(() => {
+        useExplorerColumnSizesStore
+          .getState()
+          .setColumn(columnId, EXPLORER_COLUMN_BOUNDS[columnId].maxWidth);
+      });
+    }
+    const availableWidth = 354;
+    const container = await renderForest(['type', 'tokens', 'size'], availableWidth);
+
+    const header = container.querySelector('[data-testid="explorer-column-header"]');
+    const sectionTable = container.querySelector('[data-testid="file-tree"] table');
+    const headerWidths = colWidths(header);
+
+    // Still one grid across the scroller boundary.
+    expect(headerWidths).toEqual(colWidths(sectionTable));
+
+    const metadataTotal = headerWidths
+      .slice(1)
+      .reduce((total, width) => total + Number.parseInt(width ?? '0', 10), 0);
+    // The Name column keeps a readable share instead of collapsing to zero.
+    expect(metadataTotal).toBeLessThanOrEqual(availableWidth - 120);
+    expect(metadataTotal).toBeGreaterThan(0);
+  });
+
   it('exposes a resize handle per metadata column and none for the pinned Name column', async () => {
     const container = await renderForest(['type', 'tokens', 'size']);
     const handles = Array.from(
@@ -147,6 +211,75 @@ describe('forest column header', () => {
       'tree-table-resize-handle-tokens',
       'tree-table-resize-handle-size',
     ]);
+  });
+});
+
+describe('explorer column width clamping', () => {
+  const ALL_METADATA = ['type', 'tokens', 'size'] as const;
+  const MAXED: Record<string, number> = {
+    size: EXPLORER_COLUMN_BOUNDS.size.maxWidth,
+    tokens: EXPLORER_COLUMN_BOUNDS.tokens.maxWidth,
+    type: EXPLORER_COLUMN_BOUNDS.type.maxWidth,
+  };
+
+  it('passes widths through untouched while the panel is unmeasured', () => {
+    for (const availableWidth of [0, Number.NaN]) {
+      expect(
+        resolveExplorerColumnWidths({
+          availableWidth,
+          sizes: MAXED,
+          visibleMetadataColumnIds: ALL_METADATA,
+        })
+      ).toBe(MAXED);
+    }
+  });
+
+  it('leaves widths alone when they already fit', () => {
+    const sizes = { size: 76, tokens: 76, type: 72 };
+    expect(
+      resolveExplorerColumnWidths({
+        availableWidth: 800,
+        sizes,
+        visibleMetadataColumnIds: ALL_METADATA,
+      })
+    ).toBe(sizes);
+  });
+
+  it('shrinks proportionally, never below a column minimum, and reserves the Name column', () => {
+    const next = resolveExplorerColumnWidths({
+      availableWidth: 354,
+      sizes: MAXED,
+      visibleMetadataColumnIds: ALL_METADATA,
+    });
+    const total = ALL_METADATA.reduce((sum, id) => sum + (next[id] as number), 0);
+    expect(total).toBeLessThanOrEqual(354 - 120);
+    for (const id of ALL_METADATA) {
+      expect(next[id]).toBeGreaterThanOrEqual(EXPLORER_COLUMN_BOUNDS[id].minWidth);
+    }
+  });
+
+  it('falls back to the column minimums when even those do not fit', () => {
+    const next = resolveExplorerColumnWidths({
+      availableWidth: 200,
+      sizes: MAXED,
+      visibleMetadataColumnIds: ALL_METADATA,
+    });
+    expect(next).toMatchObject({
+      size: EXPLORER_COLUMN_BOUNDS.size.minWidth,
+      tokens: EXPLORER_COLUMN_BOUNDS.tokens.minWidth,
+      type: EXPLORER_COLUMN_BOUNDS.type.minWidth,
+    });
+  });
+
+  it('preserves stored widths for columns that are not on screen', () => {
+    const next = resolveExplorerColumnWidths({
+      availableWidth: 354,
+      sizes: { ...MAXED, tokens: 160 },
+      visibleMetadataColumnIds: ['type', 'size'],
+    });
+    // `tokens` is hidden: its stored width must survive the shrink untouched so
+    // re-enabling the column restores what the user chose.
+    expect(next['tokens']).toBe(160);
   });
 });
 

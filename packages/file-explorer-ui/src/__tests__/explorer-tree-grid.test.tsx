@@ -102,6 +102,9 @@ function Harness({
       <ExplorerColumnsProvider
         value={{
           areMetadataColumnsSuppressed: false,
+          // Wide enough that clamping is a no-op; the clamp itself is pinned in
+          // explorer-column-header.test.tsx.
+          columnWidths: { size: 76, tokens: 76, type: 72 },
           visibleMetadataColumnIds: ['type', 'tokens', 'size'],
         }}
       >
@@ -116,6 +119,19 @@ function Harness({
   );
 }
 
+/**
+ * Directory rollups are deferred off the first paint (review item 2), so they
+ * land one task later. Every test except the deliberate first-paint one wants
+ * the settled grid.
+ */
+async function settleDeferredRollups(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+  });
+}
+
 async function renderGrid(
   fileTree: IFileNode[],
   onReady?: (metadata: ExplorerRowMetadata) => void
@@ -127,6 +143,7 @@ async function renderGrid(
       </FileExplorerTestWrapper>
     );
   });
+  await settleDeferredRollups();
 }
 
 function rowFor(name: string): HTMLElement {
@@ -210,6 +227,45 @@ describe('Explorer tree grid', () => {
         'Folder total unavailable — this folder is not fully enumerated'
       )
     ).toHaveLength(2);
+  });
+
+  /**
+   * Review item 2: the measured worst case for a viewport of capped directory
+   * rows is 21-29ms of synchronous aggregation
+   * (`explorer-directory-rollup-cost.test.ts`), so the first paint must not pay
+   * it. The folder shows the honest "not enumerated yet" marker, and the total
+   * arrives once the deferred batch resolves.
+   */
+  it('keeps folder aggregation OFF the first paint, then fills it in', () => {
+    cacheState.tokens['/src/a.ts'] = 10;
+    cacheState.tokens['/src/b.ts'] = 5;
+    // Fake timers, because `await act(async …)` yields to the macrotask queue
+    // and would let the deferred flush run before the assertion — the first
+    // paint has to be observed deterministically.
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        render(
+          <FileExplorerTestWrapper>
+            <Harness fileTree={LOADED_TREE} />
+          </FileExplorerTestWrapper>
+        );
+      });
+
+      expect(
+        within(rowFor('src')).getAllByTitle(
+          'Folder total unavailable — this folder is not fully enumerated'
+        ).length
+      ).toBeGreaterThan(0);
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+
+      expect(within(rowFor('src')).getByTitle('Folder total: 15 tokens')).toHaveTextContent('15');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('repaints ONLY the affected row when a token count arrives', async () => {

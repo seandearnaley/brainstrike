@@ -7,11 +7,16 @@
  * render of a lazily expanded row.
  */
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { describe, expect, it } from 'vitest';
+import { createLogger } from '@brainstrike/logging';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  __resetMalformedKeyReportingForTests,
   createFileRowMetadataSourceRegistry,
   type FileRowMetadataSource,
 } from '../indexing/file-row-metadata-source-registry';
+
+const registryLogger = createLogger('FileRowMetadataSourceRegistry');
+let errorSpy: ReturnType<typeof vi.spyOn>;
 
 const ROOT_A = 'root-a';
 const ROOT_B = 'root-b';
@@ -25,6 +30,15 @@ function stubSource(overrides: Partial<FileRowMetadataSource> = {}): FileRowMeta
 }
 
 describe('file row metadata source registry', () => {
+  beforeEach(() => {
+    __resetMalformedKeyReportingForTests();
+    errorSpy = vi.spyOn(registryLogger, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
+
   it('dispatches to the source that owns the key’s root', () => {
     const registry = createFileRowMetadataSourceRegistry();
     registry.register(ROOT_A, stubSource({ getNodeSize: () => 10 }));
@@ -51,21 +65,37 @@ describe('file row metadata source registry', () => {
     expect(seen).toEqual(['src/nested/a.ts']);
   });
 
-  it('reports an INCOMPLETE subtree — never null — for an unregistered root', () => {
+  /**
+   * The two failure modes are NOT the same and must not be conflated: an
+   * unregistered root is legitimate and transient (a section unmounting while a
+   * cell is still subscribed), so it stays quiet; a malformed key is an
+   * invariant violation that nothing will ever resolve, so it must surface.
+   */
+  it('reports an INCOMPLETE subtree — never null — for an unregistered root, and stays QUIET', () => {
     const registry = createFileRowMetadataSourceRegistry();
     expect(registry.getDirectorySubtree(encodeFileSelection(ROOT_A, 'src'))).toEqual({
       fileKeys: [],
       isComplete: false,
     });
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
-  it('reports an INCOMPLETE subtree for a malformed key instead of throwing', () => {
+  it('LOGS a malformed key at error level instead of masking it as unfinished work', () => {
     const registry = createFileRowMetadataSourceRegistry();
     expect(registry.getDirectorySubtree('not-a-composite-key')).toEqual({
       fileKeys: [],
       isComplete: false,
     });
     expect(registry.getNodeSize('not-a-composite-key')).toBeUndefined();
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it('logs each malformed key ONCE so a render loop cannot flood the log', () => {
+    const registry = createFileRowMetadataSourceRegistry();
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      registry.getNodeSize('still-not-a-composite-key');
+    }
+    expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
   it('unregisters only its own source, so a remount-before-cleanup keeps the root sourced', () => {

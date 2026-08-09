@@ -24,6 +24,7 @@
  */
 
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { createLogger } from '@brainstrike/logging';
 import { getFileExtension } from '@brainstrike/utils/file-utils';
 import { memo, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { ExtensionBadge } from '../extension-badge';
@@ -37,6 +38,8 @@ import { formatTokenCount } from '../preview/use-preview-panel-state';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
 import { useFileTreeSelection } from './file-tree-selection-context';
 import type { FileTreeRowData } from './optimized-file-tree-model';
+
+const logger = createLogger('FileTreeMetadataCells');
 
 export const EXCLUDED_TOKENS_TITLE = 'binary file excluded from token counts';
 
@@ -79,9 +82,36 @@ function NumericValue({ children, title }: { children: string; title: string }) 
 }
 
 /**
+ * A row whose identity cannot be built. This is an invariant violation, not a
+ * value that is on its way: no amount of indexing will ever fill this cell, so
+ * it must NOT render the pending placeholder. It renders the unavailable dash
+ * with an error tooltip, and the cause is logged once per row.
+ */
+const UNIDENTIFIED_ROW_TITLE = 'Metadata unavailable — this row has no workspace identity';
+
+const reportedUnidentifiedRows = new Set<string>();
+const MAX_REPORTED_UNIDENTIFIED_ROWS = 100;
+
+function reportUnidentifiedRow(path: string, error?: unknown): void {
+  if (reportedUnidentifiedRows.has(path)) {
+    return;
+  }
+  if (reportedUnidentifiedRows.size < MAX_REPORTED_UNIDENTIFIED_ROWS) {
+    reportedUnidentifiedRows.add(path);
+  }
+  logger.error('Tree row has no resolvable composite key; metadata cannot be read', {
+    ...(error === undefined ? {} : { error }),
+    path,
+  });
+}
+
+/**
  * Composite key for a row. Prefers the node's OWN root identity — in forest
  * mode a row can belong to a different root than the tree's fallback folderId,
  * and a key built from the wrong root would read another workspace's metadata.
+ *
+ * Returns null ONLY when the row cannot be identified at all, which the cells
+ * surface as an explicit error rather than an empty cell.
  */
 function useRowCompositeKey(rowData: FileTreeRowData): string | null {
   const { folderId: fallbackFolderId } = useFileTreeSelection();
@@ -89,9 +119,17 @@ function useRowCompositeKey(rowData: FileTreeRowData): string | null {
   return useMemo(() => {
     const folderId = rootFolderId || fallbackFolderId;
     if (!(folderId && path)) {
+      reportUnidentifiedRow(path);
       return null;
     }
-    return encodeFileSelection(folderId, path);
+    try {
+      return encodeFileSelection(folderId, path);
+    } catch (error) {
+      // encodeFileSelection rejects paths it cannot round-trip. Catching here
+      // is what stops a malformed key from ever reaching the store.
+      reportUnidentifiedRow(path, error);
+      return null;
+    }
   }, [fallbackFolderId, path, rootFolderId]);
 }
 
@@ -168,7 +206,7 @@ export const FileTreeTokensCell = memo(function FileTreeTokensCellComponent({
 }: MetadataCellProps) {
   const compositeKey = useRowCompositeKey(rowData);
   if (!compositeKey) {
-    return null;
+    return <UnavailableValue title={UNIDENTIFIED_ROW_TITLE} />;
   }
   if (rowData.fileNode.type === 'directory') {
     return <DirectoryTokensValue compositeKey={compositeKey} />;
@@ -210,7 +248,7 @@ export const FileTreeSizeCell = memo(function FileTreeSizeCellComponent({
 }: MetadataCellProps) {
   const compositeKey = useRowCompositeKey(rowData);
   if (!compositeKey) {
-    return null;
+    return <UnavailableValue title={UNIDENTIFIED_ROW_TITLE} />;
   }
   if (rowData.fileNode.type === 'directory') {
     return <DirectorySizeValue compositeKey={compositeKey} />;

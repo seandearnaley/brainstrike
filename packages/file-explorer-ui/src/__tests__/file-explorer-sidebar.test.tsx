@@ -235,7 +235,9 @@ describe('FileExplorerSidebar', () => {
 
     // Wait for both per-root FileTreeProviders to load and render treegrids
     await waitFor(() => {
-      const trees = screen.getAllByRole('treegrid', { name: 'File tree' });
+      // Forest sections name their own root (BST-1208 a11y), so match the
+      // shared prefix rather than the single-root exact name.
+      const trees = screen.getAllByRole('treegrid', { name: /^File tree/ });
       expect(trees).toHaveLength(2);
     });
   });
@@ -344,14 +346,14 @@ describe('FileExplorerSidebar', () => {
 
     // Wait for root B's treegrid to appear then click a row in it
     await waitFor(() => {
-      const trees = screen.getAllByRole('treegrid', { name: 'File tree' });
+      const trees = screen.getAllByRole('treegrid', { name: /^File tree/ });
       // At least root B's tree should be present (has content)
       expect(trees.length).toBeGreaterThanOrEqual(1);
     });
 
     // The second root section wraps its tree in a focus-switch div;
     // clicking any row in root B's tree should trigger setFocusedRoot('/project-b').
-    const trees = screen.getAllByRole('treegrid', { name: 'File tree' });
+    const trees = screen.getAllByRole('treegrid', { name: /^File tree/ });
     const rootBTree = trees.at(-1) as HTMLElement;
     await user.click(rootBTree);
     expect(setFocusedRoot).toHaveBeenCalledWith('/project-b');

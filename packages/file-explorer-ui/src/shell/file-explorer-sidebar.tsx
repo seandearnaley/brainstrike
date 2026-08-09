@@ -469,6 +469,9 @@ const PerRootTreePane = ({
       {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
       {hasContent ? (
         <OptimizedFileTree
+          // Forest: N treegrids all named "File tree" leave a screen-reader
+          // user unable to tell which root section they are in.
+          ariaLabel={`File tree: ${rootDirectoryHandle.name}`}
           cancelChildLoading={sectionCancelChildLoading}
           fileTree={displayTree}
           folderId={folderId}
@@ -822,7 +825,7 @@ const FileExplorerSidebar = memo(
     // against this column (shared-scroller mode). Unconditional hook — forest
     // mode is a render-time branch below.
     const forestScrollRef = useRef<HTMLDivElement | null>(null);
-    const { visibleMetadataColumnIds } = useExplorerColumns();
+    const { columnWidths, visibleMetadataColumnIds } = useExplorerColumns();
 
     const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
 
@@ -858,6 +861,7 @@ const FileExplorerSidebar = memo(
               the section tables through the shared column-size store and the
               scroller's measured gutter — see explorer-column-header.tsx. */}
           <ExplorerColumnHeader
+            columnWidths={columnWidths}
             scrollerRef={forestScrollRef}
             visibleMetadataColumnIds={visibleMetadataColumnIds}
           />

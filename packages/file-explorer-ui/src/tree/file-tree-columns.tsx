@@ -31,6 +31,15 @@ export interface ExplorerColumnConfig {
   label: string;
 }
 
+/**
+ * A config narrowed to a metadata column. Exported so consumers iterating
+ * `EXPLORER_METADATA_COLUMN_CONFIGS` index the sizing/visibility maps directly
+ * instead of re-asserting `id as ExplorerMetadataColumnId` at every call site.
+ */
+export interface ExplorerMetadataColumnConfig extends ExplorerColumnConfig {
+  id: ExplorerMetadataColumnId;
+}
+
 export const EXPLORER_COLUMN_CONFIGS: readonly ExplorerColumnConfig[] = [
   { align: 'left', id: 'name', label: 'Name' },
   { align: 'left', id: 'type', label: 'Type' },
@@ -38,10 +47,9 @@ export const EXPLORER_COLUMN_CONFIGS: readonly ExplorerColumnConfig[] = [
   { align: 'right', id: 'size', label: 'Size' },
 ] as const;
 
-export const EXPLORER_METADATA_COLUMN_CONFIGS: readonly ExplorerColumnConfig[] =
+export const EXPLORER_METADATA_COLUMN_CONFIGS: readonly ExplorerMetadataColumnConfig[] =
   EXPLORER_COLUMN_CONFIGS.filter(
-    (column): column is ExplorerColumnConfig & { id: ExplorerMetadataColumnId } =>
-      column.id !== 'name'
+    (column): column is ExplorerMetadataColumnConfig => column.id !== 'name'
   );
 
 /**
@@ -86,7 +94,7 @@ export interface BuildFileTreeColumnsOptions {
 }
 
 function buildMetadataColumn(
-  config: ExplorerColumnConfig & { id: ExplorerMetadataColumnId }
+  config: ExplorerMetadataColumnConfig
 ): TreeTableColumn<FileTreeRowData> {
   const bounds = EXPLORER_COLUMN_BOUNDS[config.id];
   const Cell =
@@ -138,10 +146,8 @@ export function buildFileTreeColumns({
     },
   ];
   for (const config of EXPLORER_METADATA_COLUMN_CONFIGS) {
-    if (visible.has(config.id as ExplorerMetadataColumnId)) {
-      columns.push(
-        buildMetadataColumn(config as ExplorerColumnConfig & { id: ExplorerMetadataColumnId })
-      );
+    if (visible.has(config.id)) {
+      columns.push(buildMetadataColumn(config));
     }
   }
   return columns;

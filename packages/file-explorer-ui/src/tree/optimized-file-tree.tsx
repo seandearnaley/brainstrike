@@ -96,6 +96,12 @@ const ROW_HEIGHT = 29;
 const EMPTY_SELECTION_SET = new Set<string>();
 const EMPTY_EXPLICIT_SELECTION_MODEL = createEmptySelectionModel();
 interface IOptimizedFileTreeProps {
+  /**
+   * Accessible name for this treegrid. Forest sections name their ROOT here:
+   * N grids all announcing "File tree" leave a screen-reader user unable to
+   * tell which workspace folder they are in.
+   */
+  ariaLabel?: string | undefined;
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: ((path: string) => void) | undefined;
   fileTree: IFileNode[];
@@ -294,6 +300,7 @@ export function resetFileTreeTelemetry(): void {
  */
 const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
   ({
+    ariaLabel = 'File tree',
     fileTree,
     loadingFiles,
     onRender,
@@ -993,7 +1000,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // inside the cells via context, not via column cell closures. This prevents
     // all visible rows from re-rendering on every checkbox toggle. The only
     // legitimate rebuild trigger is the visible-column set changing.
-    const { visibleMetadataColumnIds } = useExplorerColumns();
+    const { columnWidths, visibleMetadataColumnIds } = useExplorerColumns();
     const columns = useMemo<TreeTableColumn<FileTreeRowData>[]>(() => {
       fileTreeTelemetry.columnsRebuildCount++;
       return buildFileTreeColumns({
@@ -1002,11 +1009,24 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       });
     }, [handleNodeSelectionEvent, visibleMetadataColumnIds]);
 
-    // Persisted widths for the metadata columns. Subscribed here so a resize in
-    // one section re-renders every section's colgroup on the next frame — that
-    // is what keeps forest sections and the panel-level header in one grid.
-    const columnSizes = useExplorerColumnSizesStore((state) => state.sizes);
-    const setColumnSizes = useExplorerColumnSizesStore((state) => state.setAll);
+    // Widths come from the columns context (persisted, then shrunk to fit the
+    // panel) so every section and the panel-level forest header render ONE
+    // grid. Resizes are forwarded per CHANGED column rather than as the whole
+    // map: TreeTable echoes back the widths it was given, so a `setAll` here
+    // would persist the shrunk values and permanently lose the width the user
+    // actually chose once the panel widened again.
+    const setColumn = useExplorerColumnSizesStore((state) => state.setColumn);
+    const columnWidthsRef = useRef(columnWidths);
+    useEffect(() => {
+      columnWidthsRef.current = columnWidths;
+    });
+    const handleColumnSizesChange = useEventCallback((next: Record<string, number>) => {
+      for (const [columnId, width] of Object.entries(next)) {
+        if (columnWidthsRef.current[columnId] !== width) {
+          setColumn(columnId, width);
+        }
+      }
+    });
 
     useEffect(() => {
       onRender?.();
@@ -1100,16 +1120,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
               a real selectedId that follows the focused row.
             */}
               <TreeTable
-                ariaLabel="File tree"
+                ariaLabel={ariaLabel}
                 className="file-tree"
-                columnSizes={columnSizes}
+                columnSizes={columnWidths}
                 columns={columns}
                 expandedIds={renderedExpandedDirectoryPaths}
                 maxHeight="none"
                 nodes={treeRows}
                 nodesArePreFlattened={true}
                 onCheckboxSpace={handleRowCheckboxSpace}
-                onColumnSizesChange={setColumnSizes}
+                onColumnSizesChange={handleColumnSizesChange}
                 onRowContextMenu={handleRowContextMenu}
                 onSelect={handleTreeRowSelect}
                 onToggleExpand={handleToggleExpand}

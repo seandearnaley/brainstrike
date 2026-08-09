@@ -39,9 +39,15 @@ import type { useOptionalFileTreeNormalizedContext } from './file-tree-provider'
 import { indexFileNodesByPath } from './optimized-file-tree-model';
 
 /**
- * Above this many descendant files a folder total is not computed. Chosen so a
- * full reconciliation over a screenful of folder rows stays in the low
- * hundreds of thousands of reads even in a large monorepo.
+ * Above this many descendant files a folder total is not computed.
+ *
+ * MEASURED at the cap (`__tests__/explorer-directory-rollup-cost.test.ts`): a
+ * full viewport of 30 directory rows, each with 2000 already-counted
+ * descendants, costs **21-29ms** of synchronous aggregation. That is the
+ * worst case — a rollup short-circuits on the first `pending` file, so a
+ * mid-index tree is far cheaper — but it is several frames, which is why the
+ * first read of a rollup is deferred off the paint path below rather than
+ * computed inline.
  */
 export const DIRECTORY_ROLLUP_MAX_FILES = 2000;
 
@@ -148,6 +154,41 @@ interface ResolvedSourceState {
   params: FileTreeMetadataSourceParams;
 }
 
+/**
+ * Deferred-rollup state, created once per mounted tree.
+ *
+ * MEASURED (BST-1208 review item 2,
+ * `__tests__/explorer-directory-rollup-cost.test.ts`): a full viewport of 30
+ * directory rows, each at the 2000-file cap with every descendant already
+ * counted, costs **21-29ms** of synchronous aggregation on the dev machine.
+ * That is several frames, and it would land squarely on the first paint of a
+ * scroll into a folder-dense region — so the first read is NOT allowed to
+ * compute. It answers "not enumerated yet" (an honest, already-supported
+ * state), the real subtrees are resolved one task later in a single batch, and
+ * the affected keys are invalidated so exactly those cells repaint.
+ *
+ * The recurring `invalidateAll` reconciliation still aggregates synchronously,
+ * which is fine: it runs in a timer rather than on the paint path, and during
+ * an index run almost every rollup short-circuits on the first pending file.
+ */
+interface DeferredRollupState {
+  cache: Map<string, FileRowDirectorySubtree>;
+  pending: Set<string>;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+function createDeferredRollupState(): DeferredRollupState {
+  return { cache: new Map(), pending: new Set(), timer: null };
+}
+
+function cancelDeferredFlush(deferred: DeferredRollupState): void {
+  if (deferred.timer !== null) {
+    clearTimeout(deferred.timer);
+    deferred.timer = null;
+  }
+  deferred.pending.clear();
+}
+
 export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams): void {
   const metadata = useOptionalFileRowMetadata();
 
@@ -172,13 +213,48 @@ export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams):
     resolvedRef.current = { displayNodeByPath, params };
   });
 
-  const source = useMemo<FileRowMetadataSource>(
-    () => ({
-      getDirectorySubtree: (path) => resolveDirectorySubtree(resolvedRef.current, path),
+  const storeRef = useRef(metadata?.store);
+  const deferredRef = useRef<DeferredRollupState>(createDeferredRollupState());
+  useEffect(() => {
+    storeRef.current = metadata?.store;
+  });
+
+  const source = useMemo<FileRowMetadataSource>(() => {
+    const flush = (): void => {
+      const deferred = deferredRef.current;
+      deferred.timer = null;
+      const paths = [...deferred.pending];
+      deferred.pending.clear();
+      if (paths.length === 0) {
+        return;
+      }
+      const { folderId: currentFolderId } = resolvedRef.current.params;
+      const invalidatedKeys: string[] = [];
+      for (const path of paths) {
+        deferred.cache.set(path, resolveDirectorySubtree(resolvedRef.current, path));
+        if (currentFolderId) {
+          invalidatedKeys.push(encodeFileSelection(currentFolderId, path));
+        }
+      }
+      // Only the directories that were actually waiting repaint; a rollup that
+      // resolved to the same partial state notifies nobody.
+      storeRef.current?.invalidate(invalidatedKeys);
+    };
+
+    return {
+      getDirectorySubtree: (path) => {
+        const deferred = deferredRef.current;
+        const cached = deferred.cache.get(path);
+        if (cached) {
+          return cached;
+        }
+        deferred.pending.add(path);
+        deferred.timer ??= setTimeout(flush, 0);
+        return UNENUMERATED_DIRECTORY_SUBTREE;
+      },
       getNodeSize: (path) => resolveNodeSize(resolvedRef.current, path),
-    }),
-    []
-  );
+    };
+  }, []);
 
   const { folderId, treeRows } = params;
   const registerSource = metadata?.registerSource;
@@ -191,8 +267,16 @@ export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams):
 
   const store = metadata?.store;
   useEffect(() => {
-    // Runs on mount too, which is what turns the first render's "no source yet"
-    // reads into real values once registration has landed.
+    // A structural change moves rollups without naming a key, so the resolved
+    // subtrees are dropped and recomputed, and any flush queued against the OLD
+    // tree is cancelled. Runs on mount too, which is what turns the first
+    // render's "no source yet" reads into real values once registration lands.
+    const deferred = deferredRef.current;
+    cancelDeferredFlush(deferred);
+    deferred.cache.clear();
     store?.invalidateAll();
+    // Cleanup runs before the next pass AND on unmount, so a queued flush can
+    // never outlive the tree that scheduled it.
+    return () => cancelDeferredFlush(deferred);
   }, [store, treeRows]);
 }

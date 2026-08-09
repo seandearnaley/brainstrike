@@ -62,16 +62,22 @@ function useScrollbarGutterWidth(scrollerRef: RefObject<HTMLElement | null>): nu
 }
 
 export interface ExplorerColumnHeaderProps {
+  /**
+   * RENDER widths from `useExplorerColumns` — already shrunk to fit the panel.
+   * Reading the raw store here instead would let the header and the section
+   * tables disagree the moment the persisted widths outgrew the panel.
+   */
+  columnWidths: Record<string, number>;
   /** The forest sections scroller whose gutter this header must clear. */
   scrollerRef: RefObject<HTMLElement | null>;
   visibleMetadataColumnIds: readonly ExplorerMetadataColumnId[];
 }
 
 export function ExplorerColumnHeader({
+  columnWidths,
   scrollerRef,
   visibleMetadataColumnIds,
 }: ExplorerColumnHeaderProps) {
-  const sizes = useExplorerColumnSizesStore((state: TreeTableColumnSizesStoreState) => state.sizes);
   const setColumn = useExplorerColumnSizesStore(
     (state: TreeTableColumnSizesStoreState) => state.setColumn
   );
@@ -84,9 +90,7 @@ export function ExplorerColumnHeader({
   }
 
   const visible = new Set(visibleMetadataColumnIds);
-  const columns = EXPLORER_METADATA_COLUMN_CONFIGS.filter((config) =>
-    visible.has(config.id as ExplorerMetadataColumnId)
-  );
+  const columns = EXPLORER_METADATA_COLUMN_CONFIGS.filter((config) => visible.has(config.id));
 
   return (
     <div
@@ -94,34 +98,51 @@ export function ExplorerColumnHeader({
       data-testid="explorer-column-header"
       style={{ paddingRight: gutterWidth }}
     >
-      <table aria-label="Explorer columns" className="w-full table-fixed caption-bottom text-sm">
+      {/*
+        a11y: role="presentation" strips the TABLE semantics, because this
+        header belongs to N sibling treegrids and ARIA has no way to associate
+        one header with several grids — announcing a stray one-row table is
+        worse than announcing nothing. The column labels are aria-hidden since
+        every metadata cell already self-describes (its sr-only text carries the
+        column's meaning, e.g. "1,234 tokens"). The resize handles deliberately
+        stay in the accessibility tree: they are real controls with their own
+        names, and burying focusable elements under aria-hidden is precisely the
+        violation that rule exists to prevent.
+      */}
+      <table className="w-full table-fixed caption-bottom text-sm" role="presentation">
         <colgroup>
           {/* No width: table-fixed hands Name the remainder, exactly as in the
               section tables' colgroup. */}
           <col />
-          {columns.map((config) => (
-            <col key={config.id} style={{ width: `${sizes[config.id] as number | undefined}px` }} />
-          ))}
+          {columns.map((config) => {
+            const width = columnWidths[config.id];
+            return (
+              <col
+                key={config.id}
+                style={width === undefined ? undefined : { width: `${width}px` }}
+              />
+            );
+          })}
         </colgroup>
         <thead>
           <tr>
             <th className={cn('text-left text-muted-foreground', EXPLORER_NAME_HEADER_CLASS)}>
-              Name
+              <span aria-hidden="true">Name</span>
             </th>
             {columns.map((config) => {
-              const columnId = config.id as ExplorerMetadataColumnId;
-              const width = sizes[columnId];
+              const width = columnWidths[config.id];
               return (
                 <th
                   className={cn(
                     'relative text-left text-muted-foreground',
                     EXPLORER_METADATA_HEADER_CLASS
                   )}
-                  data-column-id={columnId}
-                  key={columnId}
+                  data-column-id={config.id}
+                  key={config.id}
                   style={{ width }}
                 >
                   <div
+                    aria-hidden="true"
                     className={cn(
                       'flex items-center gap-1',
                       config.align === 'right' && 'justify-end'
@@ -131,8 +152,8 @@ export function ExplorerColumnHeader({
                   </div>
                   {width === undefined ? null : (
                     <ColumnResizeHandle
-                      bounds={getExplorerColumnResizeBounds(columnId)}
-                      columnId={columnId}
+                      bounds={getExplorerColumnResizeBounds(config.id)}
+                      columnId={config.id}
                       columnLabel={config.label}
                       currentWidth={width}
                       onResize={setColumn}

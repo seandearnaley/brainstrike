@@ -146,9 +146,28 @@ Windowing and performance:
     `computeDirectoryRollup` throws on by design.
   - Non-values are explicit and distinct: `pending` is a placeholder (never
     `0`), `excluded` is an em dash with the binary tooltip, and a PARTIAL
-    directory rollup never renders a number. Folder rollups also refuse
-    subtrees above `DIRECTORY_ROLLUP_MAX_FILES`, reported honestly as "not
-    fully enumerated".
+    directory rollup never renders a number. A row whose composite key cannot
+    be built is an ERROR, not pending: it renders the unavailable dash with an
+    error tooltip and logs once. Likewise the source registry logs a malformed
+    composite key at error level (once per key) while an unregistered root —
+    legitimate and transient — stays quiet.
+  - Folder rollups refuse subtrees above `DIRECTORY_ROLLUP_MAX_FILES`, reported
+    honestly as "not fully enumerated", AND the first read of any rollup is
+    deferred off the paint path: it answers "not enumerated yet", resolves the
+    batch one task later, and invalidates just those keys. Measured
+    justification lives in `__tests__/explorer-directory-rollup-cost.test.ts`
+    (30 capped directory rows = 21-29ms of synchronous aggregation). Do not
+    make the first read compute inline again.
+  - **Widths are clamped to the panel at render time**
+    (`resolveExplorerColumnWidths`). `table-fixed` gives the Name column
+    whatever the metadata columns leave — including zero — and the section
+    wrapper is `overflow-hidden`, so oversized persisted widths silently
+    clipped the trailing column off-panel and erased every filename. Columns
+    shrink proportionally, never below their own `minWidth`, and always reserve
+    120px for Name. The clamp is a projection, never a mutation: the store
+    keeps the user's width and widening the panel restores it, which is why
+    resizes are forwarded per CHANGED column (`setColumn`) rather than as a
+    whole map.
   - **Header shape depends on the scroll owner.** Single-root passes
     `showColumnHeader` and uses TreeTable's own sticky header inside its
     viewport. FOREST mode renders ONE panel-level header
@@ -159,6 +178,13 @@ Windowing and performance:
     scrollbar gutter (0 with overlay scrollbars). Pinned by
     `__tests__/explorer-column-header.test.tsx`. Do NOT put sticky headers
     inside shared-scroller sections.
+  - a11y for that header: it is `role="presentation"` with `aria-hidden`
+    LABELS, because one header cannot be ARIA-associated with N sibling
+    treegrids and every metadata cell already self-describes via sr-only text.
+    The resize handles stay in the accessibility tree — never bury focusable
+    controls under `aria-hidden`. Each forest section names its own root
+    (`aria-label="File tree: <root>"`); single-root stays `"File tree"`.
+    TreeTable's own header cells carry `scope="col"`.
   - Below 300px of panel width every metadata column is suppressed
     (name-only). That threshold is deliberately the same width at which the
     toolbar can host the Columns control — see the narrow-toolbar geometry in
