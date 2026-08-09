@@ -50,6 +50,7 @@ import { applyQuickFilterToTree, collectVisibleFiles } from '../utils/quick-filt
 import {
   CompactToolbarActions,
   FilterChipsToggleButton,
+  isCancellableOperationRunning,
   isForestModeActive,
   PanelFloatingTreeActions,
   PanelTreeActionButtons,
@@ -698,6 +699,10 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   // context — the legacy path below only expands the focused provider's
   // (invisible) top-level tree when multiple roots are active.
   const forestActions = useOptionalForestTreeActions();
+  // Single source for the forest cancel: the toolbar cluster and the
+  // compact-menu yield rule must agree on whether one exists, or the menu could
+  // stand down for an operation that renders no cancel.
+  const forestCancelExpandAll = forestActions?.cancelExpandAll ?? null;
   const isForestMode = isForestModeActive(rootDirectoryHandles);
   // Run-boundary signal only — high-frequency progress is subscribed by the
   // PanelTreeActionButtons leaf, never by this panel component.
@@ -824,12 +829,18 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
               <CompactToolbarActions
                 onRefresh={handleRefresh}
                 setFiltersExpanded={setFiltersExpanded}
-                state={resolveCompactToolbarActionsState(
-                  Boolean(rootDirectoryHandle),
+                state={resolveCompactToolbarActionsState({
+                  hasRoot: Boolean(rootDirectoryHandle),
                   isFiltersExpanded,
                   isLoading,
-                  isRefreshing
-                )}
+                  isOperationInProgress: isCancellableOperationRunning({
+                    forestCancelExpandAll,
+                    isExpandingAll,
+                    isForestExpandingAll,
+                    loadingProgress,
+                  }),
+                  isRefreshing,
+                })}
               />
             }
             filtersControl={
@@ -873,7 +884,7 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
                   cancelExpandAll={cancelExpandAll}
                   cancellable={cancellable}
                   expandAllProgress={expandAllProgress}
-                  forestCancelExpandAll={forestActions?.cancelExpandAll ?? null}
+                  forestCancelExpandAll={forestCancelExpandAll}
                   handleCancelOperation={handleCancelOperation}
                   isCancelling={isCancelling}
                   isExpandingAll={isExpandingAll}

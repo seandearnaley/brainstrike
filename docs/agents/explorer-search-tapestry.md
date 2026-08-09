@@ -406,6 +406,21 @@ fallback.
   replaced by the full Refresh and View Filters controls; all three right-side
   controls are 28px with 4px gaps. Select All remains the edge action at every
   width, preventing any sibling from intercepting its pointer region.
+- **The cancel affordance is never width-gated.** The inline scanning
+  indicator's Cancel (X) is the ONLY way to abort a running expand-all sweep —
+  Refresh is disabled for the duration and the compact menu has never carried a
+  cancel — so `treeActionsControl` renders OUTSIDE the `@[236px]:contents
+  hidden` wrapper and the cancel button carries no container query. #1916
+  originally swept the whole tree-actions cluster into that wrapper, which left
+  the 180px default-width desktop panel with no abort at all; the desktop
+  expand-all E2E caught it once the lane started collecting again (BST-1217).
+  Only ONE cancel node may exist in the DOM — a second, narrow-width copy would
+  trip Playwright strict mode even while `display:none` — so width adaptation
+  happens by collapsing the indicator's spinner and count, never by duplicating
+  the button. To keep the 76px track's math intact, the compact-actions menu
+  yields its slot for the duration of an operation
+  (`resolveCompactToolbarActionsState` → `yielded-to-cancel`); its only live
+  item is View Filters, since its Refresh item is disabled mid-operation.
 - **Paired tests:**
   `packages/file-explorer-ui/src/tree/__tests__/use-file-tree-refresh-events.test.tsx`
   (tree consumer: incremental + overflow),
@@ -417,6 +432,12 @@ fallback.
   `apps/desktop/src/__tests__/renderer/adapters.test.ts` (watchDirectory),
   `packages/file-explorer-hooks/src/__tests__/use-file-system-watcher.test.ts`
   (per-root lifecycle + signal threading),
+  `packages/file-explorer-ui/src/__tests__/file-explorer-panel-toolbar-helpers.test.tsx`
+  (compact menu yields to cancel),
+  `packages/file-explorer-ui/src/__tests__/file-explorer-toolbar.test.tsx` +
+  `tree-action-buttons.test.tsx` (cancel is never width-gated),
+  `apps/desktop/e2e/file-explorer-selection.desktop.test.ts` (expand-all cancel
+  at the 180px default width),
   `packages/app-shell/src/background-indexing/__tests__/workspace-collection-sync-provider.test.tsx`
   (per-root full resync scoping),
   `packages/app-shell/src/changes/__tests__/use-rewind-explorer-recovery.test.tsx`
