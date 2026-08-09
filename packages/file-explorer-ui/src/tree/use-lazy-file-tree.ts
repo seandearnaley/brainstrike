@@ -308,6 +308,13 @@ export interface UseLazyFileTreeOptions {
   rootId?: string;
 }
 
+/** The exact target a completed `resetCommittedRootState` committed to. */
+interface CommittedReset {
+  identity: string | null;
+  isInitialLoading: boolean;
+  rootFolderId: string;
+}
+
 /**
  * Hook for managing lazily-loaded file tree state.
  *
@@ -369,6 +376,14 @@ export function useLazyFileTree(
   const loadRootRunIdRef = useRef(0);
   const lastAppliedRootLoadRef = useRef<InFlightRootLoad | null>(null);
   const committedRootIdentityRef = useRef<string | null>(null);
+  /**
+   * The target of the last reset that actually reached the worker. Two
+   * independent no-root paths call `resetCommittedRootState(null, '', false)` —
+   * the auto-load effect's `else` branch and `prepareRootLoad`'s missing
+   * handle/adapter return — so without this the worker is re-initialized once
+   * per trigger during startup, before any root exists.
+   */
+  const committedResetRef = useRef<CommittedReset | null>(null);
 
   // Error handler for worker
   const handleWorkerError = useCallback((error: Error) => {
@@ -497,6 +512,27 @@ export function useLazyFileTree(
       nextRootFolderId: string,
       isInitialLoading: boolean
     ): Error | null => {
+      // A reset is redundant only when the state is ALREADY precisely what this
+      // reset would produce: same target, and nothing loaded since it was
+      // committed. Any real load repopulates the tree, the handle map,
+      // `initializedRootRef` or `lastAppliedRootLoadRef`, so a reset that has
+      // work to do can never be swallowed here — this skips duplicate no-ops,
+      // it does not soften a genuine reset.
+      const lastReset = committedResetRef.current;
+      if (
+        lastReset !== null &&
+        lastReset.identity === nextIdentity &&
+        lastReset.rootFolderId === nextRootFolderId &&
+        lastReset.isInitialLoading === isInitialLoading &&
+        committedRootIdentityRef.current === nextIdentity &&
+        initializedRootRef.current === null &&
+        lastAppliedRootLoadRef.current === null &&
+        fileTreeRef.current.length === 0 &&
+        handleMapRef.current.size === 0
+      ) {
+        return null;
+      }
+
       fileTreeRef.current = [];
       normalizedTreeRef.current = createEmptyNormalizedFileTreeState();
       rendererExpandAllSessionRef.current = false;
@@ -520,6 +556,14 @@ export function useLazyFileTree(
 
       try {
         port.init([], nextRootFolderId);
+        // Recorded ONLY once the worker has actually been told, so a throwing
+        // init (or a not-yet-created port above) leaves the next call free to
+        // retry rather than marking a reset the worker never received.
+        committedResetRef.current = {
+          identity: nextIdentity,
+          isInitialLoading,
+          rootFolderId: nextRootFolderId,
+        };
         return null;
       } catch (error) {
         const workerError = toError(error);
