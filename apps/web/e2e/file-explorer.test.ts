@@ -287,7 +287,9 @@ test.describe('File Explorer', () => {
       expect(geometry.tableHeight).toBeLessThanOrEqual(40);
     });
 
-    test('paints tree rows at exactly the pitch its virtualizer models', async ({ page }) => {
+    test('paints tree rows at exactly the pitch its virtualizer models', {
+      tag: '@web-smoke',
+    }, async ({ page }) => {
       // OptimizedFileTree passes TreeTable a NUMERIC rowHeight, which disables
       // per-row measurement: nothing ever reconciles the declared pitch with the
       // painted one, so a wrong constant silently skews every offset the
@@ -295,10 +297,20 @@ test.describe('File Explorer', () => {
       // spacer (paddingTop === firstRenderedIndex * rowHeight) and compare it to
       // real painted geometry — this stays true whatever the constant's value,
       // so a future row-CSS change that shifts the pitch fails here.
+      //
+      // Tagged @web-smoke deliberately: this is the ONLY check that can catch
+      // pitch drift (jsdom has no layout), so it has to gate merges rather than
+      // report the regression the next morning. The tree is sized to the
+      // invariant's actual need — enough rows for an interior window with a
+      // spacer on both sides — not to a round number, to stay cheap enough for
+      // a lane that runs --workers=2 --max-failures=1.
+      const rowCount = 240;
+      const scrollTarget = 2400;
+
       explorer = await bootstrapFileExplorer(page, {
         resetSettings: true,
         tree: Object.fromEntries(
-          Array.from({ length: 1200 }, (_, index) => [
+          Array.from({ length: rowCount }, (_, index) => [
             `file-${String(index).padStart(4, '0')}.ts`,
             `export const value${index} = ${index};`,
           ])
@@ -310,19 +322,44 @@ test.describe('File Explorer', () => {
         explorer.fileTree.getByRole('checkbox', { name: 'Select file-0000.ts' })
       ).toBeVisible();
 
-      const geometry = await explorer.fileTree.evaluate(async (treegrid) => {
+      const geometry = await explorer.fileTree.evaluate(async (treegrid, targetScrollTop) => {
         const viewport = treegrid.closest<HTMLElement>('[data-testid="tree-table-viewport"]');
         const body = treegrid.querySelector('tbody');
         if (!(viewport && body)) {
           throw new Error('Expected the file tree to own a tree-table viewport');
         }
 
+        const readWindowStart = (): number => {
+          const first = [...body.children].find(
+            (row): row is HTMLElement =>
+              row instanceof HTMLElement && row.dataset['nodeId'] !== undefined
+          );
+          return first ? Number(first.dataset['index']) : Number.NaN;
+        };
+
         // Land mid-list so BOTH spacers exist and the window is fully interior.
-        viewport.scrollTop = 8000;
-        for (let frame = 0; frame < 8; frame++) {
+        // The virtualizer is configured `useFlushSync: false`, so its re-render
+        // is deliberately NOT synchronous with the scroll event — wait on the
+        // window actually settling rather than on a fixed frame count, which
+        // would be a time-based bet that a loaded CI runner eventually loses.
+        viewport.scrollTop = targetScrollTop;
+        let previousStart = Number.NaN;
+        let stableFrames = 0;
+        let frames = 0;
+        while (stableFrames < 3) {
           await new Promise((resolve) => {
             requestAnimationFrame(() => resolve(undefined));
           });
+          const currentStart = readWindowStart();
+          // NaN === NaN is false, so an empty window can never look stable.
+          stableFrames = currentStart === previousStart ? stableFrames + 1 : 0;
+          previousStart = currentStart;
+          frames += 1;
+          if (frames > 180) {
+            throw new Error(
+              `Virtual window never settled at scrollTop ${targetScrollTop} (last start index ${currentStart}).`
+            );
+          }
         }
 
         const children = [...body.children];
@@ -370,15 +407,16 @@ test.describe('File Explorer', () => {
           paintedPitch,
           paintedTopIndex: topmostVisible ? Number(topmostVisible.dataset['index']) : -1,
         };
-      });
+      }, scrollTarget);
 
       // The virtualizer's per-row step must be the step the browser paints.
       expect(Math.abs(geometry.declaredPitch - geometry.paintedPitch)).toBeLessThan(0.5);
       // …so the scrollport is as tall as the model claims, and the row sitting at
-      // the top edge is the row the model believes is there.
-      expect(Math.abs(geometry.contentHeight - 1200 * geometry.declaredPitch)).toBeLessThanOrEqual(
-        1
-      );
+      // the top edge is the row the model believes is there. The 1px tolerance is
+      // TableBody's `[&_tr:last-child]:border-0` dropping the final row's rule.
+      expect(
+        Math.abs(geometry.contentHeight - rowCount * geometry.declaredPitch)
+      ).toBeLessThanOrEqual(1);
       expect(geometry.paintedTopIndex).toBe(geometry.modelledTopIndex);
     });
 
