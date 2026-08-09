@@ -36,8 +36,8 @@ import {
 import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
 
 // Helper to wrap renders with TooltipProvider and the context-action registry
-// (CollectionBrowserView mounts the shared ActionContextMenu, whose
-// useActionRegistry throws without a provider).
+// (panel surfaces mount the shared ActionContextMenu, whose useActionRegistry
+// throws without a provider).
 const withProviders = (ui: React.ReactElement) => (
   <ActionRegistryProvider
     registry={createTestActionRegistry({ actions: collectionActions }).registry}
@@ -448,43 +448,6 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   }),
 }));
 
-vi.mock('react-resizable-panels', () => {
-  const React = require('react');
-  return {
-    Group: ({
-      children,
-      onLayoutChange,
-    }: {
-      children: React.ReactNode;
-      onLayoutChange?: (sizes: number[]) => void;
-    }) => {
-      React.useEffect(() => {
-        if (onLayoutChange) {
-          onLayoutChange([75, 25]);
-        }
-      }, [onLayoutChange]);
-      return <div data-testid="panel-group">{children}</div>;
-    },
-    Panel: React.forwardRef(
-      (
-        {
-          children,
-          id,
-        }: {
-          children: React.ReactNode;
-          id?: string;
-          onCollapse?: () => void;
-          onExpand?: () => void;
-        },
-        _ref: React.Ref<unknown>
-      ) => <div data-testid={`panel-${id}`}>{children}</div>
-    ),
-    Separator: (props: React.HTMLAttributes<HTMLHRElement>) => (
-      <hr data-testid="resize-handle" {...props} />
-    ),
-  };
-});
-
 describe('DatabaseDemoPanel', () => {
   beforeEach(() => {
     __resetImportActivitySnapshotForTests();
@@ -609,7 +572,7 @@ describe('DatabaseDemoPanel', () => {
 
       // Model downloads emit setDownloadProgress per progress tick. The panel
       // only consumes models/providers/isLoading, so a tick must not commit a
-      // re-render of the entire collection-browser panel.
+      // re-render of the entire database panel.
       act(() => {
         useModelRegistryStore.getState().setDownloadProgress('jinaai/jina-embeddings-v3', 42);
       });
@@ -635,7 +598,7 @@ describe('DatabaseDemoPanel', () => {
       );
     });
 
-    it('preserves one split-panel shell while the database repository initializes', async () => {
+    it('preserves one panel shell while the database repository initializes', async () => {
       useFileRecordRepositoryMock.mockReturnValue(null);
 
       const view = renderWithProviders(<DatabaseDemoPanel />);
@@ -655,7 +618,7 @@ describe('DatabaseDemoPanel', () => {
         '@[360px]:w-20',
         'w-7'
       );
-      expect(screen.getByTestId('database-panel-loading-top')).toHaveClass('flex-[38]');
+      expect(screen.getByTestId('database-panel-loading-top')).toHaveClass('flex-1');
       expect(screen.getByTestId('database-panel-loading-body')).toBeInTheDocument();
       expect(screen.getByTestId('database-panel-loading-actions')).toHaveClass('h-9');
 
@@ -701,12 +664,19 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.queryByRole('button', { name: /^Import\s*\(/ })).not.toBeInTheDocument();
     });
 
-    it('renders the collection browser view', async () => {
+    it('renders the primary panel without a collection browser tree', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
       });
+
+      // Survivors: the collection picker + its actions still drive the tab.
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument();
+      // The retired browser tree and its search bar are gone.
+      expect(screen.queryByTestId('collection-tree-region')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /hybrid search/i })).not.toBeInTheDocument();
     });
 
     it('publishes and clears desktop test hook snapshots in test mode', async () => {
@@ -716,7 +686,6 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         expect(window.__brainstrikeDatabaseDemoTestHooks__).toBeDefined();
-        expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__).toBeDefined();
       });
 
       // The panel runs no imports of its own, so it reports idle until the
@@ -747,20 +716,10 @@ describe('DatabaseDemoPanel', () => {
         })
       );
       __resetImportActivitySnapshotForTests();
-      expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__?.getSnapshot()).toEqual(
-        expect.objectContaining({
-          error: null,
-          firstResultNodeId: null,
-          hasSearched: false,
-          isSearching: false,
-          resultCount: 0,
-        })
-      );
 
       view.unmount();
 
       expect(window.__brainstrikeDatabaseDemoTestHooks__).toBeUndefined();
-      expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__).toBeUndefined();
       window.desktopLifecycle = undefined;
     });
 
@@ -770,14 +729,11 @@ describe('DatabaseDemoPanel', () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        // Trigger button's aria-label is dynamic — "Expand hybrid search" /
-        // "Collapse hybrid search" — so match by a case-insensitive regex
-        // covering both expanded and collapsed states.
-        expect(screen.getByRole('button', { name: /hybrid search/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument();
       });
 
       expect(screen.queryByText('No collection selected')).not.toBeInTheDocument();
-      expect(screen.getByText(/Create or select a collection/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
     });
 
     it('defers runtime model catalog loading until collection creation', async () => {
@@ -1061,19 +1017,20 @@ describe('DatabaseDemoPanel', () => {
       const view = renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByText('loaded.txt')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
       });
 
       mockRecordLiveQueryResult.loading = true;
       view.rerender(withProviders(<DatabaseDemoPanel />));
 
-      expect(screen.getByTestId('collection-tree-region')).toHaveAttribute('aria-busy', 'false');
+      // Revalidation is a background state: the panel stays mounted and
+      // non-busy, and only the Refresh affordance reflects the in-flight read.
+      expect(screen.getByTestId('database-demo-panel')).toHaveAttribute('aria-busy', 'false');
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
-      expect(screen.getByText('loaded.txt')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
     });
 
-    it('loads file records and provides them to collection browser', async () => {
+    it('loads file records for the primary panel', async () => {
       const mockRecords = [
         {
           content: 'test content',
@@ -1093,7 +1050,6 @@ describe('DatabaseDemoPanel', () => {
 
       renderWithProviders(<DatabaseDemoPanel />);
 
-      // The panel renders and provides data to CollectionBrowserView
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
       });
@@ -1236,12 +1192,16 @@ describe('DatabaseDemoPanel', () => {
       );
     });
 
-    it('names the database split resize separator', async () => {
+    it('no longer renders the retired browser split separator', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
+      await waitFor(() => {
+        expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
+      });
+
       expect(
-        await screen.findByRole('separator', { name: 'Resize database panels' })
-      ).toBeInTheDocument();
+        screen.queryByRole('separator', { name: 'Resize database panels' })
+      ).not.toBeInTheDocument();
     });
   });
 

@@ -27,8 +27,7 @@
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/vector-management": "workspace:*",
     "jszip": "catalog:",
-    "lucide-react": "catalog:",
-    "react-resizable-panels": "catalog:"
+    "lucide-react": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

@@ -9,7 +9,6 @@ const APP_STATE_KEYS = [
   'fileExplorerSettings',
   'file-explorer-storage-v5',
   'previewPanelPreferences.v1',
-  'collection-browser.v1',
   'database-demo.v2',
   'import-settings.v1',
   'background-indexing-preferences.v1',

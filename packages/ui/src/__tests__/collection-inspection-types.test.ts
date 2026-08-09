@@ -5,10 +5,9 @@ import {
   EMBEDDING_STATUS_CONFIG,
   type EmbeddingStatus,
   NODE_TYPE_CONFIG,
-  type SearchMode,
 } from '../collection-browser/types';
 
-describe('collection-browser types', () => {
+describe('collection inspection types', () => {
   describe('NODE_TYPE_CONFIG', () => {
     it('defines configuration for collection nodes', () => {
       expect(NODE_TYPE_CONFIG.collection).toBeDefined();
@@ -82,11 +81,6 @@ describe('collection-browser types', () => {
   });
 
   describe('type definitions', () => {
-    it('SearchMode type includes expected values', () => {
-      const modes: SearchMode[] = ['quick', 'semantic'];
-      expect(modes.length).toBe(2);
-    });
-
     it('DistanceMetric type includes expected values', () => {
       const metrics: DistanceMetric[] = ['cosine', 'l2', 'ip'];
       expect(metrics.length).toBe(3);

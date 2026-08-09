@@ -1,20 +1,11 @@
 /**
- * Collection Browser Module
+ * Collection inspection module
  *
- * Components for the unified hierarchical collection browser that provides
- * a tree-based view of collections, files, chunks, and embeddings.
+ * What survives the retired Collection Browser tree (BST-1213): the node
+ * inspector, the semantic-search tuning panel, and the shared search
+ * config/result contract used by the db-explorer executor.
  */
 
-// Re-export tree-table types for convenience
-export type { SortDirection, SortState } from '../tree-table/types';
-
-// Sub-components
-export type { CollectionBrowserProps } from './collection-browser';
-// Main component
-export { CollectionBrowser, shortenPath } from './collection-browser';
-export { CollectionBrowserToolbar } from './collection-browser-toolbar';
-export { FilterChip } from './filter-chip';
-export { FilterControls } from './filter-controls';
 export type { NodeInspectorProps } from './node-inspector';
 export { NodeInspector } from './node-inspector';
 // Semantic search components
@@ -25,46 +16,20 @@ export {
   RESULT_LIMIT_MIN,
 } from './search-config-bounds';
 export { SearchConfigPanel } from './search-config-panel';
-export { SearchModeBar } from './search-mode-bar';
 // Types
 export type {
   BrowserNodeData,
   ChunkData,
-  CollectionBrowserFilters,
-  CollectionBrowserToolbarProps,
   CollectionData,
-  CollectionTreeNode,
   DistanceMetric,
   EmbeddingData,
   EmbeddingStatus,
   EmbeddingStatusConfig,
   FileData,
-  FilterChipProps,
-  GroupByKey,
-  GroupHeaderData,
-  GroupingState,
   NodeTypeConfig,
   RetrievalMode,
   SearchConfig,
   SearchConfigPanelProps,
-  SearchMode,
-  SearchModeBarProps,
   SemanticSearchResult,
 } from './types';
-export {
-  DEFAULT_FILTERS,
-  DEFAULT_GROUPING_STATE,
-  DEFAULT_SEARCH_CONFIG,
-  EMBEDDING_STATUS_CONFIG,
-  NODE_TYPE_CONFIG,
-} from './types';
-export type {
-  CollectionSortDirection,
-  CollectionSortKey,
-  CollectionSortState,
-  CollectionTreeInput,
-  UseCollectionTreeOptions,
-  UseCollectionTreeResult,
-} from './use-collection-tree';
-// Hooks
-export { useCollectionTree } from './use-collection-tree';
+export { DEFAULT_SEARCH_CONFIG, EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
