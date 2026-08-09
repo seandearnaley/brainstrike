@@ -11,6 +11,7 @@ export type {
 } from './collection-select/index.js';
 export {
   CollectionSelect,
+  canonicalizeCollectionTimestamps,
   dispatchEmbeddingSetUpdated,
   fetchCollectionsSnapshot,
   formatCollectionLabel,

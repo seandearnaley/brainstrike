@@ -174,21 +174,34 @@ export function ExplorerImportAction({
     importFlow.handleImportClick();
   }, [activeCollectionId, importFlow.handleImportClick]);
 
-  // A clean finish needs no acknowledgement. `showImportProgress` latches true
-  // on the first progress event and is only cleared by the progress card's
-  // Close button, so pinning on it alone would hold the bar — and the bottom
-  // padding it forces on the tree — open forever once the selection is cleared.
-  // A run that reported errors still waits for the user to read them.
+  // Hold the bar only while there is something to read.
+  //
+  // Deliberately keyed on `isImporting`, NOT on `phase === 'complete'`: the
+  // service's abort and failure paths return without ever emitting a final
+  // progress, so a phase-based release left a cancelled or failed run pinned
+  // forever — and `ImportProgressBar` renders its Close button from the same
+  // "did it finish normally" guess, so there was no way to dismiss it either
+  // (hence `isSettled` below). Errors are the one outcome worth holding for.
   const importFailed = (importFlow.progress?.errors.length ?? 0) > 0;
-  const awaitingImportAcknowledgement =
-    importFlow.showImportProgress && (importFlow.progress?.phase !== 'complete' || importFailed);
+  const awaitingImportAcknowledgement = importFlow.showImportProgress && importFailed;
+
+  // A dialog outlives the popover that opened it but not this subtree, and the
+  // selection can drop to zero without a click (root change, refresh,
+  // watcher-driven pruning). Creating a collection in particular waits on the
+  // model registry, so it can be open a while.
+  const collectionDialogOpen =
+    collectionDialogs.createCollectionOpen ||
+    collectionDialogs.renameDialogOpen ||
+    collectionDialogs.deleteDialogOpen;
 
   // The import service lives in this component, and this component is a child
   // of the selection bar. Without the pin, clearing the selection mid-import
   // would unmount the service: its cleanup clears the app-wide
   // embedding-queue-active flag and its progress state goes with it. Pinning
   // holds the bar (and this subtree) open until the run is acknowledged.
-  useSelectionActionBarPin(importFlow.isImporting || awaitingImportAcknowledgement);
+  useSelectionActionBarPin(
+    importFlow.isImporting || awaitingImportAcknowledgement || collectionDialogOpen
+  );
 
   // This is the only surface that runs imports, so it is also the only one that
   // can report their progress. The Database panel's observability hook reads
@@ -224,6 +237,7 @@ export function ExplorerImportAction({
         >
           <ImportProgressBar
             isCancelling={importFlow.isCancelling}
+            isSettled={!importFlow.isImporting}
             onCancel={importFlow.handleCancelImport}
             onClose={() => importFlow.setShowImportProgress(false)}
             progress={importFlow.progress}

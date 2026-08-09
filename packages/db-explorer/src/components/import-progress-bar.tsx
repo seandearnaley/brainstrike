@@ -4,6 +4,16 @@ import type { EnhancedImportProgress } from '../types';
 
 interface ImportProgressBarProps {
   isCancelling?: boolean;
+  /**
+   * Whether the run has stopped, however it stopped.
+   *
+   * Dismissal used to be inferred from `completed >= total`, which is only ever
+   * true for a run that finished normally: the abort and failure paths return
+   * without emitting a final progress, so a cancelled or failed import rendered
+   * no Close button and could not be dismissed at all. Callers that know the
+   * flow's real state pass it; the count-based guess remains the fallback.
+   */
+  isSettled?: boolean;
   onCancel?: () => void;
   onClose?: () => void;
   progress: EnhancedImportProgress;
@@ -21,6 +31,7 @@ export function ImportProgressBar({
   onClose,
   onCancel,
   isCancelling,
+  isSettled,
 }: ImportProgressBarProps) {
   const { total, completed, errors } = progress;
   const filePercentage = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -120,7 +131,7 @@ export function ImportProgressBar({
             Cancel
           </Button>
         )}
-        {onClose && isComplete && (
+        {onClose && (isSettled ?? isComplete) && (
           <Button
             aria-label="Close import progress"
             className="h-6 w-6 shrink-0 p-0"

@@ -1,5 +1,6 @@
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { onEmbeddingSetUpdated } from '@brainstrike/utils/browser-events';
+import { canonicalizeCollectionTimestamps } from '@brainstrike/vector-management';
 import { useEffect } from 'react';
 
 /**
@@ -27,7 +28,13 @@ export function useCollectionCacheSync(): void {
           return;
         }
         if (detail?.collection) {
-          upsertCachedCollection(detail.collection);
+          // Same canonicalization `useCollections` applies to this event. This
+          // hook is the ONLY writer when the Database tab has never mounted —
+          // the flow this surface exists for — and `EmbeddingSet.createdAt` is
+          // `String(row.created_at)`, so a Date arrives as 'Sun Aug 09 2026 …'.
+          // compareCollectionsDesc compares createdAt relationally, and
+          // 'S' > '2', so a raw entry would sort above every ISO one.
+          upsertCachedCollection(canonicalizeCollectionTimestamps(detail.collection));
         }
       }),
     [removeCachedCollection, upsertCachedCollection]

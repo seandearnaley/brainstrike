@@ -4,6 +4,7 @@ export {
   type CollectionSelectProps,
   type CollectionSelectSize,
   type CollectionWithDocCount,
+  canonicalizeCollectionTimestamps,
   fetchCollectionsSnapshot,
   formatCollectionLabel,
   useCollections,

@@ -286,7 +286,7 @@ function toCanonicalTimestamp(value: string | Date): string {
  * Normalizes an event-sourced collection so it can share a cache — and a
  * sort — with the query-sourced ones.
  */
-function canonicalizeCollectionTimestamps(
+export function canonicalizeCollectionTimestamps(
   collection: CollectionWithDocCount
 ): CollectionWithDocCount {
   const createdAt = toCanonicalTimestamp(collection.createdAt);

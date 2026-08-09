@@ -482,6 +482,29 @@ describe('ExplorerImportAction', () => {
       expect(mockUseSelectionActionBarPin).toHaveBeenLastCalledWith(false);
     });
 
+    it('releases the pin and offers a dismiss after a cancelled run', async () => {
+      // The abort and failure paths return without emitting a final progress,
+      // so `phase` stays mid-run and `completed < total` forever. Keying either
+      // the pin or the Close button on "finished normally" stranded the bar
+      // with no way to dismiss it.
+      mockImportServiceState.isImporting = false;
+      mockImportServiceState.progress = {
+        completed: 3,
+        current: '/workspace/a.ts',
+        errors: [],
+        phase: 'importing',
+        total: 8,
+      };
+
+      await renderAction(<ExplorerImportAction />);
+
+      expect(mockUseSelectionActionBarPin).toHaveBeenLastCalledWith(false);
+      const progress = await screen.findByTestId('explorer-import-progress');
+      expect(
+        within(progress).getByRole('button', { name: 'Close import progress' })
+      ).toBeInTheDocument();
+    });
+
     it('holds the pin when a finished run reported errors', async () => {
       // Errors are the one thing the user has to actually read, so that run
       // keeps the bar until it is dismissed.
@@ -569,6 +592,22 @@ describe('ExplorerImportAction', () => {
 
     expect(mockUseSelectionActionBarPin).toHaveBeenCalledWith(false);
     expect(mockUseSelectionActionBarPin).not.toHaveBeenCalledWith(true);
+  });
+
+  it('pins the bar while a collection dialog is open', async () => {
+    // The dialogs live in this subtree, which dies with the selection — and the
+    // selection can drop to zero without a click (root change, refresh,
+    // watcher-driven pruning), taking a half-filled Create dialog with it.
+    const user = userEvent.setup();
+    mockCollections.current = [];
+    useVectorStatusUIStore.getState().setCachedCollections([]);
+    const picker = await openPicker();
+    mockUseSelectionActionBarPin.mockClear();
+
+    await user.click(within(picker).getByRole('button', { name: 'Create First Collection' }));
+
+    expect(await screen.findByTestId('mock-create-embedding-set-dialog')).toBeInTheDocument();
+    expect(mockUseSelectionActionBarPin).toHaveBeenLastCalledWith(true);
   });
 
   it('activates a freshly created collection as the import target', async () => {
