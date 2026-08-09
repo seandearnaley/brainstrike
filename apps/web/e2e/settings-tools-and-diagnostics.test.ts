@@ -12,7 +12,7 @@ const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
 // A retrieval peer that sits in a *different* loading tier, so filtering by one
 // tier must hide the other. Used as the negative half of the tier assertion.
 const PEER_TOOL_ID = 'brainstrike.readWorkspaceFile';
-const NON_RETRIEVAL_TOOL_ID = 'brainstrike.runPython';
+const NON_RETRIEVAL_TOOL_ID = 'brainstrike.askUser';
 
 // Derive the filter labels from the canonical contract rather than hardcoding
 // them: the tier partition is owned by tool-discovery-contract.test.ts, and a
