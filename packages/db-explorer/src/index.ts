@@ -14,15 +14,6 @@ export * from './database-demo-panel';
 // Hooks
 export * from './hooks';
 // Stores
-export {
-  type CollectionBrowserStore,
-  type CollectionSortDirection,
-  type CollectionSortKey,
-  type CollectionSortState,
-  collectionBrowserSelectors,
-  type SearchMode,
-  useCollectionBrowserStore,
-} from './stores/collection-browser-store';
 export { useDatabaseDemoStore } from './stores/database-demo-store';
 // Types
 export * from './types';

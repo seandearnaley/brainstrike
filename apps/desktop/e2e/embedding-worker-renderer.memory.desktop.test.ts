@@ -61,64 +61,6 @@ const {
   withTemporaryProcessEnv,
 } = shared;
 
-async function expectVisibleRecordPage(
-  page: Page,
-  displayPage: number,
-  totalPages: number
-): Promise<void> {
-  const databasePanel = page.locator('[data-testid="database-demo-panel"]');
-  const editablePageNumber = databasePanel.getByRole('spinbutton', { name: 'Page number' });
-  const microPageNumber = databasePanel.locator('output[aria-label^="Page "]');
-  const pageIndicator = editablePageNumber.or(microPageNumber);
-
-  await expect
-    .poll(
-      () =>
-        pageIndicator.evaluate((indicator) => {
-          if (indicator instanceof HTMLInputElement) {
-            const totalPagesText = indicator.nextElementSibling?.textContent?.trim() ?? '';
-            const totalPagesMatch = /^(?:of\s+|\/)(\d+)$/.exec(totalPagesText);
-            if (!totalPagesMatch) {
-              throw new Error(
-                `Editable page indicator has malformed total-pages text: ${JSON.stringify(totalPagesText)}`
-              );
-            }
-
-            return {
-              displayPage: Number(indicator.value),
-              totalPages: Number(totalPagesMatch[1]),
-            };
-          }
-
-          if (indicator instanceof HTMLOutputElement) {
-            const ariaLabel = indicator.getAttribute('aria-label') ?? '';
-            const ariaLabelMatch = /^Page (\d+) of (\d+)$/.exec(ariaLabel);
-            const textMatch = /^(\d+)\/(\d+)$/.exec(indicator.textContent?.trim() ?? '');
-            if (!(ariaLabelMatch && textMatch)) {
-              throw new Error(
-                `Micro page indicator is malformed: aria-label=${JSON.stringify(ariaLabel)} text=${JSON.stringify(indicator.textContent)}`
-              );
-            }
-            if (ariaLabelMatch[1] !== textMatch[1] || ariaLabelMatch[2] !== textMatch[2]) {
-              throw new Error('Micro page indicator text and accessible label disagree');
-            }
-
-            return {
-              displayPage: Number(ariaLabelMatch[1]),
-              totalPages: Number(ariaLabelMatch[2]),
-            };
-          }
-
-          throw new Error(`Unsupported page indicator element: ${indicator.tagName}`);
-        }),
-      {
-        message: `Expected database record page ${displayPage} of ${totalPages}`,
-        timeout: 10_000,
-      }
-    )
-    .toEqual({ displayPage, totalPages });
-}
-
 test.describe('Embedding Host Renderer - memory', () => {
   test.describe.configure({ mode: 'serial' });
 
@@ -394,7 +336,7 @@ test.describe('Embedding Host Renderer - memory', () => {
     );
   });
 
-  test('@desktop-embedding-memory keeps the database tab source-paginated and memory-bounded for a 50k file collection', async ({
+  test('@desktop-embedding-memory keeps the database tab source-paginated and memory-bounded when opening a 50k file collection', async ({
     electronApp,
     window,
   }) => {
@@ -439,34 +381,22 @@ test.describe('Embedding Host Renderer - memory', () => {
     await collectionOption.click({ timeout: 5000 });
     await expect(collectionOption).toHaveAttribute('aria-selected', 'true');
 
-    const treegrid = activeWindow.getByRole('treegrid');
-    const firstVisibleDataRow = treegrid.getByRole('row').nth(1);
-    await expect(firstVisibleDataRow).toBeVisible({ timeout: 30_000 });
-    expect(((await firstVisibleDataRow.textContent()) ?? '').trim().length).toBeGreaterThan(0);
-
+    // Source pagination is the memory-bounding invariant, and it survived the
+    // Collection Browser's retirement: the tab's live record query stays capped
+    // at one page regardless of collection size, so selecting a 50k-file
+    // collection never pulls 50k rows into the visible renderer. It is asserted
+    // HEADLESS here, through the panel's existing test-hook snapshot.
+    //
+    // The old page-forward leg is deliberately not re-created. The only
+    // remaining control that advances `recordPage` is the Files pager inside
+    // the collection debug drawer (BST-1214), which is collapsed by default and
+    // lazily mounted — reaching it would mean opening that drawer and, with it,
+    // the retrieval executor, the model registry and a coverage live query.
+    // That is exactly the kind of extra renderer subtree this MEMORY lane
+    // exists to hold still, so driving it here would pollute the snapshots
+    // taken either side of this step. Assert the drawer's own pager in the
+    // drawer's own tests, not in a leak lane.
     const recordPageSize = 50;
-    const expectedFirstPage = {
-      currentPage: 0,
-      pageSize: recordPageSize,
-      totalRecords: fixture.fileCount,
-    };
-    const totalPages = Math.max(1, Math.ceil(fixture.fileCount / recordPageSize));
-    await expect
-      .poll(
-        async () => {
-          const snapshot = await getDatabaseDemoImportSnapshot(activeWindow);
-          return snapshot?.recordPagination ?? null;
-        },
-        { timeout: 30_000 }
-      )
-      .toEqual(expectedFirstPage);
-    await expectVisibleRecordPage(activeWindow, 1, totalPages);
-
-    await activeWindow
-      .locator('[data-testid="database-demo-panel"]')
-      .getByRole('button', { name: 'Go to next page' })
-      .click({ timeout: 5000 });
-
     await expect
       .poll(
         async () => {
@@ -476,10 +406,10 @@ test.describe('Embedding Host Renderer - memory', () => {
         { timeout: 30_000 }
       )
       .toEqual({
-        ...expectedFirstPage,
-        currentPage: 1,
+        currentPage: 0,
+        pageSize: recordPageSize,
+        totalRecords: fixture.fileCount,
       });
-    await expectVisibleRecordPage(activeWindow, 2, totalPages);
 
     await forceRendererGarbageCollection(activeWindow);
     await forceRendererGarbageCollection(activeWindow);
@@ -488,7 +418,7 @@ test.describe('Embedding Host Renderer - memory', () => {
       electronApp.app,
       activeWindow,
       reloadedHostPage,
-      'after-large-file-list-page-change'
+      'after-large-file-list-open'
     );
 
     const baselineVisibleProcess = getRuntimeSnapshot(baseline.process, 'visible-ui');

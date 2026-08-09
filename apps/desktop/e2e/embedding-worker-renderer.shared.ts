@@ -25,7 +25,6 @@ export {
   DESKTOP_DEV_RENDERER_URL,
   expect,
   getBufferedElectronOutputInTest,
-  getHybridSearchBox,
   isDisposedElectronEvaluateError,
   launchElectronDevAppInTest,
   os,
@@ -37,11 +36,25 @@ export {
   waitForTcpPortOpen,
   withTemporaryProcessEnv,
 } from './embedding-worker-renderer/electron-app-fixture';
+export type { WorkspaceSemanticSearchSnapshot } from './utils/workspace-search-helpers';
+// Workspace Search is the surviving semantic-search surface; these replace the
+// retired Collection Browser hybrid-search harness.
+export {
+  attachCollectionFilesToWorkspaceRoot,
+  getWorkspaceSemanticSearchSnapshot,
+  openWorkspaceSearchPanel,
+  runWorkspaceSemanticSearch,
+  selectWorkspaceSearchCollection,
+  waitForWorkspaceSemanticSearchResults,
+} from './utils/workspace-search-helpers';
 
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import type { ElectronAppContext } from './utils/electron-helpers.mts';
 import { importSelectedFilesFromExplorer } from './utils/explorer-import';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
+import { attachCollectionFilesToWorkspaceRoot } from './utils/workspace-search-helpers';
+
+export { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 export interface BufferedLogRecord {
   args: readonly unknown[];
@@ -179,14 +192,6 @@ export interface DatabaseDemoImportTestSnapshot {
   selectedFileCount: number;
 }
 
-export interface DatabaseDemoSemanticSearchTestSnapshot {
-  error: string | null;
-  firstResultNodeId: string | null;
-  hasSearched: boolean;
-  isSearching: boolean;
-  resultCount: number;
-}
-
 export interface HeapSnapshot {
   label: string;
   limitMB: number;
@@ -226,11 +231,15 @@ export interface BackfillCorpusFixture {
 export interface RealWorldMixedStateScenario {
   activeWindow: Page;
   backgroundFixture: BackfillCorpusFixture;
+  importCollectionName: string;
   importEmbeddingSetId: string;
   importImportedPathCounts: ImportedPathCounts;
   initialTimeOrigin: number;
   sawChunkingHostActive: boolean;
+  searchableCollectionName: string;
   searchableEmbeddingSetId: string;
+  /** DB root id the searchable fixture files were attributed to. */
+  searchableWorkspaceRootId: string;
 }
 
 export interface LargeCollectionListFixture {
@@ -824,24 +833,6 @@ export async function getDatabaseDemoImportSnapshot(
       return null;
     }
     return hooks.getImportSnapshot();
-  });
-}
-
-export async function getDatabaseDemoSemanticSearchSnapshot(
-  page: Page
-): Promise<DatabaseDemoSemanticSearchTestSnapshot | null> {
-  return await page.evaluate<DatabaseDemoSemanticSearchTestSnapshot | null>(() => {
-    const hooks = (
-      window as Window & {
-        __brainstrikeDatabaseDemoSemanticSearchTestHooks__?: {
-          getSnapshot?: () => DatabaseDemoSemanticSearchTestSnapshot;
-        };
-      }
-    ).__brainstrikeDatabaseDemoSemanticSearchTestHooks__;
-    if (!hooks?.getSnapshot) {
-      return null;
-    }
-    return hooks.getSnapshot();
   });
 }
 
@@ -2427,11 +2418,17 @@ export async function createChunkedImportFixture(
         );
 
         for (const [chunkIndex, chunkContent] of file.chunks.entries()) {
+          // Each fixture chunk is exactly one line of `file.content` (the chunks
+          // are joined with '\n'), so the 1-based line span is the chunk index.
+          // Line attribution is not decoration: the workspace-search semantic
+          // executor DROPS any chunk missing start/end lines because it cannot
+          // build a navigable range for it.
+          const lineNumber = chunkIndex + 1;
           await api.db.query(
             `INSERT INTO file_chunks (
-             id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at
+             id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, start_line, end_line, created_at, updated_at
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)`,
             [
               `${file.id}-chunk-${chunkIndex}`,
               file.id,
@@ -2441,6 +2438,8 @@ export async function createChunkedImportFixture(
               Math.max(1, Math.ceil(chunkContent.length / 8)),
               file.name.endsWith('.ts') ? 'code' : 'text',
               chunkContent.length,
+              lineNumber,
+              lineNumber,
               now,
             ]
           );
@@ -2510,18 +2509,6 @@ export async function waitForBackfillQueueMovementOrFatalError(
   }
 
   throw new Error('Timed out waiting for set-scoped backfill queue movement or fatal host error');
-}
-
-export async function waitForCollectionTreeRegionVisible(
-  collectionTreeRegion: Locator,
-  timeoutMs = 30_000
-): Promise<boolean> {
-  try {
-    await collectionTreeRegion.waitFor({ state: 'visible', timeout: timeoutMs });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export async function waitForBackfillEnqueueComplete(
@@ -3177,14 +3164,26 @@ export async function prepareRealWorldMixedStateScenario(
     )
   ).toBe(true);
 
+  // The searchable set is a synthetic fixture, so its file records carry no
+  // root. Workspace search is root-scoped and excludes NULL-root rows, so
+  // attribute them to the root the real import just mounted — otherwise every
+  // search assertion below would be unfalsifiable.
+  const searchableWorkspaceRootId = await attachCollectionFilesToWorkspaceRoot(
+    activeWindow,
+    searchableEmbeddingSetId
+  );
+
   return {
     activeWindow,
     backgroundFixture,
+    importCollectionName,
     importEmbeddingSetId,
     importImportedPathCounts,
     initialTimeOrigin,
     sawChunkingHostActive,
+    searchableCollectionName,
     searchableEmbeddingSetId,
+    searchableWorkspaceRootId,
   };
 }
 

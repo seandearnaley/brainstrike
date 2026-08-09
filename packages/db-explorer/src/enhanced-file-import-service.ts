@@ -52,6 +52,11 @@ const QUEUE_PROGRESS_THROTTLE_MS = 100;
  */
 let queueProgressSubscriberCount = 0;
 
+/** Test-only reset helper for the module-scoped queue-progress subscriber count. */
+export function __resetQueueProgressSubscriberCountForTests(): void {
+  queueProgressSubscriberCount = 0;
+}
+
 // Extended progress interface for chunking and embedding
 interface EnhancedFileImportOptions {
   chunkingStrategy?: ChunkingStrategy;

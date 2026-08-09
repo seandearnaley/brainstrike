@@ -431,7 +431,17 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
 }
 
 /**
- * Clear records via UI interaction (fallback method)
+ * Clear records via UI interaction (fallback method).
+ *
+ * NOTE (BST-1213): this path is now unreachable-by-design. It drives
+ * `tbody tr button[title="Remove record"]`, and no surface has rendered a
+ * per-record delete button for some time; since the Collections tab lost its
+ * record table entirely, `tbody tr` matches nothing here either. It therefore
+ * returns "nothing to clear" instead of clearing. It only runs when the bulk
+ * Electron API above has ALREADY failed, so it does not mask a working path —
+ * but it should be made to throw rather than report success. Left alone here
+ * deliberately: changing it alters behaviour on a path this branch cannot
+ * exercise. See the B2 report follow-ups.
  */
 async function clearDatabaseRecordsViaUI(page: Page): Promise<Page> {
   let activePage = await resolveActivePage(page);
@@ -602,13 +612,12 @@ export function getDatabasePanelElements(page: Page) {
       .or(page.locator('[data-testid="status-bar-db-disconnected"]'))
       .or(page.locator('[data-testid="status-bar-db-loading"]'))
       .first(),
-    deleteButtons: page.locator('tbody tr button[title="Remove record"]'),
     // No import control here: the trigger lives in the explorer's selection
-    // action bar (see utils/explorer-import.ts).
+    // action bar (see utils/explorer-import.ts). No row/delete-button locators
+    // either: the Collections tab has had no record table since BST-1213.
     panel: page.locator('[data-testid="database-demo-panel"]'),
     refreshButton: page.locator('button:has-text("Refresh")'),
     storageInfo: page.locator('text=NodeFS:').or(page.locator('text=IndexedDB')),
-    tableRows: page.locator('tbody tr'),
   };
 }
 

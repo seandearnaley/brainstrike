@@ -764,7 +764,7 @@ describe('useDatabaseDemoData', () => {
     });
   });
 
-  it('publishes fallback snapshots so loaded pages are no longer initially loading', async () => {
+  it('publishes fallback snapshots for loaded pages', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     mockVectorStatusUIStore.isImporting = true;
     setupLiveQueries();
@@ -806,7 +806,6 @@ describe('useDatabaseDemoData', () => {
     await waitFor(() => {
       expect(result.current.records.map((record) => record.id)).toEqual(['fallback-record']);
     });
-    expect(result.current.initialLoading).toBe(false);
     expect(mockVectorStatusUIStore.setCachedFileData).toHaveBeenCalledWith(
       expect.objectContaining({
         collectionId: 'set-1',
@@ -817,7 +816,7 @@ describe('useDatabaseDemoData', () => {
     );
   });
 
-  it('treats a previously loaded local page as cached after another page replaces the global snapshot', async () => {
+  it('serves a previously loaded local page from cache after another page replaces the global snapshot', async () => {
     mockVectorStatusUIStore.schemaVerified = true;
     const liveQueries = setupLiveQueries({
       records: [
@@ -868,7 +867,6 @@ describe('useDatabaseDemoData', () => {
     rerender({ page: 0 });
 
     expect(result.current.records.map((record) => record.id)).toEqual(['cached-page-record']);
-    expect(result.current.initialLoading).toBe(false);
   });
 
   it('computes active-collection counts live from file_records/file_chunks so indexing progress is visible', async () => {
@@ -983,12 +981,6 @@ describe('useDatabaseDemoData', () => {
         expect.objectContaining({ embeddingSetId: 'set-1', fileRecordId: '1', id: 'chunk-1' }),
       ]);
     });
-    await waitFor(() => {
-      expect(result.current.chunks).toHaveLength(1);
-    });
-    expect(result.current.chunks).toEqual([
-      expect.objectContaining({ embeddingSetId: 'set-1', fileRecordId: '1', id: 'chunk-1' }),
-    ]);
     expect(toast).not.toHaveBeenCalled();
   });
 
@@ -1151,42 +1143,10 @@ describe('useDatabaseDemoData', () => {
       await result.current.loadFileChunkSummaries('record-1');
     });
 
-    await expect(result.current.loadChunkDetail('chunk-1')).resolves.toEqual(fullChunk);
     await expect(result.current.loadCollectionExportData()).resolves.toEqual({
       chunks: [fullChunk],
       records: [fullRecord],
     });
-  });
-
-  it('rejects invalid chunk detail requests before querying a repository', async () => {
-    setupLiveQueries();
-    const renderSubject = (chunkRepository: DrizzleFileChunkRepository | null) =>
-      renderHook(() =>
-        useDatabaseDemoData({
-          activeCollectionId: 'set-1',
-          chunkRepository,
-          database: createMockDatabase(),
-          repository: createRepository(),
-          toast: vi.fn(),
-        })
-      );
-
-    const { result } = renderSubject(createChunkRepository([]));
-    await expect(result.current.loadChunkDetail('')).rejects.toThrow(
-      'Chunk detail requests require a chunk id.'
-    );
-
-    const withoutRepository = renderSubject(null);
-    await expect(withoutRepository.result.current.loadChunkDetail('chunk-1')).rejects.toThrow(
-      'Chunk detail repository is unavailable.'
-    );
-
-    const unsupportedRepository = renderSubject({
-      findAll: vi.fn(),
-    } as unknown as DrizzleFileChunkRepository);
-    await expect(unsupportedRepository.result.current.loadChunkDetail('chunk-1')).rejects.toThrow(
-      'Chunk detail repository does not support findById.'
-    );
   });
 
   it('rejects invalid chunk summary requests before querying the database', async () => {
@@ -1679,7 +1639,6 @@ describe('useDatabaseDemoData', () => {
     });
 
     expect(result.current.records).toEqual([]);
-    expect(result.current.chunks).toEqual([]);
     expect(result.current.dbInfo?.connected).toBe(false);
   });
 

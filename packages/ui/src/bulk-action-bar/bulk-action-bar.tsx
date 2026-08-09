@@ -1,15 +1,21 @@
 /**
  * BulkActionBar Component
  *
- * A floating action bar that appears when multiple items are selected
- * in the Collection Browser. Provides bulk operations like delete,
- * embed, export, etc.
+ * A floating action bar that appears when multiple items are selected in a
+ * tree surface. Shared primitive: the file explorer's context-preview panel
+ * renders it over its selection overlay to offer bulk operations on the
+ * current selection.
  */
 
-import { FileText, Sparkles, Trash2 } from 'lucide-react';
 import type * as React from 'react';
 import { SelectionActionBar } from '../selection-action-bar';
-import type { BrowserNodeData, CollectionNodeType } from './types';
+
+/**
+ * Kinds of item a bulk action can apply to. Actions declare the subset they
+ * handle via {@link BulkAction.applicableTypes}; the bar hides an action when
+ * nothing in the selection matches.
+ */
+export type CollectionNodeType = 'collection' | 'file' | 'chunk' | 'embedding';
 
 /**
  * Bulk action definition
@@ -49,8 +55,6 @@ export interface BulkActionBarProps {
   clearButtonLabel?: string;
   /** Enable responsive compact mode — labels collapse to icon-only at narrow widths */
   compact?: boolean;
-  /** Map of node ID to node data */
-  nodeData?: Map<string, BrowserNodeData>;
   /** Map of node ID to node type */
   nodeTypes: Map<string, CollectionNodeType>;
   /** Called when selection is cleared */
@@ -190,39 +194,6 @@ export function BulkActionBar({
     />
   );
 }
-
-/**
- * Default bulk actions for common operations
- */
-export const DEFAULT_BULK_ACTIONS: BulkAction[] = [
-  {
-    applicableTypes: ['file', 'chunk'],
-    icon: <Sparkles className="h-4 w-4" />,
-    id: 'embed',
-    label: 'Embed',
-    onAction: () => {
-      // Placeholder - will be overridden by consumer
-    },
-  },
-  {
-    icon: <FileText className="h-4 w-4" />,
-    id: 'export',
-    label: 'Export',
-    onAction: () => {
-      // Placeholder - will be overridden by consumer
-    },
-  },
-  {
-    applicableTypes: ['file', 'chunk'],
-    destructive: true,
-    icon: <Trash2 className="h-4 w-4" />,
-    id: 'delete',
-    label: 'Delete',
-    onAction: () => {
-      // Placeholder - will be overridden by consumer
-    },
-  },
-];
 
 BulkActionBar.displayName = 'BulkActionBar';
 

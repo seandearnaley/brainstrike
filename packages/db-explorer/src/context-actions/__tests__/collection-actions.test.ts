@@ -7,48 +7,12 @@ import {
   copyFilePathAction,
   copyIdAction,
 } from '../collection-actions';
-import { browserNodeToTarget } from '../collection-target';
 
 function makeServices() {
   return {
     clipboard: { writeText: vi.fn().mockResolvedValue({ ok: true }) },
   } satisfies ActionServices;
 }
-
-describe('browserNodeToTarget', () => {
-  it('maps a collection node', () => {
-    expect(
-      browserNodeToTarget({ name: 'My Docs', nodeType: 'collection', originalId: 'set-1' })
-    ).toEqual({ id: 'set-1', kind: 'collection', name: 'My Docs' });
-  });
-
-  it('maps a file node with its recorded path', () => {
-    expect(
-      browserNodeToTarget({
-        name: 'notes.md',
-        nodeType: 'file',
-        originalId: 'file-1',
-        path: 'docs/notes.md',
-      })
-    ).toEqual({ id: 'file-1', kind: 'collection-file', name: 'notes.md', path: 'docs/notes.md' });
-  });
-
-  it('maps a chunk node with content', () => {
-    expect(
-      browserNodeToTarget({ content: 'hello world', nodeType: 'chunk', originalId: 'c-1' })
-    ).toEqual({ content: 'hello world', id: 'c-1', kind: 'chunk' });
-  });
-
-  it('maps an embedding node', () => {
-    expect(
-      browserNodeToTarget({ nodeType: 'embedding', originalId: 'e-1', vectorId: 'v-1' })
-    ).toEqual({ id: 'e-1', kind: 'embedding', vectorId: 'v-1' });
-  });
-
-  it('returns null for group headers', () => {
-    expect(browserNodeToTarget({ nodeType: 'group', originalId: 'g-1' })).toBeNull();
-  });
-});
 
 describe('collection actions', () => {
   const chunkTarget: ContextTarget = { content: 'hello world', id: 'c-1', kind: 'chunk' };
@@ -100,7 +64,7 @@ describe('collection actions', () => {
     expect(services.clipboard.writeText).not.toHaveBeenCalled();
   });
 
-  it('copy-id applies to all collection-browser kinds and writes the id', async () => {
+  it('copy-id applies to every collection target kind and writes the id', async () => {
     expect(copyIdAction.appliesTo).toEqual(['collection', 'collection-file', 'chunk', 'embedding']);
     const services = makeServices();
     const outcome = await copyIdAction.run(chunkTarget, services);

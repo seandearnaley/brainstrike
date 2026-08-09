@@ -164,7 +164,7 @@ export function ExplorerCollectionPicker({
       <CollectionPicker
         collections={visibleCollections}
         headerLabel="Target Collection"
-        loading={isSeeding}
+        loading={isSeeding || !db}
         maxHeight="16rem"
         onCreate={onCreateCollection}
         onDelete={handleDelete}

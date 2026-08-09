@@ -12,6 +12,7 @@ Rules:
 - Keep UX parity between:
   - File explorer tree (left nav).
   - Context explorer grouped preview tree (main panel).
+- Pickers rendered in popovers must follow the `useCollections` single-owner ruling in `database.md`.
 - Preserve WAI-ARIA treegrid semantics (`role="treegrid"`, row/level metadata, keyboard traversal).
 - Roving row focus and selection are independent. Keep `data-focused`/`tabIndex`
   for keyboard ownership. Paint the row affordance from `:focus-visible` when the
@@ -314,7 +315,10 @@ Windowing and performance:
   controls pinned to the first row line instead of recentering when details
   appear below it.
 - Ephemeral selection actions float at the bottom through
-  `SelectionActionBarOverlay` + `SelectionActionBar`. Keep the scroll owner
+  `SelectionActionBarOverlay` + `SelectionActionBar`. `BulkActionBar`
+  (`packages/ui/src/bulk-action-bar/`) is the shared node-kind-aware wrapper over
+  `SelectionActionBar`; it is surface-neutral, not collection-browser-specific.
+  Keep the scroll owner
   padded at the bottom while the overlay is present; never insert the toolbar in
   normal flow or compensate with top padding, because selection must not shift
   the tree. The overlay's positioned ancestor must own the full available panel
@@ -339,7 +343,9 @@ Windowing and performance:
   site; that drift is what BST-939 fixed.
 
 When modifying TreeTable strategy or pagination behavior:
-- Update the related collection browser/file explorer/context preview adapters.
+- Update the related file explorer / context preview / workspace-search adapters.
+  (The collection browser was a fourth adapter until BST-1213 retired it; its
+  jobs live in the Explorer import action and the Explorer|Search panel.)
 - Add or update tests validating grouped slicing semantics and selection correctness.
 - Document intentional tradeoffs (e.g., paged vs virtual) in code comments or PR notes.
 
@@ -364,7 +370,7 @@ truth across renderer reloads.
 
 Right-click menus are projections of a shared action system. Do not hand-roll
 per-surface context menus (coordinate state + positioned DropdownMenu is the
-legacy pattern; it was removed from the collection browser).
+legacy pattern, and it has no remaining call sites).
 
 Layers:
 - Headless core: packages/context-actions — ContextTarget union, ContextAction,

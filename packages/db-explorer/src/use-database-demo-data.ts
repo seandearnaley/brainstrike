@@ -44,40 +44,6 @@ import {
 
 const logger = createLogger('DatabaseDemoData');
 
-interface PageSnapshotIdentity {
-  collectionId: string;
-  page: number;
-  pageSize: number;
-}
-
-function pageHasSnapshot({
-  activeCollectionId,
-  globalSnapshot,
-  loadedPageKeys,
-  page,
-  pageCacheKey,
-  pageSize,
-}: {
-  activeCollectionId: string | null;
-  globalSnapshot: PageSnapshotIdentity | null;
-  loadedPageKeys: ReadonlySet<string>;
-  page: number;
-  pageCacheKey: string | null;
-  pageSize: number;
-}): boolean {
-  if (pageCacheKey && loadedPageKeys.has(pageCacheKey)) {
-    return true;
-  }
-  if (!(activeCollectionId && globalSnapshot)) {
-    return false;
-  }
-  return (
-    globalSnapshot.collectionId === activeCollectionId &&
-    globalSnapshot.page === page &&
-    globalSnapshot.pageSize === pageSize
-  );
-}
-
 /**
  * Resolve the storage location label based on the repository type.
  * This must match the expected values in database-status-item.tsx for proper status bar display.
@@ -121,7 +87,6 @@ export interface UseDatabaseDemoDataOptions {
 }
 
 interface DatabaseLoaders {
-  loadChunkDetail: (chunkId: string) => Promise<FileChunk | null>;
   loadChunks: () => Promise<void>;
   loadCollectionExportData: () => Promise<{
     chunks: FileChunk[];
@@ -182,11 +147,9 @@ export interface DatabaseRecordPagination {
 }
 
 export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
-  chunks: DatabaseFileChunkSummary[];
   collectionCounts: DatabaseCollectionCounts;
   collectionCountsStatus: DatabaseCollectionCountsStatus;
   dbInfo: DatabaseInfo | null;
-  initialLoading: boolean;
   recordPagination: DatabaseRecordPagination;
   records: DatabaseFileRecordSummary[];
   refreshing: boolean;
@@ -925,22 +888,6 @@ export function useDatabaseDemoData({
     });
   }, [loadFileChunkSummaries, recordPageCacheKey, runManualRefresh, toast]);
 
-  const loadChunkDetail = useCallback(
-    async (chunkId: string): Promise<FileChunk | null> => {
-      if (!chunkId) {
-        throw new Error('Chunk detail requests require a chunk id.');
-      }
-      if (!_chunkRepository) {
-        throw new Error('Chunk detail repository is unavailable.');
-      }
-      if (!('findById' in _chunkRepository) || typeof _chunkRepository.findById !== 'function') {
-        throw new Error('Chunk detail repository does not support findById.');
-      }
-      return _chunkRepository.findById(chunkId);
-    },
-    [_chunkRepository]
-  );
-
   const loadCollectionExportData = useCallback(async (): Promise<{
     chunks: FileChunk[];
     records: FileRecord[];
@@ -1318,19 +1265,6 @@ export function useDatabaseDemoData({
   }, [database]);
 
   const refreshing = manualRefreshing || recordsLoading || totalRecordsLoading || fallbackLoading;
-  const hasCurrentPageSnapshot = pageHasSnapshot({
-    activeCollectionId,
-    globalSnapshot: globalCachedFileData,
-    loadedPageKeys: loadedRecordPageKeys,
-    page: normalizedRecordPage,
-    pageCacheKey: recordPageCacheKey,
-    pageSize: normalizedRecordPageSize,
-  });
-  const initialLoading = Boolean(
-    activeCollectionId &&
-      !hasCurrentPageSnapshot &&
-      (recordsLoading || totalRecordsLoading || fallbackLoading)
-  );
 
   // Sync local dbInfo state to global store for status bar
   useEffect(() => {
@@ -1345,12 +1279,9 @@ export function useDatabaseDemoData({
   }, [dbInfo]);
 
   return {
-    chunks: cachedChunks,
     collectionCounts: resolvedCollectionCounts,
     collectionCountsStatus: resolvedCollectionCountsStatus,
     dbInfo,
-    initialLoading,
-    loadChunkDetail,
     loadChunks,
     loadCollectionExportData,
     loadFileChunkSummaries,

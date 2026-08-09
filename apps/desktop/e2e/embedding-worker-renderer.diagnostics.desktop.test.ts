@@ -1,8 +1,8 @@
 import type {
-  DatabaseDemoSemanticSearchTestSnapshot,
   ImportedPathCounts,
   MainProcessHealthSample,
   QueueStatsRow,
+  WorkspaceSemanticSearchSnapshot,
 } from './embedding-worker-renderer.shared';
 import * as shared from './embedding-worker-renderer.shared';
 import { expect, test } from './embedding-worker-renderer.shared';
@@ -31,13 +31,11 @@ const {
   getBridgeBackfillState,
   getChunkingHostStatus,
   getDatabaseDemoImportSnapshot,
-  getDatabaseDemoSemanticSearchSnapshot,
   getEmbeddingHostStatus,
   getEmbeddingQueueStats,
   getEmbeddingSetCounts,
   getEmbeddingSetQueueStats,
   getFileExplorerTestSnapshot,
-  getHybridSearchBox,
   getImportedPathCounts,
   getMainBufferedLogs,
   getMainProcessFileSystemFixtureSummary,
@@ -47,10 +45,12 @@ const {
   getRendererTimeOrigin,
   getRuntimeSnapshot,
   getVisibleAlertTexts,
+  getWorkspaceSemanticSearchSnapshot,
   growth,
   installLargeImportFileSystemMock,
   isDatabaseError,
   launchElectronDevAppInTest,
+  openWorkspaceSearchPanel,
   os,
   parseMainProcessHealthSamples,
   path,
@@ -59,6 +59,8 @@ const {
   recordContainsText,
   reloadRendererInTest,
   resolveCollectionIdByName,
+  runWorkspaceSemanticSearch,
+  selectWorkspaceSearchCollection,
   sampleMemoryWhileBackfillActive,
   setFileExplorerMaxSelectionCount,
   setImportSettingsForStressTest,
@@ -71,7 +73,6 @@ const {
   waitForAppReadyInTest,
   waitForEmbeddingSetBackfillButtonEnabled,
   waitForBackfillQueueMovementOrFatalError,
-  waitForCollectionTreeRegionVisible,
   waitForTcpPortOpen,
   withTemporaryProcessEnv,
 } = shared;
@@ -359,28 +360,24 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
           totalChunks: expect.any(Number),
         });
 
+      // Semantic search now runs through Workspace Search (the Collection
+      // Browser's hybrid-search box is retired). These files were imported from
+      // a real mounted root, so they are already root- and line-attributed —
+      // both are preconditions for workspace-scoped search to see them.
       const semanticQuery = 'stress-file-42-sentence-0';
-      const semanticSearchBox = await getHybridSearchBox(activeWindow);
-      const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
-      const emptySemanticSearchMessage = collectionTreeRegion.getByText(
-        'No matching results found. Try adjusting your search query or threshold.'
-      );
-      const searchingOverlay = collectionTreeRegion.getByText('Searching...');
-      await semanticSearchBox.fill(semanticQuery);
-      await activeWindow.getByRole('button', { name: /^Query$/ }).click({ timeout: 5000 });
+      const searchPanel = await openWorkspaceSearchPanel(activeWindow);
+      await selectWorkspaceSearchCollection(searchPanel, collectionName);
+      await runWorkspaceSemanticSearch(searchPanel, semanticQuery);
 
       const semanticSearchStartedAt = Date.now();
-      let lastSemanticSearchSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
+      let lastSemanticSearchSnapshot: WorkspaceSemanticSearchSnapshot | null = null;
       let lastSemanticSearchAlertTexts: string[] = [];
       while (Date.now() - semanticSearchStartedAt < 60_000) {
-        const [rendererLogs, alertTexts, emptyStateCount, searchingCount, semanticSearchSnapshot] =
-          await Promise.all([
-            getRendererLogRecords(activeWindow),
-            getVisibleAlertTexts(activeWindow),
-            emptySemanticSearchMessage.count(),
-            searchingOverlay.count(),
-            getDatabaseDemoSemanticSearchSnapshot(activeWindow),
-          ]);
+        const [rendererLogs, alertTexts, semanticSearchSnapshot] = await Promise.all([
+          getRendererLogRecords(activeWindow),
+          getVisibleAlertTexts(activeWindow),
+          getWorkspaceSemanticSearchSnapshot(searchPanel),
+        ]);
         lastSemanticSearchSnapshot = semanticSearchSnapshot;
         lastSemanticSearchAlertTexts = alertTexts;
         const queueFailureLog = rendererLogs.find((record) =>
@@ -402,19 +399,15 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
           );
         }
 
-        if (semanticSearchSnapshot?.error) {
+        if (semanticSearchSnapshot.error) {
           throw new Error(
             `Semantic search failed after real desktop backfill: ${semanticSearchSnapshot.error}\nalerts=${JSON.stringify(alertTexts)}`
           );
         }
 
         if (
-          semanticSearchSnapshot?.hasSearched &&
-          !semanticSearchSnapshot.isSearching &&
-          semanticSearchSnapshot.resultCount > 0 &&
-          semanticSearchSnapshot.firstResultNodeId !== null &&
-          searchingCount === 0 &&
-          emptyStateCount === 0
+          !(semanticSearchSnapshot.isSearching || semanticSearchSnapshot.emptyState) &&
+          semanticSearchSnapshot.resultFileCount > 0
         ) {
           break;
         }
@@ -424,26 +417,23 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
 
       if (
         !(
-          lastSemanticSearchSnapshot?.hasSearched &&
-          !lastSemanticSearchSnapshot.isSearching &&
-          lastSemanticSearchSnapshot.resultCount > 0 &&
-          lastSemanticSearchSnapshot.firstResultNodeId !== null
+          lastSemanticSearchSnapshot &&
+          !(lastSemanticSearchSnapshot.isSearching || lastSemanticSearchSnapshot.emptyState) &&
+          lastSemanticSearchSnapshot.resultFileCount > 0
         )
       ) {
         throw new Error(
           `Semantic search did not surface rendered results within 60s after real desktop backfill\nsnapshot=${JSON.stringify(lastSemanticSearchSnapshot)}\nalerts=${JSON.stringify(lastSemanticSearchAlertTexts)}`
         );
       }
-      await expect(emptySemanticSearchMessage).toHaveCount(0, { timeout: 60_000 });
       await expect
-        .poll(async () => await getDatabaseDemoSemanticSearchSnapshot(activeWindow), {
+        .poll(async () => await getWorkspaceSemanticSearchSnapshot(searchPanel), {
           timeout: 60_000,
         })
         .toMatchObject({
+          emptyState: false,
           error: null,
-          hasSearched: true,
           isSearching: false,
-          resultCount: expect.any(Number),
         });
 
       const finalLogs = await getMainBufferedLogs(activeWindow);
@@ -467,51 +457,30 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
     test.setTimeout(540_000);
     const electronStderrBaselineCount = (await getRelevantElectronStderr(electronApp.app)).length;
     const scenario = await prepareRealWorldMixedStateScenario(electronApp.app, window);
-    const { importEmbeddingSetId, searchableEmbeddingSetId } = scenario;
+    const { importEmbeddingSetId, searchableCollectionName } = scenario;
     const activeWindow = scenario.activeWindow;
-    // Clicks in this stress test use 30s timeouts because the collection browser's loading
-    // overlay (z-20, aria-busy) stays visible for 15–30s while refetching data after heavy
-    // import/backfill/search operations. This is a known collection browser perf issue.
     try {
-      const searchableCollectionOption = activeWindow.locator(
-        `#collection-option-${searchableEmbeddingSetId}`
-      );
-      await expect(searchableCollectionOption).toBeVisible({ timeout: 15_000 });
-      await searchableCollectionOption.click({ timeout: 30_000 });
-      await expect(searchableCollectionOption).toHaveAttribute('aria-selected', 'true');
+      // Semantic search runs on Workspace Search now. The scenario has already
+      // attributed the searchable fixture's files to the mounted workspace root
+      // (workspace search is root-scoped and drops NULL-root rows).
+      const searchPanel = await openWorkspaceSearchPanel(activeWindow);
+      await selectWorkspaceSearchCollection(searchPanel, searchableCollectionName);
+      await runWorkspaceSemanticSearch(searchPanel, 'desktop import backfill regression');
 
-      const semanticSearchBox = await getHybridSearchBox(activeWindow);
-      const queryButton = activeWindow.getByRole('button', { name: /^Query$/ });
-      await semanticSearchBox.fill('desktop import backfill regression');
-      await queryButton.click({ timeout: 30_000 });
-
-      const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
-      const emptySemanticSearchMessage = collectionTreeRegion.getByText(
-        'No matching results found. Try adjusting your search query or threshold.'
-      );
-      const searchingOverlay = collectionTreeRegion.getByText('Searching...');
       const mixedStateFailures: string[] = [];
 
       const semanticSearchStartedAt = Date.now();
       let searchWorked = false;
       let sawBackgroundQueuePressureDuringSearch = false;
-      let lastSemanticSearchSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
+      let lastSemanticSearchSnapshot: WorkspaceSemanticSearchSnapshot | null = null;
       while (Date.now() - semanticSearchStartedAt < 60_000) {
-        const [
-          semanticSearchSnapshot,
-          rendererLogs,
-          emptyStateCount,
-          searchingCount,
-          embeddingHostStatus,
-          queueStats,
-        ] = await Promise.all([
-          getDatabaseDemoSemanticSearchSnapshot(activeWindow),
-          getRendererLogRecords(activeWindow),
-          emptySemanticSearchMessage.count(),
-          searchingOverlay.count(),
-          getEmbeddingHostStatus(activeWindow),
-          getEmbeddingQueueStats(activeWindow),
-        ]);
+        const [semanticSearchSnapshot, rendererLogs, embeddingHostStatus, queueStats] =
+          await Promise.all([
+            getWorkspaceSemanticSearchSnapshot(searchPanel),
+            getRendererLogRecords(activeWindow),
+            getEmbeddingHostStatus(activeWindow),
+            getEmbeddingQueueStats(activeWindow),
+          ]);
 
         lastSemanticSearchSnapshot = semanticSearchSnapshot;
         if (queueStats.queued + queueStats.running > 0) {
@@ -548,13 +517,12 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         }
 
         if (
-          semanticSearchSnapshot?.hasSearched &&
-          !semanticSearchSnapshot.isSearching &&
-          !semanticSearchSnapshot.error &&
-          semanticSearchSnapshot.resultCount > 0 &&
-          semanticSearchSnapshot.firstResultNodeId !== null &&
-          searchingCount === 0 &&
-          emptyStateCount === 0
+          !(
+            semanticSearchSnapshot.isSearching ||
+            semanticSearchSnapshot.emptyState ||
+            semanticSearchSnapshot.error
+          ) &&
+          semanticSearchSnapshot.resultFileCount > 0
         ) {
           searchWorked = true;
           break;
@@ -563,60 +531,26 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         await activeWindow.waitForTimeout(250);
       }
 
-      const expandAllButton = activeWindow
-        .locator('[data-testid="database-demo-panel"]')
-        .getByRole('button', { name: 'Expand all' });
-      await expect(expandAllButton).toBeVisible({ timeout: 15_000 });
-      await expandAllButton.click({ timeout: 30_000 });
+      // Heavy UI interaction under load: run a semantic search over a 1002-file
+      // mixed-state session, then switch surfaces back to the Collections tab.
+      // The hidden embedding host must survive that — this check outlived the
+      // browser-only "Expand all" leg it used to hang off, because it is about
+      // the HOST, not about which surface did the interacting.
+      await showDatabaseDemoPanel(activeWindow);
 
-      const [embeddingHostStatusAfterExpand, queueStatsAfterExpand] = await Promise.all([
+      const [embeddingHostStatusAfterInteraction, queueStatsAfterInteraction] = await Promise.all([
         getEmbeddingHostStatus(activeWindow),
         getEmbeddingQueueStats(activeWindow),
       ]);
 
       if (
-        queueStatsAfterExpand.queued + queueStatsAfterExpand.running > 0 &&
-        (embeddingHostStatusAfterExpand.state === 'error' ||
-          embeddingHostStatusAfterExpand.state === 'stopped')
+        queueStatsAfterInteraction.queued + queueStatsAfterInteraction.running > 0 &&
+        (embeddingHostStatusAfterInteraction.state === 'error' ||
+          embeddingHostStatusAfterInteraction.state === 'stopped')
       ) {
         mixedStateFailures.push(
-          `embedding host stopped during active mixed-state backfill after expand-all: hostStatus=${JSON.stringify(embeddingHostStatusAfterExpand)} queueStats=${JSON.stringify(queueStatsAfterExpand)}`
+          `embedding host stopped during active mixed-state backfill after heavy UI interaction: hostStatus=${JSON.stringify(embeddingHostStatusAfterInteraction)} queueStats=${JSON.stringify(queueStatsAfterInteraction)}`
         );
-      }
-
-      const collectionTreeVisibleAfterExpand =
-        await waitForCollectionTreeRegionVisible(collectionTreeRegion);
-      let expandedTreeNodeCount: number | null = null;
-      let searchResultStillAvailableAfterTreeLoss = false;
-      if (collectionTreeVisibleAfterExpand) {
-        expandedTreeNodeCount = await collectionTreeRegion.evaluate(
-          (node) => node.querySelectorAll('[aria-expanded="true"]').length
-        );
-      } else {
-        const [
-          queueStatsAfterTreeLoss,
-          hostStatusAfterTreeLoss,
-          semanticSearchSnapshotAfterTreeLoss,
-          fileExplorerSnapshotAfterTreeLoss,
-          importSnapshotAfterTreeLoss,
-        ] = await Promise.all([
-          getEmbeddingQueueStats(activeWindow),
-          getEmbeddingHostStatus(activeWindow),
-          getDatabaseDemoSemanticSearchSnapshot(activeWindow),
-          getFileExplorerTestSnapshot(activeWindow),
-          getDatabaseDemoImportSnapshot(activeWindow),
-        ]);
-        searchResultStillAvailableAfterTreeLoss =
-          !!semanticSearchSnapshotAfterTreeLoss?.hasSearched &&
-          !semanticSearchSnapshotAfterTreeLoss.isSearching &&
-          !semanticSearchSnapshotAfterTreeLoss.error &&
-          semanticSearchSnapshotAfterTreeLoss.resultCount > 0 &&
-          semanticSearchSnapshotAfterTreeLoss.firstResultNodeId !== null;
-        if (!searchResultStillAvailableAfterTreeLoss) {
-          mixedStateFailures.push(
-            `collection tree region disappeared and search state was not preserved after expand-all during mixed-state run: hostStatus=${JSON.stringify(hostStatusAfterTreeLoss)} queueStats=${JSON.stringify(queueStatsAfterTreeLoss)} semanticSearch=${JSON.stringify(semanticSearchSnapshotAfterTreeLoss)} fileExplorer=${JSON.stringify(fileExplorerSnapshotAfterTreeLoss)} importSnapshot=${JSON.stringify(importSnapshotAfterTreeLoss)}`
-          );
-        }
       }
 
       const importCollectionOption = activeWindow.locator(
@@ -636,7 +570,6 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         globalQueueStats,
         importCollectionQueueStats,
         importCollectionCounts,
-        semanticSearchSnapshotAfterChecks,
         importSnapshotAfterChecks,
         alerts,
         fileExplorerSnapshotAfterChecks,
@@ -649,7 +582,6 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         getEmbeddingQueueStats(activeWindow),
         getEmbeddingSetQueueStats(activeWindow, importEmbeddingSetId),
         getEmbeddingSetCounts(activeWindow, importEmbeddingSetId),
-        getDatabaseDemoSemanticSearchSnapshot(activeWindow),
         getDatabaseDemoImportSnapshot(activeWindow),
         getVisibleAlertTexts(activeWindow),
         getFileExplorerTestSnapshot(activeWindow),
@@ -693,8 +625,7 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
             `sawBackgroundQueuePressureDuringSearch=${sawBackgroundQueuePressureDuringSearch}\n` +
             `importCollectionQueueStats=${JSON.stringify(importCollectionQueueStats)}\n` +
             `importCollectionCounts=${JSON.stringify(importCollectionCounts)}\n` +
-            `semanticSearchSnapshot=${JSON.stringify(semanticSearchSnapshotAfterChecks ?? lastSemanticSearchSnapshot)}\n` +
-            `expandedTreeNodeCount=${expandedTreeNodeCount}\n` +
+            `semanticSearchSnapshot=${JSON.stringify(lastSemanticSearchSnapshot)}\n` +
             `importSnapshot=${JSON.stringify(importSnapshotAfterChecks)}\n` +
             `alerts=${JSON.stringify(alerts)}\n` +
             `fileExplorer=${JSON.stringify(fileExplorerSnapshotAfterChecks)}\n` +
@@ -711,13 +642,7 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
       expect(importCollectionCounts.totalChunks).toBeGreaterThan(0);
       expect(importCollectionCounts.embeddedChunks).toBe(0);
       expect(searchWorked).toBe(true);
-      expect(collectionTreeVisibleAfterExpand || searchResultStillAvailableAfterTreeLoss).toBe(
-        true
-      );
       expect(backfillEnabled).toBe(true);
-      if (collectionTreeVisibleAfterExpand) {
-        expect(expandedTreeNodeCount).toBeGreaterThan(0);
-      }
       expect(electronStderr).toEqual([]);
     } finally {
       await cleanupRealWorldMixedStateTest(electronApp, activeWindow);
@@ -899,35 +824,20 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
 
       expect(embeddedChunkCount).toBeGreaterThan(0);
 
-      const semanticSearchBox = await getHybridSearchBox(activeWindow);
-      const queryButton = activeWindow.getByRole('button', { name: /^Query$/ });
-      await semanticSearchBox.fill('stress-file-42-sentence-0');
-      await queryButton.click({ timeout: 30_000 });
-
-      const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
-      const emptySemanticSearchMessage = collectionTreeRegion.getByText(
-        'No matching results found. Try adjusting your search query or threshold.'
-      );
-      const searchingOverlay = collectionTreeRegion.getByText('Searching...');
+      const searchPanel = await openWorkspaceSearchPanel(activeWindow);
+      await selectWorkspaceSearchCollection(searchPanel, scenario.importCollectionName);
+      await runWorkspaceSemanticSearch(searchPanel, 'stress-file-42-sentence-0');
 
       const searchStartedAt = Date.now();
-      let lastSemanticSearchSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
+      let lastSemanticSearchSnapshot: WorkspaceSemanticSearchSnapshot | null = null;
       while (Date.now() - searchStartedAt < 60_000) {
-        const [
-          semanticSearchSnapshot,
-          emptyStateCount,
-          searchingCount,
-          electronStderr,
-          embeddingHostStatus,
-          chunkingHostStatus,
-        ] = await Promise.all([
-          getDatabaseDemoSemanticSearchSnapshot(activeWindow),
-          emptySemanticSearchMessage.count(),
-          searchingOverlay.count(),
-          getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
-          getEmbeddingHostStatus(activeWindow),
-          getChunkingHostStatus(activeWindow),
-        ]);
+        const [semanticSearchSnapshot, electronStderr, embeddingHostStatus, chunkingHostStatus] =
+          await Promise.all([
+            getWorkspaceSemanticSearchSnapshot(searchPanel),
+            getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
+            getEmbeddingHostStatus(activeWindow),
+            getChunkingHostStatus(activeWindow),
+          ]);
 
         lastSemanticSearchSnapshot = semanticSearchSnapshot;
 
@@ -946,13 +856,12 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         }
 
         if (
-          semanticSearchSnapshot?.hasSearched &&
-          !semanticSearchSnapshot.isSearching &&
-          !semanticSearchSnapshot.error &&
-          semanticSearchSnapshot.resultCount > 0 &&
-          semanticSearchSnapshot.firstResultNodeId !== null &&
-          searchingCount === 0 &&
-          emptyStateCount === 0
+          !(
+            semanticSearchSnapshot.isSearching ||
+            semanticSearchSnapshot.emptyState ||
+            semanticSearchSnapshot.error
+          ) &&
+          semanticSearchSnapshot.resultFileCount > 0
         ) {
           break;
         }
@@ -962,11 +871,10 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
 
       if (
         !(
-          lastSemanticSearchSnapshot?.hasSearched &&
-          !lastSemanticSearchSnapshot.isSearching &&
+          lastSemanticSearchSnapshot &&
+          !(lastSemanticSearchSnapshot.isSearching || lastSemanticSearchSnapshot.emptyState) &&
           !lastSemanticSearchSnapshot.error &&
-          lastSemanticSearchSnapshot.resultCount > 0 &&
-          lastSemanticSearchSnapshot.firstResultNodeId !== null
+          lastSemanticSearchSnapshot.resultFileCount > 0
         )
       ) {
         const [
@@ -1002,54 +910,46 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         );
       }
 
-      const expandAllButton = activeWindow
-        .locator('[data-testid="database-demo-panel"]')
-        .getByRole('button', { name: 'Expand all' });
-      await expect(expandAllButton).toBeVisible({ timeout: 15_000 });
-      await expandAllButton.click({ timeout: 30_000 });
-
+      // The rendered result set must survive the ongoing background backfill:
+      // re-read the panel after the load window rather than driving a
+      // browser-only "Expand all" interaction that no longer exists.
       const [
-        collectionTreeVisibleAfterExpand,
+        semanticSearchSnapshotUnderLoad,
         globalQueueStatsAfterExpand,
         importCollectionQueueStatsAfterExpand,
         importCollectionCountsAfterExpand,
         importSnapshotAfterExpand,
-        semanticSearchSnapshotAfterExpand,
         fileExplorerAfterExpand,
         electronStderrAfterExpand,
         embeddingHostStatusAfterExpand,
         chunkingHostStatusAfterExpand,
       ] = await Promise.all([
-        waitForCollectionTreeRegionVisible(collectionTreeRegion),
+        getWorkspaceSemanticSearchSnapshot(searchPanel),
         getEmbeddingQueueStats(activeWindow),
         getEmbeddingSetQueueStats(activeWindow, scenario.importEmbeddingSetId),
         getEmbeddingSetCounts(activeWindow, scenario.importEmbeddingSetId),
         getDatabaseDemoImportSnapshot(activeWindow),
-        getDatabaseDemoSemanticSearchSnapshot(activeWindow),
         getFileExplorerTestSnapshot(activeWindow),
         getRelevantElectronStderrSince(electronApp.app, electronStderrBaselineCount),
         getEmbeddingHostStatus(activeWindow),
         getChunkingHostStatus(activeWindow),
       ]);
 
-      const searchSnapshotAfterExpand =
-        semanticSearchSnapshotAfterExpand ?? lastSemanticSearchSnapshot;
       const searchResultStillAvailable =
-        !!searchSnapshotAfterExpand?.hasSearched &&
-        !searchSnapshotAfterExpand.isSearching &&
-        !searchSnapshotAfterExpand.error &&
-        searchSnapshotAfterExpand.resultCount > 0 &&
-        searchSnapshotAfterExpand.firstResultNodeId !== null;
+        !(
+          semanticSearchSnapshotUnderLoad.isSearching ||
+          semanticSearchSnapshotUnderLoad.emptyState ||
+          semanticSearchSnapshotUnderLoad.error
+        ) && semanticSearchSnapshotUnderLoad.resultFileCount > 0;
 
-      if (!(collectionTreeVisibleAfterExpand || searchResultStillAvailable)) {
+      if (!searchResultStillAvailable) {
         throw new Error(
-          'Search results were not visible or reflected in the semantic-search snapshot after expand-all during mixed-state import backfill\n' +
+          'Rendered search results did not survive the mixed-state import backfill\n' +
             `globalQueueStats=${JSON.stringify(globalQueueStatsAfterExpand)}\n` +
             `importCollectionQueueStats=${JSON.stringify(importCollectionQueueStatsAfterExpand)}\n` +
             `importCollectionCounts=${JSON.stringify(importCollectionCountsAfterExpand)}\n` +
             `importSnapshot=${JSON.stringify(importSnapshotAfterExpand)}\n` +
-            `semanticSearchSnapshot=${JSON.stringify(searchSnapshotAfterExpand)}\n` +
-            `collectionTreeVisible=${collectionTreeVisibleAfterExpand}\n` +
+            `semanticSearchSnapshot=${JSON.stringify(semanticSearchSnapshotUnderLoad)}\n` +
             `fileExplorer=${JSON.stringify(fileExplorerAfterExpand)}\n` +
             `electronStderr=${JSON.stringify(electronStderrAfterExpand)}\n` +
             `embeddingHostStatus=${JSON.stringify(embeddingHostStatusAfterExpand)}\n` +
