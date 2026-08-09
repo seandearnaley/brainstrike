@@ -4,14 +4,14 @@
 
 ## TREEGRID CONVERGENCE CONTRACT
 
-File-tree and context preview tree behavior is converging on shared TreeTable primitives.
+Tree behavior across the remaining tree surfaces is converging on shared TreeTable primitives.
 
 Rules:
 - Use `packages/ui/src/tree-table/*` as the canonical treegrid implementation.
 - Prefer adapting feature surfaces to TreeTable API over duplicating tree render logic in app/package code.
-- Keep UX parity between:
-  - File explorer tree (left nav).
-  - Context explorer grouped preview tree (main panel).
+- The Explorer file tree (left nav) is the reference treegrid. BST-1211 retired
+  the Context explorer's grouped preview table, so the context preview is no
+  longer a treegrid adapter — its only surface is the Tapestry gallery.
 - Pickers rendered in popovers must follow the `useCollections` single-owner ruling in `database.md`.
 - Preserve WAI-ARIA treegrid semantics (`role="treegrid"`, row/level metadata, keyboard traversal).
 - Roving row focus and selection are independent. Keep `data-focused`/`tabIndex`
@@ -343,9 +343,10 @@ Windowing and performance:
   site; that drift is what BST-939 fixed.
 
 When modifying TreeTable strategy or pagination behavior:
-- Update the related file explorer / context preview / workspace-search adapters.
-  (The collection browser was a fourth adapter until BST-1213 retired it; its
-  jobs live in the Explorer import action and the Explorer|Search panel.)
+- Update the related file explorer / workspace-search adapters.
+  (Two adapters have since dropped out: the collection browser, retired by
+  BST-1213 — its jobs live in the Explorer import action and the Explorer|Search
+  panel — and the context preview table, retired by BST-1211.)
 - Add or update tests validating grouped slicing semantics and selection correctness.
 - Document intentional tradeoffs (e.g., paged vs virtual) in code comments or PR notes.
 

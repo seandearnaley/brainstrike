@@ -167,6 +167,18 @@ When changing this flow, update this section and the paired tests.
 The per-file range model spans Explorer, Search, Tapestry, and every context
 consumer (report generator, `listWorkspaceContext`, token meters).
 
+- **Tapestry is the ONLY context preview surface (BST-1211).** The panel is a
+  footer plus `TapestryView`; there is no tab strip, no Table View, and no
+  `activeTab` preference. Everything the table used to own went with it: column
+  visibility and widths (`context-preview-column-sizes.v1` store deleted),
+  sortable headers (preview order is now the fixed ascending-`rootFolderId`
+  comparator in `preview-panel.tsx`), page-size selection (Tapestry paginates at
+  a constant 24/page) and the shared `PreviewViewToolbar`. Group-by, group
+  collapse and the multi-select toggle live in `TapestryControls`; the
+  bulk-action bar reaches Tapestry as its `selectionActionBar` prop. The stored
+  `previewPanelPreferences.v1` blob keeps its key — retired fields are ignored
+  on read and pruned on the next write. Do not reintroduce a second surface
+  without re-reading this paragraph.
 - **Per-file rule, no global toggle.** "Files are membership, ranges are
   refinement, no ranges = whole file" — unconditional everywhere
   (`useTapestryRanges` retired). Selecting a file is membership ONLY; nothing

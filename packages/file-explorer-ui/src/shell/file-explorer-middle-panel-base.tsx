@@ -2,7 +2,7 @@ import { generateProjectTreeTextResult } from '@brainstrike/file-explorer/projec
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
-import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
+import { useUndoableAction } from '@brainstrike/ui';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ContextExportOptions } from '../context-export-options';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
@@ -21,13 +21,7 @@ import { useSelectionManager } from './use-selection-manager-context';
 
 const logger = createLogger('FileExplorerMiddlePanelBase');
 
-interface FileExplorerMiddlePanelBaseProps {
-  estimateTokenCost?: (tokens: number) => number;
-}
-
-export const FileExplorerMiddlePanelBase = ({
-  estimateTokenCost,
-}: FileExplorerMiddlePanelBaseProps) => {
+export const FileExplorerMiddlePanelBase = () => {
   const {
     fileContents,
     loadingFiles,
@@ -212,17 +206,6 @@ export const FileExplorerMiddlePanelBase = ({
     [performUndoableAction]
   );
 
-  const { openFileInTab } = useIdeFileEditor();
-
-  const handleFileClick = useCallback(
-    (compositeKey: string) => {
-      if (openFileInTab) {
-        openFileInTab(compositeKey);
-      }
-    },
-    [openFileInTab]
-  );
-
   const flushPreviewContentRequests = useCallback(() => {
     previewContentFlushQueuedRef.current = false;
     const compositeKeys = Array.from(previewContentRequestQueueRef.current);
@@ -266,9 +249,6 @@ export const FileExplorerMiddlePanelBase = ({
           <div className="flex-1 overflow-hidden bg-card/50">
             <PreviewPanel
               decodeFileSelection={decodeFileSelection}
-              resolveRootDisplayName={resolveRootDisplayName}
-              resolveRootPath={resolveRootPath}
-              {...(estimateTokenCost ? { estimateTokenCost } : {})}
               fileContents={fileContents}
               fileSizes={fileSizes}
               folderSummaryThreshold={folderSummaryThreshold}
@@ -276,7 +256,6 @@ export const FileExplorerMiddlePanelBase = ({
               loadingFiles={loadingFiles}
               onCopyContext={handleCopyContextFromPanel}
               onDownloadContext={handleDownloadContextFromPanel}
-              onFileClick={handleFileClick}
               onFolderSummaryThresholdChange={setFolderSummaryThreshold}
               onIncludeProjectTreeChange={handleIncludeProjectTreeChange}
               onProjectTreeUsesViewFiltersChange={setProjectTreeUsesViewFilters}
@@ -288,6 +267,8 @@ export const FileExplorerMiddlePanelBase = ({
               projectTreeTokenCountLoading={projectTreeTokenCountLoading}
               projectTreeUsesViewFilters={projectTreeUsesViewFilters}
               projectTreeValidationError={projectTreeValidationError}
+              resolveRootDisplayName={resolveRootDisplayName}
+              resolveRootPath={resolveRootPath}
               selectedFiles={selectedFilePaths}
               tokenBudget={tokenBudget}
               tokenCounting={tokenCounting}

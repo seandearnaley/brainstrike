@@ -1,6 +1,6 @@
-import { Checkbox, EmptyState, TablePagination, TooltipProvider } from '@brainstrike/ui';
+import { Checkbox, cn, EmptyState, TablePagination, TooltipProvider } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, FileX2 } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatTokenCount } from '../preview/use-preview-panel-state';
 import type { GroupedData, GroupKey, TableRowData } from '../utils/grouping-configs';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
@@ -246,6 +246,13 @@ interface TapestryViewProps {
   };
   previewSelections: Set<string>;
   scale: number;
+  /**
+   * Floating bulk-action bar for the current multi-selection, owned by the
+   * preview panel (it holds the selection actions) but rendered here so it
+   * overlays the gallery scrollport and clears the pagination bar. Inherited
+   * from the retired Table View, which hosted the same overlay (BST-1211).
+   */
+  selectionActionBar?: ReactNode;
   showSelectionControls: boolean;
   totalFiles: number;
   ungroupedFiles: FileTapestry[];
@@ -787,6 +794,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   onScaleChange,
   activeRangesCount,
   pagination,
+  selectionActionBar,
   showSelectionControls,
   onSelectionControlsToggle,
   scale,
@@ -988,118 +996,126 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
           totalFiles={totalFiles}
         />
 
-        <div className="scrollbar-thin flex-1 overflow-y-auto p-3">
-          <div className="flex w-full flex-col gap-3">
-            {showSelectionControls ? (
-              <div className="flex justify-end">
-                <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1 text-xs shadow-xs">
-                  <Checkbox
-                    aria-label="Select all files on current page"
-                    checked={pageCheckboxState}
-                    className="size-6"
-                    onCheckedChange={(checked) =>
-                      checked ? onSelectAllOnPage(visibleFilesOnPage) : onDeselectAll()
-                    }
-                    onClick={(event) => event.stopPropagation()}
-                  />
-                  <span className="text-muted-foreground">Page</span>
-                </div>
-              </div>
-            ) : null}
-            {groupingConfig === 'none' ? (
-              <div
-                className="grid items-start"
-                data-testid="tapestry-gallery"
-                style={{
-                  columnGap: galleryMetrics.gap,
-                  gridAutoRows: 4,
-                  gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${galleryMetrics.cardMinWidth}px), 1fr))`,
-                  rowGap: 4,
-                }}
-              >
-                {ungroupedFiles.map((file) => (
-                  <Minimap
-                    activePinnedLensFileId={activePinnedLensFileId}
-                    allowOverlap={allowOverlap}
-                    file={file}
-                    getGlobalIndex={getGlobalIndex}
-                    isDragging={isDragging}
-                    isSelected={previewSelections.has(file.compositeKey)}
-                    key={file.id}
-                    lensEnabled={lensEnabled}
-                    onChangeRangeColor={handleChangeRangeColor}
-                    onClearManualRanges={handleClearManualRanges}
-                    onCreateRange={handleCreateRange}
-                    onLensEnabledChange={handleLensEnabledChange}
-                    onMoveRange={handleMoveRange}
-                    onPinnedLensChange={setActivePinnedLensFileId}
-                    onRemoveRange={handleRemoveRange}
-                    onToggleRange={handleToggleRange}
-                    onToggleSelection={onToggleSelection}
-                    scale={galleryMetrics.lineDensity}
-                    showSelectionControls={showSelectionControls}
-                    smartStart={startDrag}
-                    {...(onRequestFileContent ? { onRequestFileContent } : {})}
-                  />
-                ))}
-              </div>
-            ) : (
-              groupedSections.map((section) => (
-                <div className="flex flex-col gap-4" key={String(section.group.groupKey)}>
-                  {section.showHeader && (
-                    <TapestryGroupHeader
-                      group={section.group}
-                      isCollapsed={section.isCollapsed}
-                      isFullySelected={isGroupFullySelected(section.group)}
-                      isPartiallySelected={isGroupPartiallySelected(section.group)}
-                      onGroupDeselectAll={onGroupDeselectAll}
-                      onGroupSelectAll={onGroupSelectAll}
-                      onToggleGroupCollapse={onToggleGroupCollapse}
-                      showSelectionControls={showSelectionControls}
-                    />
-                  )}
-                  {!section.isCollapsed && section.items.length > 0 && (
-                    <div
-                      className="grid items-start"
-                      data-testid="tapestry-gallery"
-                      style={{
-                        columnGap: galleryMetrics.gap,
-                        gridAutoRows: 4,
-                        gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${galleryMetrics.cardMinWidth}px), 1fr))`,
-                        rowGap: 4,
-                      }}
-                    >
-                      {section.items.map((file) => (
-                        <Minimap
-                          activePinnedLensFileId={activePinnedLensFileId}
-                          allowOverlap={allowOverlap}
-                          file={file}
-                          getGlobalIndex={getGlobalIndex}
-                          isDragging={isDragging}
-                          isSelected={previewSelections.has(file.compositeKey)}
-                          key={file.id}
-                          lensEnabled={lensEnabled}
-                          onChangeRangeColor={handleChangeRangeColor}
-                          onClearManualRanges={handleClearManualRanges}
-                          onCreateRange={handleCreateRange}
-                          onLensEnabledChange={handleLensEnabledChange}
-                          onMoveRange={handleMoveRange}
-                          onPinnedLensChange={setActivePinnedLensFileId}
-                          onRemoveRange={handleRemoveRange}
-                          onToggleRange={handleToggleRange}
-                          onToggleSelection={onToggleSelection}
-                          scale={galleryMetrics.lineDensity}
-                          showSelectionControls={showSelectionControls}
-                          smartStart={startDrag}
-                          {...(onRequestFileContent ? { onRequestFileContent } : {})}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            className={cn(
+              'scrollbar-thin flex-1 overflow-y-auto p-3',
+              selectionActionBar && 'pb-20'
             )}
+          >
+            <div className="flex w-full flex-col gap-3">
+              {showSelectionControls ? (
+                <div className="flex justify-end">
+                  <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1 text-xs shadow-xs">
+                    <Checkbox
+                      aria-label="Select all files on current page"
+                      checked={pageCheckboxState}
+                      className="size-6"
+                      onCheckedChange={(checked) =>
+                        checked ? onSelectAllOnPage(visibleFilesOnPage) : onDeselectAll()
+                      }
+                      onClick={(event) => event.stopPropagation()}
+                    />
+                    <span className="text-muted-foreground">Page</span>
+                  </div>
+                </div>
+              ) : null}
+              {groupingConfig === 'none' ? (
+                <div
+                  className="grid items-start"
+                  data-testid="tapestry-gallery"
+                  style={{
+                    columnGap: galleryMetrics.gap,
+                    gridAutoRows: 4,
+                    gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${galleryMetrics.cardMinWidth}px), 1fr))`,
+                    rowGap: 4,
+                  }}
+                >
+                  {ungroupedFiles.map((file) => (
+                    <Minimap
+                      activePinnedLensFileId={activePinnedLensFileId}
+                      allowOverlap={allowOverlap}
+                      file={file}
+                      getGlobalIndex={getGlobalIndex}
+                      isDragging={isDragging}
+                      isSelected={previewSelections.has(file.compositeKey)}
+                      key={file.id}
+                      lensEnabled={lensEnabled}
+                      onChangeRangeColor={handleChangeRangeColor}
+                      onClearManualRanges={handleClearManualRanges}
+                      onCreateRange={handleCreateRange}
+                      onLensEnabledChange={handleLensEnabledChange}
+                      onMoveRange={handleMoveRange}
+                      onPinnedLensChange={setActivePinnedLensFileId}
+                      onRemoveRange={handleRemoveRange}
+                      onToggleRange={handleToggleRange}
+                      onToggleSelection={onToggleSelection}
+                      scale={galleryMetrics.lineDensity}
+                      showSelectionControls={showSelectionControls}
+                      smartStart={startDrag}
+                      {...(onRequestFileContent ? { onRequestFileContent } : {})}
+                    />
+                  ))}
+                </div>
+              ) : (
+                groupedSections.map((section) => (
+                  <div className="flex flex-col gap-4" key={String(section.group.groupKey)}>
+                    {section.showHeader && (
+                      <TapestryGroupHeader
+                        group={section.group}
+                        isCollapsed={section.isCollapsed}
+                        isFullySelected={isGroupFullySelected(section.group)}
+                        isPartiallySelected={isGroupPartiallySelected(section.group)}
+                        onGroupDeselectAll={onGroupDeselectAll}
+                        onGroupSelectAll={onGroupSelectAll}
+                        onToggleGroupCollapse={onToggleGroupCollapse}
+                        showSelectionControls={showSelectionControls}
+                      />
+                    )}
+                    {!section.isCollapsed && section.items.length > 0 && (
+                      <div
+                        className="grid items-start"
+                        data-testid="tapestry-gallery"
+                        style={{
+                          columnGap: galleryMetrics.gap,
+                          gridAutoRows: 4,
+                          gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${galleryMetrics.cardMinWidth}px), 1fr))`,
+                          rowGap: 4,
+                        }}
+                      >
+                        {section.items.map((file) => (
+                          <Minimap
+                            activePinnedLensFileId={activePinnedLensFileId}
+                            allowOverlap={allowOverlap}
+                            file={file}
+                            getGlobalIndex={getGlobalIndex}
+                            isDragging={isDragging}
+                            isSelected={previewSelections.has(file.compositeKey)}
+                            key={file.id}
+                            lensEnabled={lensEnabled}
+                            onChangeRangeColor={handleChangeRangeColor}
+                            onClearManualRanges={handleClearManualRanges}
+                            onCreateRange={handleCreateRange}
+                            onLensEnabledChange={handleLensEnabledChange}
+                            onMoveRange={handleMoveRange}
+                            onPinnedLensChange={setActivePinnedLensFileId}
+                            onRemoveRange={handleRemoveRange}
+                            onToggleRange={handleToggleRange}
+                            onToggleSelection={onToggleSelection}
+                            scale={galleryMetrics.lineDensity}
+                            showSelectionControls={showSelectionControls}
+                            smartStart={startDrag}
+                            {...(onRequestFileContent ? { onRequestFileContent } : {})}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
+          {selectionActionBar}
         </div>
 
         <TablePagination

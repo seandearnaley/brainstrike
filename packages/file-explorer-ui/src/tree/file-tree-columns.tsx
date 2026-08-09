@@ -22,9 +22,9 @@ import { FileTreeSizeCell, FileTreeTokensCell, FileTreeTypeCell } from './file-t
 import { FileTreeNameCell } from './file-tree-name-cell';
 import type { FileTreeRowData } from './optimized-file-tree-model';
 
-export type ExplorerColumnId = 'name' | ExplorerMetadataColumnId;
+type ExplorerColumnId = 'name' | ExplorerMetadataColumnId;
 
-export interface ExplorerColumnConfig {
+interface ExplorerColumnConfig {
   /** Metadata values are numeric or badge-like and read better trailing. */
   align: 'left' | 'right';
   id: ExplorerColumnId;
@@ -40,7 +40,8 @@ export interface ExplorerMetadataColumnConfig extends ExplorerColumnConfig {
   id: ExplorerMetadataColumnId;
 }
 
-export const EXPLORER_COLUMN_CONFIGS: readonly ExplorerColumnConfig[] = [
+/** Every column, name first. Only the metadata slice below is exported. */
+const EXPLORER_COLUMN_CONFIGS: readonly ExplorerColumnConfig[] = [
   { align: 'left', id: 'name', label: 'Name' },
   { align: 'left', id: 'type', label: 'Type' },
   { align: 'right', id: 'tokens', label: 'Tokens' },

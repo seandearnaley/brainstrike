@@ -117,10 +117,6 @@ if (!isValidStore(singleton)) {
 
 export const useExplorerColumnVisibilityStore = singleton as BoundStore;
 
-export function getDefaultExplorerColumnVisibility(): ExplorerColumnVisibility {
-  return { ...DEFAULT_VISIBILITY };
-}
-
 /**
  * FACTORY RESET CONTRACT. `localStorage.clear()` drops the persisted slice but
  * not the LIVE singleton, and the web reset path does not force a reload — so

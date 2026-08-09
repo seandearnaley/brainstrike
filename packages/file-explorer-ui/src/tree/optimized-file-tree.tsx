@@ -1213,8 +1213,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     );
     // The store is created once (stable identity) via a useState lazy
     // initializer — the React-approved create-once idiom (a plain value, not a
-    // ref, so it is safe to read + mutate during render, mirroring
-    // PreviewTable's headerSelectionStore). It is never re-created.
+    // ref, so it is safe to read + mutate during render). It is never
+    // re-created.
     const [selectionStore] = useState(() => createFileTreeSelectionStore(selectionInputs));
     // Render-safe: pure write of the current inputs so a child rendering NOW
     // (e.g. a freshly mounted row) reads fresh state via getNodeState.
