@@ -223,6 +223,14 @@ export const ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE =
   'brainstrike_assistant_tool_projection_rewrites';
 
 /**
+ * Exact-message overlays for durable conversation compaction summaries
+ * (BST-1200 Milestone 2, migration 088 in BOTH runners plus the app-shell
+ * bootstrap mirror). The mirror is required because thread deletion references
+ * every registered sidecar unconditionally, while desktop main owns writes.
+ */
+export const ASSISTANT_COMPACTION_RANGES_TABLE = 'brainstrike_assistant_compaction_ranges';
+
+/**
  * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
  * `thread_id`. All three delete implementations (single CTE, bulk CTE, and
  * the Mastra `MemoryStorage.deleteThread` override) derive their stages from
@@ -232,6 +240,7 @@ export const ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE =
  * ("threadId" OR "lookupKey") and stays inline at each site.
  */
 export const THREAD_DELETE_SIDECAR_TABLES = [
+  { table: ASSISTANT_COMPACTION_RANGES_TABLE, threadColumn: 'thread_id' },
   { table: ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE, threadColumn: 'thread_id' },
   { table: 'brainstrike_canvas_versions', threadColumn: 'thread_id' },
   { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumn: 'thread_id' },

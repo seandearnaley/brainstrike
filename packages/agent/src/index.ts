@@ -186,6 +186,22 @@ export {
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
 export {
+  buildCompactionOverlayInputProcessor,
+  CompactionOverlayProcessor,
+  filterMessagesByCompactionRanges,
+} from './mastra/compaction-overlay-processor';
+export {
+  type AgenticCompactionSummary,
+  AgenticCompactionSummarySchemaError,
+  COMPACTION_SUMMARIZER_INSTRUCTIONS,
+  type CompactionMessage,
+  estimateCompactionMessageTokens,
+  generateAgenticCompactionSummary,
+  hasCompactionSummarySchema,
+  projectCompactionMessages,
+  projectCompactionMessagesForSummarizer,
+} from './mastra/conversation-compaction';
+export {
   clipGrepProjectionLine,
   formatGrepContentHeader,
   formatGrepContentRow,
@@ -343,6 +359,7 @@ export {
   createEmbeddingProvider,
   createLanguageModelProvider,
   createProvider,
+  getDefaultModel,
 } from './providers/provider-factory';
 // Provider models and utilities (no Mastra dependencies - safe for client-side)
 export {
@@ -676,6 +693,8 @@ export type {
   AssistantUiNode,
   AssistantUiNodeObject,
   AssistantUiScalar,
+  CompactionRangeEntry,
+  CompactionRangeLookup,
   GoogleProviderOptions,
   GoogleThinkingLevel,
   LocalProviderOptions,

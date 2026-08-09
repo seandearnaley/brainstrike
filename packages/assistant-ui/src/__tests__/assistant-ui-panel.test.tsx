@@ -6,6 +6,7 @@ import {
   CONTEXT_BREAKDOWN_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract';
+import { COMPACTION_SUMMARY_METADATA_KEY } from '@brainstrike/assistant-contract/compaction-summary';
 import { TooltipProvider } from '@brainstrike/ui';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -36,7 +37,9 @@ interface MockAuiState {
     text: string;
   };
   message: {
+    metadata?: Record<string, unknown>;
     parts: unknown[];
+    role?: string;
   };
   thread: {
     messages: Array<{ id: string }>;
@@ -474,6 +477,71 @@ describe('AssistantUiPanel model picker', () => {
         requestBodyLimitBytes: HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES,
       })
     );
+  });
+
+  describe('compaction summary dispatch', () => {
+    const summaryPayload = {
+      createdAt: '2026-08-09T12:00:00.000Z',
+      fallbackKind: 'agentic' as const,
+      firstCompactedMessageId: 'message-1',
+      lastCompactedMessageId: 'message-8',
+      rewriteId: 'rewrite-1',
+    };
+
+    function setAssistantMessage(marker: unknown, role = 'assistant'): void {
+      mockAuiState = {
+        ...createMockAuiState([{ text: 'Goal\nKeep the renderer honest.', type: 'text' }]),
+        message: {
+          metadata: { custom: { [COMPACTION_SUMMARY_METADATA_KEY]: marker } },
+          parts: [{ text: 'Goal\nKeep the renderer honest.', type: 'text' }],
+          role,
+        },
+      };
+    }
+
+    it('renders a valid compaction summary as a card instead of the normal assistant bubble', () => {
+      setAssistantMessage(summaryPayload);
+
+      const { container } = render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+      expect(screen.getByTestId('compaction-summary-card')).toBeVisible();
+      expect(container.querySelector('.aui-assistant-message-content')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ['missing marker', undefined, 'assistant'],
+      ['wrong role', summaryPayload, 'user'],
+      ['malformed payload', { ...summaryPayload, rewriteId: '' }, 'assistant'],
+    ])('falls through to the normal bubble for a %s', (_case, marker, role) => {
+      if (marker === undefined) {
+        mockAuiState = createMockAuiState([{ text: 'Ordinary reply.', type: 'text' }]);
+        mockAuiState.message.role = role;
+      } else {
+        setAssistantMessage(marker, role);
+      }
+
+      const { container } = render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+      expect(screen.queryByTestId('compaction-summary-card')).not.toBeInTheDocument();
+      expect(container.querySelector('.aui-assistant-message-content')).toBeInTheDocument();
+      expect(screen.getByTestId('markdown-text')).toBeInTheDocument();
+    });
+
+    it('labels deterministic fallback honestly and keeps that warning off agentic summaries', () => {
+      setAssistantMessage({
+        ...summaryPayload,
+        droppedSummaryLine: 'Dropped 8 messages from August 1–2.',
+        fallbackKind: 'deterministic',
+      });
+      const { rerender } = render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+      expect(screen.getByText(/no summarization model ran/i)).toBeVisible();
+
+      setAssistantMessage(summaryPayload);
+      rerender(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
+
+      expect(screen.queryByText(/no summarization model ran/i)).not.toBeInTheDocument();
+    });
   });
 
   it('registers assistant data renderers through assistant-ui data UI', () => {

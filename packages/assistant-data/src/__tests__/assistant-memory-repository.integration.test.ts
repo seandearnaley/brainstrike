@@ -1,5 +1,9 @@
 import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
 import {
+  COMPACTION_SUMMARY_METADATA_KEY,
+  isCompactionSummaryPayload,
+} from '@brainstrike/assistant-contract/compaction-summary';
+import {
   type RediscoveredToolApproval,
   TOOL_APPROVAL_DATA_NAME,
 } from '@brainstrike/assistant-contract/tool-approval';
@@ -2457,6 +2461,31 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   });
 
+  it('bootstraps the migration-088 compaction range shape for thread deletion', async () => {
+    const dataDir = createPgliteTestDataDir('compaction-range-bootstrap-shape');
+    const db = await wasmLoader.createPGlite(dataDir);
+    try {
+      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      await repository.createThread('workspace-a');
+
+      const columns = await db.query<{ column_name: string }>(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_name = 'brainstrike_assistant_compaction_ranges'
+         ORDER BY ordinal_position`
+      );
+      expect(columns.rows.map((row) => row.column_name)).toEqual([
+        'compaction_message_id',
+        'thread_id',
+        'compacted_message_ids',
+        'kind',
+        'created_at',
+      ]);
+    } finally {
+      await wasmLoader.closeCached(dataDir);
+    }
+  });
+
   it('persists provider-reported billed cost with run usage', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -3338,6 +3367,44 @@ describe('createPgliteAssistantThreadRepository integration', () => {
 
       expect(messages.map((message) => message.id)).toEqual(['message-1', 'message-3']);
     });
+
+    it('reloads compaction-summary custom metadata intact through the bounded history path', async () => {
+      const { db, threadId } = await seedRewindThread('assistant-compaction-summary-reload');
+      const payload = {
+        createdAt: '2026-08-09T12:00:00.000Z',
+        fallbackKind: 'agentic',
+        firstCompactedMessageId: 'message-1',
+        lastCompactedMessageId: 'message-2',
+        rewriteId: 'rewrite-1',
+      } as const;
+      await db.query(
+        `INSERT INTO mastra_messages
+          (id, thread_id, content, role, type, "createdAt", "resourceId")
+         VALUES ('summary-1', $1, $2::jsonb, 'assistant', 'v2',
+                 '2026-08-09T12:00:00Z', 'workspace-a')`,
+        [
+          threadId,
+          JSON.stringify({
+            format: 2,
+            metadata: { custom: { [COMPACTION_SUMMARY_METADATA_KEY]: payload } },
+            parts: [{ text: 'Goal\nContinue the work.', type: 'text' }],
+          }),
+        ]
+      );
+
+      const reloadedRepository = createPgliteAssistantThreadRepository(db as DbHandle);
+      const history = await createAssistantThreadHistoryAdapter({
+        repository: reloadedRepository,
+        resourceId: 'workspace-a',
+        threadId,
+      }).load();
+      const summary = history.messages.find((item) => item.message.id === 'summary-1')?.message;
+      const marker = summary?.metadata.custom?.[COMPACTION_SUMMARY_METADATA_KEY];
+
+      expect(summary?.role).toBe('assistant');
+      expect(marker).toEqual(payload);
+      expect(isCompactionSummaryPayload(marker)).toBe(true);
+    });
   });
 
   it('deletes messages and cascades thread runs and run events in real PGlite', async () => {
@@ -3424,6 +3491,12 @@ describe('createPgliteAssistantThreadRepository integration', () => {
        VALUES ('read-old', $1, 'rewrite-delete', 'read-new', 'read a.ts lines 1-2/2 [superseded]', 42)`,
       [thread.id]
     );
+    await db.query(
+      `INSERT INTO brainstrike_assistant_compaction_ranges
+        (compaction_message_id, thread_id, compacted_message_ids, kind)
+       VALUES ('summary-delete', $1, '["message-delete"]'::jsonb, 'agentic')`,
+      [thread.id]
+    );
 
     await repository.deleteThread(thread.id);
 
@@ -3455,6 +3528,9 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_assistant_tool_projection_rewrites', 'thread_id', thread.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', thread.id)
     ).resolves.toBe(0);
   });
 
@@ -3525,6 +3601,12 @@ describe('createPgliteAssistantThreadRepository integration', () => {
          VALUES ($1, $2, $3, 'model', 'provider', 17, 20)`,
         [`calibration-${thread.id}`, thread.id, `run-${thread.id}`]
       );
+      await db.query(
+        `INSERT INTO brainstrike_assistant_compaction_ranges
+          (compaction_message_id, thread_id, compacted_message_ids, kind)
+         VALUES ($1, $2, $3::jsonb, 'deterministic')`,
+        [`summary-${thread.id}`, thread.id, JSON.stringify([`message-${thread.id}`])]
+      );
     }
 
     await repository.deleteThreads([first.id, second.id]);
@@ -3593,6 +3675,15 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_token_estimate_calibration', 'thread_id', survivor.id)
+    ).resolves.toBe(1);
+    await expect(
+      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', first.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', second.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', survivor.id)
     ).resolves.toBe(1);
     // The op-log seam (BST-993): one tombstone per actually-deleted thread.
     await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', first.id)).resolves.toBe(1);

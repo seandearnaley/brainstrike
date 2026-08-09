@@ -17,6 +17,14 @@ export {
   CheckpointTurnRevert,
   CheckpointTurnRevertControl,
 } from './checkpoint-turn-revert';
+export {
+  CompactionSummaryCard,
+  type CompactionSummaryCardProps,
+} from './compaction-summary-card';
+export {
+  isCompactionSummaryMessage,
+  readCompactionSummaryPayload,
+} from './compaction-summary-message';
 export type { OmAwaitingObserverReason, OmMeterState } from './context-usage-meter';
 export {
   resetContextUsageStore,

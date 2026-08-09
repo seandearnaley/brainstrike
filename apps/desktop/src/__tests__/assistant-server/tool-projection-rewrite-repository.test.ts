@@ -37,6 +37,7 @@ import {
 import {
   applyToolProjectionRewriteRecording,
   recordSuccessfulToolProjection,
+  runRecencyPruneScan,
   toRecencyPruneInvocation,
 } from '../../assistant-server/tool-projection-rewrite-repository';
 
@@ -214,6 +215,34 @@ function projectedCharsForSavings(
 describe('recency-window tool projection pruning selection', () => {
   const protectWindowChars = TOOL_PROJECTION_PRUNE_PROTECT_WINDOW_TOKENS * APPROX_CHARS_PER_TOKEN;
   const minReclaimChars = TOOL_PROJECTION_PRUNE_MIN_RECLAIM_TOKENS * APPROX_CHARS_PER_TOKEN;
+
+  it('runs the extracted on-demand prune scan without a synthetic tool execution', async () => {
+    const oldArgs = { path: 'src/old.ts' };
+    const parts = [
+      persistedInvocation({
+        id: 'old-prunable',
+        input: oldArgs,
+        result: readResult('x'.repeat(minReclaimChars + 1000)),
+      }),
+      persistedInvocation({
+        id: 'protected-tail',
+        result: readResult('x'.repeat(protectWindowChars)),
+      }),
+    ];
+    const database = fakeDatabase(parts);
+    const resetLoopGuards = vi.fn();
+
+    await expect(
+      runRecencyPruneScan(
+        {
+          runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+          threadId: 'thread-1',
+        },
+        { getDatabase: async () => database as never, resetLoopGuards }
+      )
+    ).resolves.toEqual({ prunedCount: 1 });
+    expect(resetLoopGuards).toHaveBeenCalledOnce();
+  });
 
   it('protects the newest window exactly and selects the first invocation just outside it', () => {
     const oldArgs = { path: 'src/old.ts' };

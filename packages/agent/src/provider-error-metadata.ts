@@ -41,6 +41,16 @@ const STABLE_PROVIDER_ERROR_CODES: ReadonlySet<string> = new Set([
   'token_limit_exceeded',
 ] as const);
 
+const CONTEXT_OVERFLOW_PROVIDER_ERROR_CODES: ReadonlySet<string> = new Set([
+  'context_length_exceeded',
+  'max_tokens_exceeded',
+  'token_limit_exceeded',
+]);
+
+export function isContextOverflowProviderErrorCode(code: string): boolean {
+  return CONTEXT_OVERFLOW_PROVIDER_ERROR_CODES.has(code);
+}
+
 export const PROVIDER_RUN_ERROR_RESPONSE_HEADER_NAMES = [
   'anthropic-ratelimit-input-tokens-limit',
   'anthropic-ratelimit-input-tokens-remaining',

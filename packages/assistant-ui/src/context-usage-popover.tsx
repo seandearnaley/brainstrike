@@ -44,6 +44,7 @@ function costLabel(cost: CostEstimate): string {
 /** Display label per usage source (BST-953). OM figures are local estimates. */
 const SOURCE_LABELS: Record<AssistantRunUsageKind, string> = {
   chat: 'Chat',
+  'compaction-summary': 'Compaction summaries',
   'om-observation': 'Memory observer (est.)',
   'om-reflection': 'Memory reflection (est.)',
   subagent: 'Subagents',

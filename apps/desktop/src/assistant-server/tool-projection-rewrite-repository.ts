@@ -92,6 +92,16 @@ export interface ToolProjectionRewriteDependencies {
   readonly resetLoopGuards?: (threadScope: string) => void;
 }
 
+interface RecencyPruneScanDependencies extends ToolProjectionRewriteDependencies {
+  readonly excludeToolCallIds?: ReadonlySet<string>;
+  readonly priorScan?: Awaited<ReturnType<typeof listPriorInvocations>>;
+}
+
+export interface RunRecencyPruneScanInput {
+  readonly runtimeData: RuntimeData | undefined;
+  readonly threadId: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -472,9 +482,27 @@ export async function recordSuccessfulToolProjection(
     }
   }
 
+  await runRecencyPruneScan(
+    { runtimeData: current.runtimeData, threadId },
+    { ...dependencies, excludeToolCallIds: supersessionCandidateIds, priorScan: scan }
+  );
+}
+
+/** Run Layer 2's recency-prune scan for a thread without a synthetic tool event. */
+export async function runRecencyPruneScan(
+  input: RunRecencyPruneScanInput,
+  dependencies: RecencyPruneScanDependencies = {}
+): Promise<{ prunedCount: number }> {
+  if (!input.threadId.trim()) {
+    throw new Error('Recency-prune scan requires a non-empty thread id.');
+  }
+  const databaseProvider =
+    dependencies.getDatabase ?? (getDatabase as ProjectionRewriteDatabaseProvider);
+  const database = await databaseProvider();
+  const scan = dependencies.priorScan ?? (await listPriorInvocations(database, input.threadId));
   const pruneEligibleInvocations: RecencyPruneInvocation[] = [];
   for (const invocation of scan.invocations) {
-    if (supersessionCandidateIds.has(invocation.toolCallId)) {
+    if (dependencies.excludeToolCallIds?.has(invocation.toolCallId)) {
       continue;
     }
     const pruneInvocation = toRecencyPruneInvocation(invocation);
@@ -487,27 +515,32 @@ export async function recordSuccessfulToolProjection(
     invocations: pruneEligibleInvocations,
   });
   if (pruneCandidates.length === 0) {
-    return;
+    return { prunedCount: 0 };
   }
-  const prunedIds = await commitProjectionRewriteCandidates(database, threadId, pruneCandidates);
+  const prunedIds = await commitProjectionRewriteCandidates(
+    database,
+    input.threadId,
+    pruneCandidates
+  );
   if (prunedIds.size === 0) {
-    return;
+    return { prunedCount: 0 };
   }
   const prunedReclaimableChars = pruneCandidates.reduce(
     (total, candidate) =>
       prunedIds.has(candidate.toolCallId) ? total + candidate.reclaimableChars : total,
     0
   );
-  (dependencies.resetLoopGuards ?? resetToolCallLoopGuards)(readStateScope(current.runtimeData));
+  (dependencies.resetLoopGuards ?? resetToolCallLoopGuards)(readStateScope(input.runtimeData));
   logger.info(
     {
       code: 'tool_projection_prune_batch_committed',
       prunedRows: prunedIds.size,
       reclaimableChars: prunedReclaimableChars,
-      threadId,
+      threadId: input.threadId,
     },
     'committed recency-pruned native-tool projection rewrite batch'
   );
+  return { prunedCount: prunedIds.size };
 }
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;

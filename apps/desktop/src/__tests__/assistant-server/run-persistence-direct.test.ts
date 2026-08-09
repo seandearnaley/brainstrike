@@ -130,6 +130,33 @@ describe('child-run-usage durable persistence (BST-953)', () => {
     );
   });
 
+  it('persists provider-attributed compaction-summary usage under the parent run', async () => {
+    const chunk = {
+      type: 'child-run-usage',
+      value: {
+        estimated: false,
+        inputTokens: 1200,
+        model: 'gpt-5.2',
+        outputTokens: 180,
+        provider: 'openai',
+        source: 'compaction-summary',
+      },
+    } as unknown as StreamChunk;
+
+    await drive([chunk], undefined);
+
+    expect(usageInsertCalls()[0]).toEqual(
+      expect.arrayContaining([
+        'run-child-usage',
+        'gpt-5.2',
+        'openai',
+        1200,
+        180,
+        'compaction-summary',
+      ])
+    );
+  });
+
   it('attributes an OM cycle row to the RESOLVED OBSERVER target, never the chat model', async () => {
     const chunk = {
       type: 'child-run-usage',

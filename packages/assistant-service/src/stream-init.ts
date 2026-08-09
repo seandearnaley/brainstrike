@@ -22,6 +22,7 @@ import {
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import {
@@ -150,6 +151,60 @@ function buildInitialStreamMemoryOptions(
   };
 }
 
+async function* prependStreamChunks(
+  chunks: readonly StreamChunk[],
+  source: AsyncIterable<StreamChunk>
+): AsyncIterable<StreamChunk> {
+  for (const chunk of chunks) {
+    yield chunk;
+  }
+  yield* source;
+}
+
+async function runConversationCompactionBeforeStream<K extends AgentStreamCapabilityKinds>(input: {
+  readonly capabilities: AgentStreamCapabilities<K>;
+  readonly logger: ScopedLogger;
+  readonly memoryResult: AgentStreamMemoryResult | undefined;
+  readonly messages: readonly AgentMessage[];
+  readonly runId: string | undefined;
+  readonly runtime: RuntimeData;
+  readonly signal: AbortSignal;
+}): Promise<PreRequestCompactionCapabilityResult | undefined> {
+  if (!input.memoryResult) {
+    return;
+  }
+  input.runtime.contextOverflowRecovery =
+    input.capabilities.compaction.createContextOverflowRecovery({
+      memoryStore: input.memoryResult.store,
+      runtimeData: input.runtime,
+    });
+  try {
+    return await input.capabilities.compaction.runPreRequest({
+      memoryStore: input.memoryResult.store,
+      requestMessages: input.messages,
+      runId: input.runId,
+      runtimeData: input.runtime,
+      signal: input.signal,
+    });
+  } catch (error) {
+    input.logger.warn('Pre-request conversation compaction failed; continuing the user turn.', {
+      code: 'conversation_compaction_pre_request_failed',
+      error,
+    });
+    return;
+  }
+}
+
+function withCompactionUsageChunk(
+  source: AsyncIterable<StreamChunk>,
+  result: { readonly usage?: AssistantChildRunUsage } | undefined
+): AsyncIterable<StreamChunk> {
+  if (!result?.usage) {
+    return source;
+  }
+  return prependStreamChunks([{ type: 'child-run-usage', value: result.usage }], source);
+}
+
 /**
  * Pick the initial stream for the turn: approval-resume, suspend-resume
  * (submitPlan/askUser), or a fresh generation. Both resume paths skip
@@ -239,6 +294,12 @@ function trustedProjectionRewriteFields(
   lookup: RuntimeData['toolProjectionRewriteLookup']
 ): Pick<RuntimeData, 'toolProjectionRewriteLookup'> {
   return lookup ? { toolProjectionRewriteLookup: lookup } : {};
+}
+
+function trustedCompactionOverlayFields(
+  lookup: RuntimeData['compactionOverlayLookup']
+): Pick<RuntimeData, 'compactionOverlayLookup'> {
+  return lookup ? { compactionOverlayLookup: lookup } : {};
 }
 
 /**
@@ -454,6 +515,11 @@ export interface AgentStreamToolDependencies<K extends AgentStreamCapabilityKind
 /** What `memory.create` yields: the Mastra memory/storage pair for the run. */
 export type AgentStreamMemoryResult = PgliteMastraMemoryResult;
 
+interface PreRequestCompactionCapabilityResult {
+  readonly kind: 'agentic' | 'deterministic' | 'noop';
+  readonly usage?: AssistantChildRunUsage;
+}
+
 /**
  * Host-composed capabilities (BST-972 B4a/B4b): every host-module VALUE edge
  * of this module, injected so the service owns orchestration while the host
@@ -484,6 +550,19 @@ export interface AgentStreamCapabilities<
         }
       ) => ReturnType<ToolOutputArtifactSettlementStore['store']>;
     };
+  };
+  readonly compaction: {
+    readonly createContextOverflowRecovery: (input: {
+      readonly memoryStore: AgentStreamMemoryResult['store'];
+      readonly runtimeData: RuntimeData;
+    }) => NonNullable<RuntimeData['contextOverflowRecovery']>;
+    readonly runPreRequest: (input: {
+      readonly memoryStore: AgentStreamMemoryResult['store'];
+      readonly requestMessages: readonly AgentMessage[];
+      readonly runId: string | undefined;
+      readonly runtimeData: RuntimeData;
+      readonly signal: AbortSignal;
+    }) => Promise<PreRequestCompactionCapabilityResult>;
   };
   readonly contextInjectors: {
     readonly activatedSkills: (
@@ -662,6 +741,8 @@ interface AgentStreamHelperDeps<K extends AgentStreamCapabilityKinds> {
 export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKinds> {
   readonly apiKey: string | undefined;
   readonly capabilities: AgentStreamCapabilities<K>;
+  /** Trusted host-injected compaction overlay lookup; never client supplied. */
+  readonly compactionOverlayLookup?: RuntimeData['compactionOverlayLookup'];
   readonly getDatabase: AgentStreamDatabaseProvider<K['database']>;
   readonly logger: ScopedLogger;
   readonly mcpConfig: McpConfig | undefined;
@@ -700,6 +781,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     toolApprovalAction,
     toolResumeAction,
     toolDependencies,
+    compactionOverlayLookup,
     toolProjectionRewriteLookup,
     getDatabase,
     resolveProviderApiKey,
@@ -760,6 +842,8 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     workspaceSkills: _ignoredClientWorkspaceSkills,
     // Strip any client-supplied overlay lookup. Only the host-injected closure
     // passed as an initializer dependency may reach the agent runtime.
+    compactionOverlayLookup: _ignoredClientCompactionOverlayLookup,
+    contextOverflowRecovery: _ignoredClientContextOverflowRecovery,
     toolProjectionRewriteLookup: _ignoredClientProjectionRewriteLookup,
     // The renderer's persona availability preference; resolved (with the
     // user-persona disk scan) into `runtime.personas` below.
@@ -768,6 +852,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
   } = runtimeData ?? {};
   const trustedRuntimeData: RuntimeData = {
     ...runtimeWithoutMcpConfig,
+    ...trustedCompactionOverlayFields(compactionOverlayLookup),
     ...trustedProjectionRewriteFields(toolProjectionRewriteLookup),
   };
   const permissionPolicy = resolveRequestPermissionPolicy(permissionPolicyRequest);
@@ -953,8 +1038,18 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       };
     }
 
+    const preRequestCompaction = await runConversationCompactionBeforeStream({
+      capabilities,
+      logger,
+      memoryResult,
+      messages: upsGate.messages,
+      runId,
+      runtime,
+      signal,
+    });
+
     initializationStage = 'stream_construction';
-    const stream = await resolveInitialAgentStream({
+    const initialStream = await resolveInitialAgentStream({
       deps,
       memoryOptions,
       messages: upsGate.messages,
@@ -962,6 +1057,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       toolApprovalAction,
       toolResumeAction,
     });
+    const stream = withCompactionUsageChunk(initialStream, preRequestCompaction);
     logger.info('Assistant stream initialized');
     // Stop (notify-only in v1): fire the terminal Stop hook best-effort when the
     // stream ends (clean/error/abort). Its run events ride the queued sink the

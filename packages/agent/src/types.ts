@@ -42,6 +42,19 @@ export interface ToolProjectionRewriteLookup {
   ) => Promise<ReadonlyMap<string, ToolProjectionRewriteEntry>>;
 }
 
+/** One durable compaction summary and the exact raw message ids it replaces. */
+export interface CompactionRangeEntry {
+  readonly compactedMessageIds: readonly string[];
+  readonly compactionMessageId: string;
+}
+
+/** Desktop-injected, read-only access to durable compaction overlays. */
+export interface CompactionRangeLookup {
+  readonly listActiveCompactionRanges: (
+    threadId: string
+  ) => Promise<readonly CompactionRangeEntry[]>;
+}
+
 // The 7 supporting types below are byte-identical and dependency-free in both
 // @brainstrike/agent and @brainstrike/assistant-contract; the dependency-light
 // contract package owns them, agent re-exports for public-API stability.
@@ -137,6 +150,17 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * streamed UI state, and branch topology share one identity. Agent-only.
    */
   assistantMessageId?: string;
+  /**
+   * Desktop-injected lookup for durable conversation-compaction overlays.
+   * The input-step processor filters only the transient ID-bearing message
+   * list; durable Mastra rows remain unchanged. Server-side only.
+   */
+  compactionOverlayLookup?: CompactionRangeLookup;
+  /**
+   * Desktop-injected recovery callback for terminal provider context overflow.
+   * It may commit deterministic compaction, but never retries the current turn.
+   */
+  contextOverflowRecovery?: () => Promise<{ readonly applied: boolean }>;
   /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed into the
    * tool-execute seam so PreToolUse hooks can block a permitted tool and

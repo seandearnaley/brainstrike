@@ -267,6 +267,24 @@ superseder-presence check, while prune rows remain active whenever their own
 call is visible. Full contract:
 `docs/agents/assistant-persistence.md` § STALE TOOL-PROJECTION REWRITE OVERLAYS.
 
+Migration 088 owns the FK-less
+`brainstrike_assistant_compaction_ranges` overlay used by BST-1200 Milestone
+2's durable conversation summaries. Persist an exact ordered JSONB set of
+compacted message IDs rather than interpreting opaque client/UUIDv4 message IDs
+as sortable range keys. Register it in both migration runners, the reset
+registry, all three table-enumerating clear paths, and the shared thread-delete
+sidecar list. Mirror the final schema in renderer lazy assistant bootstrap for
+the same unconditional thread-delete-CTE reason as migration 084. The overlay
+processor derives liveness from the summary message's presence in Mastra's
+already-tombstone-filtered ID-bearing input-step message list; neither raw
+Mastra content nor rewind state is mutated.
+
+Migration 089 widens `brainstrike_assistant_run_usage.run_kind` to admit
+`compaction-summary`, the provider-exact auxiliary summarizer call attributed
+under its parent run. Register the constraint replacement in both migration
+runners and keep the renderer-lazy bootstrap CHECK aligned; adding only the
+TypeScript union makes real PGlite inserts fail.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

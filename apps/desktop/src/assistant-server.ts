@@ -23,7 +23,12 @@ import {
   isAuthorizedAssistantToken,
   mintAssistantServerAuthToken,
 } from './assistant-server/auth';
+import { createCompactionRangeLookup } from './assistant-server/compaction-range-repository';
 import { handleCancelRequest, handleSteerRequest } from './assistant-server/control-endpoints';
+import {
+  createContextOverflowRecovery,
+  runPreRequestCompaction,
+} from './assistant-server/conversation-compaction';
 import {
   applyAssistantCorsHeaders,
   hasDisallowedAssistantOrigin,
@@ -99,6 +104,7 @@ import { loadMcpConfig } from './mcp-loader';
 import { resolveDesktopPythonExecutable } from './python-runtime';
 
 const logger = desktopAssistantServerLogger;
+const compactionOverlayLookup = createCompactionRangeLookup(getDatabase);
 const toolProjectionRewriteLookup = createToolProjectionRewriteLookup(getDatabase);
 
 /**
@@ -137,6 +143,10 @@ interface DesktopAgentStreamKinds {
 export const desktopAgentStreamCapabilities: AgentStreamCapabilities<DesktopAgentStreamKinds> = {
   artifacts: {
     createRepository: (database) => new ToolOutputArtifactRepository(database),
+  },
+  compaction: {
+    createContextOverflowRecovery,
+    runPreRequest: runPreRequestCompaction,
   },
   contextInjectors: {
     activatedSkills: injectActivatedSkillsContext,
@@ -486,6 +496,7 @@ async function handleAssistantPost(
         const result = await initializeAgentStream({
           apiKey: core.apiKey,
           capabilities: desktopAgentStreamCapabilities,
+          compactionOverlayLookup,
           getDatabase,
           logger,
           mcpConfig: (await loadMcpConfig()).config,

@@ -8,6 +8,7 @@ import {
   isGuardedToolError,
 } from '@brainstrike/assistant-contract';
 import {
+  ASSISTANT_COMPACTION_RANGES_TABLE,
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
   ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE,
   CANVAS_VERSIONS_TABLE,
@@ -886,6 +887,23 @@ ALTER TABLE ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE}
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_tool_projection_rewrites_thread_idx
   ON ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE} (thread_id);
 
+-- Durable conversation-compaction ranges (BST-1200 Milestone 2).
+-- Bootstrapped here AND created by migration 088 — keep the shape
+-- byte-identical. The exact ordered message-id set is stored because Mastra
+-- message ids are opaque client strings / UUIDv4 values, not sortable range
+-- keys. Mirrored because thread deletion references every sidecar
+-- unconditionally; only desktop main writes rows during normal operation.
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_COMPACTION_RANGES_TABLE} (
+  compaction_message_id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  compacted_message_ids jsonb NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('agentic', 'deterministic')),
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_compaction_ranges_thread_idx
+  ON ${ASSISTANT_COMPACTION_RANGES_TABLE} (thread_id);
+
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,
   resource_id text NOT NULL,
@@ -1021,12 +1039,19 @@ ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
 ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
   ADD COLUMN IF NOT EXISTS cache_creation_input_tokens integer CHECK (cache_creation_input_tokens >= 0);
 
--- Run-kind attribution (BST-953): keep byte-identical to migration 077.
+-- Run-kind attribution (BST-953/BST-1200): keep byte-identical to migration 089.
 -- 'chat' = parent assistant turn; 'subagent' = persona delegation child;
+-- 'compaction-summary' = pre-request auxiliary summarizer call;
 -- 'om-observation'/'om-reflection' = observational-memory background cycles.
 ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
   ADD COLUMN IF NOT EXISTS run_kind text NOT NULL DEFAULT 'chat'
-  CHECK (run_kind IN ('chat', 'subagent', 'om-observation', 'om-reflection'));
+  CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
+
+ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
+  DROP CONSTRAINT IF EXISTS brainstrike_assistant_run_usage_run_kind_check;
+ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
+  ADD CONSTRAINT brainstrike_assistant_run_usage_run_kind_check
+  CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);
@@ -2147,6 +2172,19 @@ function weaveRunEventsIntoContent(
   return woven;
 }
 
+/** Preserve Mastra v2 `content.metadata.custom` across renderer hydration. */
+function readHistoryCustomMetadata(content: unknown): Record<string, unknown> {
+  if (!isRecord(content)) {
+    return {};
+  }
+  const metadata = content['metadata'];
+  if (!isRecord(metadata)) {
+    return {};
+  }
+  const custom = metadata['custom'];
+  return isRecord(custom) ? { ...custom } : {};
+}
+
 function appendAssistantGroupMessage(args: {
   group: AssistantHistoryRowGroup;
   groupEventParts: readonly AssistantRunEventDataPart[];
@@ -2180,7 +2218,7 @@ function appendAssistantGroupMessage(args: {
       createdAt: firstRow.createdAt,
       id: messageId,
       metadata: {
-        custom: {},
+        custom: readHistoryCustomMetadata(lastRow.content),
         steps: [],
         // biome-ignore lint/style/useNamingConvention: assistant-ui requires this metadata key.
         unstable_annotations: [],

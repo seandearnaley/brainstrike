@@ -67,6 +67,11 @@ import { BranchPicker } from './branch-picker';
 import { BudgetGuardrailControl, useBudgetSendGate } from './budget-guardrail-control';
 import { ChangesReviewLink } from './changes-review-link';
 import { CheckpointTurnRevert } from './checkpoint-turn-revert';
+import { CompactionSummaryCard } from './compaction-summary-card';
+import {
+  isCompactionSummaryMessage,
+  readCompactionSummaryPayload,
+} from './compaction-summary-message';
 import { ComposerAttachmentsBar } from './composer-attachments';
 import type { ComposerDraftCommandBridgeProps } from './composer-draft-command';
 import { type ComposerDraftCommand, ComposerDraftCommandBridge } from './composer-draft-command';
@@ -1622,6 +1627,28 @@ const EditComposer = () => {
 const AssistantMessage = () => {
   // Bottom rhythm comes from overrides.css (.aui-*-message-root rules).
   const threadKey = use(ActiveThreadKeyContext);
+  const compactionSummary = useAuiState((state) =>
+    isCompactionSummaryMessage(state.message) ? readCompactionSummaryPayload(state.message) : null
+  );
+  if (compactionSummary) {
+    return (
+      <MessagePrimitive.Root className="aui-assistant-message-root w-full py-3">
+        <CompactionSummaryCard
+          {...(compactionSummary.droppedSummaryLine === undefined
+            ? {}
+            : { droppedSummaryLine: compactionSummary.droppedSummaryLine })}
+          fallbackKind={compactionSummary.fallbackKind}
+        >
+          <MessagePrimitive.Parts
+            components={{
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
+              Text: AssistantMessageText,
+            }}
+          />
+        </CompactionSummaryCard>
+      </MessagePrimitive.Root>
+    );
+  }
   return (
     <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-2">
       <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-2xl break-words text-foreground leading-6">
