@@ -5,6 +5,7 @@ import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brain
 import { createLogger } from '@brainstrike/logging';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
+import { getKnownFileSize } from '@brainstrike/utils/file-content';
 
 const logger = createLogger('SharedFileContentLoading');
 const MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS = 5;
@@ -22,13 +23,6 @@ import {
   getFileNodeFromCache,
   refreshFileNodeCacheEntry,
 } from './utils/file-node-cache';
-
-function getKnownFileSize(size: unknown): number | null {
-  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
-    return null;
-  }
-  return size;
-}
 
 // File handle creation helper
 function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): FileHandle {

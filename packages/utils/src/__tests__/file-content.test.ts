@@ -2,16 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { fileContent, getKnownFileSize } from '../file-content.js';
 
 describe('getKnownFileSize', () => {
-  it.each([0, 1, 42.5, Number.MAX_VALUE])('returns the known finite non-negative size %s', (size) => {
+  it.each([
+    0,
+    1,
+    42.5,
+    Number.MAX_VALUE,
+  ])('returns the known finite non-negative size %s', (size) => {
     expect(getKnownFileSize(size)).toBe(size);
   });
 
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
-    'returns null for the non-finite size %s',
-    (size) => {
-      expect(getKnownFileSize(size)).toBeNull();
-    }
-  );
+  it.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ])('returns null for the non-finite size %s', (size) => {
+    expect(getKnownFileSize(size)).toBeNull();
+  });
 
   it.each([-1, -42.5])('returns null for the negative size %s', (size) => {
     expect(getKnownFileSize(size)).toBeNull();
