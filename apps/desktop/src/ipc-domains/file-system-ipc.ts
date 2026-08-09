@@ -43,6 +43,16 @@ interface RegisterFileSystemIpcHandlersOptions {
 
 interface ElectronE2eFileSystemFixture {
   readonly directoriesByPath: Record<string, SerializableFileNode[]>;
+  /**
+   * Opt-in per-read delay (ms) for fixture-served directory reads. Absent means
+   * no delay, so every fixture that does not ask for one stays instant.
+   *
+   * Exists because a memory-served fixture resolves reads in microseconds,
+   * which collapses cancellable traversals (expand-all) into a window too thin
+   * for a Playwright round-trip to land inside. Mirrors the browser lane's
+   * `directoryReadDelayMs` (packages/file-system/src/dev-fixture-types.ts).
+   */
+  readonly directoryReadDelayMs?: number;
   readonly fileContentsByPath: Record<string, string>;
   readonly readDirectoryCalls: string[];
   readonly readFileByPathCalls: string[];
@@ -202,6 +212,35 @@ function getElectronE2eFileSystemFixture(): ElectronE2eFileSystemFixture | null 
   return fixture ?? null;
 }
 
+/**
+ * Read the fixture's opt-in directory-read delay. The fixture arrives from an
+ * untyped `globalThis` slot written by the E2E harness, so a malformed value
+ * THROWS instead of falling back to zero: a silently ignored delay would hand
+ * the test back the microsecond-wide window it was written to widen, and it
+ * would pass for months before failing on a loaded CI runner.
+ */
+function resolveFixtureDirectoryReadDelayMs(fixture: ElectronE2eFileSystemFixture): number {
+  const delayMs: unknown = fixture.directoryReadDelayMs;
+  if (delayMs === undefined) {
+    return 0;
+  }
+  if (typeof delayMs !== 'number' || !Number.isFinite(delayMs) || delayMs < 0) {
+    throw new Error(
+      `Invalid E2E fixture directoryReadDelayMs: expected a finite number >= 0, received ${typeof delayMs} ${String(delayMs)}`
+    );
+  }
+  return delayMs;
+}
+
+async function waitForFixtureDirectoryReadDelay(delayMs: number): Promise<void> {
+  if (delayMs === 0) {
+    return;
+  }
+  await new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
 function isE2eTestMode(): boolean {
   return (
     process.argv.includes('--test-mode') ||
@@ -344,6 +383,7 @@ export function registerFileSystemIpcHandlers({
       const fixture = getElectronE2eFileSystemFixture();
       if (fixture) {
         fixture.readDirectoryCalls.push(handle.path);
+        await waitForFixtureDirectoryReadDelay(resolveFixtureDirectoryReadDelayMs(fixture));
         const entries = fixture.directoriesByPath[handle.path];
         if (!entries) {
           throw new AccessError(

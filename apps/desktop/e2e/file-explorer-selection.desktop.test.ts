@@ -15,6 +15,7 @@ import {
   installWideExpandAllFixture,
   setFileExplorerMaxSelectionCount,
   test,
+  WIDE_EXPAND_ALL_TOTAL_DIRECTORY_COUNT,
   waitForFileExplorerSelectionIdle,
 } from './file-explorer-selection.shared';
 
@@ -94,21 +95,21 @@ test.describe('Desktop file explorer selection', () => {
     }, initialExpandedCount);
     await expect(expandAllButton).toBeDisabled();
 
-    await cancelButton.click({ noWaitAfter: true, timeout: 5000 }).catch(async (error: unknown) => {
-      const operationStillRunning = await window
-        .getByTestId('inline-scanning-indicator')
-        .isVisible()
-        .catch(() => false);
-      if (operationStillRunning) {
-        throw error;
-      }
-    });
+    // No tolerance branch: the fixture's per-read delay keeps the traversal
+    // running for ~13.5s, so a cancel click that misses is a real failure, not
+    // an operation that legitimately finished first.
+    await cancelButton.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(window.getByTestId('inline-scanning-indicator')).not.toBeVisible({
       timeout: 15_000,
     });
     await expect(expandAllButton).toBeEnabled();
-    expect(await getExpandedDirectoryCount(window)).toBeGreaterThan(initialExpandedCount);
+
+    const expandedCountAfterCancel = await getExpandedDirectoryCount(window);
+    expect(expandedCountAfterCancel).toBeGreaterThan(initialExpandedCount);
+    expect(expandedCountAfterCancel).toBeLessThan(
+      initialExpandedCount + WIDE_EXPAND_ALL_TOTAL_DIRECTORY_COUNT
+    );
   });
 
   test('unchecking a selected folder removes its files from the context explorer on desktop', async ({
