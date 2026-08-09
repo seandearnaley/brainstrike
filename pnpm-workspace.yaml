@@ -185,9 +185,4 @@ minimumReleaseAgeExclude:
   - '@assistant-ui/react@0.15.8'
   - '@assistant-ui/store@0.3.5'
   - '@assistant-ui/tap@0.9.10'
-  - '@mastra/core@1.57.0'
-  - '@mastra/memory@1.26.0'
-  - '@mastra/schema-compat@1.3.5'
-  - '@tanstack/react-store@0.11.1'
-  - '@tanstack/store@0.11.1'
   - assistant-stream@0.3.34
