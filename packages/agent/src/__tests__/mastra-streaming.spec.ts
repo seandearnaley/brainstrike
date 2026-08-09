@@ -21,6 +21,7 @@ import { createMastraAgentRuntime } from '../mastra/agent-runtime';
 import { streamMastraAgent } from '../mastra/agent-streaming';
 import { MastraAgentError } from '../mastra/mastra-agent-error';
 import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
+import { RunTokenDiagnostics } from '../mastra/token-measurement';
 import {
   agentInstances,
   expectLeadingContextBreakdown,
@@ -176,9 +177,20 @@ describe('mastra streaming integration', () => {
           },
         }
       );
-      for await (const _chunk of iterator) {
-        // Drain the stream so the final diagnostics log is emitted.
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
       }
+      expect(chunks).toContainEqual({
+        type: 'token-estimate-calibration',
+        value: {
+          estimatedPromptTokens: 1,
+          model: 'gpt-5.6-terra',
+          occurredAt: expect.any(Number),
+          provider: 'openai',
+          providerReportedPromptTokens: 7,
+        },
+      });
     } finally {
       removeLogListener();
     }
@@ -210,6 +222,65 @@ describe('mastra streaming integration', () => {
       tokenizer: 'o200k_base',
       toolDefinitionCount: 0,
     });
+  });
+
+  it('omits token-estimate calibration when no provider prompt usage arrived', async () => {
+    setMockStreamParts([{ textDelta: 'stream ended early', type: 'text-delta' }]);
+    const iterator = await streamMastraAgent(
+      [{ id: 'user-1', parts: [{ text: 'hi there', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'gpt-5.6-terra',
+          provider: 'openai',
+        },
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({ type: 'token-estimate-calibration' })
+    );
+  });
+
+  it('omits token-estimate calibration when token measurement failed', async () => {
+    const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
+      measurementMode: 'declared-compatible-reference',
+      measurementStatus: 'failed',
+      modelVisibleProjectionBackstopTokens: 0,
+      providerReportedPromptTokens: 7,
+      toolDefinitionCount: 0,
+    });
+    setMockStreamParts([
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 7 } },
+    ]);
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'hi there', type: 'text' }], role: 'user' }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            model: 'gpt-5.6-terra',
+            provider: 'openai',
+          },
+        }
+      );
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).not.toContainEqual(
+        expect.objectContaining({ type: 'token-estimate-calibration' })
+      );
+    } finally {
+      fieldsSpy.mockRestore();
+    }
   });
 
   it('carries Anthropic cache token usage through the message-finish chunk', async () => {

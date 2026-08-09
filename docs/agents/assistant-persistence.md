@@ -1208,6 +1208,44 @@ owns all three table-enumerating reset paths. The shipped
 and the deliberate follow-up/first-page proxy without storing a search-session
 correlation key.
 
+## TOKEN-ESTIMATE CALIBRATION PAIRS (BST-1205)
+
+`brainstrike_token_estimate_calibration` (migration 086 in BOTH runners)
+stores one attributable run-end pair: the chars/4 estimate measured by
+`RunTokenDiagnostics` and the provider-reported prompt-token total from the
+stream finish part. The internal `token-estimate-calibration` stream chunk is
+consumed by the desktop main-process persistence wrapper and never reaches the
+renderer. The writer uses `INSERT ... SELECT` through
+`brainstrike_assistant_thread_runs` to derive `thread_id` from `run_id`, warns
+without failing the assistant turn on a missing run or failed write, and stores
+only ids, token counts, model/provider strings, and a timestamp.
+
+The estimate has a deliberately narrower scope than the provider denominator:
+it is `modelVisibleProjectionBackstopTokens +
+(toolDefinitionBackstopTokens ?? 0)`, covering model-visible tool-output
+projections plus tool definitions only. `RunTokenDiagnostics` never sees full
+conversation or system-prompt text. These ratios are therefore a partial-scope
+reconciliation signal for future evidence-based work, not a budget-meter
+calibration factor and not permission to tune `APPROX_CHARS_PER_TOKEN`.
+
+The table is FK-less because numbered migrations cannot depend on the lazy
+assistant parents. The renderer bootstrap mirrors migration 086 because its
+thread-delete CTE references every sidecar unconditionally;
+`THREAD_DELETE_SIDECAR_TABLES` removes thread-owned rows, and the reset registry
+owns all table-enumerating fresh-start paths. Scheduled database maintenance
+prunes rows after 60 days on both idle and active-queue passes, using the
+occurred-at-leading index created in migration 086; the idle pass also runs
+`VACUUM (ANALYZE)` for the table.
+
+The checked-in `estimator-calibration.sql` lens groups an inclusive time window
+by model and returns sample count plus min/median/max/average estimate-to-
+provider ratios, with `NULLIF` guarding zero provider totals. Paired proofs are
+the emission cases in `packages/agent/src/__tests__/mastra-streaming.spec.ts`,
+the real-PGlite desktop persistence integration test, the migration/reset and
+scheduled-maintenance tests in `packages/db/__tests__`, and
+`search-lens-estimator-calibration.test.ts`, which parses and executes the
+checked-in lens rather than an inlined copy.
+
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 
 Per-run cost/outcome analytics over tables the assistant already writes.

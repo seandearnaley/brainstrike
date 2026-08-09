@@ -780,6 +780,9 @@ export function registerDatabaseIpcHandlers(
             // Durable per-tool model-facing telemetry (migration 083): no FK,
             // so counters for deleted runs must be cleared explicitly.
             await clearOptionalRelation(tx, 'brainstrike_tool_call_telemetry');
+            // Estimator/provider prompt-token calibration pairs (migration
+            // 086): no FK, so calibration evidence is cleared explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_token_estimate_calibration');
             // Superseded native-tool projection overlays (migration 084): no
             // FK, so request-build rewrite state is cleared explicitly.
             await clearOptionalRelation(tx, 'brainstrike_assistant_tool_projection_rewrites');

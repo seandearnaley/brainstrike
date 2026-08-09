@@ -42,6 +42,7 @@ export type DesktopDatabaseMaintenanceRunResult =
       readonly completedAt: string;
       readonly durationMs: 0;
       readonly prunedTerminalJobs: 0;
+      readonly prunedTokenEstimateCalibrationRows: 0;
       readonly prunedToolCallTelemetryRows: 0;
       readonly reason: DesktopDatabaseMaintenanceSkipReason;
       readonly startedAt: string;
@@ -105,6 +106,7 @@ function createSkippedResult(
     completedAt: timestamp,
     durationMs: 0,
     prunedTerminalJobs: 0,
+    prunedTokenEstimateCalibrationRows: 0,
     prunedToolCallTelemetryRows: 0,
     reason,
     startedAt: timestamp,
@@ -167,6 +169,7 @@ export function createDesktopDatabaseMaintenanceScheduler(
               analyzedTables: result.analyzedTables,
               durationMs: result.durationMs,
               prunedTerminalJobs: result.prunedTerminalJobs,
+              prunedTokenEstimateCalibrationRows: result.prunedTokenEstimateCalibrationRows,
               prunedToolCallTelemetryRows: result.prunedToolCallTelemetryRows,
               status: result.status,
               vacuumedTables: result.vacuumedTables,

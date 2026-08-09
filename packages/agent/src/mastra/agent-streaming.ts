@@ -1004,6 +1004,7 @@ async function* streamChunksFromMastra({
   titleMessages,
 }: StreamGeneratorParams): AsyncIterableIterator<StreamChunk> {
   let titleGenerationTask: Promise<void> | undefined;
+  const calibrationState = { emitted: false };
   const toolCallTelemetryState = { emitted: false };
   const toolNames = new Map<string, string>();
   const lifecycleState: ToolLifecycleState = {
@@ -1081,6 +1082,13 @@ async function* streamChunksFromMastra({
       // completion callback fired before Mastra emitted this part, so the
       // child's usage must not land after a finishing part closes the stream.
       yield* drainDelegationUsageChunks(delegationUsage);
+      yield* drainTokenEstimateCalibrationChunk(
+        finished,
+        runtime,
+        runtimeData,
+        lifecycleState,
+        calibrationState
+      );
       yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
       for (const chunk of chunks) {
         yield chunk;
@@ -1097,6 +1105,13 @@ async function* streamChunksFromMastra({
     const endChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
       : makeMissingFinishStreamChunks(lifecycleState);
+    yield* drainTokenEstimateCalibrationChunk(
+      true,
+      runtime,
+      runtimeData,
+      lifecycleState,
+      calibrationState
+    );
     yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
     for (const chunk of endChunks) {
       yield chunk;
@@ -1106,12 +1121,26 @@ async function* streamChunksFromMastra({
       // Best-effort telemetry must not be lost on an ordinary stream/projector
       // failure after earlier tool calls already completed — drain whatever
       // was accumulated before propagating the failure (review fix).
+      yield* drainTokenEstimateCalibrationChunk(
+        true,
+        runtime,
+        runtimeData,
+        lifecycleState,
+        calibrationState
+      );
       yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
       throw error;
     }
     const terminalChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
       : makeStreamWatchdogTermination(error, lifecycleState, runtimeData);
+    yield* drainTokenEstimateCalibrationChunk(
+      true,
+      runtime,
+      runtimeData,
+      lifecycleState,
+      calibrationState
+    );
     yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
     for (const chunk of terminalChunks) {
       yield chunk;
@@ -1280,6 +1309,45 @@ function* drainToolCallTelemetryChunks(
   if (value.length > 0) {
     yield { type: 'tool-call-telemetry', value };
   }
+}
+
+function* drainTokenEstimateCalibrationChunk(
+  terminal: boolean,
+  runtime: MastraAgentRuntime,
+  runtimeData: RuntimeData | undefined,
+  lifecycleState: ToolLifecycleState,
+  state: { emitted: boolean }
+): Generator<StreamChunk> {
+  if (!(terminal && !state.emitted)) {
+    return;
+  }
+  state.emitted = true;
+  const providerReportedPromptTokens = lifecycleState.providerReportedPromptTokens;
+  const model = runtimeData?.model;
+  const provider = runtimeData?.provider;
+  if (providerReportedPromptTokens === undefined || !(model && provider)) {
+    return;
+  }
+  const fields = runtime.tokenDiagnostics.toLogFields({ providerReportedPromptTokens });
+  if (fields['measurementStatus'] === 'failed') {
+    return;
+  }
+  // Deliberately partial: RunTokenDiagnostics sees only model-visible tool
+  // outputs and tool definitions. It does NOT see conversation/system-prompt
+  // text, so this is evidence for that share alone, never a budget calibration.
+  const estimatedPromptTokens =
+    (fields['modelVisibleProjectionBackstopTokens'] as number) +
+    ((fields['toolDefinitionBackstopTokens'] as number | undefined) ?? 0);
+  yield {
+    type: 'token-estimate-calibration',
+    value: {
+      estimatedPromptTokens,
+      model,
+      occurredAt: Date.now(),
+      provider,
+      providerReportedPromptTokens: fields['providerReportedPromptTokens'] as number,
+    },
+  };
 }
 
 async function createStreamIteratorFromRuntime({

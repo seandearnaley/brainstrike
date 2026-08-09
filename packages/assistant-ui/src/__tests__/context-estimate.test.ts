@@ -131,6 +131,37 @@ describe('resolveDisplayedContextUsage', () => {
     ).toEqual({ isEstimated: false, usedTokens: 52_000 });
   });
 
+  it('keeps provider-exact usage independent of the heuristic estimator surface (BST-1205)', () => {
+    const providerActual = { inputTokens: 12_345, outputTokens: 678 };
+    const tinyEstimate = estimateConversationTokens([
+      { content: [{ text: 'short', type: 'text' }], role: 'user' },
+    ]).totalTokens;
+    const largeEstimate = estimateConversationTokens([
+      {
+        content: [
+          {
+            result: { content: 'x'.repeat(40_000) },
+            toolName: 'brainstrike.readWorkspaceFile',
+            type: 'tool-call',
+          },
+        ],
+        role: 'assistant',
+      },
+    ]).totalTokens;
+
+    expect(largeEstimate).toBeGreaterThan(tinyEstimate);
+    for (const conversationEstimateTokens of [tinyEstimate, largeEstimate]) {
+      expect(
+        resolveDisplayedContextUsage({
+          breakdownBaselineTokens: 999_999,
+          conversationEstimateTokens,
+          exact: providerActual,
+          isRunning: false,
+        })
+      ).toEqual({ isEstimated: false, usedTokens: 13_023 });
+    }
+  });
+
   it('shows the live estimate while a run streams, floored at the last exact figure', () => {
     // Live estimate below the last exact prompt → exact is the floor (context
     // never shrinks mid-conversation).

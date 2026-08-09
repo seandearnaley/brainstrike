@@ -59,6 +59,7 @@ import { readLastEventId, resolveAssistantRoute } from './assistant-server/routi
 import {
   observeDesktopAssistantRunEvents,
   persistDesktopChildRunUsage,
+  persistDesktopTokenEstimateCalibration,
   persistDesktopToolCallTelemetry,
   recordDesktopAssistantHookRunOutcome,
   recordDesktopAssistantThreadRunStatus,
@@ -165,6 +166,7 @@ export const desktopAgentStreamCapabilities: AgentStreamCapabilities<DesktopAgen
   runPersistence: {
     observeRunEvents: observeDesktopAssistantRunEvents,
     persistChildRunUsage: persistDesktopChildRunUsage,
+    persistTokenEstimateCalibration: persistDesktopTokenEstimateCalibration,
     persistToolCallTelemetry: persistDesktopToolCallTelemetry,
     recordHookRunOutcome: recordDesktopAssistantHookRunOutcome,
   },

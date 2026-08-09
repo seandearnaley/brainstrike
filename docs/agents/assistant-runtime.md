@@ -300,6 +300,16 @@ projections. `grepSearch` and `globWorkspace` attach zero-match, request-offset,
 and typed truncation metadata to their raw result in a private WeakMap before
 projection, so no projected-text parsing or user search data enters telemetry.
 
+At run end, the same diagnostics instance may also emit one internal
+`token-estimate-calibration` chunk when a finish part supplied provider prompt
+usage and measurement succeeded. Its estimate is the chars/4 backstop for the
+model-visible tool-output projections plus tool definitions that
+`RunTokenDiagnostics` observed. It does **not** cover conversation or system-
+prompt text, so the durable pair is a partial-scope reconciliation signal, not
+a budget-meter calibration factor. The desktop run-persistence capability
+consumes it before renderer serialization; missing actual usage, failed
+measurement, or missing model/provider attribution emits no sample.
+
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
 `toModelOutput`. Non-media results above 12,000 UTF-8 bytes are fully retained
