@@ -4,11 +4,16 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const LANE_PREFIX = 'test:e2e:lane:';
+const LANE_NAME_PATTERN = /^test:e2e:lane:[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-export function laneCommandArguments(lane) {
-  if (typeof lane !== 'string' || !lane.startsWith(LANE_PREFIX)) {
+function assertValidLaneName(lane) {
+  if (typeof lane !== 'string' || !LANE_NAME_PATTERN.test(lane)) {
     throw new Error(`Invalid E2E lane script name: ${String(lane)}`);
   }
+}
+
+export function laneCommandArguments(lane) {
+  assertValidLaneName(lane);
 
   const outputDirectory = `test-results/${lane.slice(LANE_PREFIX.length)}`;
   return ['run', lane, `--output=${outputDirectory}`];
@@ -29,9 +34,7 @@ function assertValidLanes(lanes) {
 
   const seen = new Set();
   for (const lane of lanes) {
-    if (typeof lane !== 'string' || !lane.startsWith(LANE_PREFIX)) {
-      throw new Error(`Invalid E2E lane script name: ${String(lane)}`);
-    }
+    assertValidLaneName(lane);
     if (seen.has(lane)) {
       throw new Error(`Duplicate E2E lane script name: ${lane}`);
     }

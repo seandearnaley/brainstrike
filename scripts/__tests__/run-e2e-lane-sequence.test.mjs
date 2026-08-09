@@ -82,6 +82,10 @@ test('each lane gets an isolated Playwright output directory', () => {
     new Set(EXPECTED_LANES.map((lane) => laneCommandArguments(lane).at(-1))).size,
     EXPECTED_LANES.length
   );
+  assert.throws(
+    () => laneCommandArguments('test:e2e:lane:../../escape'),
+    /Invalid E2E lane script name/
+  );
 });
 
 test('MONEY TEST: pnpm forwards the output flag without a literal delimiter', () => {
