@@ -29,11 +29,15 @@ lanes. Their tool category/loading-tier assertions follow the shared assistant
 contract and previously drifted while every PR check stayed green. Web selects
 `settings-tools-and-diagnostics.test.ts` through its suite-level `@web-smoke`
 tag; desktop requires both the suite-level `@smoke` tag and the explicit
-`tools-settings.desktop.test.ts` allowlist entry. The measured incremental
-local cost when this ruling was made was about 5 seconds for web and 28 seconds
-for desktop. `ai-tools-e2e-pr-gate-contract.test.mjs` verifies every title is
-tagged, the desktop file remains allowlisted, and `test.yml` still invokes both
-smoke scripts.
+`tools-settings.desktop.test.ts` allowlist entry. Both suites also remain in
+nightly regression: the web broad pass excludes only stateful/destructive tags,
+and the desktop regression excludes only the dedicated embedding lanes. The
+measured incremental local cost when this ruling was made was about 5 seconds
+for web and 28 seconds for desktop; the first Linux CI run after admission
+completed the entire desktop smoke step in 149 seconds against its 300-second
+Playwright budget. `ai-tools-e2e-pr-gate-contract.test.mjs` verifies every title
+has statically resolved tags, the desktop file remains allowlisted, and the
+pull-request E2E jobs still invoke both smoke scripts.
 
 ### The package-boundary gate runs first in Static (BST-967)
 
