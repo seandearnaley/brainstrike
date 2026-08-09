@@ -5,7 +5,10 @@ import type {
   IndexingEmbeddingJobQueuePort,
   ProviderDimensionParameter,
 } from '@brainstrike/indexing-contract';
-import { STANDARD_EMBEDDING_DIMENSION } from '@brainstrike/indexing-contract';
+import {
+  buildEmbedJobDedupeKey,
+  STANDARD_EMBEDDING_DIMENSION,
+} from '@brainstrike/indexing-contract';
 
 interface DurableEmbeddingJobPayload {
   readonly chunkId: string;
@@ -62,14 +65,6 @@ function resolveEmbeddingSetId(
   return options?.targetEmbeddingSetId ?? chunk.embeddingSetId ?? null;
 }
 
-function buildPersistedChunkDedupeKey(
-  chunkId: string,
-  embeddingSetId: string | null,
-  contentHash: string
-): string {
-  return `${chunkId}:${embeddingSetId ?? 'none'}:${contentHash}`;
-}
-
 export function createEmbeddingJobQueuePort<TTransaction = unknown>({
   db,
   createQueue,
@@ -108,7 +103,7 @@ export function createEmbeddingJobQueuePort<TTransaction = unknown>({
         const embeddingSetId = resolveEmbeddingSetId(chunk, options);
 
         enqueueParams.push({
-          dedupeKey: buildPersistedChunkDedupeKey(chunkId, embeddingSetId, contentHash),
+          dedupeKey: buildEmbedJobDedupeKey(chunkId, embeddingSetId, contentHash),
           jobType: 'embed_chunk',
           payload: {
             chunkId,
