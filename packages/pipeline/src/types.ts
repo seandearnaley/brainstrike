@@ -19,7 +19,7 @@ export type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
  * |---------------|-------------|--------------------------------------|
  * | FileRecord    | UUID        | contentHash + embeddingSetId         |
  * | FileChunk     | UUID        | fileRecordId + chunkIndex            |
- * | EmbeddingJob  | UUID        | chunkId + embeddingSetId + modelKey  |
+ * | EmbeddingJob  | UUID        | chunkId + embeddingSetId + contentHash |
  *
  * ## Stage Flow
  *
