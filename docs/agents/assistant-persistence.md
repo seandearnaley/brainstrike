@@ -864,9 +864,9 @@ provider-request boundary without mutating Mastra-owned message content.
   primary key; `thread_id` owns cleanup; `rewrite_id` groups one committed
   batch for diagnostics; `superseded_by_tool_call_id` is the live-evidence
   guard; `marker_text` is the exact compact replay; `original_chars` records
-  the serialized model-projection approximation used for diagnostics. The
-  table is registered in the reset registry and the shared thread-delete
-  sidecar cascade.
+  the decoded model-projection character count (BST-1195 ruler) used for
+  diagnostics. The table is registered in the reset registry and the shared
+  thread-delete sidecar cascade.
 - **Detection and batching are desktop-local and restart-safe.** After a
   successful `readWorkspaceFile` or `grepSearch`, and after a successful
   `writeWorkspaceFile` or `stringReplaceWorkspaceFile`, desktop scans the
@@ -879,14 +879,19 @@ provider-request boundary without mutating Mastra-owned message content.
   stubs are neither candidates nor superseders. Read markers name a later read
   only when one exists; edit-superseded markers direct the model to re-read, and
   multi-root markers use the same unambiguous root-label rule as the live read
-  projector. No in-memory pending queue exists. Reclaimable size is the
-  serialized projected result length minus the serialized text-marker length —
-  an honest character approximation, never token-exactness. Predicate matching
-  is cheap; model projections are built once, only for a winning pair. One
-  transaction commits the whole pending batch only at 65,536 reclaimable
-  characters or more; below threshold it writes nothing. Detection/commit is
-  post-success optimization bookkeeping: any failure is logged and the already
-  successful tool result remains successful.
+  projector. No in-memory pending queue exists. Reclaimable size is measured in
+  DECODED characters (BST-1195's `decodedWorkspaceTextModelOutputChars` ruler —
+  code points in the projected model-facing text plus the fixed envelope
+  reserve, never `JSON.stringify(...).length`), matching the SAME ruler the
+  live `readWorkspaceFile`/`grepSearch` projectors self-fit against, so the
+  64 KiB batch threshold below reflects the actual model-facing saving rather
+  than an inflated JSON-escaped approximation. It is still an honest character
+  approximation, never token-exactness. Predicate matching is cheap; model
+  projections are built once, only for a winning pair. One transaction commits
+  the whole pending batch only at 65,536 reclaimable decoded characters or
+  more; below threshold it writes nothing. Detection/commit is post-success
+  optimization bookkeeping: any failure is logged and the already successful
+  tool result remains successful.
 - **Replay rewriting is surgical and transient.** The agent-side Mastra input
   processor receives the fully built AI-SDK prompt and replaces only matching
   `tool-result.output` values with text markers. It runs before provider-history

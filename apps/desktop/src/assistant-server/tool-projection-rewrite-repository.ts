@@ -35,7 +35,10 @@ import {
   type ToolExecuteRunContext,
 } from './tool-execute-support';
 import { readStateScope } from './workspace-file-staleness';
-import { escapeProjectionPathLineBreaks } from './workspace-model-projection-helpers';
+import {
+  decodedWorkspaceTextModelOutputChars,
+  escapeProjectionPathLineBreaks,
+} from './workspace-model-projection-helpers';
 import { projectGrepSearchModelOutput } from './workspace-search-model-projections';
 
 const logger = createLogger('ToolProjectionRewriteRepository');
@@ -210,14 +213,6 @@ export function buildGrepSupersededMarker(outputMode: GrepToolResult['outputMode
   return `${grepProjectionHeaderPrefix(outputMode)}[superseded — results for this pattern were refreshed later]`;
 }
 
-function serializedChars(value: unknown): number {
-  const serialized = JSON.stringify(value);
-  if (serialized === undefined) {
-    throw new TypeError('Tool projection cannot be serialized as JSON.');
-  }
-  return serialized.length;
-}
-
 function readCandidate(
   invocation: PersistedToolInvocation,
   result: ReadProjectionResult,
@@ -225,8 +220,15 @@ function readCandidate(
 ): RewriteCandidate | undefined {
   try {
     const markerText = buildReadSupersededMarker(result, superseder.toolName);
-    const originalChars = serializedChars(projectReadWorkspaceFileModelOutput(invocation.result));
-    const markerChars = serializedChars({ type: 'text', value: markerText });
+    // BST-1195: the ONE domain-projection ruler for `type: 'text'` outputs is
+    // decoded code-point length (+ the fixed envelope reserve), never
+    // JSON.stringify(...).length -- see workspace-model-projection-helpers.ts.
+    // Both projectReadWorkspaceFileModelOutput and projectGrepSearchModelOutput
+    // below return that shape.
+    const originalChars = decodedWorkspaceTextModelOutputChars([
+      projectReadWorkspaceFileModelOutput(invocation.result).value,
+    ]);
+    const markerChars = decodedWorkspaceTextModelOutputChars([markerText]);
     return {
       markerText,
       originalChars,
@@ -257,8 +259,10 @@ function grepCandidate(invocation: PersistedToolInvocation): RewriteCandidate | 
     return;
   }
   const markerText = buildGrepSupersededMarker(result.outputMode);
-  const originalChars = serializedChars(projectGrepSearchModelOutput(invocation.result));
-  const markerChars = serializedChars({ type: 'text', value: markerText });
+  const originalChars = decodedWorkspaceTextModelOutputChars([
+    projectGrepSearchModelOutput(invocation.result).value,
+  ]);
+  const markerChars = decodedWorkspaceTextModelOutputChars([markerText]);
   return {
     markerText,
     originalChars,
