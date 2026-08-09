@@ -22,6 +22,10 @@ describe('useStableRecord', () => {
     rerender({ value: { a: 2 } });
     expect(result.current).not.toBe(first);
     expect(result.current).toEqual({ a: 2 });
+
+    const changed = result.current;
+    rerender({ value: { a: 2 } });
+    expect(result.current).toBe(changed);
   });
 
   it('returns the new record when keys were added or removed', () => {

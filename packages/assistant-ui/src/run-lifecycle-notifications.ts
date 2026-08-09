@@ -416,9 +416,6 @@ export function useRunLifecycleNotifications(
   callbacks: RunLifecycleNotificationCallbacks,
   threadKey?: string
 ): void {
-  const callbacksRef = useRef(callbacks);
-  callbacksRef.current = callbacks;
-
   const [selectTerminalEventsJson] = useState(createTerminalRunEventsSelector);
   const [selectApprovalRequestsJson] = useState(createToolApprovalRequestsSelector);
   const [selectEditActivityJson] = useState(createEditActivityRunEventsSelector);
@@ -437,9 +434,9 @@ export function useRunLifecycleNotifications(
     keyOf: (event) => event.id,
     onNew: (event) => {
       if (event.kind === 'run.finished') {
-        callbacksRef.current.onRunFinished?.(event);
+        callbacks.onRunFinished?.(event);
       } else {
-        callbacksRef.current.onRunFailed?.(event);
+        callbacks.onRunFailed?.(event);
       }
     },
     serializedValues: terminalEventsJson,
@@ -450,7 +447,7 @@ export function useRunLifecycleNotifications(
     isHistoryLoading,
     keyOf: (request) => `${request.runId}:${request.toolCallId}`,
     onNew: (request) => {
-      callbacksRef.current.onToolApprovalRequired?.(request);
+      callbacks.onToolApprovalRequired?.(request);
     },
     serializedValues: approvalRequestsJson,
     threadKey,
@@ -460,7 +457,7 @@ export function useRunLifecycleNotifications(
     isHistoryLoading,
     keyOf: (event) => event.id,
     onNew: (event) => {
-      callbacksRef.current.onRunEditActivity?.(event);
+      callbacks.onRunEditActivity?.(event);
     },
     serializedValues: editActivityJson,
     threadKey,
