@@ -3,14 +3,7 @@ import {
   SelectionActionBar,
   SelectionActionBarOverlay,
 } from '@brainstrike/ui';
-import {
-  createContext,
-  type ReactElement,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useState,
-} from 'react';
+import { createContext, type ReactElement, type ReactNode, useContext, useEffect } from 'react';
 
 /**
  * The explorer bar is composition-only: every concrete action is injected by
@@ -37,8 +30,15 @@ const SelectionActionBarPinContext = createContext<((pinned: boolean) => void) |
 export function useSelectionActionBarPin(shouldPin: boolean): void {
   const setPinned = useContext(SelectionActionBarPinContext);
 
+  if (!setPinned) {
+    throw new Error(
+      'useSelectionActionBarPin must be used within FileExplorerSelectionActions. ' +
+        'A silent no-op here would let a long-running action be unmounted mid-flight.'
+    );
+  }
+
   useEffect(() => {
-    if (!(setPinned && shouldPin)) {
+    if (!shouldPin) {
       return;
     }
 
@@ -50,6 +50,14 @@ export function useSelectionActionBarPin(shouldPin: boolean): void {
 export interface FileExplorerSelectionActionsProps {
   /** Drops the whole selection. */
   readonly onClear: () => void;
+  /** Receives pin requests from injected actions. Owned by `FileExplorerPanel`. */
+  readonly onPinnedChange: (pinned: boolean) => void;
+  /**
+   * Keeps the bar open at zero selection. Held by `FileExplorerPanel` because
+   * the scroll owner's bottom padding must track the bar's REAL visibility,
+   * not just the selection.
+   */
+  readonly pinned?: boolean;
   /** Whole-forest selected file count. */
   readonly selectedCount: number;
   /**
@@ -68,19 +76,15 @@ export interface FileExplorerSelectionActionsProps {
  */
 export function FileExplorerSelectionActions({
   onClear,
+  onPinnedChange,
+  pinned = false,
   selectedCount,
   trailingContent,
 }: FileExplorerSelectionActionsProps): ReactElement | null {
-  // Deliberately held HERE and not in FileExplorerPanel: the panel is the
-  // tree's render hot path, and adding state to it makes an injected action's
-  // pin re-render the whole tree (and re-fire its effects). This component
-  // renders unconditionally, so it can own the latch cheaply.
-  const [pinned, setPinned] = useState(false);
-
   // The provider must sit OUTSIDE the visibility branch so a pinned action can
   // keep asking to stay open; the branch below is what actually unmounts it.
   return (
-    <SelectionActionBarPinContext.Provider value={setPinned}>
+    <SelectionActionBarPinContext.Provider value={onPinnedChange}>
       {selectedCount > 0 || pinned ? (
         <SelectionActionBarOverlay className="flex justify-center px-3">
           {/* Positioned ancestor for transient panels raised by injected actions

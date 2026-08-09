@@ -7,6 +7,7 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { Button, Popover, PopoverContent, PopoverTrigger, useToast } from '@brainstrike/ui';
 import { FileText } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
+import { useCollectionCacheSync } from '../hooks/use-collection-cache-sync';
 import { useCollectionDialogs } from '../hooks/use-collection-dialogs';
 import { createImportCompletionHandler } from '../hooks/use-import-completion';
 import { useImportFlowSettings } from '../hooks/use-import-flow-settings';
@@ -94,6 +95,9 @@ export function ExplorerImportAction({
   );
 
   const collectionDialogs = useCollectionDialogs();
+  // This surface hosts the create/rename/delete dialogs, and it outlives the
+  // popover they dismiss — so it is where the shared cache stays honest.
+  useCollectionCacheSync();
   const importSettings = useImportSettings();
   const importFlowSettings = useImportFlowSettings(importSettings);
   const resolveActiveCollectionId = useCallback(() => activeCollectionId, [activeCollectionId]);

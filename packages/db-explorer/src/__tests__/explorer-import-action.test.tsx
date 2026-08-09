@@ -9,6 +9,7 @@ import {
 } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import type { EmbeddingSet } from '@brainstrike/db';
 import { type CollectionPickerCollection, ThemeProvider } from '@brainstrike/ui';
+import { dispatchEmbeddingSetUpdated } from '@brainstrike/utils/browser-events';
 import { act, render as renderComponent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
@@ -21,6 +22,7 @@ import {
 
 const {
   mockCollections,
+  mockCollectionsFetchError,
   mockDatabase,
   mockImportFiles,
   mockImportServiceState,
@@ -29,6 +31,7 @@ const {
   mockUseSelectionActionBarPin,
 } = vi.hoisted(() => ({
   mockCollections: { current: [] as CollectionPickerCollection[] },
+  mockCollectionsFetchError: { current: null as Error | null },
   mockDatabase: { query: vi.fn() },
   mockImportFiles: vi.fn().mockResolvedValue(undefined),
   mockImportServiceState: {
@@ -87,12 +90,41 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
         Finish creating collection
       </button>
     ),
-    DeleteEmbeddingSetDialog: () => <div data-testid="mock-delete-embedding-set-dialog" />,
+    // The real dialogs announce their outcome through this event; surfaces that
+    // do not own the live query keep the shared cache honest by listening.
+    DeleteEmbeddingSetDialog: ({ embeddingSet }: { embeddingSet: { id: string } }) => (
+      <button
+        data-testid="mock-delete-embedding-set-dialog"
+        onClick={() => dispatchEmbeddingSetUpdated({ id: embeddingSet.id, reason: 'deleted' })}
+        type="button"
+      >
+        Confirm delete
+      </button>
+    ),
     // The explorer picker deliberately does NOT mount useCollections (a second
     // instance ping-pongs the shared cache); it reads the store cache and tops
     // it up with this one-shot.
-    fetchCollectionsSnapshot: async () => mockCollections.current,
-    RenameEmbeddingSetDialog: () => <div data-testid="mock-rename-embedding-set-dialog" />,
+    fetchCollectionsSnapshot: async () => {
+      if (mockCollectionsFetchError.current) {
+        throw mockCollectionsFetchError.current;
+      }
+      return mockCollections.current;
+    },
+    RenameEmbeddingSetDialog: ({ embeddingSet }: { embeddingSet: { id: string } }) => (
+      <button
+        data-testid="mock-rename-embedding-set-dialog"
+        onClick={() =>
+          dispatchEmbeddingSetUpdated({
+            collection: { ...collection({ id: embeddingSet.id }), name: 'Renamed Collection' },
+            id: embeddingSet.id,
+            reason: 'updated',
+          })
+        }
+        type="button"
+      >
+        Confirm rename
+      </button>
+    ),
   };
 });
 
@@ -181,8 +213,19 @@ async function openPicker(): Promise<HTMLElement> {
   return await screen.findByTestId('explorer-import-picker');
 }
 
+/**
+ * Opening a dialog dismisses the popover, so the previous picker node is
+ * detached; re-open to assert against live DOM rather than a stale snapshot.
+ */
+async function reopenPicker(): Promise<HTMLElement> {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /^Import into collection/ }));
+  return await screen.findByTestId('explorer-import-picker');
+}
+
 beforeEach(() => {
   clearImportActivitySnapshot();
+  mockCollectionsFetchError.current = null;
   __resetVectorStatusUIStoreForTests();
   __resetBackgroundIndexingPreferencesStoreForTests();
   __resetImportSettingsStoreForTests();
@@ -341,6 +384,57 @@ describe('ExplorerImportAction', () => {
       expect(confirm).toBeDisabled();
       expect(confirm).toHaveAttribute('title', 'An import is already running');
     });
+  });
+
+  describe('keeping the shared collection cache honest', () => {
+    // No Database tab is mounted in any of these: the explorer popover is the
+    // only surface, so nothing else would repair the cache for it.
+    it('drops a collection deleted from its own row', async () => {
+      const user = userEvent.setup();
+      const picker = await openPicker();
+
+      await user.click(within(picker).getByRole('button', { name: 'Delete collection' }));
+      await user.click(await screen.findByTestId('mock-delete-embedding-set-dialog'));
+
+      await waitFor(() => {
+        expect(
+          useVectorStatusUIStore.getState().cachedCollections.some(({ id }) => id === 'docs')
+        ).toBe(false);
+      });
+      const reopened = await reopenPicker();
+      expect(within(reopened).queryByRole('option', { name: /Collection docs/ })).toBeNull();
+    });
+
+    it('shows the new name after a rename from its own row', async () => {
+      const user = userEvent.setup();
+      const picker = await openPicker();
+
+      await user.click(within(picker).getByRole('button', { name: 'Edit collection' }));
+      await user.click(await screen.findByTestId('mock-rename-embedding-set-dialog'));
+
+      const reopened = await reopenPicker();
+      expect(
+        await within(reopened).findByRole('option', { name: /Renamed Collection/ })
+      ).toBeInTheDocument();
+      expect(within(reopened).queryByRole('option', { name: /Collection docs/ })).toBeNull();
+    });
+  });
+
+  it('surfaces a failed collections query instead of an empty picker', async () => {
+    // An empty list here would read as "no collections exist" and invite the
+    // user to create a duplicate.
+    mockCollections.current = [];
+    useVectorStatusUIStore.getState().setCachedCollections([]);
+    mockCollectionsFetchError.current = new Error('relation "embedding_sets" does not exist');
+
+    const picker = await openPicker();
+
+    const alert = await within(picker).findByTestId('explorer-import-picker-error');
+    expect(alert).toHaveTextContent("Couldn't load collections");
+    expect(alert).toHaveTextContent('relation "embedding_sets" does not exist');
+    expect(
+      within(picker).queryByRole('button', { name: 'Create First Collection' })
+    ).not.toBeInTheDocument();
   });
 
   it('leaves the selection bar unpinned while idle', async () => {
