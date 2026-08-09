@@ -690,7 +690,7 @@ const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
  * reads: an uninitialized binding there does not throw, it splices the literal
  * string "undefined" into the DDL.
  */
-function buildAssistantThreadRunsSchemaSql(): string {
+export function buildAssistantThreadRunsSchemaSql(): string {
   return `
 ${MASTRA_MEMORY_SCHEMA_SQL}
 
