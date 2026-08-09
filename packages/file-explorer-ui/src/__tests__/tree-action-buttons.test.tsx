@@ -212,5 +212,39 @@ describe('TreeActionButtons', () => {
       );
       expect(screen.getByTestId('inline-scanning-indicator')).toHaveTextContent('5/10');
     });
+
+    it('keeps cancel unhidden at narrow widths while the count and refresh collapse (BST-657)', () => {
+      // The 180px minimum panel leaves a 76px right track: the 20px cancel, the
+      // 24px Select All, and the 12px gutter fit; the count text and the 24px
+      // Refresh do not. Progress and refresh are the expendable ones -- Refresh
+      // is disabled mid-operation and duplicated in the compact menu, while the
+      // cancel is the only abort path. So cancel must carry NO width gate.
+      renderWithTooltips(
+        <TreeActionButtons
+          {...defaultProps}
+          isExpandingAll
+          scanningStatus={scanning({ loadedCount: 5, totalCount: 10 })}
+        />
+      );
+
+      expect(screen.getByRole('button', { name: /cancel operation/i })).not.toHaveClass('hidden');
+      expect(screen.getByTestId('inline-scanning-count')).toHaveClass(
+        'hidden',
+        '@[236px]/explorer-toolbar:inline'
+      );
+      expect(screen.getByTestId('refresh-button-small')).toHaveClass(
+        'hidden',
+        '@[236px]/explorer-toolbar:inline-flex'
+      );
+    });
+
+    it('keeps the first-load spinner off the narrow track but leaves cancel reachable', () => {
+      renderWithTooltips(<TreeActionButtons {...defaultProps} scanningStatus={scanning()} />);
+      expect(screen.getByTestId('inline-scanning-spinner')).toHaveClass(
+        'hidden',
+        '@[236px]/explorer-toolbar:block'
+      );
+      expect(screen.getByRole('button', { name: /cancel operation/i })).not.toHaveClass('hidden');
+    });
   });
 });

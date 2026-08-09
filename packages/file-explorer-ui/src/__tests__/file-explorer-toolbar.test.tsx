@@ -70,13 +70,45 @@ describe('FileExplorerToolbar', () => {
     const toolbar = screen.getByTestId('file-explorer-toolbar');
     const rightCluster = toolbar.children.item(2)?.firstElementChild;
     expect(rightCluster).not.toBeNull();
-    const [fullActions, compactActions, edgeAction] = Array.from(rightCluster?.children ?? []);
-    expect(fullActions).toContainElement(screen.getByRole('button', { name: 'Refresh' }));
+    const [treeActions, fullActions, compactActions, edgeAction] = Array.from(
+      rightCluster?.children ?? []
+    );
+    expect(treeActions).toBe(screen.getByRole('button', { name: 'Refresh' }));
     expect(fullActions).toContainElement(screen.getByRole('button', { name: 'View filters' }));
     expect(fullActions).toHaveClass('hidden', '@[236px]/explorer-toolbar:contents');
     expect(compactActions).toBe(screen.getByRole('button', { name: 'More Explorer actions' }));
     expect(edgeAction).toBe(screen.getByRole('button', { name: 'Select all files' }));
     expect(rightCluster).toHaveClass('gap-0', '@[236px]/explorer-toolbar:gap-1');
+  });
+
+  it('renders tree actions outside the narrow-hidden wrapper so an in-flight operation stays cancellable (BST-657)', () => {
+    // #1916 wrapped treeActionsControl in the `@[236px]:contents hidden` block
+    // together with the view-filters toggle. That block also carries the inline
+    // scanning indicator's Cancel (X) -- the ONLY way to abort a running
+    // expand-all sweep, since Refresh is disabled while one runs and the
+    // compact menu never offered a cancel. At the 180px minimum panel width the
+    // whole cluster was display:none, so a desktop user had no abort at all.
+    // Tree actions must therefore sit in the ungated track; the cluster's own
+    // container queries decide which of its children collapse.
+    renderWithProviders(
+      <FileExplorerToolbar
+        {...getProps({
+          filtersControl: <button type="button">View filters</button>,
+          treeActionsControl: <button type="button">Refresh</button>,
+        })}
+      />
+    );
+
+    const narrowHiddenWrapper = screen
+      .getByTestId('file-explorer-toolbar')
+      .querySelector('.\\@\\[236px\\]\\/explorer-toolbar\\:contents');
+    expect(narrowHiddenWrapper).not.toBeNull();
+    expect(narrowHiddenWrapper).toContainElement(
+      screen.getByRole('button', { name: 'View filters' })
+    );
+    expect(narrowHiddenWrapper).not.toContainElement(
+      screen.getByRole('button', { name: 'Refresh' })
+    );
   });
 
   it('preserves the data-testid that desktop E2E depends on', () => {
