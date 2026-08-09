@@ -24,13 +24,17 @@
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { IFileNode } from '@brainstrike/types';
-import { useEffect, useMemo, useRef } from 'react';
+import type { MutableRefObject } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOptionalFileRowMetadata } from '../indexing/file-row-metadata-context';
 import {
   type FileRowMetadataSource,
   UNENUMERATED_DIRECTORY_SUBTREE,
 } from '../indexing/file-row-metadata-source-registry';
-import type { FileRowDirectorySubtree } from '../indexing/file-row-metadata-store';
+import type {
+  FileRowDirectorySubtree,
+  FileRowMetadataStore,
+} from '../indexing/file-row-metadata-store';
 import {
   hasNormalizedIncompleteDescendants,
   type VisibleDirectoryAggregates,
@@ -177,16 +181,98 @@ interface DeferredRollupState {
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-function createDeferredRollupState(): DeferredRollupState {
-  return { cache: new Map(), pending: new Set(), timer: null };
+interface DeferredRollupSources {
+  resolvedRef: MutableRefObject<ResolvedSourceState>;
+  storeRef: MutableRefObject<FileRowMetadataStore | undefined>;
 }
 
-function cancelDeferredFlush(deferred: DeferredRollupState): void {
-  if (deferred.timer !== null) {
-    clearTimeout(deferred.timer);
-    deferred.timer = null;
-  }
-  deferred.pending.clear();
+export interface DeferredRollupController {
+  /** Drop any queued work. Used on unmount and before re-arming. */
+  cancel: () => void;
+  /**
+   * Subtree for `path`: the cached one when present — which may be at most one
+   * commit stale while a refresh is in flight — otherwise the explicit
+   * unenumerated marker plus a queued resolution.
+   */
+  read: (path: string) => FileRowDirectorySubtree;
+  /**
+   * Re-resolve every cached subtree WITHOUT dropping the current ones.
+   *
+   * Clearing the cache here is what made every expand/collapse, filter
+   * keystroke and lazy child load repaint each visible directory row twice:
+   * the store's synchronous `invalidateAll` immediately after would miss the
+   * cache, take the deferral branch, and flip a settled `complete` rollup to
+   * PARTIAL — a visible blink behind a tooltip that was momentarily untrue —
+   * before the flush restored the number a macrotask later.
+   *
+   * Stale-while-recompute instead: keep serving the previous subtree (at most
+   * one commit old) until its replacement lands in the same macrotask. Rollups
+   * whose content did not actually move then compare equal in the store and
+   * notify nobody, so the common interaction repaints nothing at all.
+   */
+  refreshAll: () => void;
+}
+
+export function createDeferredRollupController({
+  resolvedRef,
+  storeRef,
+}: DeferredRollupSources): DeferredRollupController {
+  const state: DeferredRollupState = { cache: new Map(), pending: new Set(), timer: null };
+
+  const cancel = (): void => {
+    if (state.timer !== null) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    state.pending.clear();
+  };
+
+  const flush = (): void => {
+    state.timer = null;
+    const paths = [...state.pending];
+    state.pending.clear();
+    if (paths.length === 0) {
+      return;
+    }
+    const { folderId } = resolvedRef.current.params;
+    const invalidatedKeys: string[] = [];
+    for (const path of paths) {
+      state.cache.set(path, resolveDirectorySubtree(resolvedRef.current, path));
+      if (folderId) {
+        invalidatedKeys.push(encodeFileSelection(folderId, path));
+      }
+    }
+    // The store re-reads these keys and notifies ONLY the ones whose rollup
+    // value actually changed, so a refresh that resolves to the same totals is
+    // silent all the way to the cells.
+    storeRef.current?.invalidate(invalidatedKeys);
+  };
+
+  const schedule = (): void => {
+    state.timer ??= setTimeout(flush, 0);
+  };
+
+  return {
+    cancel,
+    read: (path) => {
+      const cached = state.cache.get(path);
+      if (cached) {
+        return cached;
+      }
+      state.pending.add(path);
+      schedule();
+      return UNENUMERATED_DIRECTORY_SUBTREE;
+    },
+    refreshAll: () => {
+      if (state.cache.size === 0) {
+        return;
+      }
+      for (const path of state.cache.keys()) {
+        state.pending.add(path);
+      }
+      schedule();
+    },
+  };
 }
 
 export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams): void {
@@ -202,59 +288,32 @@ export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams):
     return index;
   }, [fileTree, normalizedTreeContext]);
 
-  // Latest-value ref: the source closures below are created ONCE (the registry
+  // Latest-value refs: the source closures below are created ONCE (the registry
   // holds them for as long as the tree is mounted), so they must read through
-  // a ref rather than capture this render's props. Written after commit — a
+  // refs rather than capture this render's props. Written after commit — a
   // render React discards must not leak into the registry — and declared
   // BEFORE the registration/reconciliation effects so those observe this
   // commit's values.
   const resolvedRef = useRef<ResolvedSourceState>({ displayNodeByPath, params });
+  const storeRef = useRef(metadata?.store);
   useEffect(() => {
     resolvedRef.current = { displayNodeByPath, params };
-  });
-
-  const storeRef = useRef(metadata?.store);
-  const deferredRef = useRef<DeferredRollupState>(createDeferredRollupState());
-  useEffect(() => {
     storeRef.current = metadata?.store;
   });
 
-  const source = useMemo<FileRowMetadataSource>(() => {
-    const flush = (): void => {
-      const deferred = deferredRef.current;
-      deferred.timer = null;
-      const paths = [...deferred.pending];
-      deferred.pending.clear();
-      if (paths.length === 0) {
-        return;
-      }
-      const { folderId: currentFolderId } = resolvedRef.current.params;
-      const invalidatedKeys: string[] = [];
-      for (const path of paths) {
-        deferred.cache.set(path, resolveDirectorySubtree(resolvedRef.current, path));
-        if (currentFolderId) {
-          invalidatedKeys.push(encodeFileSelection(currentFolderId, path));
-        }
-      }
-      // Only the directories that were actually waiting repaint; a rollup that
-      // resolved to the same partial state notifies nobody.
-      storeRef.current?.invalidate(invalidatedKeys);
-    };
+  // Create-once via the lazy useState initializer (the repo's idiom, and the
+  // one that does not allocate a throwaway controller on every render).
+  const [deferredRollups] = useState(() =>
+    createDeferredRollupController({ resolvedRef, storeRef })
+  );
 
-    return {
-      getDirectorySubtree: (path) => {
-        const deferred = deferredRef.current;
-        const cached = deferred.cache.get(path);
-        if (cached) {
-          return cached;
-        }
-        deferred.pending.add(path);
-        deferred.timer ??= setTimeout(flush, 0);
-        return UNENUMERATED_DIRECTORY_SUBTREE;
-      },
+  const source = useMemo<FileRowMetadataSource>(
+    () => ({
+      getDirectorySubtree: (path) => deferredRollups.read(path),
       getNodeSize: (path) => resolveNodeSize(resolvedRef.current, path),
-    };
-  }, []);
+    }),
+    [deferredRollups]
+  );
 
   const { folderId, treeRows } = params;
   const registerSource = metadata?.registerSource;
@@ -267,16 +326,16 @@ export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams):
 
   const store = metadata?.store;
   useEffect(() => {
-    // A structural change moves rollups without naming a key, so the resolved
-    // subtrees are dropped and recomputed, and any flush queued against the OLD
-    // tree is cancelled. Runs on mount too, which is what turns the first
-    // render's "no source yet" reads into real values once registration lands.
-    const deferred = deferredRef.current;
-    cancelDeferredFlush(deferred);
-    deferred.cache.clear();
+    // A structural change moves rollups without naming a key, so every resolved
+    // subtree is queued for re-resolution — but the previous ones keep being
+    // served until their replacements land, so `invalidateAll` here sees real
+    // values rather than a cache it just emptied. Runs on mount too, which is
+    // what turns the first render's "no source yet" reads into real values once
+    // registration lands.
+    deferredRollups.refreshAll();
     store?.invalidateAll();
     // Cleanup runs before the next pass AND on unmount, so a queued flush can
     // never outlive the tree that scheduled it.
-    return () => cancelDeferredFlush(deferred);
-  }, [store, treeRows]);
+    return deferredRollups.cancel;
+  }, [deferredRollups, store, treeRows]);
 }

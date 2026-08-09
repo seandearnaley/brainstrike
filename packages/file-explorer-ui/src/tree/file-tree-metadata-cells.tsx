@@ -96,9 +96,18 @@ function reportUnidentifiedRow(path: string, error?: unknown): void {
   if (reportedUnidentifiedRows.has(path)) {
     return;
   }
-  if (reportedUnidentifiedRows.size < MAX_REPORTED_UNIDENTIFIED_ROWS) {
-    reportedUnidentifiedRows.add(path);
+  // EVICT the oldest rather than refusing to record: a full set that stops
+  // admitting keys makes every path past the cap log on every recompute, and a
+  // virtualized tree remounts these cells constantly — the cap would cause the
+  // flood it exists to prevent. Set iteration is insertion-ordered, so the
+  // first key is the oldest.
+  if (reportedUnidentifiedRows.size >= MAX_REPORTED_UNIDENTIFIED_ROWS) {
+    const oldest = reportedUnidentifiedRows.values().next();
+    if (!oldest.done) {
+      reportedUnidentifiedRows.delete(oldest.value);
+    }
   }
+  reportedUnidentifiedRows.add(path);
   logger.error('Tree row has no resolvable composite key; metadata cannot be read', {
     ...(error === undefined ? {} : { error }),
     path,

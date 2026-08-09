@@ -84,9 +84,17 @@ function reportMalformedKey(compositeKey: string, error: unknown): void {
   if (reportedMalformedKeys.has(compositeKey)) {
     return;
   }
-  if (reportedMalformedKeys.size < MAX_REPORTED_MALFORMED_KEYS) {
-    reportedMalformedKeys.add(compositeKey);
+  // EVICT the oldest rather than refusing to record. A full set that stops
+  // admitting keys makes every key past the cap log on EVERY call, which is the
+  // flood the cap exists to prevent. Set iteration is insertion-ordered, so the
+  // first key is the oldest.
+  if (reportedMalformedKeys.size >= MAX_REPORTED_MALFORMED_KEYS) {
+    const oldest = reportedMalformedKeys.values().next();
+    if (!oldest.done) {
+      reportedMalformedKeys.delete(oldest.value);
+    }
   }
+  reportedMalformedKeys.add(compositeKey);
   logger.error('Malformed composite key reached the file-row metadata registry', {
     compositeKey,
     error,

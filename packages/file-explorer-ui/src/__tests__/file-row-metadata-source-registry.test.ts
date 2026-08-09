@@ -98,6 +98,28 @@ describe('file row metadata source registry', () => {
     expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * The dedupe cap must EVICT, not stop admitting. A cap that refuses new
+   * entries once full turns every key past it into a per-call error log — the
+   * exact flood the cap exists to prevent, and the worst case is a virtualized
+   * tree remounting these reads constantly.
+   */
+  it('keeps logging once-per-key after the dedupe cap fills', () => {
+    const registry = createFileRowMetadataSourceRegistry();
+    // Overflow the cap comfortably.
+    for (let index = 0; index < 150; index += 1) {
+      registry.getNodeSize(`malformed-${index}`);
+    }
+    expect(errorSpy).toHaveBeenCalledTimes(150);
+
+    errorSpy.mockClear();
+    // The most recent keys are still remembered, so repeating them stays quiet.
+    for (let index = 100; index < 150; index += 1) {
+      registry.getNodeSize(`malformed-${index}`);
+    }
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
   it('unregisters only its own source, so a remount-before-cleanup keeps the root sourced', () => {
     const registry = createFileRowMetadataSourceRegistry();
     const first = stubSource({ getNodeSize: () => 1 });

@@ -36,7 +36,7 @@ import {
   type ExplorerMetadataColumnId,
   useExplorerColumnVisibilityStore,
 } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
-import { createContext, type ReactNode, type RefObject, useContext, useMemo } from 'react';
+import { createContext, type ReactNode, type RefObject, useContext, useMemo, useRef } from 'react';
 import { useContainerWidth } from '../hooks/use-container-width';
 import { EXPLORER_METADATA_COLUMN_CONFIGS } from '../tree/file-tree-columns';
 
@@ -95,10 +95,44 @@ export function resolveVisibleMetadataColumnIds(args: {
   if (args.isSuppressed) {
     return EMPTY_METADATA_COLUMN_IDS;
   }
-  const visible = EXPLORER_METADATA_COLUMN_CONFIGS.filter(
-    (config) => args.visibility[config.id]
-  ).map((config) => config.id);
+  const visible: ExplorerMetadataColumnId[] = [];
+  for (const config of EXPLORER_METADATA_COLUMN_CONFIGS) {
+    if (args.visibility[config.id]) {
+      visible.push(config.id);
+    }
+  }
   return visible.length === 0 ? EMPTY_METADATA_COLUMN_IDS : visible;
+}
+
+function columnIdsEqual(
+  a: readonly ExplorerMetadataColumnId[],
+  b: readonly ExplorerMetadataColumnId[]
+): boolean {
+  return a.length === b.length && a.every((columnId, index) => columnId === b[index]);
+}
+
+/**
+ * Retain the previous id array whenever the ANSWER is unchanged.
+ *
+ * This array is the memo key for the `TreeTableColumn[]` that flows into
+ * `TreeTableRow`'s memo, so a fresh identity per call rebuilds every cell
+ * closure and re-renders every visible row. `resolveVisibleMetadataColumnIds`
+ * only returned a stable identity for the EMPTY case, which meant a panel-width
+ * drag re-rendered the whole viewport once per pixel even though the visible
+ * columns never changed.
+ *
+ * The render-phase ref write is a memoization-cache update keyed on pure value
+ * equality (same argument as `useStableSet`): a discarded concurrent render
+ * cannot make a later result incorrect.
+ */
+function useStableColumnIds(
+  next: readonly ExplorerMetadataColumnId[]
+): readonly ExplorerMetadataColumnId[] {
+  const stableRef = useRef(next);
+  if (!columnIdsEqual(stableRef.current, next)) {
+    stableRef.current = next;
+  }
+  return stableRef.current;
 }
 
 /**
@@ -182,21 +216,30 @@ export function useExplorerColumnsValue(
   const areMetadataColumnsSuppressed =
     containerWidth > 0 && containerWidth < METADATA_COLUMNS_MIN_WIDTH;
 
-  return useMemo(() => {
-    const visibleMetadataColumnIds = resolveVisibleMetadataColumnIds({
+  // TWO stages on purpose. The id array decides which cell renderers exist and
+  // must not churn on width; the widths change per pixel during a panel drag
+  // and must not drag the cell renderers with them. Collapsing these into one
+  // memo is what made a resize re-render every visible row.
+  const visibleMetadataColumnIds = useStableColumnIds(
+    resolveVisibleMetadataColumnIds({
       isSuppressed: areMetadataColumnsSuppressed,
       visibility: { size, tokens, type },
-    });
-    return {
-      areMetadataColumnsSuppressed,
-      columnWidths: resolveExplorerColumnWidths({
+    })
+  );
+  const columnWidths = useMemo(
+    () =>
+      resolveExplorerColumnWidths({
         availableWidth: containerWidth,
         sizes,
         visibleMetadataColumnIds,
       }),
-      visibleMetadataColumnIds,
-    };
-  }, [areMetadataColumnsSuppressed, containerWidth, size, sizes, tokens, type]);
+    [containerWidth, sizes, visibleMetadataColumnIds]
+  );
+
+  return useMemo(
+    () => ({ areMetadataColumnsSuppressed, columnWidths, visibleMetadataColumnIds }),
+    [areMetadataColumnsSuppressed, columnWidths, visibleMetadataColumnIds]
+  );
 }
 
 export function ExplorerColumnsProvider({

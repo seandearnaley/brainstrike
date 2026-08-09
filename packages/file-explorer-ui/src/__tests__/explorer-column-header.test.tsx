@@ -14,11 +14,16 @@ import {
   EXPLORER_COLUMN_BOUNDS,
   useExplorerColumnSizesStore,
 } from '@brainstrike/app-state/stores/explorer-column-sizes-store';
-import type { ExplorerMetadataColumnId } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
+import {
+  type ExplorerMetadataColumnId,
+  useExplorerColumnVisibilityStore,
+} from '@brainstrike/app-state/stores/explorer-column-visibility-store';
 import type { IFileNode } from '@brainstrike/types';
-import { act, render } from '@testing-library/react';
+import { act, render, renderHook } from '@testing-library/react';
+import type { RefObject } from 'react';
 import { useRef } from 'react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as containerWidthModule from '../hooks/use-container-width';
 import {
   FileRowMetadataProvider,
   useExplorerRowMetadata,
@@ -26,8 +31,10 @@ import {
 import { ExplorerColumnHeader } from '../shell/explorer-column-header';
 import {
   ExplorerColumnsProvider,
+  METADATA_COLUMNS_MIN_WIDTH,
   resolveExplorerColumnWidths,
   resolveVisibleMetadataColumnIds,
+  useExplorerColumnsValue,
 } from '../shell/explorer-columns-context';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -311,5 +318,75 @@ describe('responsive column resolution', () => {
       visibility: { size: false, tokens: false, type: false },
     });
     expect(first).toBe(second);
+  });
+});
+
+/**
+ * The id array is the memo key for the `TreeTableColumn[]` that reaches
+ * `TreeTableRow`'s memo, so a fresh identity for an unchanged answer rebuilds
+ * every cell closure and re-renders every visible row. Only the EMPTY result
+ * used to be identity-stable, which meant a panel-width drag re-rendered the
+ * whole viewport once per pixel.
+ */
+describe('column id identity stability', () => {
+  function renderColumns(containerWidth: number) {
+    const containerRef = { current: null } as RefObject<HTMLElement | null>;
+    return renderHook(
+      ({ width }: { width: number }) => {
+        // `useContainerWidth` needs a live element; drive the measured width
+        // directly so the test controls the responsive input.
+        vi.spyOn(containerWidthModule, 'useContainerWidth').mockReturnValue(width);
+        return useExplorerColumnsValue(containerRef);
+      },
+      { initialProps: { width: containerWidth } }
+    );
+  }
+
+  beforeEach(() => {
+    useExplorerColumnVisibilityStore.getState().reset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('keeps ONE non-empty id array across re-renders that change nothing', () => {
+    const { result, rerender } = renderColumns(800);
+    const first = result.current.visibleMetadataColumnIds;
+    expect(first.length).toBeGreaterThan(0);
+
+    rerender({ width: 800 });
+    expect(result.current.visibleMetadataColumnIds).toBe(first);
+  });
+
+  it('keeps the id array identity across a RESIZE that does not change the answer', () => {
+    const { result, rerender } = renderColumns(800);
+    const first = result.current.visibleMetadataColumnIds;
+
+    // A panel drag: width moves every frame, the visible columns do not.
+    rerender({ width: 780 });
+    rerender({ width: 761 });
+    expect(result.current.visibleMetadataColumnIds).toBe(first);
+  });
+
+  it('DOES mint a new identity when the visible set actually changes', () => {
+    const { result, rerender } = renderColumns(800);
+    const first = result.current.visibleMetadataColumnIds;
+
+    act(() => {
+      useExplorerColumnVisibilityStore.getState().setColumnVisible('size', true);
+    });
+    rerender({ width: 800 });
+
+    expect(result.current.visibleMetadataColumnIds).not.toBe(first);
+    expect(result.current.visibleMetadataColumnIds).toContain('size');
+  });
+
+  it('collapses to the shared empty array once the panel is too narrow', () => {
+    const { result, rerender } = renderColumns(800);
+    rerender({ width: METADATA_COLUMNS_MIN_WIDTH - 1 });
+
+    expect(result.current.areMetadataColumnsSuppressed).toBe(true);
+    expect(result.current.visibleMetadataColumnIds).toHaveLength(0);
   });
 });
