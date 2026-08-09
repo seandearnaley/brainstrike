@@ -110,20 +110,60 @@ type CompactRefreshState = 'disabled' | 'ready' | 'refreshing';
 type CompactViewFiltersState = 'collapsed' | 'expanded';
 type CompactToolbarActionsState =
   | { availability: 'unavailable' }
+  | { availability: 'yielded-to-cancel' }
   | {
       availability: 'available';
       filters: CompactViewFiltersState;
       refresh: CompactRefreshState;
     };
 
-export function resolveCompactToolbarActionsState(
-  hasRoot: boolean,
-  isFiltersExpanded: boolean,
-  isLoading: boolean,
-  isRefreshing: boolean
-): CompactToolbarActionsState {
+/**
+ * True while the toolbar's scanning indicator — and therefore its cancel — is
+ * on screen. Mirrors computeScanningStatusProps' own visibility rule, and is
+ * the signal that makes the compact menu yield the narrow track.
+ *
+ * Run-boundary only: it flips once per operation, never per progress frame, so
+ * reading it in the panel does not defeat the PanelTreeActionButtons leaf.
+ */
+export function isCancellableOperationRunning(args: {
+  isExpandingAll: boolean;
+  isForestExpandingAll: boolean;
+  loadingProgress: { isInitialLoading?: boolean } | null | undefined;
+}): boolean {
+  return (
+    Boolean(args.loadingProgress?.isInitialLoading) ||
+    args.isExpandingAll ||
+    args.isForestExpandingAll
+  );
+}
+
+interface CompactToolbarActionsInput {
+  hasRoot: boolean;
+  isFiltersExpanded: boolean;
+  isLoading: boolean;
+  /**
+   * True while a cancellable operation (initial load, refresh, or an expand-all
+   * sweep) is running. The 76px narrow track fits two 24px controls beside the
+   * 12px gutter, and during an operation the second one must be the scanning
+   * indicator's cancel — the compact menu's Refresh item is disabled anyway,
+   * and View Filters can wait for the few seconds a sweep takes.
+   */
+  isOperationInProgress: boolean;
+  isRefreshing: boolean;
+}
+
+export function resolveCompactToolbarActionsState({
+  hasRoot,
+  isFiltersExpanded,
+  isLoading,
+  isOperationInProgress,
+  isRefreshing,
+}: CompactToolbarActionsInput): CompactToolbarActionsState {
   if (!hasRoot) {
     return { availability: 'unavailable' };
+  }
+  if (isOperationInProgress) {
+    return { availability: 'yielded-to-cancel' };
   }
   if (isRefreshing) {
     return {
@@ -155,7 +195,7 @@ export function CompactToolbarActions({
   setFiltersExpanded: (expanded: boolean) => void;
   state: CompactToolbarActionsState;
 }) {
-  if (state.availability === 'unavailable') {
+  if (state.availability !== 'available') {
     return null;
   }
 

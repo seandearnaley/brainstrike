@@ -50,6 +50,7 @@ import { applyQuickFilterToTree, collectVisibleFiles } from '../utils/quick-filt
 import {
   CompactToolbarActions,
   FilterChipsToggleButton,
+  isCancellableOperationRunning,
   isForestModeActive,
   PanelFloatingTreeActions,
   PanelTreeActionButtons,
@@ -783,12 +784,17 @@ const FileExplorerPanelInner = React.memo(() => {
               <CompactToolbarActions
                 onRefresh={handleRefresh}
                 setFiltersExpanded={setFiltersExpanded}
-                state={resolveCompactToolbarActionsState(
-                  Boolean(rootDirectoryHandle),
+                state={resolveCompactToolbarActionsState({
+                  hasRoot: Boolean(rootDirectoryHandle),
                   isFiltersExpanded,
                   isLoading,
-                  isRefreshing
-                )}
+                  isOperationInProgress: isCancellableOperationRunning({
+                    isExpandingAll,
+                    isForestExpandingAll,
+                    loadingProgress,
+                  }),
+                  isRefreshing,
+                })}
               />
             }
             filtersControl={

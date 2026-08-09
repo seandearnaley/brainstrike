@@ -15,6 +15,12 @@
  * stays HERE because its disabled/spin state pairs with the indicator's
  * cancel affordance. `isExpandingAll` is still consumed to suppress the
  * indicator's redundant spinner while the floating expand button spins.
+ *
+ * Below the toolbar's 236px step this cluster keeps ONLY the cancel button:
+ * Refresh collapses (it is disabled mid-operation anyway, and the compact
+ * overflow menu carries it), and so do the spinner and count. The cancel never
+ * gates on width — it is the sole way to abort a running sweep, and gating it
+ * left the 180px minimum-width panel with no abort at all (BST-657).
  */
 
 import { Button, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
@@ -91,18 +97,23 @@ const InlineScanningIndicator = React.memo(
         className={cn('flex items-center gap-1.5', isCancelling && 'opacity-60')}
         data-testid="inline-scanning-indicator"
       >
+        {/* Progress is the expendable half of this indicator. Below 236px the
+            right track cannot hold the spinner, the count, AND the cancel, so
+            the readouts collapse and the cancel keeps the space (BST-657). */}
         {!hideSpinner && (
           <Loader2
-            className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
+            className="@[236px]/explorer-toolbar:block hidden h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
             data-testid="inline-scanning-spinner"
           />
         )}
         {isCancelling ? (
-          <span className="text-muted-foreground text-xs">Stopping...</span>
+          <span className="@[236px]/explorer-toolbar:inline hidden text-muted-foreground text-xs">
+            Stopping...
+          </span>
         ) : (
           countText && (
             <span
-              className="text-muted-foreground text-xs tabular-nums"
+              className="@[236px]/explorer-toolbar:inline hidden text-muted-foreground text-xs tabular-nums"
               data-testid="inline-scanning-count"
               title={currentPath}
             >
@@ -174,7 +185,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Refresh"
-              className="@[236px]/explorer-toolbar:size-7 size-6"
+              className="@[236px]/explorer-toolbar:inline-flex hidden @[236px]/explorer-toolbar:size-7 size-6"
               data-testid="refresh-button-small"
               disabled={refreshDisabled}
               onClick={onRefresh}
