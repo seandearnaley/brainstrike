@@ -123,7 +123,10 @@ export function projectWebExtractModelOutput(
   domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
 ): WebExtractTextModelOutput {
   const result = parseWebExtractResult(raw);
-  if (JSON.stringify(result).length > WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS) {
+  if (
+    JSON.stringify(result).length >
+    Math.min(WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS, domainModelResultCharBudget)
+  ) {
     return output([
       `web-extract | status=model-output-unavailable | pages=${result.count} | failed=${
         result.failed.length

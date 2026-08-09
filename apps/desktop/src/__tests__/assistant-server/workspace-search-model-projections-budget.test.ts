@@ -1,8 +1,10 @@
 import {
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
 import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
 
 it('fits nearly twice as many newline-dense grep rows with the decoded ruler', () => {
@@ -105,5 +107,33 @@ describe('resolved per-run grep projection budgets', () => {
     expect(anchor).toEqual(defaultAnchor);
     expect(floor.value.length).toBeLessThan(anchor.value.length);
     expect(ceiling.value.length).toBeGreaterThan(anchor.value.length);
+  });
+
+  it('replays a stored projection above the resolved floor budget but below the ceiling', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192).domainModelResultCharBudget;
+    const storedModelOutput = {
+      type: 'text' as const,
+      value: `grep files ${'x'.repeat(8000)}`,
+    };
+
+    expect(decodedChars([storedModelOutput.value])).toBeGreaterThan(floorBudget);
+    expect(decodedChars([storedModelOutput.value])).toBeLessThanOrEqual(
+      CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+    );
+    expect(projectGrepSearchModelOutput(storedModelOutput, floorBudget)).toEqual(storedModelOutput);
+  });
+
+  it('rejects a stored projection above the fixed replay ceiling', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192).domainModelResultCharBudget;
+    const storedModelOutput = {
+      type: 'text' as const,
+      value: `grep content ${'x'.repeat(
+        CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+      )}`,
+    };
+
+    expect(() => projectGrepSearchModelOutput(storedModelOutput, floorBudget)).toThrow(
+      `stored model projection exceeds the ${CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget}-character domain budget`
+    );
   });
 });

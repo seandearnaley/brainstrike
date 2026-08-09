@@ -1,4 +1,5 @@
 import {
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
   formatGrepContentHeader,
   formatGrepContentRow,
   formatGrepProjectionPageRange,
@@ -421,9 +422,11 @@ export function projectGrepSearchModelOutput(
       output['value'].startsWith(grepProjectionHeaderPrefix('content')))
   ) {
     const replayed = { type: 'text' as const, value: output['value'] };
-    if (decodedChars([replayed.value]) > domainModelResultCharBudget) {
+    if (
+      decodedChars([replayed.value]) > CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+    ) {
       throw new RangeError(
-        `grepSearch stored model projection exceeds the ${domainModelResultCharBudget}-character domain budget`
+        `grepSearch stored model projection exceeds the ${CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget}-character domain budget`
       );
     }
     return replayed;

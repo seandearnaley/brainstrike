@@ -941,7 +941,10 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     const memoryOptions = buildInitialStreamMemoryOptions(
       memoryResult,
       artifactCapabilities.toolOutputArtifactStore,
-      capabilities.webExtractInlineMaxSerializedChars
+      Math.min(
+        capabilities.webExtractInlineMaxSerializedChars,
+        resolvedToolResultBudget.domainModelResultCharBudget
+      )
     );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/

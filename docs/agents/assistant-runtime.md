@@ -357,9 +357,10 @@ tool map is settlement-wrapped after policy/provider transforms and before
 before an artifact envelope can reach display/transcript. A trusted per-tool
 canonical-name map may lower the inline threshold by
 serialized characters when a complete domain projection has a tighter budget.
-`brainstrike.webExtract` uses 2400 characters: smaller extracts project every
-source byte and exact URL directly; larger extracts settle completely and
-continue through the artifact reader instead of clipping or re-fetching.
+`brainstrike.webExtract` uses the smaller of 2400 characters and the active
+run's resolved domain-projection character budget: smaller extracts project
+every source byte and exact URL directly; larger extracts settle completely
+and continue through the artifact reader instead of clipping or re-fetching.
 If a stricter-threshold artifact still fits one model page, settlement keeps
 the rich raw display and publishes a complete page without an EOF cursor. If
 no durable store exists, an oversized web extract produces an explicit

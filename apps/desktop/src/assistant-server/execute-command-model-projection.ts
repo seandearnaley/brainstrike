@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
@@ -250,9 +251,12 @@ export function projectExecuteCommandModelOutput(
     output['value'].startsWith('exec ')
   ) {
     const replayed = makeWorkspaceTextModelOutput([output['value']]);
-    if (JSON.stringify(replayed).length > domainModelResultCharBudget) {
+    if (
+      JSON.stringify(replayed).length >
+      CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+    ) {
       throw new RangeError(
-        `executeCommand stored model projection exceeds the ${domainModelResultCharBudget}-character domain budget`
+        `executeCommand stored model projection exceeds the ${CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget}-character domain budget`
       );
     }
     return replayed;
