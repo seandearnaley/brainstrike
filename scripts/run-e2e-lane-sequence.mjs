@@ -1,13 +1,22 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import path from 'node:path';
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const LANE_PREFIX = 'test:e2e:lane:';
 
+export function laneCommandArguments(lane) {
+  if (typeof lane !== 'string' || !lane.startsWith(LANE_PREFIX)) {
+    throw new Error(`Invalid E2E lane script name: ${String(lane)}`);
+  }
+
+  const outputDirectory = `test-results/${lane.slice(LANE_PREFIX.length)}`;
+  return ['run', lane, '--', `--output=${outputDirectory}`];
+}
+
 function defaultRunLane(lane) {
   const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-  return spawnSync(pnpmCommand, ['run', lane], {
+  return spawnSync(pnpmCommand, laneCommandArguments(lane), {
     env: process.env,
     stdio: 'inherit',
   });
@@ -76,7 +85,7 @@ export function runE2eLaneSequence(
 }
 
 const isDirectExecution =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isDirectExecution) {
   try {

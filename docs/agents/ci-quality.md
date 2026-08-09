@@ -785,11 +785,18 @@ What holds it honest:
 separate package scripts. `scripts/run-e2e-lane-sequence.mjs` invokes every one,
 records each result, and exits non-zero after the final lane if any failed. A
 failure in the broad or middle lanes therefore cannot starve tail lanes. The
-workflow remains bounded: lane-level Playwright global timeouts total 130
+runner also appends a unique `--output=test-results/<lane>` argument to every
+Playwright invocation; later lanes may clean their own subdirectory but cannot
+erase an earlier failure's traces, and the workflow uploads the parent
+`test-results/` tree recursively.
+
+The workflow remains bounded: lane-level Playwright global timeouts total 130
 minutes, eleven fresh web-server starts are capped at one minute each, and
 `web-e2e.yml` allows 165 minutes total, leaving 24 minutes for install/build
 overhead. Do not replace the runner with an `&&` chain or reduce the workflow
-timeout below the aggregate lane and startup budgets.
+timeout below the aggregate lane and startup budgets. The runner contract test
+derives that inequality from every invoked lane's declared timeout and the
+job-scoped workflow timeout.
 
 **What a green does NOT prove:** that an externally cancelled or job-timed-out
 run completed. The aggregate runner closes the ordinary lane-failure blind

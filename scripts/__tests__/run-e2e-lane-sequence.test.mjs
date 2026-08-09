@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 
-import { runE2eLaneSequence } from '../run-e2e-lane-sequence.mjs';
+import { laneCommandArguments, runE2eLaneSequence } from '../run-e2e-lane-sequence.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const EXPECTED_LANES = [
@@ -69,6 +72,33 @@ test('a spawn error is reported and later lanes still run', () => {
   assert.match(errors.join('\n'), /broken.*spawn failed/);
 });
 
+test('each lane gets an isolated Playwright output directory', () => {
+  assert.deepEqual(laneCommandArguments('test:e2e:lane:assistant-state'), [
+    'run',
+    'test:e2e:lane:assistant-state',
+    '--',
+    '--output=test-results/assistant-state',
+  ]);
+  assert.equal(
+    new Set(EXPECTED_LANES.map((lane) => laneCommandArguments(lane).at(-1))).size,
+    EXPECTED_LANES.length
+  );
+});
+
+test('MONEY TEST: invoking the runner through a symlink fails loud instead of doing nothing', () => {
+  const tempDirectory = mkdtempSync(path.join(tmpdir(), 'e2e-lane-runner-'));
+  try {
+    const linkPath = path.join(tempDirectory, 'run-lanes.mjs');
+    symlinkSync(path.join(REPO_ROOT, 'scripts/run-e2e-lane-sequence.mjs'), linkPath);
+    const result = spawnSync(process.execPath, [linkPath, 'invalid-lane'], { encoding: 'utf8' });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Invalid E2E lane script name: invalid-lane/);
+  } finally {
+    rmSync(tempDirectory, { force: true, recursive: true });
+  }
+});
+
 test('the real web full-regression script delegates every lane to the aggregate runner', () => {
   const webPackage = JSON.parse(
     readFileSync(path.join(REPO_ROOT, 'apps/web/package.json'), 'utf8')
@@ -81,6 +111,33 @@ test('the real web full-regression script delegates every lane to the aggregate 
 });
 
 test('the nightly timeout covers every lane budget plus setup and build overhead', () => {
-  const workflow = readFileSync(path.join(REPO_ROOT, '.github/workflows/web-e2e.yml'), 'utf8');
-  assert.match(workflow, /timeout-minutes: 165/);
+  const webPackage = JSON.parse(
+    readFileSync(path.join(REPO_ROOT, 'apps/web/package.json'), 'utf8')
+  );
+  const laneBudgetMinutes = EXPECTED_LANES.reduce((total, lane) => {
+    const match = /--global-timeout=(\d+)/.exec(webPackage.scripts[lane]);
+    assert.ok(match, `${lane} must declare an explicit --global-timeout`);
+    return total + Number(match[1]) / 60_000;
+  }, 0);
+  const workflow = parseYaml(
+    readFileSync(path.join(REPO_ROOT, '.github/workflows/web-e2e.yml'), 'utf8')
+  );
+  const playwrightConfig = readFileSync(
+    path.join(REPO_ROOT, 'apps/web/playwright.config.ts'),
+    'utf8'
+  );
+  assert.match(playwrightConfig, /webServer:\s*\{[\s\S]*?timeout:\s*60_000/);
+  const jobTimeoutMinutes = workflow.jobs['web-full-regression']['timeout-minutes'];
+  const traceUpload = workflow.jobs['web-full-regression'].steps.find(
+    (step) => step.name === 'Upload web traces'
+  );
+  assert.equal(traceUpload.with.path, 'apps/web/test-results/');
+  const webServerStartupMinutes = EXPECTED_LANES.length;
+  const setupAndBuildMinutes = 24;
+
+  assert.ok(
+    jobTimeoutMinutes >= laneBudgetMinutes + webServerStartupMinutes + setupAndBuildMinutes,
+    `${jobTimeoutMinutes}m job timeout must cover ${laneBudgetMinutes}m of lane budgets, ` +
+      `${webServerStartupMinutes}m of web-server starts, and ${setupAndBuildMinutes}m of setup/build`
+  );
 });
