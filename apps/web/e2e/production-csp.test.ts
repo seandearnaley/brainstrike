@@ -1,8 +1,15 @@
+// Sourced from the shared builder rather than the app's `../src/csp-utils`
+// wrapper: this spec graph is ESM (see e2e/package.json), while apps/web has no
+// `"type"`, so a value import reaching into apps/web/src is CommonJS-transpiled
+// inside an ESM graph and fails to load. `getCSP(env)` is a one-line wrapper that
+// only pins the target, so calling the builder with 'web' is the same string.
+import { getContentSecurityPolicy } from '@brainstrike/platform-utils';
 import type { Page } from '@playwright/test';
-import { getCSP } from '../src/csp-utils';
 import type { WebE2ETestHooks } from '../src/web-e2e-test-hooks';
 import { expect, test } from './fixtures/web-fixture';
 import { waitForAppLoad } from './utils/layout-helpers';
+
+const PRODUCTION_CSP = getContentSecurityPolicy('production', 'web');
 
 interface SecurityPolicyViolationSnapshot {
   readonly blockedUri: string;
@@ -16,7 +23,6 @@ interface CspDiagnostics {
 }
 
 async function installProductionCsp(page: Page, baseUrl: string): Promise<void> {
-  const productionCsp = getCSP('production');
   const appOrigin = new URL(baseUrl).origin;
   await page.route('**/*', async (route) => {
     const requestUrl = new URL(route.request().url());
@@ -28,7 +34,7 @@ async function installProductionCsp(page: Page, baseUrl: string): Promise<void> 
     await route.fulfill({
       headers: {
         ...response.headers(),
-        'content-security-policy': productionCsp,
+        'content-security-policy': PRODUCTION_CSP,
       },
       response,
     });
@@ -91,7 +97,7 @@ test.describe('Production CSP qualification', () => {
     await installProductionCsp(page, baseURL);
 
     const response = await page.goto('/');
-    expect(response?.headers()['content-security-policy']).toBe(getCSP('production'));
+    expect(response?.headers()['content-security-policy']).toBe(PRODUCTION_CSP);
     await waitForAppLoad(page);
 
     const qualification = await page.evaluate(async () => {
@@ -132,7 +138,7 @@ test.describe('Production CSP qualification', () => {
         finite: true,
       });
     }
-    expect(embeddingWorkerPolicies).toContain(getCSP('production'));
+    expect(embeddingWorkerPolicies).toContain(PRODUCTION_CSP);
     expect(await collectCspDiagnostics(page, pageErrors)).toEqual({
       pageErrors: [],
       violations: [],

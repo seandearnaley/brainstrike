@@ -1,8 +1,5 @@
-// Imported via the subpath rather than the `@brainstrike/utils` barrel: the barrel
-// re-exports `dev/hmr-utils`, whose top-level `import.meta` the Playwright runner
-// cannot parse ("Cannot use 'import.meta' outside a module").
-import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils/background-indexing-policy';
-import { BACKGROUND_INDEXING_POLICY_OPTIONS } from '@brainstrike/utils/background-indexing-policy';
+import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
+import { BACKGROUND_INDEXING_POLICY_OPTIONS } from '@brainstrike/utils';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { HomePage } from './page-objects/home-page';

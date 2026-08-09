@@ -4,7 +4,10 @@
  * Rendered in the file-explorer toolbar's right cluster (not inside the
  * collapsible view-filters block) so it stays reachable while filters are
  * collapsed. Button sizes follow the toolbar's container-query steps to match
- * their siblings; outside that container the base size applies. Includes an
+ * their siblings. This cluster is now COUPLED to `@container/explorer-toolbar`:
+ * the base state of Refresh and the progress readouts is `hidden`, so mounting
+ * it outside that container hides them entirely rather than falling back to a
+ * base size. Only the cancel is container-independent. Includes an
  * optional inline scanning status indicator placed ahead of the fixed-width
  * button: the cluster is right-justified with a flexible column to its left,
  * which absorbs the indicator's width (on mount and on digit growth), so the
@@ -15,6 +18,12 @@
  * stays HERE because its disabled/spin state pairs with the indicator's
  * cancel affordance. `isExpandingAll` is still consumed to suppress the
  * indicator's redundant spinner while the floating expand button spins.
+ *
+ * Below the toolbar's 236px step this cluster keeps ONLY the cancel button:
+ * Refresh collapses (it is disabled mid-operation anyway, and the compact
+ * overflow menu carries it), and so do the spinner and count. The cancel never
+ * gates on width — it is the sole way to abort a running sweep, and gating it
+ * left the 180px minimum-width panel with no abort at all (BST-657).
  */
 
 import { Button, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
@@ -91,18 +100,23 @@ const InlineScanningIndicator = React.memo(
         className={cn('flex items-center gap-1.5', isCancelling && 'opacity-60')}
         data-testid="inline-scanning-indicator"
       >
+        {/* Progress is the expendable half of this indicator. Below 236px the
+            right track cannot hold the spinner, the count, AND the cancel, so
+            the readouts collapse and the cancel keeps the space (BST-657). */}
         {!hideSpinner && (
           <Loader2
-            className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
+            className="@[236px]/explorer-toolbar:block hidden h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground"
             data-testid="inline-scanning-spinner"
           />
         )}
         {isCancelling ? (
-          <span className="text-muted-foreground text-xs">Stopping...</span>
+          <span className="@[236px]/explorer-toolbar:inline hidden text-muted-foreground text-xs">
+            Stopping...
+          </span>
         ) : (
           countText && (
             <span
-              className="text-muted-foreground text-xs tabular-nums"
+              className="@[236px]/explorer-toolbar:inline hidden text-muted-foreground text-xs tabular-nums"
               data-testid="inline-scanning-count"
               title={currentPath}
             >
@@ -161,8 +175,11 @@ export const TreeActionButtons = React.memo(
             hide the whole indicator: the count is the progress signal during
             expand, and the cancel X is the user's only way to abort a
             slow/stuck reload (the Refresh button is disabled). During a plain
-            first load nothing else spins, so the indicator's own spinner
-            stays visible as the sole activity cue. */}
+            first load nothing else spins, so at >=236px the indicator's own
+            spinner is the sole activity cue. BELOW 236px the spinner and count
+            are gated off regardless of `hideSpinner`, so a first load shows a
+            bare cancel X and no activity cue at all -- the 76px track cannot
+            hold both, and an abort beats a progress readout. */}
         {scanningStatus?.isScanning && (
           <InlineScanningIndicator
             hideSpinner={isRefreshing || isExpandingAll}
@@ -174,7 +191,7 @@ export const TreeActionButtons = React.memo(
           <TooltipTrigger asChild>
             <Button
               aria-label="Refresh"
-              className="@[236px]/explorer-toolbar:size-7 size-6"
+              className="@[236px]/explorer-toolbar:inline-flex hidden @[236px]/explorer-toolbar:size-7 size-6"
               data-testid="refresh-button-small"
               disabled={refreshDisabled}
               onClick={onRefresh}

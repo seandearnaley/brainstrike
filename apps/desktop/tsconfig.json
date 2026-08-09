@@ -180,7 +180,7 @@
     "node_modules",
     "dist",
     "e2e/**/*",
-    "playwright.config.ts",
+    "playwright.config.mts",
     "src/**/__tests__/**",
     "src/**/*.test.*",
     "src/**/*.spec.*"
