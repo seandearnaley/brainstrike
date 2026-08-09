@@ -240,6 +240,12 @@ there rather than hiding entries after the adapter has already read them.
 - Workspace include/exclude filters control visible-tree filtering and
   selection. They are not the Workspace Index traversal policy; do not mutate
   custom filters to implement indexing exclusions.
+- **Flattening is iterative and order-preserving.** After discovery,
+  `flattenFileNodes` uses an explicit LIFO stack and pushes roots and children
+  in reverse so the emitted files retain recursive pre-order DFS and sibling
+  order. Do not replace it with recursion or array spreading: the paired tests
+  require 100,000 levels of nesting and 100,000 files in one directory to
+  flatten without call-stack or function-argument overflow.
 
 The policy test owns the preset contract. The parallel-directory-walker test
 must also prove excluded directories are rejected before `readDirectory` is

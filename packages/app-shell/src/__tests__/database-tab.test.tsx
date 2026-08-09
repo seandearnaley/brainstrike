@@ -3,19 +3,30 @@ import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+let capturedChunkProps: Record<string, unknown> | null = null;
+
 const { mockDatabaseTabChunkFactory } = vi.hoisted(() => ({
   mockDatabaseTabChunkFactory: vi.fn(
-    (): Promise<{ DatabaseTab: () => ReactNode }> =>
-      Promise.resolve({ DatabaseTab: () => <div>Database overview chunk</div> })
+    (): Promise<{ DatabaseTab: (props: Record<string, unknown>) => ReactNode }> =>
+      Promise.resolve({
+        DatabaseTab: (props) => {
+          capturedChunkProps = props;
+          return <div>Database overview chunk</div>;
+        },
+      })
   ),
 }));
 
 vi.mock('../database-tab-chunk', () => mockDatabaseTabChunkFactory());
 
 beforeEach(() => {
+  capturedChunkProps = null;
   mockDatabaseTabChunkFactory.mockReset();
   mockDatabaseTabChunkFactory.mockResolvedValue({
-    DatabaseTab: () => <div>Database overview chunk</div>,
+    DatabaseTab: (props) => {
+      capturedChunkProps = props;
+      return <div>Database overview chunk</div>;
+    },
   });
 });
 
@@ -82,6 +93,7 @@ describe('DatabaseTab', () => {
 
     render(<DatabaseTab />);
     expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
+    expect(capturedChunkProps).toEqual({ embeddingQueue: null });
   });
 
   it('does not call the queue loader when none is provided', async () => {
