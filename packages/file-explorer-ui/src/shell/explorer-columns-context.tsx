@@ -36,7 +36,7 @@ import {
   type ExplorerMetadataColumnId,
   useExplorerColumnVisibilityStore,
 } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
-import { createContext, type ReactNode, type RefObject, useContext, useMemo, useRef } from 'react';
+import { createContext, type ReactNode, type RefObject, useContext, useMemo } from 'react';
 import { useContainerWidth } from '../hooks/use-container-width';
 import { EXPLORER_METADATA_COLUMN_CONFIGS } from '../tree/file-tree-columns';
 
@@ -104,13 +104,6 @@ export function resolveVisibleMetadataColumnIds(args: {
   return visible.length === 0 ? EMPTY_METADATA_COLUMN_IDS : visible;
 }
 
-function columnIdsEqual(
-  a: readonly ExplorerMetadataColumnId[],
-  b: readonly ExplorerMetadataColumnId[]
-): boolean {
-  return a.length === b.length && a.every((columnId, index) => columnId === b[index]);
-}
-
 /**
  * Retain the previous id array whenever the ANSWER is unchanged.
  *
@@ -121,18 +114,27 @@ function columnIdsEqual(
  * drag re-rendered the whole viewport once per pixel even though the visible
  * columns never changed.
  *
- * The render-phase ref write is a memoization-cache update keyed on pure value
- * equality (same argument as `useStableSet`): a discarded concurrent render
- * cannot make a later result incorrect.
+ * Keyed on CONTENT rather than identity, and rebuilt from the canonical config
+ * list inside the memo — so the hook is pure. An earlier version cached the
+ * previous array in a ref written during render; that is a render-phase
+ * mutation React may replay or discard (`no-ref-current-in-render`), and it is
+ * unnecessary here because the answer is a short, fully derivable list.
  */
 function useStableColumnIds(
   next: readonly ExplorerMetadataColumnId[]
 ): readonly ExplorerMetadataColumnId[] {
-  const stableRef = useRef(next);
-  if (!columnIdsEqual(stableRef.current, next)) {
-    stableRef.current = next;
-  }
-  return stableRef.current;
+  const contentKey = next.join('|');
+  return useMemo(() => {
+    if (contentKey === '') {
+      return EMPTY_METADATA_COLUMN_IDS;
+    }
+    const included = new Set(contentKey.split('|'));
+    // Config order IS the resolved order (`resolveVisibleMetadataColumnIds`
+    // iterates the same list), so rebuilding here cannot reorder the grid.
+    return EXPLORER_METADATA_COLUMN_CONFIGS.filter((config) => included.has(config.id)).map(
+      (config) => config.id
+    );
+  }, [contentKey]);
 }
 
 /**

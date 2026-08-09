@@ -23,6 +23,7 @@
  */
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { describe, expect, it } from 'vitest';
+import { UNENUMERATED_DIRECTORY_SUBTREE } from '../indexing/file-row-metadata-source-registry';
 import {
   createFileRowMetadataStore,
   type FileRowDirectorySubtree,
@@ -46,7 +47,8 @@ function buildWorstCaseStore() {
     directoryKeys: [...subtrees.keys()],
     store: createFileRowMetadataStore({
       getCachedSize: () => undefined,
-      getDirectorySubtree: (compositeKey) => subtrees.get(compositeKey) ?? null,
+      getDirectorySubtree: (compositeKey) =>
+        subtrees.get(compositeKey) ?? UNENUMERATED_DIRECTORY_SUBTREE,
       // Every descendant resolves, so no rollup short-circuits.
       getNodeSize: () => 1024,
       getTokenCount: () => 256,
