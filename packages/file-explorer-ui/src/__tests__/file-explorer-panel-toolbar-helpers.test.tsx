@@ -14,16 +14,35 @@ import {
   isCancellableOperationRunning,
   resolveCompactToolbarActionsState,
 } from '../shell/file-explorer-panel-toolbar-helpers';
+import { computeScanningStatusProps } from '../utils/scanning-status-props';
 
 const baseInput = {
   hasRoot: true,
+  // BST-1208 folded Expand/Collapse into this menu below 236px, so the same
+  // resolver now derives their disabled state too (shared with the toolbar
+  // buttons above the step, so the two surfaces cannot disagree).
+  isExpandingAll: false,
   isFiltersExpanded: false,
   isLoading: false,
   isOperationInProgress: false,
   isRefreshing: false,
 };
 
+/** Expansion availability rides along with every `available` result. */
+const EXPANSION_READY = { collapseDisabled: false, expandDisabled: false };
+
 describe('resolveCompactToolbarActionsState', () => {
+  it('derives expansion availability from the SAME rule as the toolbar buttons', () => {
+    // A menu item that stays clickable while its button counterpart is
+    // disabled is a silent divergence; both read resolveTreeExpansionDisabledState.
+    expect(resolveCompactToolbarActionsState({ ...baseInput, isExpandingAll: true })).toMatchObject(
+      {
+        // Collapse stays live during a sweep — it is the discard-and-stop action.
+        expansion: { collapseDisabled: false, expandDisabled: true },
+      }
+    );
+  });
+
   it('is unavailable until a workspace root is attached', () => {
     expect(resolveCompactToolbarActionsState({ ...baseInput, hasRoot: false })).toEqual({
       availability: 'unavailable',
@@ -33,6 +52,7 @@ describe('resolveCompactToolbarActionsState', () => {
   it('offers refresh and view filters once a root is attached', () => {
     expect(resolveCompactToolbarActionsState(baseInput)).toEqual({
       availability: 'available',
+      expansion: EXPANSION_READY,
       filters: 'collapsed',
       refresh: 'ready',
     });
@@ -45,7 +65,13 @@ describe('resolveCompactToolbarActionsState', () => {
         isFiltersExpanded: true,
         isRefreshing: true,
       })
-    ).toEqual({ availability: 'available', filters: 'expanded', refresh: 'refreshing' });
+    ).toEqual({
+      availability: 'available',
+      // Refresh in flight disables BOTH expansion actions, shared rule.
+      expansion: { collapseDisabled: true, expandDisabled: true },
+      filters: 'expanded',
+      refresh: 'refreshing',
+    });
   });
 
   it('disables refresh while the tree loads', () => {
@@ -145,5 +171,83 @@ describe('isCancellableOperationRunning', () => {
     expect(
       isCancellableOperationRunning({ ...idle, loadingProgress: { isInitialLoading: true } })
     ).toBe(true);
+  });
+});
+
+/**
+ * CROSS-CONTRACT INVARIANT (BST-657 × BST-1208).
+ *
+ * BST-1208 folded Expand All / Collapse All into the compact menu below 236px.
+ * BST-657 makes that same menu UNMOUNT while a cancellable operation runs
+ * (`yielded-to-cancel`), to keep the 76px track's math. Composed, that means
+ * neither expansion action is reachable at 180px mid-sweep.
+ *
+ * That is only acceptable because a DIFFERENT control stops the sweep: the
+ * scanning indicator's Cancel, which carries no width gate and calls
+ * `cancelExpandAll` (`utils/scanning-status-props.ts`). Collapse All would also
+ * stop it, but it additionally discards the partial expansion — a different
+ * action, not the same affordance.
+ *
+ * So the invariant is: WHENEVER the compact menu yields, a stop control must
+ * exist outside it. If either side ever changes — the menu stops yielding, or
+ * the indicator stops rendering its cancel — this must fail loudly rather than
+ * silently leaving a running sweep unstoppable at the default desktop width.
+ */
+describe('narrow-width stop affordance survives the menu yielding', () => {
+  const RUNNING_SWEEP = {
+    cancelExpandAll: () => undefined,
+    cancellable: false,
+    expandAllProgress: { loaded: 3, total: 9 },
+    handleCancelOperation: () => undefined,
+    isCancelling: false,
+    isExpandingAll: true,
+    loadingProgress: null,
+  };
+
+  it('yields the menu AND leaves a cancel that stops the sweep', () => {
+    const isOperationInProgress = isCancellableOperationRunning({
+      forestCancelExpandAll: null,
+      isExpandingAll: true,
+      isForestExpandingAll: false,
+      loadingProgress: null,
+    });
+    expect(isOperationInProgress).toBe(true);
+
+    // The menu is gone…
+    expect(
+      resolveCompactToolbarActionsState({
+        ...baseInput,
+        isExpandingAll: true,
+        isOperationInProgress,
+      })
+    ).toEqual({ availability: 'yielded-to-cancel' });
+
+    // …and the indicator that replaces it carries a cancel wired to the sweep's
+    // own aborter, so the operation is still stoppable at 180px.
+    const scanning = computeScanningStatusProps(RUNNING_SWEEP);
+    expect(scanning).not.toBeNull();
+    expect(scanning?.cancellable).toBe(true);
+    expect(scanning?.onCancel).toBe(RUNNING_SWEEP.cancelExpandAll);
+  });
+
+  it('holds for a forest sweep too, where the focused provider is idle', () => {
+    const forestCancelExpandAll = () => undefined;
+    const isOperationInProgress = isCancellableOperationRunning({
+      forestCancelExpandAll,
+      isExpandingAll: false,
+      isForestExpandingAll: true,
+      loadingProgress: null,
+    });
+    expect(isOperationInProgress).toBe(true);
+    expect(resolveCompactToolbarActionsState({ ...baseInput, isOperationInProgress })).toEqual({
+      availability: 'yielded-to-cancel',
+    });
+
+    const scanning = computeScanningStatusProps({
+      ...RUNNING_SWEEP,
+      cancelExpandAll: forestCancelExpandAll,
+    });
+    expect(scanning?.cancellable).toBe(true);
+    expect(scanning?.onCancel).toBe(forestCancelExpandAll);
   });
 });

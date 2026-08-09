@@ -107,9 +107,14 @@ describe('FileExplorerToolbar', () => {
       />
     );
 
-    const narrowHiddenWrapper = screen
-      .getByTestId('file-explorer-toolbar')
-      .querySelector('.\\@\\[236px\\]\\/explorer-toolbar\\:contents');
+    // Scoped to the RIGHT cluster: BST-1208 added a second narrow-hidden
+    // wrapper in the LEFT track for Expand/Collapse, so an unscoped query now
+    // finds that one first. The contract under test is unchanged — tree actions
+    // must not be inside the right cluster's width-gated wrapper.
+    const rightCluster = screen.getByTestId('file-explorer-toolbar').children.item(2);
+    const narrowHiddenWrapper = rightCluster?.querySelector(
+      '.\\@\\[236px\\]\\/explorer-toolbar\\:contents'
+    );
     expect(narrowHiddenWrapper).not.toBeNull();
     expect(narrowHiddenWrapper).toContainElement(
       screen.getByRole('button', { name: 'View filters' })
