@@ -7,7 +7,18 @@ import ts from 'typescript';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const E2E_ROOTS = ['apps/web/e2e', 'apps/desktop/e2e'];
-const FORBIDDEN_CATEGORY_LABELS = new Set(['Analysis', 'Retrieval']);
+const TOOL_CATEGORY_SOURCE = readFileSync(
+  path.join(REPO_ROOT, 'packages/assistant-contract/src/tool-categories.ts'),
+  'utf8'
+);
+const TOOL_CATEGORY_BLOCK = /\bTOOL_CATEGORIES\s*:[^=]+?=\s*\{([\s\S]*?)\n\};/.exec(
+  TOOL_CATEGORY_SOURCE
+)?.[1];
+assert.ok(TOOL_CATEGORY_BLOCK, 'must locate TOOL_CATEGORIES in the canonical contract source');
+const FORBIDDEN_CATEGORY_LABELS = new Set(
+  [...TOOL_CATEGORY_BLOCK.matchAll(/\blabel\s*:\s*['"]([^'"]+)['"]/g)].map((match) => match[1])
+);
+assert.ok(FORBIDDEN_CATEGORY_LABELS.size > 0, 'must discover category presentation labels');
 
 function hardcodedCategoryLabels(source) {
   const sourceFile = ts.createSourceFile(
