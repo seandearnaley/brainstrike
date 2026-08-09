@@ -60,8 +60,8 @@ vi.stubGlobal(
   }))
 );
 
-interface RootProps {
-  root: Parameters<typeof useFileTree>[0];
+interface RootIdProps {
+  rootId: string;
 }
 
 describe('useLazyFileTree no-root reset', () => {
@@ -127,7 +127,17 @@ describe('useLazyFileTree no-root reset', () => {
     expect(mockWorkerPort.init).toHaveBeenCalledTimes(1);
   });
 
-  it('still initializes the worker when a real root arrives after a no-root reset', async () => {
+  it('still resets the worker when the committed root identity changes', async () => {
+    // Drives the ONLY call shape where swallowing would be a real defect:
+    // `prepareRootLoad` reaches `resetCommittedRootState` with a non-null
+    // identity only when `hasCommittedRootIdentityChanged` is true, and that
+    // returns false while the committed identity is still null — so "no root
+    // then a first root" never calls the reset at all, and asserting on it
+    // would pass for reasons unrelated to the guard.
+    //
+    // Storage v5 identity: `resolvedRootFolderId` falls back through `rootId`,
+    // so one handle under two RootIds is a genuine identity change (the
+    // same-path/different-UUID case the sidebar keys its providers on).
     mockAdapter.setMockFileSystem({
       'a.txt': { content: 'a', name: 'a.txt', type: 'file' },
     });
@@ -136,21 +146,24 @@ describe('useLazyFileTree no-root reset', () => {
     const TestWrapper = ({ children }: { children: ReactNode }) =>
       FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
-    // Annotated so the initial `null` does not narrow the prop type and reject
-    // the real handle on rerender.
-    const initialProps: RootProps = { root: null };
-    const { rerender } = renderHook(({ root }: RootProps) => useFileTree(root), {
-      initialProps,
-      wrapper: TestWrapper,
-    });
+    const initialProps: RootIdProps = { rootId: 'root-a' };
+    const { result, rerender } = renderHook(
+      ({ rootId }: RootIdProps) => useFileTree(handle, { rootId }),
+      { initialProps, wrapper: TestWrapper }
+    );
 
-    await waitFor(() => expect(mockWorkerPort.init).toHaveBeenCalledTimes(1));
+    // Root A must reach a COMMITTED load, otherwise the identity never lands in
+    // `committedRootIdentityRef` and the rerender below would not change it.
+    await waitFor(() => expect(result.current.fileTree.length).toBeGreaterThan(0));
+    mockWorkerPort.init.mockClear();
 
-    // The guard must never swallow a reset that genuinely changes identity.
-    rerender({ root: handle });
+    rerender({ rootId: 'root-b' });
 
+    // The reset's own call shape — an EMPTY tree under the new folder id —
+    // distinguishes it from the populated init `handleLoadRootSuccess` fires
+    // afterwards. A guard that swallowed this reset would never produce it.
     await waitFor(() => {
-      expect(mockWorkerPort.init.mock.calls.length).toBeGreaterThan(1);
+      expect(mockWorkerPort.init).toHaveBeenCalledWith([], 'root-b');
     });
   });
 });
