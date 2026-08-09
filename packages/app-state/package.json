@@ -107,6 +107,14 @@
       "types": "./dist/stores/embedding-preferences-store.d.ts",
       "import": "./dist/stores/embedding-preferences-store.js"
     },
+    "./stores/explorer-column-sizes-store": {
+      "types": "./dist/stores/explorer-column-sizes-store.d.ts",
+      "import": "./dist/stores/explorer-column-sizes-store.js"
+    },
+    "./stores/explorer-column-visibility-store": {
+      "types": "./dist/stores/explorer-column-visibility-store.d.ts",
+      "import": "./dist/stores/explorer-column-visibility-store.js"
+    },
     "./stores/hook-trust-store": {
       "types": "./dist/stores/hook-trust-store.d.ts",
       "import": "./dist/stores/hook-trust-store.js"

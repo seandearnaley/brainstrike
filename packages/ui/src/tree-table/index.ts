@@ -31,6 +31,11 @@
  * ```
  */
 
+// Column sizing primitives. Exported so a consumer that renders its OWN header
+// row outside a TreeTable — the Explorer forest header, which must align with N
+// sibling section tables sharing one scroller — reuses the exact resize
+// affordance and clamping the built-in header uses, instead of forking them.
+export { ColumnResizeHandle, type ColumnResizeHandleProps } from './column-resize-handle';
 // Main component
 export { default, TreeTable } from './tree-table';
 
@@ -86,5 +91,12 @@ export type {
   TreeTableWindowingStrategy,
   UseTreeKeyboardResult,
 } from './types';
+export {
+  type ColumnBounds,
+  clampWidth,
+  computeColumnBounds,
+  DEFAULT_MAX_WIDTH,
+  DEFAULT_MIN_WIDTH,
+} from './use-column-sizing';
 // Hooks
 export { type UseTreeKeyboardOptions, useTreeKeyboard } from './use-tree-keyboard';
