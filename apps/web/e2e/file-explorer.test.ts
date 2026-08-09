@@ -287,6 +287,93 @@ test.describe('File Explorer', () => {
       expect(geometry.tableHeight).toBeLessThanOrEqual(40);
     });
 
+    test('paints tree rows at exactly the pitch its virtualizer models', async ({ page }) => {
+      // OptimizedFileTree passes TreeTable a NUMERIC rowHeight, which disables
+      // per-row measurement: nothing ever reconciles the declared pitch with the
+      // painted one, so a wrong constant silently skews every offset the
+      // virtualizer computes. Derive the declared pitch back out of the top
+      // spacer (paddingTop === firstRenderedIndex * rowHeight) and compare it to
+      // real painted geometry — this stays true whatever the constant's value,
+      // so a future row-CSS change that shifts the pitch fails here.
+      explorer = await bootstrapFileExplorer(page, {
+        resetSettings: true,
+        tree: Object.fromEntries(
+          Array.from({ length: 1200 }, (_, index) => [
+            `file-${String(index).padStart(4, '0')}.ts`,
+            `export const value${index} = ${index};`,
+          ])
+        ),
+      });
+
+      await explorer.selectRoot();
+      await expect(
+        explorer.fileTree.getByRole('checkbox', { name: 'Select file-0000.ts' })
+      ).toBeVisible();
+
+      const geometry = await explorer.fileTree.evaluate(async (treegrid) => {
+        const viewport = treegrid.closest<HTMLElement>('[data-testid="tree-table-viewport"]');
+        const body = treegrid.querySelector('tbody');
+        if (!(viewport && body)) {
+          throw new Error('Expected the file tree to own a tree-table viewport');
+        }
+
+        // Land mid-list so BOTH spacers exist and the window is fully interior.
+        viewport.scrollTop = 8000;
+        for (let frame = 0; frame < 8; frame++) {
+          await new Promise((resolve) => {
+            requestAnimationFrame(() => resolve(undefined));
+          });
+        }
+
+        const children = [...body.children];
+        const rows = children.filter(
+          (row): row is HTMLElement =>
+            row instanceof HTMLElement && row.dataset['nodeId'] !== undefined
+        );
+        const topSpacer = children.find(
+          (row): row is HTMLElement =>
+            row instanceof HTMLElement && row.dataset['nodeId'] === undefined
+        );
+        const firstRow = rows[0];
+        if (!(topSpacer && firstRow && rows.length > 4)) {
+          throw new Error('Expected a virtualized interior window with a leading spacer');
+        }
+
+        const firstIndex = Number(firstRow.dataset['index']);
+        const declaredPitch = topSpacer.getBoundingClientRect().height / firstIndex;
+
+        // Median of consecutive row tops: the pitch the browser actually paints,
+        // immune to the half-pixel a collapsed border leaves on an edge row.
+        const tops = rows.map((row) => row.getBoundingClientRect().top);
+        const deltas = tops.slice(1).map((top, index) => top - (tops[index] ?? 0));
+        deltas.sort((left, right) => left - right);
+        const paintedPitch = deltas[Math.floor(deltas.length / 2)] ?? 0;
+
+        const viewportTop = viewport.getBoundingClientRect().top;
+        const topmostVisible = rows.find(
+          (row) => row.getBoundingClientRect().bottom > viewportTop + 0.5
+        );
+
+        return {
+          contentHeight: viewport.scrollHeight,
+          declaredPitch,
+          modelledTopIndex: Math.floor(viewport.scrollTop / declaredPitch),
+          paintedPitch,
+          paintedTopIndex: topmostVisible ? Number(topmostVisible.dataset['index']) : -1,
+          rowCount: rows.length + Number(topSpacer.dataset['index'] ?? 0),
+        };
+      });
+
+      // The virtualizer's per-row step must be the step the browser paints.
+      expect(Math.abs(geometry.declaredPitch - geometry.paintedPitch)).toBeLessThan(0.5);
+      // …so the scrollport is as tall as the model claims, and the row sitting at
+      // the top edge is the row the model believes is there.
+      expect(Math.abs(geometry.contentHeight - 1200 * geometry.declaredPitch)).toBeLessThanOrEqual(
+        1
+      );
+      expect(geometry.paintedTopIndex).toBe(geometry.modelledTopIndex);
+    });
+
     test('uses one bottom-anchored scrollport with sticky table headers', async ({ page }) => {
       explorer = await bootstrapFileExplorer(page, {
         resetSettings: true,
