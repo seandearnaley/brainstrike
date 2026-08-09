@@ -21,6 +21,7 @@ import { cn } from '../lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../table';
 import { TablePagination } from '../table-pagination';
 import { ColumnResizeHandle } from './column-resize-handle';
+import { getTreeTableAriaSortValue } from './sort';
 import { DEFAULT_ROW_HEIGHTS, TreeTableRow } from './tree-table-row';
 import {
   createChildrenGetter,
@@ -87,25 +88,6 @@ function resolveVirtualRowMeasureProps<T>(
   }
 
   return { measureRef: measureRow };
-}
-
-/**
- * Maps our SortDirection to ARIA sort values.
- */
-function getAriaSortValue(
-  columnId: string,
-  sortState?: { columnId: string | null; direction: 'asc' | 'desc' | null }
-): 'ascending' | 'descending' | 'none' | undefined {
-  if (!sortState || sortState.columnId !== columnId) {
-    return;
-  }
-  if (sortState.direction === 'asc') {
-    return 'ascending';
-  }
-  if (sortState.direction === 'desc') {
-    return 'descending';
-  }
-  return 'none';
 }
 
 interface ResolveWindowingStrategyOptions {
@@ -271,7 +253,7 @@ function renderTableHeader<T>({
       <TableRow role="row">
         {columns.map((column) => {
           const ariaSortValue = column.sortable
-            ? getAriaSortValue(column.id, sortState)
+            ? getTreeTableAriaSortValue(column.id, sortState)
             : undefined;
           const resolvedWidth = getResolvedWidth(column.id);
           const showHandle = isColumnResizable(column.id) && resolvedWidth !== undefined;
