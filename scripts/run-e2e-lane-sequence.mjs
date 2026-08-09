@@ -11,7 +11,7 @@ export function laneCommandArguments(lane) {
   }
 
   const outputDirectory = `test-results/${lane.slice(LANE_PREFIX.length)}`;
-  return ['run', lane, '--', `--output=${outputDirectory}`];
+  return ['run', lane, `--output=${outputDirectory}`];
 }
 
 function defaultRunLane(lane) {

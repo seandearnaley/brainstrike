@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -76,13 +76,36 @@ test('each lane gets an isolated Playwright output directory', () => {
   assert.deepEqual(laneCommandArguments('test:e2e:lane:assistant-state'), [
     'run',
     'test:e2e:lane:assistant-state',
-    '--',
     '--output=test-results/assistant-state',
   ]);
   assert.equal(
     new Set(EXPECTED_LANES.map((lane) => laneCommandArguments(lane).at(-1))).size,
     EXPECTED_LANES.length
   );
+});
+
+test('MONEY TEST: pnpm forwards the output flag without a literal delimiter', () => {
+  const tempDirectory = mkdtempSync(path.join(tmpdir(), 'e2e-lane-arguments-'));
+  try {
+    writeFileSync(
+      path.join(tempDirectory, 'package.json'),
+      JSON.stringify({ scripts: { 'test:e2e:lane:capture': 'node capture.mjs' } })
+    );
+    writeFileSync(
+      path.join(tempDirectory, 'capture.mjs'),
+      'console.log(JSON.stringify(process.argv.slice(2)));\n'
+    );
+    const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+    const result = spawnSync(pnpmCommand, laneCommandArguments('test:e2e:lane:capture'), {
+      cwd: tempDirectory,
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /\["--output=test-results\/capture"\]/);
+  } finally {
+    rmSync(tempDirectory, { force: true, recursive: true });
+  }
 });
 
 test('MONEY TEST: invoking the runner through a symlink fails loud instead of doing nothing', () => {
