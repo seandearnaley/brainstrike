@@ -50,6 +50,7 @@ test.describe('AI Tools settings (desktop)', () => {
     ).toHaveCount(0);
 
     await window.getByTestId('reset-filters').click();
+    await expect(window.getByTestId(`tool-row-${NON_RETRIEVAL_TOOL_ID}`)).toBeVisible();
     await window.getByTestId('category-filter').click();
     await window.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
     await expect(window.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();

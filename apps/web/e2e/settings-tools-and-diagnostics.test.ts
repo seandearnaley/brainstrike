@@ -60,6 +60,7 @@ test.describe('AI Tools and System Diagnostics settings (web)', () => {
     ).toHaveCount(0);
 
     await page.getByTestId('reset-filters').click();
+    await expect(page.getByTestId(`tool-row-${NON_RETRIEVAL_TOOL_ID}`)).toBeVisible();
     await page.getByTestId('category-filter').click();
     await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
     await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
