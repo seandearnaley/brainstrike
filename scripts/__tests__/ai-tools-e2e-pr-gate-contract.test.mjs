@@ -131,6 +131,11 @@ test('REAL REPO: pull-request E2E jobs invoke both smoke lane scripts', () => {
 
   const assertRequiredSmokeStep = (jobId, expectedCommand, expectedWorkingDirectory) => {
     const job = workflow.jobs[jobId];
+    assert.deepEqual(
+      job.needs,
+      ['admission', 'build'],
+      `${jobId} must depend on admission and build`
+    );
     assert.equal(
       normalizeExpression(job.if),
       REQUIRED_PR_E2E_JOB_CONDITION,
