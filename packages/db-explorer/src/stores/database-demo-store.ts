@@ -3,6 +3,12 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 interface DatabaseDemoData {
+  /**
+   * Open state of the collection debug drawer. Persisted so the surface a user
+   * deliberately opened survives a reload; the drawer itself renders nothing
+   * and queries nothing while this is false.
+   */
+  debugDrawerOpen: boolean;
   expandedFileIds: string[];
   recordPage: number;
   recordPageSize: number;
@@ -16,6 +22,7 @@ interface DatabaseDemoActions {
   clearExpanded: () => void;
   removeExpanded: (id: string) => void;
   resetRecordPagination: () => void;
+  setDebugDrawerOpen: (open: boolean) => void;
   setExpanded: (ids: string[]) => void;
   setRecordPage: (page: number) => void;
   setRecordPageSize: (pageSize: number) => void;
@@ -41,6 +48,7 @@ export const useDatabaseDemoStore = create<DatabaseDemoStore>()(
       addExpanded: (id) =>
         set({ expandedFileIds: Array.from(new Set([...get().expandedFileIds, id])) }),
       clearExpanded: () => set({ expandedFileIds: [] }),
+      debugDrawerOpen: false,
       expandedFileIds: [],
       recordPage: 0,
       recordPageSize: 50,
@@ -49,6 +57,7 @@ export const useDatabaseDemoStore = create<DatabaseDemoStore>()(
       resetRecordPagination: () => set({ recordPage: 0 }),
       searchQuery: '',
       searchThreshold: 0.5,
+      setDebugDrawerOpen: (open) => set({ debugDrawerOpen: open }),
       setExpanded: (ids) => set({ expandedFileIds: Array.from(new Set(ids)) }),
       setRecordPage: (page) =>
         set({ recordPage: Number.isFinite(page) ? Math.max(0, Math.trunc(page)) : 0 }),
@@ -78,6 +87,7 @@ export const useDatabaseDemoStore = create<DatabaseDemoStore>()(
       },
       name: STORE_NAME,
       partialize: (s) => ({
+        debugDrawerOpen: s.debugDrawerOpen,
         expandedFileIds: s.expandedFileIds,
         recordPage: s.recordPage,
         recordPageSize: s.recordPageSize,
@@ -101,6 +111,7 @@ export const databaseDemoSelectors = {
 export function __resetDatabaseDemoStoreForTests() {
   try {
     useDatabaseDemoStore.setState({
+      debugDrawerOpen: false,
       expandedFileIds: [],
       recordPage: 0,
       recordPageSize: 50,
