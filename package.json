@@ -89,7 +89,7 @@
     "lint:minimum-release-age-exclusions": "node scripts/verify-minimum-release-age-exclusions.mjs",
     "lint-all": "pnpm lint && pnpm format",
     "lint:biome": "biome check .",
-    "lint:eslint": "eslint --max-warnings=341 apps/desktop/src apps/web/src packages/app-shell/src packages/app-state/src packages/assistant-ui/src packages/db-explorer/src packages/db/src packages/file-explorer-hooks/src packages/file-explorer-ui/src packages/file-import/src packages/hooks/src packages/notes-vault/src packages/settings-ui/src packages/token-cache/src packages/ui/src packages/vector-management/src packages/workspace-search/src",
+    "lint:eslint": "node scripts/verify-eslint-warning-baselines.mjs",
     "lint:no-no-memo": "node scripts/forbid-no-memo.mjs",
     "postinstall": "node scripts/postinstall.js",
     "prepare": "node scripts/postinstall.js",

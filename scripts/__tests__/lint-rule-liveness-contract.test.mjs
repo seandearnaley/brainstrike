@@ -60,6 +60,10 @@ const CASES = [
     ].join('\n'),
     name: 'Fast Refresh boundary rule fires on a non-component export',
     ruleId: 'react-refresh/only-export-components',
+    // Intentionally 'warn': the 155-warning backlog rides the ratchet. If this
+    // ever reads 'error' here, the backlog was burned down and the rule
+    // promoted — update this and drop it from the baseline map.
+    severity: 1,
   },
   {
     // Guards the one rule in this config set to 'error'. It is the reason the
@@ -76,10 +80,15 @@ const CASES = [
     ].join('\n'),
     name: 'rules-of-hooks fires on a conditional hook call',
     ruleId: 'react-hooks/rules-of-hooks',
+    // MUST stay 2 ('error'). Presence alone is not enough: an 'error'→'warn'
+    // downgrade keeps the finding reported, so a presence-only assertion still
+    // passes while the finding is absorbed into the --max-warnings slack and
+    // `lint:eslint` exits 0. The gate would stop blocking with nothing red.
+    severity: 2,
   },
 ];
 
-for (const { code, name, ruleId } of CASES) {
+for (const { code, name, ruleId, severity } of CASES) {
   test(`${name} (${ruleId})`, async () => {
     const messages = await lintFixture(code);
 
@@ -99,6 +108,18 @@ for (const { code, name, ruleId } of CASES) {
         'running. A zero finding count from this rule elsewhere means "gone", ' +
         'not "clean" — do not read it as a passing gate. Rules observed: ' +
         `${JSON.stringify([...new Set(messages.map((m) => m.ruleId))])}`
+    );
+
+    // Severity, not just presence. A silent 'error'→'warn' downgrade leaves the
+    // finding reported (so the check above still passes) while removing its
+    // ability to fail the build — the warning simply joins the ratchet backlog.
+    assert.deepEqual(
+      [...new Set(hits.map((hit) => hit.severity))],
+      [severity],
+      `${ruleId} fired at the wrong severity. Expected ${severity} ` +
+        `(${severity === 2 ? 'error' : 'warn'}). A downgrade to 'warn' is ` +
+        'absorbed by --max-warnings and stops blocking; an upgrade to ' +
+        "'error' means the backlog was burned down — update this case."
     );
   });
 }
