@@ -4,7 +4,7 @@ import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brain
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
-import { fileContent } from '@brainstrike/utils/file-content';
+import { fileContent, getKnownFileSize } from '@brainstrike/utils/file-content';
 import {
   createFileContentWorker,
   type FileContentWorker,
@@ -25,13 +25,6 @@ export interface FileContentRequest {
   compositeKey: string;
   fileNode: IFileNode;
   fileSystemAdapter: FileSystemAdapter;
-}
-
-function getKnownFileSize(size: unknown): number | null {
-  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
-    return null;
-  }
-  return size;
 }
 
 function getConfiguredMaxFileSize(): number {

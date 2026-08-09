@@ -7,7 +7,12 @@ import {
 } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
-import { fileContent, isBinaryExtension, isTextExtension } from '@brainstrike/utils';
+import {
+  fileContent,
+  getKnownFileSize,
+  isBinaryExtension,
+  isTextExtension,
+} from '@brainstrike/utils';
 import { getFileExtension } from '@brainstrike/utils/file-utils';
 
 export interface FileReadRequest {
@@ -46,14 +51,6 @@ function normalizeAbortError(error: unknown): Error {
 }
 
 const logger = createLogger('FileContentWorker');
-
-function getKnownFileSize(request: FileReadRequest): number | null {
-  const size = request.handle?.size;
-  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
-    return null;
-  }
-  return size;
-}
 
 function normalizeMaxFileSize(maxFileSize: unknown): number {
   if (typeof maxFileSize !== 'number' || !Number.isFinite(maxFileSize) || maxFileSize <= 0) {
@@ -187,7 +184,7 @@ export function createFileContentWorker({
 
   async function processRequest(req: FileReadRequest): Promise<{ key: string; content: string }> {
     const effectiveMaxFileSize = getEffectiveMaxFileSize();
-    const knownFileSize = getKnownFileSize(req);
+    const knownFileSize = getKnownFileSize(req.handle?.size);
     if (knownFileSize !== null && knownFileSize > effectiveMaxFileSize) {
       throw new FileContentError(
         `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(effectiveMaxFileSize)})`,
