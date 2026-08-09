@@ -448,6 +448,7 @@ export {
 } from './stream/json';
 export {
   APPROX_CHARS_PER_TOKEN,
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
   fitItemsToCharBudget,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
@@ -455,6 +456,10 @@ export {
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
   PROJECTION_ENVELOPE_RESERVE_CHARS,
+  resolveScaledToolResultBudget,
+  resolveToolResultBudgetForModel,
+  type ScaledToolResultBudget,
+  TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
 } from './stream/tool-output-limits';
 export {
   clearToolRegistry,

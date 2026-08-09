@@ -1302,17 +1302,34 @@ export function resolveDefaultModel(
  * Resolve a single LLM model definition. Throws on unknown provider/model —
  * token budgeting must never silently guess a context window.
  */
-export function getLlmModelDefinition(providerId: ProviderId, modelId: string): LlmModelDefinition {
-  // O(1) map lookup; the type says it can't miss, but guard against
-  // out-of-union runtime ids (e.g. persisted prefs from an older build).
+/**
+ * Non-throwing counterpart to {@link getLlmModelDefinition}: returns
+ * `undefined` instead of throwing for a provider/model pair absent from the
+ * static registry (e.g. an OpenRouter metadata-only / auto-profile model, or
+ * a persisted preference from a retired catalog entry). Callers that must
+ * treat an unknown model as a hard error should use `getLlmModelDefinition`;
+ * callers that have a defined fallback for "unknown" (e.g. budget defaults)
+ * should use this instead of try/catch-as-control-flow.
+ */
+export function findLlmModelDefinition(
+  providerId: ProviderId,
+  modelId: string
+): LlmModelDefinition | undefined {
   const provider: ProviderDefinition | undefined = getProviderDefinition(providerId);
   if (!provider) {
-    throw new Error(`Unknown provider id for LLM model lookup: ${providerId}`);
+    return;
   }
   const model = provider.models.find(
     (definition) => definition.type === 'llm' && definition.id === modelId
   );
-  if (model?.type !== 'llm') {
+  return model?.type === 'llm' ? model : undefined;
+}
+
+export function getLlmModelDefinition(providerId: ProviderId, modelId: string): LlmModelDefinition {
+  // O(1) map lookup; the type says it can't miss, but guard against
+  // out-of-union runtime ids (e.g. persisted prefs from an older build).
+  const model = findLlmModelDefinition(providerId, modelId);
+  if (!model) {
     throw new Error(`Unknown LLM model id for provider ${providerId}: ${modelId}`);
   }
   return model;

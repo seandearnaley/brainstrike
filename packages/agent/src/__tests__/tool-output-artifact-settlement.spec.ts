@@ -13,7 +13,10 @@ import {
   type ToolOutputArtifactSettlementError,
   type ToolOutputArtifactSettlementStore,
 } from '../mastra/tool-output-artifact-settlement';
+import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import { applyToolHooks } from '../tools/hook-tool-wrap';
+
+const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);
 
 const reference = (byteLength: number): ToolOutputArtifactReference => ({
   byteLength,
@@ -137,7 +140,9 @@ describe('tool output artifact settlement', () => {
     );
     const projected = applyToolModelOutputProjections(
       settled,
-      new Map([['fixture', 'brainstrike.webExtract']])
+      new Map([['fixture', 'brainstrike.webExtract']]),
+      undefined,
+      ANCHOR_TOOL_RESULT_BUDGET
     );
     const tool = projected['fixture'] as {
       execute: (...args: unknown[]) => Promise<unknown>;
@@ -174,7 +179,9 @@ describe('tool output artifact settlement', () => {
     );
     const projected = applyToolModelOutputProjections(
       settled,
-      new Map([['fixture', 'workspace.read']])
+      new Map([['fixture', 'workspace.read']]),
+      undefined,
+      ANCHOR_TOOL_RESULT_BUDGET
     );
     const tool = projected['fixture'] as {
       execute: (...args: unknown[]) => Promise<unknown>;
@@ -291,7 +298,12 @@ describe('tool output artifact settlement', () => {
       { fixture: executableTool(async () => output, projector) },
       { store: settlementStore(store), toolNameMap: new Map() }
     );
-    const projected = applyToolModelOutputProjections(settled, new Map());
+    const projected = applyToolModelOutputProjections(
+      settled,
+      new Map(),
+      undefined,
+      ANCHOR_TOOL_RESULT_BUDGET
+    );
     const tool = projected['fixture'] as {
       execute: (...args: unknown[]) => Promise<unknown>;
       toModelOutput: (output: unknown) => unknown;
@@ -352,7 +364,12 @@ describe('tool output artifact settlement', () => {
       store: settlementStore(async (input) => reference(input.content.length)),
       toolNameMap: new Map(),
     });
-    const projected = applyToolModelOutputProjections(settled, new Map());
+    const projected = applyToolModelOutputProjections(
+      settled,
+      new Map(),
+      undefined,
+      ANCHOR_TOOL_RESULT_BUDGET
+    );
     const tool = projected['fixture'] as {
       execute: (...args: unknown[]) => Promise<unknown>;
       toModelOutput: (output: unknown) => unknown;

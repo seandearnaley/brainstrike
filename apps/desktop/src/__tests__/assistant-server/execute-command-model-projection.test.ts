@@ -1,6 +1,7 @@
 import {
   applyToolModelOutputProjections,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
@@ -212,7 +213,9 @@ describe('projectExecuteCommandModelOutput', () => {
           toModelOutput: projectExecuteCommandModelOutput,
         } as never,
       },
-      new Map([['executeCommand', 'brainstrike.executeCommand']])
+      new Map([['executeCommand', 'brainstrike.executeCommand']]),
+      undefined,
+      resolveScaledToolResultBudget(131_072)
     );
 
     const projection = (

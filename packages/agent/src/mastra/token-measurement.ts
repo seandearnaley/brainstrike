@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/tokenization/token-utils-accurate-lite';
 import type { ToolsInput } from '@mastra/core/agent';
 import { standardSchemaToJSONSchema, toStandardSchema } from '@mastra/core/schema';
+import type { ScaledToolResultBudget } from '../stream/tool-output-limits';
 import { TOOL_RESULT_TRUNCATED_CODE } from '../stream/tool-output-limits';
 import type { ToolCallTelemetrySample } from '../types';
 import { readToolCallTelemetryMetadata } from './tool-call-telemetry';
@@ -354,6 +355,7 @@ export class RunTokenDiagnostics {
     serializedCharacters: 0,
     tokenCount: 0,
   };
+  readonly #resolvedToolResultBudget: ScaledToolResultBudget;
   readonly #toolDefinitionBreakdown?: ToolDefinitionContextBreakdown;
   #additionalToolDefinitionBackstopTokens = 0;
   #additionalToolDefinitionSerializedCharacters = 0;
@@ -366,6 +368,7 @@ export class RunTokenDiagnostics {
   constructor(params: {
     capability: TokenMeasurementCapability;
     measurement: PreparedTokenMeasurement;
+    resolvedToolResultBudget: ScaledToolResultBudget;
     toolDefinitionBreakdown?: ToolDefinitionContextBreakdown;
     toolDefinitionCount: number;
     toolDefinitionFailure?: FailedMeasurement;
@@ -373,6 +376,7 @@ export class RunTokenDiagnostics {
   }) {
     this.#capability = params.capability;
     this.#measurement = params.measurement;
+    this.#resolvedToolResultBudget = params.resolvedToolResultBudget;
     this.#toolDefinitionCount = params.toolDefinitionCount;
     if (params.toolDefinitionBreakdown) {
       this.#toolDefinitionBreakdown = params.toolDefinitionBreakdown;
@@ -509,6 +513,8 @@ export class RunTokenDiagnostics {
       modelVisibleProjectionBackstopTokens: this.#projection.backstopTokens,
       modelVisibleProjectionCount: this.#projection.count,
       modelVisibleProjectionSerializedCharacters: this.#projection.serializedCharacters,
+      resolvedDomainBudgetTokens: this.#resolvedToolResultBudget.domainModelResultTokens,
+      resolvedTransportBudgetTokens: this.#resolvedToolResultBudget.transportResultTokens,
       toolDefinitionCount: this.#toolDefinitionCount,
     };
 
@@ -578,6 +584,7 @@ function measureToolDefinitionBreakdown(
 export async function createRunTokenDiagnostics(
   params: {
     capability: TokenMeasurementCapability;
+    resolvedToolResultBudget: ScaledToolResultBudget;
     tools: ToolsInput;
   },
   dependencies: TokenMeasurementDependencies = {}
@@ -595,6 +602,7 @@ export async function createRunTokenDiagnostics(
     return new RunTokenDiagnostics({
       capability: params.capability,
       measurement,
+      resolvedToolResultBudget: params.resolvedToolResultBudget,
       ...(toolDefinitionBreakdown ? { toolDefinitionBreakdown } : {}),
       toolDefinitionCount,
       toolDefinitionMeasurement: toolDefinitionBatch.measurement,
@@ -603,6 +611,7 @@ export async function createRunTokenDiagnostics(
     return new RunTokenDiagnostics({
       capability: params.capability,
       measurement,
+      resolvedToolResultBudget: params.resolvedToolResultBudget,
       toolDefinitionCount,
       toolDefinitionFailure: failedMeasurement('tool-definition-serialization-failed'),
     });
