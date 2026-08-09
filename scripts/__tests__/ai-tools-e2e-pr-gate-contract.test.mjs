@@ -30,6 +30,10 @@ function normalizeExpression(expression) {
   return String(expression).replace(/\s+/g, ' ').trim();
 }
 
+function stepRunsExactCommand(step, expectedCommand) {
+  return typeof step.run === 'string' && normalizeExpression(step.run) === expectedCommand;
+}
+
 function untaggedTitles(source, fileName, tag) {
   const testEntries = listPlaywrightTitleEntries(source, fileName).filter(
     (entry) => entry.kind === 'test'
@@ -53,6 +57,19 @@ test('MONEY TEST: options-form tags cover only their suite, not an untagged sibl
     test('outside', async () => {});
   `;
   assert.deepEqual(untaggedTitles(source, 'tools.test.ts', '@smoke'), ['outside']);
+});
+
+test('MONEY TEST: the smoke matcher rejects disabled lanes and diagnostic suffixes', () => {
+  const expectedCommand = 'pnpm run test:e2e:lane:smoke';
+  assert.equal(stepRunsExactCommand({ run: expectedCommand }, expectedCommand), true);
+  assert.equal(
+    stepRunsExactCommand({ run: `${expectedCommand}-disabled` }, expectedCommand),
+    false
+  );
+  assert.equal(
+    stepRunsExactCommand({ run: `${expectedCommand} -- --list` }, expectedCommand),
+    false
+  );
 });
 
 test('REAL REPO: every web AI Tools settings title is selected by Web E2E smoke', () => {
@@ -89,20 +106,27 @@ test('REAL REPO: pull-request E2E jobs invoke both smoke lane scripts', () => {
   const workflow = parseYaml(read('.github/workflows/test.yml'));
   assert.ok(workflow.on?.pull_request, 'test.yml must run on pull requests');
 
-  const assertRequiredSmokeStep = (jobId, commandPattern) => {
+  const assertRequiredSmokeStep = (jobId, expectedCommand, expectedWorkingDirectory) => {
     const job = workflow.jobs[jobId];
     assert.equal(
       normalizeExpression(job.if),
       REQUIRED_PR_E2E_JOB_CONDITION,
       `${jobId} must retain the PR-admitting job condition`
     );
-    const matchingSteps = job.steps.filter(
-      (step) => typeof step.run === 'string' && commandPattern.test(step.run)
-    );
+    const matchingSteps = job.steps.filter((step) => stepRunsExactCommand(step, expectedCommand));
     assert.equal(matchingSteps.length, 1, `${jobId} must have one exact smoke invocation`);
     assert.equal(matchingSteps[0].if, undefined, `${jobId} smoke step must be unconditional`);
+    assert.equal(
+      matchingSteps[0]['working-directory'],
+      expectedWorkingDirectory,
+      `${jobId} smoke step must run from the expected workspace directory`
+    );
   };
 
-  assertRequiredSmokeStep('web-e2e', /pnpm --filter @brainstrike\/web run test:e2e:lane:smoke/);
-  assertRequiredSmokeStep('desktop-e2e', /pnpm run test:e2e:lane:smoke/);
+  assertRequiredSmokeStep('web-e2e', 'pnpm --filter @brainstrike/web run test:e2e:lane:smoke');
+  assertRequiredSmokeStep(
+    'desktop-e2e',
+    'dbus-run-session -- pnpm run test:e2e:lane:smoke',
+    'apps/desktop'
+  );
 });
