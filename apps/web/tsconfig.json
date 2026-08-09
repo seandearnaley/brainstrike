@@ -46,7 +46,7 @@
   },
   "include": [
     "src",
-    "playwright.config.ts"
+    "playwright.config.mts"
   ],
   "exclude": [
     "node_modules",

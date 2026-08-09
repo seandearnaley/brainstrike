@@ -670,6 +670,51 @@ fixture-teardown error. Restart uses the same close/guard path and must surface
 close failures; if close and process health both fail, both errors are retained.
 Do not restore the former warn-and-relaunch behavior.
 
+### E2E module-format contract (BST-1217)
+
+`scripts/e2e-module-format-contract.mjs` (paired test:
+`scripts/__tests__/e2e-module-format-contract.test.mjs`, run in the Static job
+via `pnpm test:scripts`) holds the module format of both Playwright graphs.
+
+Playwright picks a format per file from the nearest `package.json` `type`
+(`transform/esmLoader.js`: `isRequire ? 'commonjs' : fileIsModule(filename) ?
+'module' : 'commonjs'`). `apps/desktop` and `apps/web` are deliberately
+CommonJS — Electron main, electron-builder and the vite configs depend on it —
+so once BST-1014 moved the shared libraries to ESM-only `tsc -b` emit, every
+spec was CommonJS and every ESM-only library it reached was force-transpiled.
+`import.meta` cannot be represented in CommonJS (this took desktop spec
+collection to *0 tests in 0 files* for over a month), and `export *` becomes a
+runtime getter loop that cjs-module-lexer cannot see through, so static named
+imports of re-exported bindings fail to link. A dynamic `import()` of the same
+module still works, which is what made it look selective.
+
+Three assertions, over every `apps/*/e2e` directory that holds specs:
+
+1. **The graph is ESM.** The nearest manifest must declare `"type": "module"` —
+   that is `apps/desktop/e2e/package.json` and `apps/web/e2e/package.json`,
+   neither of which is a workspace member (`pnpm-workspace.yaml` globs
+   `apps/*`, not `apps/*/e2e`).
+2. **The Playwright config shares that format.** Both configs are
+   `playwright.config.mts`, ESM by extension regardless of the app manifest. A
+   CommonJS config that imports a workspace library pulls it in through
+   `require`, forcing a CommonJS transform that then collides with any spec's
+   static import of the same library. This was live: web's config imported
+   `parsePositiveIntegerConfig` from `@brainstrike/platform-utils`, and removing
+   only that one import made the whole web suite collect again.
+3. **Escaping relative imports stay lexer-safe.** A relative import that leaves
+   an e2e root lands under the app's CommonJS manifest, so it is transpiled
+   inside an otherwise-ESM graph. Such a target must contain no `export *` and
+   no `import.meta`. Today the only crossing is desktop's
+   `../../src/desktop-renderer-url` (plain `export const`); web has none since
+   `production-csp.test.ts` moved to `@brainstrike/platform-utils` directly.
+
+The contract module is a **library** — importing it runs nothing. The test is
+the gate, and every real-tree assertion is paired with a synthetic control
+proving the predicate reports the defect when present. Placement in the Static
+job is deliberate: the original failure was not "the lane broke" but "the lane
+broke and nobody noticed for a week", because `desktop-e2e.yml` is
+schedule-only. Deleting either manifest fails this test in the PR-required job.
+
 ### E2E lane-coverage contract (BST-1010)
 
 `scripts/e2e-lane-coverage.mjs` (paired test:

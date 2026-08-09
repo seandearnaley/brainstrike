@@ -86,13 +86,39 @@ async function seedRoot(page: Page, rootPath: string): Promise<void> {
   await reloadRenderer(page, 'p4-git-seed-root');
 }
 
+/**
+ * The states that mean `GitPanel` has RESOLVED A STATUS. Each is a separate
+ * early return in git-panel.tsx, so `git-panel` is the repo-happy-path testid
+ * only — waiting on it alone hangs for the full timeout whenever the panel
+ * legitimately settles somewhere else (a non-git folder renders
+ * `git-panel-not-a-repo` and never mounts `git-panel`). The helper waits for
+ * one of these and leaves each test to assert WHICH one.
+ *
+ * `git-panel-no-root` is deliberately EXCLUDED even though it is a fifth early
+ * return. `useGitPanel` derives `activeRootId` from
+ * `useFileSystem().rootDirectoryHandle`, which is null until the renderer
+ * rehydrates the seeded root after `seedRoot`'s reload — so no-root is a boot
+ * TRANSIENT here, not an outcome. Accepting it would let the wait resolve
+ * before any status existed (and the `Loading Git` check below would pass
+ * vacuously, since the no-root branch never renders that text). Every state
+ * listed here requires `panel.status` to have resolved, so the wait converges.
+ * A run that genuinely ends with no root now fails this wait, which is correct:
+ * it means the seed did not take.
+ */
+const gitPanelSettledSelector = ['git-panel', 'git-panel-not-a-repo', 'git-panel-error']
+  .map((testId) => `[data-testid="${testId}"]`)
+  .join(', ');
+
 async function openGitPanel(page: Page): Promise<void> {
   await page
     .getByRole('link', { name: 'Git' })
     .or(page.getByRole('button', { name: 'Git' }))
     .first()
     .click({ timeout: 15_000 });
-  await page.getByTestId('git-panel').waitFor({ state: 'visible', timeout: 30_000 });
+  await page
+    .locator(gitPanelSettledSelector)
+    .first()
+    .waitFor({ state: 'visible', timeout: 30_000 });
   await expect(page.getByText(/Loading Git/i)).toHaveCount(0, { timeout: 20_000 });
 }
 
@@ -150,7 +176,16 @@ test.describe('Git panel (desktop)', () => {
     // The file row is a <button> whose accessible name is the file path itself
     // (the stage/unstage controls are "Stage …"/"Unstage …"), so match exactly.
     await page.getByRole('button', { exact: true, name: 'hello.ts' }).first().click();
-    await expect(page.getByTestId('git-panel-diff')).toBeVisible({ timeout: 20_000 });
+    // #2279 converged this pane onto the shared changeset engine: `GitDiffSurface`
+    // (which owned `git-panel-diff`) was deleted in favour of `ChangesetFileDiffCard`.
+    // Asserted by ROLE + NAME rather than the card's testid: the card renders
+    // `DiffView` with `aria-label={`Diff for ${entry.path}`}`, so this pins the
+    // diff to THIS file — a testid alone would also pass on a diff opened for
+    // the wrong row. The region exists only on the loaded-success branch, so it
+    // still cannot pass on a loading/binary/error card.
+    await expect(page.getByRole('region', { name: 'Diff for hello.ts' })).toBeVisible({
+      timeout: 20_000,
+    });
   });
 
   test('commits staged changes and returns to a clean tree', async ({ window: page }) => {
