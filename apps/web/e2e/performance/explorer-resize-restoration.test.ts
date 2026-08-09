@@ -6,6 +6,7 @@ import {
   persistCurrentExplorerStoreSnapshot,
   restoreInlineFixture,
 } from '../utils/file-explorer-restoration';
+import { widenExplorerForDirectTreeActions } from '../utils/file-tree-locators';
 import { waitForAppLoad } from '../utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 
@@ -217,6 +218,9 @@ test('keeps restored expanded explorer windowed during panel resize drag', async
 
   const explorer = new FileExplorerPage(page);
   await explorer.selectRoot();
+  // Asserts the button returns to enabled, so it needs the wide layout where
+  // the button exists rather than the compact menu.
+  await widenExplorerForDirectTreeActions(page);
   await page.getByTestId('expand-all-button-small').click();
   await expect(page.getByTestId('expand-all-button-small')).toBeEnabled({ timeout: 60_000 });
   await expect.poll(() => getExpandedDirectoryCount(page), { timeout: 10_000 }).toBeGreaterThan(0);

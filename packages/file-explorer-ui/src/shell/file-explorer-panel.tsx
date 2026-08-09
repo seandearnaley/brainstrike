@@ -917,12 +917,21 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
                     show={!!rootDirectoryHandle}
                     triggerVariant="icon"
                   />
-                  {/* Yields to the Expand/Collapse cluster that now shares this
-                      track; the mode badge keeps the compact count. MEASURED on
-                      the built preview: the track needs 180px to hold pl-3 (12)
-                      + this cluster's 106px of content + the 4px gap + the 58px
-                      expansion pair. Revealing it any earlier overflows. */}
-                  <div className="@[180px]:block hidden" data-testid="selection-counter-control">
+                  {/* Yields ONLY where it actually competes.
+                      The Expand/Collapse cluster shares this track, but only
+                      from the toolbar's 236px step — below that the pair is in
+                      the compact menu and nothing is competing, so the counter
+                      stays. MEASURED on the built preview: the left track needs
+                      180px to hold pl-3 (12) + this cluster's 106px of content
+                      + the 4px gap + the 58px expansion pair, and the track is
+                      (toolbarWidth - 28) / 2, so 180px of track is a 388px
+                      toolbar. Hence exactly one hidden band, 236px..388px.
+                      Gated on the TOOLBAR container because both edges of that
+                      band are toolbar widths. */}
+                  <div
+                    className="@[388px]/explorer-toolbar:block @max-[236px]/explorer-toolbar:block hidden"
+                    data-testid="selection-counter-control"
+                  >
                     <SelectionCounter
                       compact
                       maxSelectionCount={maxSelectionCount}

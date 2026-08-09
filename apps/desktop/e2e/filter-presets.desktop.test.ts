@@ -1,5 +1,9 @@
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
+import {
+  clickExplorerTreeAction,
+  expectExplorerTreeActionsReachable,
+} from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -873,14 +877,12 @@ test.describe('Desktop filter presets', () => {
 
     await selectPresetBySearch(window, 'TypeScript', /typescript\/javascript/i);
 
-    const expandAllButton = window.getByTestId('expand-all-button-small');
-    await expect(expandAllButton).toBeVisible({ timeout: 10_000 });
-    await clickElectronControl(expandAllButton);
+    await clickExplorerTreeAction(window, 'expand-all');
 
     await expect(window.getByTestId('inline-scanning-indicator')).not.toBeVisible({
       timeout: 20_000,
     });
-    await expect(expandAllButton).toBeEnabled({ timeout: 10_000 });
+    await expectExplorerTreeActionsReachable(window);
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree.getByText('apps')).toBeVisible({ timeout: 10_000 });

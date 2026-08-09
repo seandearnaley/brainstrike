@@ -375,14 +375,15 @@ describe('FileExplorerPanel', () => {
       '@[128px]:gap-1.5'
     );
     // The counter yields to the Expand/Collapse cluster that shares this track
-    // now (whole-branch review F11); the mode badge keeps the compact count
-    // below the threshold. 180px is MEASURED on the built preview: pl-3 (12) +
-    // this cluster's 106px of content + the 4px gap + the 58px expansion pair.
-    // Revealing it earlier overflowed the shrunk cluster onto Expand All and
-    // ate its clicks.
+    // (whole-branch review F11) — but ONLY in the band where they actually
+    // compete. Below the toolbar's 236px step the pair lives in the compact
+    // menu, so nothing is competing and the counter stays; above a 388px
+    // toolbar the left track reaches the 180px both need. In between, the
+    // counter yields and the mode badge carries the compact count.
     expect(within(toolbar).getByTestId('selection-counter-control')).toHaveClass(
       'hidden',
-      '@[180px]:block'
+      '@max-[236px]/explorer-toolbar:block',
+      '@[388px]/explorer-toolbar:block'
     );
     // And the cluster CLIPS, so no future content can paint over its neighbour.
     expect(within(toolbar).getByTestId('selection-status-controls')).toHaveClass(
