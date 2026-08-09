@@ -1,11 +1,13 @@
 /**
- * WALL-CLOCK cost of the synchronous directory rollup (BST-1208).
+ * Cost of the synchronous directory rollup (BST-1208).
  *
- * Lives in the INTEGRATION lane, not the unit lane: it measures elapsed time,
- * and elapsed time under a full parallel turbo run is not the same measurement
- * as elapsed time standalone (AGENTS.md — `*.integration.test.*` marks
- * env-sensitive tests, and the root `test:integration` task is uncached so a
- * pass is never replayed from a machine where it would fail live).
+ * Asserts WORK, not elapsed time. A wall-clock ceiling here was a false-red
+ * generator: the integration lane gates a required check, CI runners vary by
+ * an order of magnitude, and a loaded runner measured 155ms against a 100ms
+ * ceiling on work that had not changed. What actually regresses is the
+ * ALGORITHM — a rollup that re-walks, re-reads or loses its cap — and that is
+ * machine-independent, so the tripwire counts descendant reads and merely
+ * LOGS the elapsed time for whoever is profiling.
  *
  * A directory cell's first `getSnapshot` aggregates its whole enumerated
  * subtree on the spot. `DIRECTORY_ROLLUP_MAX_FILES` caps that at 2000
@@ -43,22 +45,30 @@ function buildWorstCaseStore() {
     subtrees.set(encodeFileSelection(ROOT, `dir-${directory}`), { fileKeys, isComplete: true });
   }
 
+  const reads = { size: 0, tokens: 0 };
   return {
     directoryKeys: [...subtrees.keys()],
+    reads,
     store: createFileRowMetadataStore({
       getCachedSize: () => undefined,
       getDirectorySubtree: (compositeKey) =>
         subtrees.get(compositeKey) ?? UNENUMERATED_DIRECTORY_SUBTREE,
       // Every descendant resolves, so no rollup short-circuits.
-      getNodeSize: () => 1024,
-      getTokenCount: () => 256,
+      getNodeSize: () => {
+        reads.size += 1;
+        return 1024;
+      },
+      getTokenCount: () => {
+        reads.tokens += 1;
+        return 256;
+      },
     }),
   };
 }
 
 describe('directory rollup cost at the cap', () => {
-  it('aggregates a full viewport of capped directories well inside a frame', () => {
-    const { directoryKeys, store } = buildWorstCaseStore();
+  it('reads every capped descendant exactly once per directory rollup', () => {
+    const { directoryKeys, reads, store } = buildWorstCaseStore();
 
     const started = performance.now();
     for (const compositeKey of directoryKeys) {
@@ -72,6 +82,10 @@ describe('directory rollup cost at the cap', () => {
       `[BST-1208] ${VIEWPORT_DIRECTORY_ROWS} directory rollups × ${DIRECTORY_ROLLUP_MAX_FILES} files: ${elapsedMs.toFixed(2)}ms`
     );
 
-    expect(elapsedMs).toBeLessThan(100);
+    // One pass over each directory's descendants, no more: the number a
+    // re-walk, a lost cap or a per-ancestor recompute would blow past.
+    const expectedDescendantReads = VIEWPORT_DIRECTORY_ROWS * DIRECTORY_ROLLUP_MAX_FILES;
+    expect(reads.tokens).toBe(expectedDescendantReads);
+    expect(reads.size).toBe(expectedDescendantReads);
   });
 });

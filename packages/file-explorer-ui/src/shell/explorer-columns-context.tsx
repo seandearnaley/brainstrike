@@ -131,9 +131,13 @@ function useStableColumnIds(
     const included = new Set(contentKey.split('|'));
     // Config order IS the resolved order (`resolveVisibleMetadataColumnIds`
     // iterates the same list), so rebuilding here cannot reorder the grid.
-    return EXPLORER_METADATA_COLUMN_CONFIGS.filter((config) => included.has(config.id)).map(
-      (config) => config.id
-    );
+    const rebuilt: ExplorerMetadataColumnId[] = [];
+    for (const config of EXPLORER_METADATA_COLUMN_CONFIGS) {
+      if (included.has(config.id)) {
+        rebuilt.push(config.id);
+      }
+    }
+    return rebuilt;
   }, [contentKey]);
 }
 
