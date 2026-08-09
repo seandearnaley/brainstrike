@@ -42,4 +42,13 @@ describe('buildEmbedJobDedupeKey', () => {
     );
     expect(() => buildEmbedJobDedupeKey('chunk-1', 'set-1', '  ')).toThrow(/content hash/);
   });
+
+  // null/undefined is the legitimate "no set" signal. A blank string is a
+  // caller bug of the same kind the two guards above refuse — coercing it to
+  // the placeholder would collide every blank-set job with every genuinely
+  // set-less one for that chunk.
+  it('rejects a blank embedding set id instead of coercing it to the placeholder', () => {
+    expect(() => buildEmbedJobDedupeKey('chunk-1', '  ', 'hash-1')).toThrow(/embedding set id/);
+    expect(() => buildEmbedJobDedupeKey('chunk-1', '', 'hash-1')).toThrow(/embedding set id/);
+  });
 });

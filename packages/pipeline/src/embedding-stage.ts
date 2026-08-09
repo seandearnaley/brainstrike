@@ -13,7 +13,10 @@
  *
  * 1. **Queue-Only**: All enqueuing happens via JobQueueLike interface (no direct DB writes)
  * 2. **Pure Orchestration**: No embedding execution - just job creation
- * 3. **Idempotent**: Dedupe keys ensure same chunk+set+content combination is only enqueued once
+ * 3. **Idempotent**: Dedupe keys ensure same chunk+set+content combination is only enqueued once.
+ *    Note this stage's key does NOT include the model: while a job for a chunk+set is queued or
+ *    running, re-enqueuing it under a different model dedupes into the existing job rather than
+ *    creating a new one. See `buildEmbedJobDedupeKey` in `@brainstrike/indexing-contract`.
  * 4. **Progress Tracking**: Real-time progress with configurable callbacks
  *
  * @example

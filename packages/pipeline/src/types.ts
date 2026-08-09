@@ -284,8 +284,12 @@ export interface DedupeKeyFormat {
    * which is shared with the `@brainstrike/db` enqueue path. Unlike the keys
    * below it carries no type tag, so it must never be parsed positionally —
    * read `job_queue.chunk_id` / `job_queue.embedding_set_id` instead.
+   *
+   * Deliberately plain `string`: a template literal here would imply a segment
+   * layout the builder does not promise, which is the habit this key's format
+   * unification was meant to break.
    */
-  embedJob: `${string}:${string}:${string}`;
+  embedJob: string;
   /**
    * File dedupe: hash + set
    * Format: `file:{contentHash}:{embeddingSetId}`
