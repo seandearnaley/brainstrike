@@ -1510,7 +1510,9 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   had their pre-existing diagnostics reclassified as new, both in CI and in a local
   `--scope changed` run. Precedent: prove pre-existence with a full scan of the base at the
   old paths, then suppress narrowly via `ignore.overrides` with a follow-up ticket to fix
-  the findings and drop the override (BST-1182 is the live example).
+  the findings and drop the override. BST-1182 completed that cleanup for the three
+  assistant-ui ref mutations and removed the temporary override; the caveat remains for
+  future large rename sets, not as an active exception.
   `scripts/__tests__/react-doctor-version-contract.test.mjs` keeps the local and Action pins equal
   and rejects downgrade below the 0.8.2 fix.
 - **knip is retained, NOT replaced.** `deslop` is not knip: it reads knip's `entry`/`ignore`

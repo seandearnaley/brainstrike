@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useState } from 'react';
 
 function shallowEqualRecords<T>(a: Record<string, T>, b: Record<string, T>): boolean {
   if (a === b) {
@@ -25,15 +25,23 @@ function shallowEqualRecords<T>(a: Record<string, T>, b: Record<string, T>): boo
  * consumer on every chunk; the stable identity makes those re-renders happen
  * only when the data actually changed.
  *
- * The render-phase ref write is the standard memoization-cache pattern:
- * replacement is keyed on pure value-equality, so a discarded concurrent
- * render can only ever swap in an equal-or-newer cache entry — never an
- * incorrect result.
+ * React's supported previous-render state pattern replaces the record before
+ * children observe it. This avoids a ref write that can leak from discarded
+ * concurrent work, while shallow-equal follow-up records reuse the committed
+ * identity without an effect-delayed value.
+ *
+ * CALLER CONTRACT: `record` must be memoized (or otherwise stable across a
+ * re-render of the same component with unchanged inputs). A record whose
+ * values get fresh identities on every render pass never reaches
+ * shallow-equality, so the render-phase update re-fires forever and React
+ * throws "Too many re-renders". An actual value change also costs one extra
+ * render pass of the calling component, unlike the previous ref implementation.
  */
 export function useStableRecord<T>(record: Record<string, T>): Record<string, T> {
-  const ref = useRef(record);
-  if (!shallowEqualRecords(ref.current, record)) {
-    ref.current = record;
+  const [stableRecord, setStableRecord] = useState(record);
+  if (!shallowEqualRecords(stableRecord, record)) {
+    setStableRecord(record);
+    return record;
   }
-  return ref.current;
+  return stableRecord;
 }

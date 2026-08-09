@@ -91,7 +91,10 @@ interface OpenRouterModelLimits {
   outputReservation: number;
   outputWarning?: string;
   sourceLabel: string;
-  statusMessage?: string;
+  status?: {
+    kind: 'error' | 'loading';
+    message: string;
+  };
   usesConfiguredOutput: boolean;
   warning?: string;
 }
@@ -108,6 +111,24 @@ function resolveOpenRouterSourceLabel(lookup: OpenRouterModelMetadataLookup | un
     case 'stale-cache':
       return 'OpenRouter cache (stale)';
   }
+}
+
+function resolveOpenRouterStatus(
+  lookup: OpenRouterModelMetadataLookup | undefined
+): OpenRouterModelLimits['status'] {
+  if (lookup?.state === 'loading') {
+    return {
+      kind: 'loading',
+      message: 'Checking live OpenRouter metadata; using the built-in catalog.',
+    };
+  }
+  if (lookup?.state === 'error') {
+    return {
+      kind: 'error',
+      message: `Live metadata unavailable: ${lookup.message}. Using the built-in catalog.`,
+    };
+  }
+  return;
 }
 
 function resolveOpenRouterOutputReservation(
@@ -163,6 +184,7 @@ function resolveOpenRouterModelLimits(
     maxOutputTokens
   );
   const sourceLabel = resolveOpenRouterSourceLabel(lookup);
+  const status = resolveOpenRouterStatus(lookup);
   let effectiveInputBudget: number | undefined;
   try {
     effectiveInputBudget = deriveEffectiveInputBudget(contextWindow, outputReservation);
@@ -183,14 +205,7 @@ function resolveOpenRouterModelLimits(
       : {}),
     sourceLabel,
     usesConfiguredOutput: typeof settings.maxOutputTokens === 'number',
-    ...(lookup?.state === 'loading'
-      ? { statusMessage: 'Checking live OpenRouter metadata; using the built-in catalog.' }
-      : {}),
-    ...(lookup?.state === 'error'
-      ? {
-          statusMessage: `Live metadata unavailable: ${lookup.message}. Using the built-in catalog.`,
-        }
-      : {}),
+    ...(status ? { status } : {}),
     ...(lookup?.state === 'resolved' && lookup.snapshot.freshness === 'stale-cache'
       ? { warning: lookup.snapshot.warning }
       : {}),
@@ -674,9 +689,12 @@ function OpenRouterModelLimitsCard({ limits }: { limits: OpenRouterModelLimits |
       </p>
       <p>Source: {limits.sourceLabel}</p>
       {limits.outputWarning ? <p className="text-destructive">{limits.outputWarning}</p> : null}
-      {limits.statusMessage ? (
-        <p className="text-destructive" role="status">
-          {limits.statusMessage}
+      {limits.status ? (
+        <p
+          className={limits.status.kind === 'error' ? 'text-destructive' : 'text-muted-foreground'}
+          role="status"
+        >
+          {limits.status.message}
         </p>
       ) : null}
       {limits.warning ? (

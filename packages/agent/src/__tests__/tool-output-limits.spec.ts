@@ -93,6 +93,36 @@ describe('boundToolOutputForModel structural degradation', () => {
     });
   });
 
+  it('retains balanced head and tail evidence with an explicit omission marker', () => {
+    const source = `HEAD-MARKER-${'x'.repeat(20_000)}-TAIL-MARKER`;
+    const bounded = boundToolOutputForModel('filesystem.read_file', source, 2000);
+    const output = bounded.output as { preview: string };
+
+    expect(output.preview).toContain('HEAD-MARKER-');
+    expect(output.preview).toContain('-TAIL-MARKER');
+    expect(output.preview).toMatch(/…\[(\d+) chars omitted\]…/u);
+    const omittedChars = Number.parseInt(
+      output.preview.match(/…\[(\d+) chars omitted\]…/u)?.[1] ?? '-1',
+      10
+    );
+    expect(omittedChars).toBeGreaterThanOrEqual(0);
+    expect(omittedChars).toBeLessThan(source.length);
+    expect(JSON.stringify(bounded.output).length).toBeLessThanOrEqual(8000);
+  });
+
+  it('does not split UTF-16 surrogate pairs at either preview boundary', () => {
+    // These exact prefix/suffix lengths put the balanced head and tail cuts
+    // inside separate emoji pairs under the 2000-token preview budget.
+    const source = `HEAD-${'😀'.repeat(10_000)}TAIL`;
+    const bounded = boundToolOutputForModel('filesystem.read_file', source, 2000);
+    const preview = (bounded.output as { preview: string }).preview;
+
+    expect(preview).toMatch(/^HEAD-/u);
+    expect(preview).toMatch(/TAIL$/u);
+    expect(Buffer.from(preview, 'utf8').toString('utf8')).toBe(preview);
+    expect(preview).not.toContain('�');
+  });
+
   it('returns a successful preview when even one collection item cannot fit', () => {
     const bounded = boundToolOutputForModel('someTool', {
       items: ['y'.repeat(20_000), 'z'.repeat(20_000)],

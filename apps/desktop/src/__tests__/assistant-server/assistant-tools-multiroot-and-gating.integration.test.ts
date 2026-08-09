@@ -157,12 +157,14 @@ describe('assistant-tools multi-root read tools', () => {
         path: '/README.md',
       });
       expect(replaced.rootName).toBe('ProjectB');
+      expect(replaced.rootId).toBe('id-b');
 
       const written = await executeWriteTool({
         content: 'bound',
         path: '/bound.txt',
       });
       expect(written.rootName).toBe('ProjectB');
+      expect(written.rootId).toBe('id-b');
       expect(await fsPromises.readFile(path.join(rootB, 'bound.txt'), 'utf8')).toBe('bound');
       await expect(fsPromises.access(path.join(rootA, 'bound.txt'))).rejects.toThrow();
 

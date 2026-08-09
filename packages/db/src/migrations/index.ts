@@ -82,7 +82,7 @@ import { migration080AssistantMessageTombstones } from './080-assistant-message-
 import { migration081WorkspaceSnapshots } from './081-workspace-snapshots.js';
 import { migration082CanvasDocuments } from './082-canvas-documents.js';
 import { migration083ToolCallTelemetry } from './083-tool-call-telemetry.js';
-// Version 84 is intentionally skipped: claimed by the still-open BST-1192 PR (#2333).
+import { migration084AssistantToolProjectionRewrites } from './084-assistant-tool-projection-rewrites.js';
 import { migration085ToolCallTelemetryOccurredAtIndex } from './085-tool-call-telemetry-occurred-at-index.js';
 import type { Migration } from './migration-runner';
 
@@ -172,7 +172,7 @@ export const migrations: Migration[] = [
   migration081WorkspaceSnapshots,
   migration082CanvasDocuments,
   migration083ToolCallTelemetry,
-  // 084 intentionally skipped (BST-1192, PR #2333, still open).
+  migration084AssistantToolProjectionRewrites,
   migration085ToolCallTelemetryOccurredAtIndex,
 ];
 

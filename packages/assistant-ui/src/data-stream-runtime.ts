@@ -32,7 +32,7 @@ import {
   unstable_toolResultStream,
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   excludeApprovalActionMessages,
   isActionRunConfig,
@@ -1482,7 +1482,13 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     requestPreparationTimeoutMs,
   });
   const optionsRef = useRef<BrainstrikeDataStreamRuntimeOptions>(requestOptions);
-  optionsRef.current = requestOptions;
+  // Latest-ref sync in an unconditional layout effect, not during render —
+  // React Doctor `no-ref-current-in-render`. Layout, not passive: descendant
+  // passive effects (for example FollowUpQueueBridge's queued-send dispatch)
+  // can start a run in the same commit that changed these options.
+  useLayoutEffect(() => {
+    optionsRef.current = requestOptions;
+  });
   // Keep the runtime adapter identity stable across renders; it reads the
   // latest callbacks and request options through optionsRef at request time.
   const chatModelAdapter = useMemo(

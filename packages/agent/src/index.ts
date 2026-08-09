@@ -677,4 +677,6 @@ export type {
   StreamChunkToolApprovalRequired,
   StreamIterator,
   ToolCallTelemetrySample,
+  ToolProjectionRewriteEntry,
+  ToolProjectionRewriteLookup,
 } from './types';

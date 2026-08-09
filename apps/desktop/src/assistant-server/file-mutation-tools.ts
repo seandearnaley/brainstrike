@@ -137,6 +137,7 @@ export async function runWriteWorkspaceFile(
   toolCallId?: string
 ): Promise<{
   rootName: string;
+  rootId: string;
   path: string;
   bytesWritten: number;
   created: boolean;
@@ -224,6 +225,7 @@ export async function runWriteWorkspaceFile(
     bytesWritten: buffer.byteLength,
     created,
     path: resolved.workspacePath,
+    rootId: root.rootId,
     rootName: root.displayName,
     ...(lsp ? { lsp } : {}),
   };
@@ -235,6 +237,7 @@ export async function runStringReplaceWorkspaceFile(
   toolCallId?: string
 ): Promise<{
   rootName: string;
+  rootId: string;
   path: string;
   bytesWritten: number;
   matchType: StringReplaceMatchType;
@@ -362,6 +365,7 @@ export async function runStringReplaceWorkspaceFile(
     matchType: result.matchType,
     path: resolved.workspacePath,
     replaced: true,
+    rootId: root.rootId,
     rootName: root.displayName,
     ...(lsp ? { lsp } : {}),
   };

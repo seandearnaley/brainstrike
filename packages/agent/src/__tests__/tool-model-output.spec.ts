@@ -98,7 +98,9 @@ describe('applyToolModelOutputProjections', () => {
       | undefined;
     expect(modelOutput?.type).toBe('text');
     expect(modelOutput?.value).toContain('output was truncated');
-    expect(modelOutput?.value).not.toContain(rawOnlyTail);
+    // Balanced head+tail retention (was head-only): trailing evidence now
+    // survives in the bounded preview instead of always being discarded.
+    expect(modelOutput?.value).toContain(rawOnlyTail);
     expect(modelOutput?.value?.length).toBeLessThanOrEqual(12_000);
     expect(observeProjection).toHaveBeenCalledExactlyOnceWith('filesystem.read_file', modelOutput);
   });
@@ -1098,7 +1100,9 @@ describe('applyToolModelOutputProjections', () => {
 
     expect(modelOutput.type).toBe('text');
     expect(modelOutput.value).toContain('output was truncated');
-    expect(modelOutput.value).not.toContain(rawOnlyTail);
+    // Balanced head+tail retention (was head-only): trailing evidence now
+    // survives in the bounded preview instead of always being discarded.
+    expect(modelOutput.value).toContain(rawOnlyTail);
   });
 
   it('uses the unwrapped primitive when a hook-aware custom projection declines', async () => {
@@ -1155,7 +1159,9 @@ describe('applyToolModelOutputProjections', () => {
 
     expect(modelOutput.type).toBe('text');
     expect(modelOutput.value).toContain('output was truncated');
-    expect(modelOutput.value).not.toContain(rawOnlyTail);
+    // Balanced head+tail retention (was head-only): trailing evidence now
+    // survives in the bounded preview instead of always being discarded.
+    expect(modelOutput.value).toContain(rawOnlyTail);
   });
 
   it('rejects an oversized domain projection that did not self-fit', () => {

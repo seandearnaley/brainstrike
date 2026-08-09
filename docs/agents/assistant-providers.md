@@ -1124,7 +1124,10 @@ Finally, the UI transport independently caps streamed output at 3000 tokens.
 Oversized collections
 (matches/entries/results/items/files/chunks/rows/subAgentToolResults) are
 structurally trimmed; opaque outputs become a SUCCESSFUL
-`tool_result_truncated` preview with an actionable hint. The legacy
+`tool_result_truncated` preview with an actionable hint. An opaque preview
+retains a balanced 50/50 head and tail around an explicit omitted-character
+marker, with both UTF-16 cut points snapped away from surrogate-pair interiors;
+it no longer discards all trailing evidence. The legacy
 `tool_result_too_large` envelope remains readable only for persisted-history
 compatibility, and untrusted envelope-shaped output is revalidated against the
 active budget. Proofs:
@@ -1208,6 +1211,26 @@ mirroring the grep/glob replay contract. Legacy stored
 the new text form, and legacy raw results without topology fields degrade to an
 unprefixed header without losing content. Nothing else read `tokenCount`, so
 the always-null field was dropped from the result entirely.
+`executeCommand` keeps its typed raw result for display, persistence, hooks,
+and reload; the envelope now carries the selected `rootId` plus the same
+producer-owned `openRoots`/`ambiguousRootNames` topology used by workspace
+reads. Its Mastra `toModelOutput` projection emits
+`exec exit=<code|null> <seconds>` followed by only active `timed_out`,
+`killed=<signal>`, `truncated`, and multi-root `root=<selector>` tokens.
+Ambiguous display names fall back to the root id and selector line breaks are
+escaped. The only exit-code
+annotations are the conservative static cases `grep`/`rg` exit 1 (`no
+matches`) and `diff` exit 1 (`files differ`); naive leading-token basename
+extraction deliberately does not interpret shell prefixes or environment
+assignments. Already ANSI-stripped, head+tail-fitted stdout and stderr are
+rendered verbatim, with a `[stderr]` section, an explicit `(no output)` body,
+and the producer truncation hint last when present; the projector never
+double-truncates either stream. Legacy raw results without topology remain
+valid and unprefixed, stored `exec ` text projections replay byte-for-byte,
+shape rejection uses the dispatcher fail-soft marker, and either fresh or
+replayed output above the 6000-character domain budget throws. Proofs:
+`execute-command-model-projection.test.ts` and
+`execute-command-tool.integration.test.ts`.
 `findWorkspaceSymbol` and `lspInspect` keep their complete typed raw results for
 display, persistence, hooks, and reload while their Mastra `toModelOutput`
 projections emit bounded line-oriented inspection summaries. Symbol output
@@ -1517,10 +1540,12 @@ provider-history compatibility → projection-aware token limiting. Initial,
 approval-resume, and suspend-resume
 calls all use the same per-runtime processors in the per-call input stack:
 SkillsProcessor → tool search → ProjectionSafeToolCallFilter →
-ProviderHistoryCompat → ProjectionAwareTokenLimiter. Token limiting remains
-last so it counts injected skills metadata, loaded definitions, filtered tool
-history, and normalized provider history. Public direct stream processor
-overrides stay rejected.
+ToolProjectionRewrite → ProviderHistoryCompat → OpenAI tool-search history
+compatibility → OpenAI duplicate-item compatibility →
+ProjectionAwareTokenLimiter. Token limiting remains last so it counts injected
+skills metadata, loaded definitions, filtered/rewritten tool history, and
+normalized provider history. Public direct stream processor overrides stay
+rejected.
 
 The full hosted desktop tool surface has two measured prompt budgets:
 `apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`

@@ -235,6 +235,12 @@ function prepareRequestSkillsFromDisk<K extends AgentStreamCapabilityKinds>(
   return workspaceSkills ? { workspaceSkills } : {};
 }
 
+function trustedProjectionRewriteFields(
+  lookup: RuntimeData['toolProjectionRewriteLookup']
+): Pick<RuntimeData, 'toolProjectionRewriteLookup'> {
+  return lookup ? { toolProjectionRewriteLookup: lookup } : {};
+}
+
 /**
  * Scan user-defined personas from disk over the request's already-resolved
  * workspace roots (SecureRoot-backed fs; disposed after the scan). Extracted
@@ -669,6 +675,8 @@ export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKind
     readonly embeddingHostManager?: K['embeddingHost'] | null | undefined;
     readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
   };
+  /** Trusted host-injected projection-overlay lookup; never client supplied. */
+  readonly toolProjectionRewriteLookup?: RuntimeData['toolProjectionRewriteLookup'];
   readonly toolResumeAction: AssistantToolResumeAction | undefined;
 }
 
@@ -687,6 +695,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     toolApprovalAction,
     toolResumeAction,
     toolDependencies,
+    toolProjectionRewriteLookup,
     getDatabase,
     resolveProviderApiKey,
   } = params;
@@ -744,11 +753,18 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     // renderer only sends the `skillsPreference` wire field, which can only
     // REDUCE the skill set.
     workspaceSkills: _ignoredClientWorkspaceSkills,
+    // Strip any client-supplied overlay lookup. Only the host-injected closure
+    // passed as an initializer dependency may reach the agent runtime.
+    toolProjectionRewriteLookup: _ignoredClientProjectionRewriteLookup,
     // The renderer's persona availability preference; resolved (with the
     // user-persona disk scan) into `runtime.personas` below.
     subagentPersonasRequest,
     ...runtimeWithoutMcpConfig
   } = runtimeData ?? {};
+  const trustedRuntimeData: RuntimeData = {
+    ...runtimeWithoutMcpConfig,
+    ...trustedProjectionRewriteFields(toolProjectionRewriteLookup),
+  };
   const permissionPolicy = resolveRequestPermissionPolicy(permissionPolicyRequest);
 
   // Subagent personas: built-ins + user-defined (scanned from
@@ -759,7 +775,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
   // delegation tools; the agent runtime skips personas for the built-in local
   // provider (D10).
   const personaRuntimeFields = await resolvePersonaRuntimeFields(
-    runtimeData,
+    trustedRuntimeData,
     subagentPersonasRequest,
     resolveProviderApiKey,
     deps
@@ -767,7 +783,12 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
 
   let initializationStage: AgentStreamInitializationStage = 'provider_model_bootstrap';
   try {
-    const localLlmHostClient = resolveLocalLlmHostClient(runtimeData, toolDependencies);
+    // trustedRuntimeData for consistency with every other capability builder
+    // below, even though resolveLocalLlmHostClient today only reads
+    // `provider`/`memory.memorySettings.observationalMemory.modelTarget` —
+    // neither field is stripped, so this was a no-op-in-practice inconsistency
+    // (raw `runtimeData` was never intentional here) rather than a live bug.
+    const localLlmHostClient = resolveLocalLlmHostClient(trustedRuntimeData, toolDependencies);
     // Tool-lifecycle hooks (desktop): build the per-request manager over the
     // mounted roots + server-resolved trust. Hook run events flow through the
     // same queued sink the memory + stream observer drain, so hook.blocked and
@@ -781,22 +802,22 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       hookTrustRequest,
       logger,
       runId,
-      runtimeData,
+      runtimeData: trustedRuntimeData,
     });
     // Agent Skills: TRUSTED server-built engine over the SecureRoot scan of the
     // four skills tiers (mounted roots + home dir), with the renderer's
     // preference applied (master toggle / per-skill disables — reduce-only).
     // Undefined when skills are off or the provider is the built-in local model.
-    const skillsRuntimeFields = prepareRequestSkillsFromDisk(runtimeData, deps);
+    const skillsRuntimeFields = prepareRequestSkillsFromDisk(trustedRuntimeData, deps);
     const artifactCapabilities = buildToolOutputArtifactCapabilities(
-      runtimeData,
+      trustedRuntimeData,
       runId,
       getDatabase,
       deps
     );
     initializationStage = 'native_tool_preferences';
     const mastraTools = capabilities.tools.build(
-      runtimeData,
+      trustedRuntimeData,
       withSkillScriptResolver(
         withToolOutputArtifactReader(
           toolDependencies,
@@ -807,7 +828,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     );
     initializationStage = 'provider_model_bootstrap';
     const runtime: RuntimeData = {
-      ...runtimeWithoutMcpConfig,
+      ...trustedRuntimeData,
       // The execute-risk shell tool is registered like every other native tool;
       // the permission gate (enforce-on-by-default → execute:ask) suspends the
       // run for per-call approval before it executes, so it is no longer gated at

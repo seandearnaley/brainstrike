@@ -2385,6 +2385,33 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   });
 
+  it('bootstraps the migration-084 tool projection rewrite shape for thread deletion', async () => {
+    const dataDir = createPgliteTestDataDir('tool-projection-rewrite-bootstrap-shape');
+    const db = await wasmLoader.createPGlite(dataDir);
+    try {
+      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      await repository.createThread('workspace-a');
+
+      const columns = await db.query<{ column_name: string }>(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_name = 'brainstrike_assistant_tool_projection_rewrites'
+         ORDER BY ordinal_position`
+      );
+      expect(columns.rows.map((row) => row.column_name)).toEqual([
+        'tool_call_id',
+        'thread_id',
+        'rewrite_id',
+        'superseded_by_tool_call_id',
+        'marker_text',
+        'original_chars',
+        'created_at',
+      ]);
+    } finally {
+      await wasmLoader.closeCached(dataDir);
+    }
+  });
+
   it('persists provider-reported billed cost with run usage', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -3339,6 +3366,12 @@ describe('createPgliteAssistantThreadRepository integration', () => {
        VALUES ('tool-telemetry-delete', $1, 'run-delete', 'brainstrike.grepSearch', 42)`,
       [thread.id]
     );
+    await db.query(
+      `INSERT INTO brainstrike_assistant_tool_projection_rewrites
+        (tool_call_id, thread_id, rewrite_id, superseded_by_tool_call_id, marker_text, original_chars)
+       VALUES ('read-old', $1, 'rewrite-delete', 'read-new', 'read a.ts lines 1-2/2 [superseded]', 42)`,
+      [thread.id]
+    );
 
     await repository.deleteThread(thread.id);
 
@@ -3364,6 +3397,9 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_tool_call_telemetry', 'thread_id', thread.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_assistant_tool_projection_rewrites', 'thread_id', thread.id)
     ).resolves.toBe(0);
   });
 

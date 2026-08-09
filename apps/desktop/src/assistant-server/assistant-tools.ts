@@ -64,6 +64,7 @@ import {
   runInspectCommandSessions,
   runManageCommandSession,
 } from './command-session-tools';
+import { projectExecuteCommandModelOutput } from './execute-command-model-projection';
 import { runExecuteCommand } from './execute-command-tool';
 import {
   runDeleteWorkspaceFile,
@@ -102,6 +103,7 @@ import {
   type ToolExecuteInput,
   type ToolExecuteRunContext,
 } from './tool-execute-support';
+import { applyToolProjectionRewriteRecording } from './tool-projection-rewrite-repository';
 import { projectWebExtractModelOutput } from './web-extract-model-projection';
 import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool';
 import { projectWebSearchModelOutput } from './web-search-model-projection';
@@ -893,6 +895,7 @@ export function buildDesktopAssistantTools(
     },
     id: NATIVE_TOOL_ID.executeCommand,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],
+    toModelOutput: projectExecuteCommandModelOutput,
   };
 
   const skillScriptResolver = dependencies.skillScriptResolver;
@@ -974,5 +977,5 @@ export function buildDesktopAssistantTools(
       enabledCount: Object.keys(filteredTools).length,
     });
   }
-  return filteredTools;
+  return applyToolProjectionRewriteRecording(filteredTools, runtimeData);
 }
