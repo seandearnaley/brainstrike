@@ -118,7 +118,7 @@ describe('SelectionCounter', () => {
       expect(screen.getByTestId('selection-count')).toHaveTextContent('1.2K');
     });
 
-    it('formats BOTH sides of the compact fraction — never a mixed "2K/2000"', () => {
+    it('keeps the fraction single-scale — never a mixed "2K/2000"', () => {
       // Regression: compact mode abbreviated only the selected count, so a
       // full selection rendered "2K/2000" (mixed formats in one fraction) and
       // failed the persistence e2e that expects a consistent counter.
@@ -132,6 +132,15 @@ describe('SelectionCounter', () => {
           name: '2000 of 2000 files selected. Selection count (read-only)',
         })
       ).toBeInTheDocument();
+    });
+
+    it('keeps BOTH sides exact while the count is below the compact threshold', () => {
+      // The max only abbreviates alongside the count — "629/1000" stays exact
+      // (both sides one scale), it never becomes "629/1K".
+      render(<SelectionCounter compact maxSelectionCount={1000} selectedCount={629} />);
+
+      expect(screen.getByTestId('selection-count')).toHaveTextContent('629');
+      expect(screen.getByTestId('selection-max')).toHaveTextContent('1000');
     });
 
     it('applies correct button styling', () => {
