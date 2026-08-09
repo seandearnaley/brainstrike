@@ -7,6 +7,8 @@ import {
   boundToolOutputForModel,
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
   MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_MODEL_TOOL_RESULT_TOKENS,
   NATIVE_SELF_BOUND_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
@@ -62,12 +64,31 @@ export interface ModelProjectionBudget {
   readonly totalTokens: number;
 }
 
+/**
+ * BST-1219 (follow-up, not yet landed): desktop's purpose-built TEXT
+ * projectors (`apps/desktop/src/assistant-server/workspace-*-model-projection.ts`
+ * etc.) still self-fit to the FIXED anchor domain budget
+ * ({@link MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET} /
+ * {@link MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS}) — they are not yet threaded
+ * with the per-run resolved budget. Scaling this runtime assertion DOWN for a
+ * sub-anchor model (e.g. local Ollama) before that threading lands would
+ * reject a legitimate anchor-sized projection a producer is still allowed to
+ * emit, turning ordinary reads/searches into a hard `RangeError`. The domain
+ * fields therefore floor at the anchor — `max(resolved, anchor)` — so the
+ * assertion never drops below what producers actually enforce; only the
+ * UPWARD scale (larger-window models get a bigger domain budget) is live.
+ * Remove this floor once BST-1219 threads `resolvedToolResultBudget` into the
+ * desktop projector constructors so both layers scale together again.
+ */
 export function buildDefaultModelProjectionBudget(
   resolved: ScaledToolResultBudget
 ): ModelProjectionBudget {
   return {
-    domainSerializedChars: resolved.domainModelResultCharBudget,
-    domainTokens: resolved.domainModelResultTokens,
+    domainSerializedChars: Math.max(
+      resolved.domainModelResultCharBudget,
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    ),
+    domainTokens: Math.max(resolved.domainModelResultTokens, MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS),
     rawOutputTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
     totalSerializedChars: MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
     totalTokens: MAX_MODEL_TOOL_RESULT_TOKENS,

@@ -18,13 +18,22 @@ import {
   type AssistantPersonaDefinition,
   assertReadOnlyPersona,
 } from '@brainstrike/assistant-contract/personas';
+import type { ProviderId } from '@brainstrike/assistant-contract/provider-registry';
 import { Agent, type ToolsInput } from '@mastra/core/agent';
 import type { MastraModelConfig } from '@mastra/core/llm';
+import {
+  resolveToolResultBudgetForModel,
+  type ScaledToolResultBudget,
+} from '../stream/tool-output-limits';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionToolGateLogger,
   type PermissionToolGateSnapshot,
 } from './permission-tool-gate';
+import {
+  applyToolModelOutputProjections,
+  type ModelOutputProjectionObserver,
+} from './tool-model-output';
 
 export interface PersonaSubAgentBuildResult {
   /** 'agent-<personaId>' → personaId, for the stream mapper (D9). */
@@ -36,7 +45,9 @@ export interface PersonaSubAgentBuildResult {
 }
 
 export interface BuildPersonaSubAgentsParams {
-  /** Parent's post-guard tool map (keyed by sanitized id). */
+  /** Parent's post-guard tool map (keyed by sanitized id), RAW — not yet
+   * model-output-projected. Each child projects its own selected subset
+   * against its own resolved budget (see {@link resolvedToolResultBudget}). */
   readonly guardedTools: ToolsInput;
   /** Parent's resolved model instance (D5 — children reuse it). */
   readonly languageModel: MastraModelConfig;
@@ -44,15 +55,29 @@ export interface BuildPersonaSubAgentsParams {
   readonly permissionSnapshot: PermissionToolGateSnapshot | undefined;
   readonly personas: readonly AssistantPersonaDefinition[];
   /**
+   * The PARENT run's resolved tool-result budget (BST-1206). Un-pinned
+   * personas project their tools against this. A pinned persona instead
+   * resolves its OWN budget from `persona.model`'s provider/window — see
+   * {@link resolvePinnedModel}'s doc comment for why a pin must never
+   * silently reuse an unrelated budget.
+   */
+  readonly resolvedToolResultBudget: ScaledToolResultBudget;
+  /**
    * Resolve a pinned persona's model (`persona.model` is set) into a concrete
    * model instance. Provided by the runtime layer, which owns provider/key
    * resolution. A pinned persona is SKIPPED with a visible warn when the
    * resolver is absent or throws — it never silently falls back to the parent
    * model (the author pinned for a reason: cost, capability, or locality).
+   * The SAME reasoning extends to its tool-result budget (BST-1206 review):
+   * a pin that resolves a model but keeps the parent's budget would size
+   * every tool result for the WRONG model's context window.
    */
   readonly resolvePinnedModel?: (persona: AssistantPersonaDefinition) => MastraModelConfig;
   /** sanitizedId → originalName (the parent's map). */
   readonly toolNameMap: ReadonlyMap<string, string>;
+  /** Forwarded to `applyToolModelOutputProjections` for every child (BST-1196
+   * subagent telemetry attribution — see its call site in agent-runtime.ts). */
+  readonly toolOutputObserver?: ModelOutputProjectionObserver;
 }
 
 function buildOriginalToSanitized(
@@ -142,6 +167,41 @@ function resolvePersonaModel(
 }
 
 /**
+ * Resolve the tool-result budget a persona child's tools should be projected
+ * against (BST-1206 review, P2). Un-pinned personas inherit the parent's
+ * resolved budget (they run on the parent's model). A pinned persona resolves
+ * its OWN budget from `persona.model`'s provider/window — reusing the
+ * parent's would size every tool result for the wrong model's context
+ * window, exactly the bug this fixes. Mirrors `resolvePersonaModel`'s
+ * skip-with-warn contract: an unresolvable budget for a pin that already
+ * resolved a live model instance is a config error (e.g. an unregistered
+ * modelId), never a silent fallback to the parent's budget.
+ */
+function resolvePersonaToolResultBudget(
+  persona: AssistantPersonaDefinition,
+  params: BuildPersonaSubAgentsParams
+): ScaledToolResultBudget | null {
+  if (!persona.model) {
+    return params.resolvedToolResultBudget;
+  }
+  try {
+    return resolveToolResultBudgetForModel(
+      persona.model.provider as ProviderId,
+      persona.model.modelId
+    );
+  } catch (error) {
+    params.logger.warn('Persona model pin has no resolvable tool-result budget; skipping persona', {
+      code: 'subagent_persona_pin_budget_unresolvable',
+      detail: error instanceof Error ? error.message : String(error),
+      modelId: persona.model.modelId,
+      personaId: persona.id,
+      provider: persona.model.provider,
+    });
+    return null;
+  }
+}
+
+/**
  * Build persona child Agents for the parent supervisor.
  */
 export function buildPersonaSubAgents(
@@ -202,6 +262,23 @@ export function buildPersonaSubAgents(
       continue;
     }
 
+    // BST-1206 review (P2): project THIS child's tools against ITS resolved
+    // budget — the parent's for an un-pinned persona, the pinned model's own
+    // for a pin. Applied here (not once on the parent's map before
+    // selection) so a pinned persona never inherits a budget sized for a
+    // different model's context window.
+    const childToolResultBudget = resolvePersonaToolResultBudget(persona, params);
+    if (childToolResultBudget === null) {
+      continue;
+    }
+    const childNameMap = new Map(candidateNameMap);
+    const projectedChildTools = applyToolModelOutputProjections(
+      childTools as ToolsInput,
+      childNameMap,
+      params.toolOutputObserver,
+      childToolResultBudget
+    );
+
     // The child agent id MUST equal the persona id: Mastra sets
     // `DelegationStartContext.primitiveId = agent.id`, and the delegation caps
     // (subagent-delegation.ts) resolve the persona by that id.
@@ -211,7 +288,7 @@ export function buildPersonaSubAgents(
       instructions: buildChildInstructions(persona, keptOriginalNames),
       model: childModel,
       name: persona.label,
-      tools: childTools as ToolsInput,
+      tools: projectedChildTools,
     });
     delegationToolPersonas.set(`agent-${persona.id}`, persona.id);
     personasById.set(persona.id, persona);

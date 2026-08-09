@@ -42,7 +42,6 @@ import {
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
 import type { RunTokenDiagnostics } from './token-measurement';
-import { applyToolModelOutputProjections } from './tool-model-output';
 import type { ToolOutputArtifactSettlementStore } from './tool-output-artifact-settlement';
 import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from './tool-search-runtime';
 
@@ -468,6 +467,27 @@ export async function createMastraAgentRuntime(
     personasById,
     subAgents,
   } = resolvePersonaRuntimeParts({
+    // BST-1206 review (P2): a persona that pins its OWN model must project
+    // its tools against THAT model's resolved budget, not the parent's — so
+    // `guardedTools` here is deliberately the RAW (pre-model-output-projection)
+    // map. `resolvePersonaRuntimeParts`/`buildPersonaSubAgents` apply
+    // `applyToolModelOutputProjections` themselves, per persona, choosing the
+    // pinned model's own resolved budget when one is pinned and the parent's
+    // `resolvedToolResultBudget` otherwise (see build-persona-subagents.ts).
+    guardedTools,
+    languageModel,
+    permissionSnapshot,
+    personas,
+    planModeActive,
+    provider: normalizedProvider,
+    resolvedToolResultBudget,
+    resolvePinnedModel: createPersonaPinnedModelResolver({
+      apiKey,
+      instantiate: instantiateLanguageModel,
+      parentProvider: normalizedProvider,
+      runtime: sanitizedRuntime,
+    }),
+    toolNameMap,
     // Persona agents get the same raw/model split. Their independent policy
     // gate clones full tool descriptors, so `toModelOutput` survives intact.
     // Thread the SAME `tokenDiagnostics` instance as the primary tool map so
@@ -478,24 +498,8 @@ export async function createMastraAgentRuntime(
     // prompt (`providerReportedPromptTokens`). Subagent tool outputs never
     // enter the parent's prompt, so they must not inflate that aggregate —
     // see `RunTokenDiagnostics.recordSubagentToolOutput`'s doc comment.
-    guardedTools: applyToolModelOutputProjections(
-      guardedTools,
-      toolNameMap,
-      (toolId, output) => tokenDiagnostics.recordSubagentToolOutput(toolId, output),
-      resolvedToolResultBudget
-    ),
-    languageModel,
-    permissionSnapshot,
-    personas,
-    planModeActive,
-    provider: normalizedProvider,
-    resolvePinnedModel: createPersonaPinnedModelResolver({
-      apiKey,
-      instantiate: instantiateLanguageModel,
-      parentProvider: normalizedProvider,
-      runtime: sanitizedRuntime,
-    }),
-    toolNameMap,
+    toolOutputObserver: (toolId, output) =>
+      tokenDiagnostics.recordSubagentToolOutput(toolId, output),
   });
 
   const composedInstructions = composeRuntimeInstructions({

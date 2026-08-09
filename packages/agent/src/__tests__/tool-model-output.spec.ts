@@ -37,6 +37,7 @@ import { ToolProjectionInputRejectedError } from '../mastra/tool-projection-inpu
 import {
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
@@ -112,6 +113,32 @@ describe('applyToolModelOutputProjections', () => {
       )
     ).not.toThrow();
     expect(decodedTextModelOutputChars(replayOutput.value)).toBe(12_000);
+  });
+
+  it('BST-1219: floors a FRESH domain projection at the anchor for a sub-anchor resolved budget', () => {
+    // Desktop's purpose-built TEXT projectors are not yet threaded with the
+    // per-run resolved budget (BST-1219) — they still self-fit to the fixed
+    // anchor domain budget regardless of the active model. A sub-anchor
+    // resolved budget (e.g. local Ollama's floor tier) must not reject an
+    // ordinary anchor-sized projection a producer is still allowed to emit.
+    const floorBudget = resolveScaledToolResultBudget(8192);
+    expect(floorBudget.domainModelResultCharBudget).toBeLessThan(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    const freshDefaultBudget = buildDefaultModelProjectionBudget(floorBudget);
+    expect(freshDefaultBudget.domainSerializedChars).toBe(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET);
+
+    const anchorSizedOutput = {
+      type: 'text',
+      value: 'x'.repeat(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET - 26),
+    };
+    expect(decodedTextModelOutputChars(anchorSizedOutput.value)).toBe(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+
+    expect(() =>
+      assertDomainProjectionWithinBudget('local.ollama-tool', anchorSizedOutput, freshDefaultBudget)
+    ).not.toThrow();
   });
 
   it('keeps raw execution untouched and gives the model a bounded text projection', async () => {
