@@ -39,7 +39,7 @@ function assertExecutingPlaywrightCommand(command, label) {
   assert.match(normalizedCommand, /(?:^|\s)playwright test(?:\s|$)/, `${label} must execute tests`);
   assert.doesNotMatch(
     normalizedCommand,
-    /(?:^|\s)--(?:help|list|version)(?:=|\s|$)/,
+    /(?:^|\s)(?:--(?:help|list|version)|-(?:h|V))(?:=|\s|$)/,
     `${label} must not use a diagnostic-only Playwright flag`
   );
 }
@@ -83,7 +83,7 @@ test('MONEY TEST: the smoke matcher rejects disabled lanes and diagnostic suffix
 });
 
 test('MONEY TEST: package smoke lanes cannot become diagnostic-only', () => {
-  for (const flag of ['--help', '--list', '--version']) {
+  for (const flag of ['--help', '-h', '--list', '--version', '-V']) {
     assert.throws(
       () => assertExecutingPlaywrightCommand(`pnpm exec playwright test ${flag}`, 'fixture'),
       /diagnostic-only/
