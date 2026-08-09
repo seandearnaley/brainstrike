@@ -1711,3 +1711,66 @@ export async function installMixedHookSelectionFixture(
     ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
   }, fixture);
 }
+
+/** Explorer tree-expansion actions, by their stable testids. */
+export type ExplorerTreeAction = 'collapse-all' | 'expand-all';
+
+const TREE_ACTION_MENU_ITEM: Record<ExplorerTreeAction, string> = {
+  'collapse-all': 'Collapse all directories',
+  'expand-all': 'Expand all directories',
+};
+
+/**
+ * Click Expand All / Collapse All the way a user reaches them on desktop.
+ *
+ * RESPONSIVE since BST-1208: the toolbar's left track carries the buttons at
+ * and above its 236px step, and the compact "More Explorer actions" menu
+ * carries them below it. The desktop Explorer panel opens at its 180px
+ * MINIMUM — the same default state BST-657 is about — so the menu is the live
+ * route here and clicking the testid directly times out.
+ *
+ * Exactly one surface must be offering the action, so a layout change that
+ * shows both (or neither) fails loudly rather than being hidden by a fallback.
+ */
+export async function clickExplorerTreeAction(
+  page: Page,
+  action: ExplorerTreeAction
+): Promise<void> {
+  const toolbar = page.getByTestId('file-explorer-toolbar');
+  const wideButton = toolbar.getByTestId(`${action}-button-small`);
+  const compactActions = toolbar.getByRole('button', { name: 'More Explorer actions' });
+  const visibleActionSurfaces = wideButton.or(compactActions).filter({ visible: true });
+
+  await expect(visibleActionSurfaces).toHaveCount(1, { timeout: 15_000 });
+
+  if (await wideButton.isVisible()) {
+    await clickExpandButton(wideButton);
+    return;
+  }
+
+  await compactActions.click({ noWaitAfter: true, timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS });
+  const menuItem = page.getByRole('menuitem', { exact: true, name: TREE_ACTION_MENU_ITEM[action] });
+  await expect(menuItem).toBeVisible({ timeout: 15_000 });
+  await menuItem.click({ noWaitAfter: true, timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS });
+}
+
+/**
+ * Assert the tree-expansion actions are REACHABLE again — one surface offering
+ * them, and it is live.
+ *
+ * Replaces `expect(expandAllButton).toBeEnabled()` at the Explorer's 180px
+ * default, where that button is not in the DOM. It also cannot be swapped for
+ * the compact menu's item mid-sweep: BST-657 makes the menu YIELD its slot to
+ * the cancel affordance while an operation runs, so during a sweep neither
+ * surface exposes the expansion actions at all. "Reachable again" is therefore
+ * the honest post-condition, and it is exactly what the original assertion was
+ * really checking — the operation finished and the control came back.
+ */
+export async function expectExplorerTreeActionsReachable(page: Page): Promise<void> {
+  const toolbar = page.getByTestId('file-explorer-toolbar');
+  const wideButton = toolbar.getByTestId('expand-all-button-small');
+  const compactActions = toolbar.getByRole('button', { name: 'More Explorer actions' });
+  await expect(wideButton.or(compactActions).filter({ visible: true })).toHaveCount(1, {
+    timeout: 15_000,
+  });
+}

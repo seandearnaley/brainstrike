@@ -1,16 +1,19 @@
 /**
- * Selected-file size prefetch.
+ * Selected-file SIZE prefetch (extracted from
+ * `use-background-token-indexer-integration.ts`, BST-1207).
  *
- * Sizes used to reach the hot cache only after the background token indexer
- * finished a batch, so whenever the indexing path was gated (embedding active,
- * adaptive debounce, large queue) the size column rendered `—` even though the
- * tree already knew the value. This hook writes the size the moment BOTH the
- * selection and a handle source know it. Writes are idempotent — `use-token-cache`
- * no-ops when the value matches — so re-running on every selection change is
- * cheap.
+ * Sizes reach the hot token cache from two places: the background indexer
+ * writes them when a batch finishes, and this hook writes them as soon as the
+ * selection and the handle sources know them. Without the second path any
+ * gating of the indexing path (embedding active, adaptive debounce, large
+ * queue) left the context-explorer size column — and now the Explorer tree
+ * grid's Size cell — rendering `—` for a value the tree already had.
  *
- * Extracted from `use-background-token-indexer-integration.ts` (BST-1207): it is
- * a self-contained concern, and that file is at its pinned source-file budget.
+ * Writes are idempotent (`use-token-cache` no-ops when the value matches), so
+ * re-running on every selection change is cheap. The pair (lookup + effect) is
+ * self-contained — it reads only the three latest-value refs the indexing
+ * effect already maintains, and that file sits against a pinned 1500-line
+ * budget.
  */
 
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
@@ -82,12 +85,15 @@ export function lookupSelectedFileSize(params: {
 }
 
 export interface UseSelectedFileSizePrefetchParams {
+  /** Local handle map built from the current tree; the FileTreeIndex fallback. */
   fileHandleMapRef: MutableRefObject<Map<string, HandleInfo>>;
-  /** Re-arms when the local handle map finishes rebuilding. */
+  /** Re-arms the effect when the local handle map finishes rebuilding. */
   fileHandleMapSize: number;
+  /** Shared FileTreeIndex lookup; present means sizes can be resolved O(1). */
   indexGetHandleRef: MutableRefObject<IndexGetHandle | undefined>;
-  /** Re-arms when the FileTreeIndex gains handles. */
+  /** Bumps when the FileTreeIndex gains entries; re-arms parked keys. */
   indexVersion: number;
+  /** Re-arms the effect when the cache becomes usable. */
   isTokenCacheOperational: boolean;
   selectedFiles: ReadonlySet<string>;
   tokenCacheRef: MutableRefObject<TokenCacheContextValue | null>;

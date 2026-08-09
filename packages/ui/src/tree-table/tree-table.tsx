@@ -287,6 +287,9 @@ function renderTableHeader<T>({
               key={column.id}
               onClick={() => column.sortable && onSortClick(column.id)}
               role="columnheader"
+              // Native column association for the cells beneath. `role` alone
+              // does not give assistive tech the header→cell relationship.
+              scope="col"
               style={{
                 maxWidth: column.maxWidth,
                 minWidth: column.minWidth,

@@ -17,6 +17,8 @@ import {
 } from '../utils/quick-filter-tree';
 import { getSelectionCount } from '../utils/selection-projection';
 import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
+import { ExplorerColumnHeader } from './explorer-column-header';
+import { useExplorerColumns } from './explorer-columns-context';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -467,6 +469,9 @@ const PerRootTreePane = ({
       {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
       {hasContent ? (
         <OptimizedFileTree
+          // Forest: N treegrids all named "File tree" leave a screen-reader
+          // user unable to tell which root section they are in.
+          ariaLabel={`File tree: ${rootDirectoryHandle.name}`}
           cancelChildLoading={sectionCancelChildLoading}
           fileTree={displayTree}
           folderId={folderId}
@@ -820,6 +825,7 @@ const FileExplorerSidebar = memo(
     // against this column (shared-scroller mode). Unconditional hook — forest
     // mode is a render-time branch below.
     const forestScrollRef = useRef<HTMLDivElement | null>(null);
+    const { columnWidths, visibleMetadataColumnIds } = useExplorerColumns();
 
     const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
 
@@ -850,6 +856,15 @@ const FileExplorerSidebar = memo(
       return (
         <div className="flex h-full w-full flex-col overflow-hidden bg-panel-surface">
           {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
+          {/* ONE header for every section: N sticky headers inside the shared
+              scroller would stack against the same scrollport. It aligns with
+              the section tables through the shared column-size store and the
+              scroller's measured gutter — see explorer-column-header.tsx. */}
+          <ExplorerColumnHeader
+            columnWidths={columnWidths}
+            scrollerRef={forestScrollRef}
+            visibleMetadataColumnIds={visibleMetadataColumnIds}
+          />
           <div
             className="flex min-h-0 flex-1 flex-col overflow-y-auto"
             data-testid="forest-sections-scroll"
@@ -916,6 +931,9 @@ const FileExplorerSidebar = memo(
                 onLoadChildren={onLoadChildren}
                 onRender={onTreeRender || undefined}
                 onSelectFolderRecursively={onSelectFolderRecursively}
+                // Single-root owns its own viewport, so TreeTable's sticky
+                // header sticks to the scrollport it belongs to.
+                showColumnHeader={visibleMetadataColumnIds.length > 0}
               />
             ) : (
               <EmptyStateComponent

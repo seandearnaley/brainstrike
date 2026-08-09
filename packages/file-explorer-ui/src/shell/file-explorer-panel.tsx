@@ -38,8 +38,11 @@ import { RestoreAccessModal } from '../components/restore-access-modal';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { FilterStatus } from '../file-explorer-status-components';
 import { useExplorerScrollRestore } from '../hooks/use-explorer-scroll-restore';
+import {
+  FileRowMetadataProvider,
+  useExplorerRowMetadata,
+} from '../indexing/file-row-metadata-context';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
-import { collectVisibleFileSelectionKeys } from '../indexing/visible-file-selection-keys';
 import { RestorationStatus } from '../restoration-status';
 import { formatCompactSelectionCount } from '../selection-count-format';
 import { SelectionCounter } from '../selection-counter';
@@ -48,13 +51,15 @@ import { ToolbarPresetSelector } from '../toolbar-preset-selector';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { applyQuickFilterToTree, collectVisibleFiles } from '../utils/quick-filter-tree';
+import { ExplorerColumnVisibilityControls } from './explorer-column-visibility-controls';
+import { ExplorerColumnsProvider, useExplorerColumnsValue } from './explorer-columns-context';
 import {
   CompactToolbarActions,
   FilterChipsToggleButton,
   isCancellableOperationRunning,
   isForestModeActive,
-  PanelFloatingTreeActions,
   PanelTreeActionButtons,
+  PanelTreeExpansionButtons,
   resolveCompactToolbarActionsState,
   resolveSelectAllWiring,
   runFocusedTreeExpandAll,
@@ -120,6 +125,9 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   // outer scroll root; the hook resolves the active (single-root vs forest)
   // scroller and captures via a capture-phase listener.
   const explorerScrollRootRef = React.useRef<HTMLDivElement | null>(null);
+  // Tree-grid columns: persisted preference narrowed by the tree area's width.
+  const treeAreaRef = React.useRef<HTMLDivElement | null>(null);
+  const explorerColumns = useExplorerColumnsValue(treeAreaRef);
   useExplorerScrollRestore(explorerScrollRootRef);
   const [
     includeFilters,
@@ -446,13 +454,20 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     return Array.from(visible);
   }, [quickFilteredTree]);
 
-  // Composite keys for the same visible set, feeding the background indexer's
-  // second (visible/expanded) trigger so the tree can show real token counts
-  // for rows the user only expanded. See BST-1207 decision D2.
-  const visibleFileSelectionKeys = useMemo(
-    () => collectVisibleFileSelectionKeys(quickFilteredTree ?? []),
-    [quickFilteredTree]
-  );
+  // Per-row metadata seam (BST-1207/1208). Owned here because `onTokenResolved`
+  // below is the PRECISE invalidation path: every count the indexer resolves
+  // repaints exactly that row's cell. Without this wiring the tree grid still
+  // fills in — through the 250ms bulk reconcile — which is why dropping it is
+  // silent, and why the panel test pins it.
+  //
+  // `visibleFileKeys` is the background indexer's second (visible/expanded)
+  // trigger — BST-1207 decision D2. It comes from the seam rather than from
+  // this component's own tree because `useFileExplorer()` only ever sees the
+  // FOCUSED root: deriving it here left every other forest section unindexed
+  // (whole-branch review F2). Each mounted tree publishes its own display
+  // enumeration and the registry merges them, keeping the snapshot CONTENT-
+  // stable so an unchanged republication does not re-arm the indexing debounce.
+  const rowMetadata = useExplorerRowMetadata();
 
   // This hook automatically indexes selected AND visible files when a
   // TokenCacheProvider is present. Only pass `webFileHandleResolver` when the
@@ -461,8 +476,9 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   useBackgroundTokenIndexerIntegration({
     electronFileReader,
     fileTree: stableFileTree,
+    onTokenResolved: rowMetadata.onTokenResolved,
     selectedFiles: selectedFilePaths,
-    visibleFiles: visibleFileSelectionKeys,
+    visibleFiles: rowMetadata.visibleFileKeys,
     ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
   });
 
@@ -718,6 +734,14 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   // Run-boundary signal only — high-frequency progress is subscribed by the
   // PanelTreeActionButtons leaf, never by this panel component.
   const isForestExpandingAll = useForestIsExpandingAll();
+  /**
+   * "An expand-all sweep is running SOMEWHERE" — a forest sweep runs inside the
+   * section providers, so the focused provider's flag stays false throughout.
+   * Derived once: the toolbar buttons, the compact menu and the run guard must
+   * agree, and repeating the disjunction was also what tipped this component
+   * over the cognitive-complexity cap.
+   */
+  const isAnyExpandAllRunning = isExpandingAll || isForestExpandingAll;
 
   const forestExpandConfirm = useForestExpandConfirm(forestActions);
   const stageForestExpandConfirm = forestExpandConfirm.stage;
@@ -731,7 +755,7 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     });
 
     // Prevent clicks while expand-all is already running
-    if (isExpandingAll || isForestExpandingAll) {
+    if (isAnyExpandAllRunning) {
       logger.info('expandAll: blocked - already expanding');
       return;
     }
@@ -745,7 +769,7 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   }, [
     fileTree,
     forestActions,
-    isForestExpandingAll,
+    isAnyExpandAllRunning,
     isForestMode,
     stageForestExpandConfirm,
     store,
@@ -810,361 +834,409 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
 
   return (
     <FileExplorerErrorBoundary>
-      <div className="grid h-full min-w-0 grid-rows-[auto_1fr] overflow-hidden">
-        {/* Fixed Header - Toolbar and filter controls */}
-        <div className="min-w-0 shrink-0">
-          <FileExplorerToolbar
-            bulkSelectionControl={
-              <ActionButtons
-                addMultipleSelectedFiles={addMultipleSelectedFiles}
-                addMultipleSelectedFilesChunked={addMultipleSelectedFilesChunked}
-                cancelSelectAll={cancelSelectAll}
-                currentFolderId={
-                  getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId
-                }
-                displayedFiles={displayedFileList}
-                encodeFileSelection={encodeFileSelection}
-                filteredTree={quickFilteredTree ?? []}
-                hasActiveQuickFilter={deferredQuickFilter.trim().length > 0}
-                hasFilesInTree={selectAllWiring.hasFilesInTree}
-                isLoadingForSelectAll={isLoadingForSelectAll}
-                maxSelectionCount={maxSelectionCount}
-                quickFilterSelectAllOverride={selectAllWiring.quickFilterSelectAllOverride}
-                selectAllRecursively={selectAllWiring.selectAll}
-                selectedFiles={selectedFilesList}
-                setSelectedFiles={setSelectedFilesFromList}
-                visibleFilePaths={visibleFilePaths}
-              />
-            }
-            compactActionsControl={
-              <CompactToolbarActions
-                onRefresh={handleRefresh}
-                setFiltersExpanded={setFiltersExpanded}
-                state={resolveCompactToolbarActionsState({
-                  hasRoot: Boolean(rootDirectoryHandle),
-                  isFiltersExpanded,
-                  isLoading,
-                  isOperationInProgress: isCancellableOperationRunning({
-                    forestCancelExpandAll,
-                    isExpandingAll,
-                    isForestExpandingAll,
-                    loadingProgress,
-                  }),
-                  isRefreshing,
-                })}
-              />
-            }
-            filtersControl={
-              rootDirectoryHandle ? (
-                <ViewFiltersToggleButton
-                  hasHiddenActiveFilter={!isFiltersExpanded && quickFilter.trim().length > 0}
-                  isFiltersExpanded={isFiltersExpanded}
-                  setFiltersExpanded={setFiltersExpanded}
-                />
-              ) : null
-            }
-            isLoading={isLoading}
-            onDirectorySelect={handleToolbarDirectorySelect}
-            selectionStatusControl={
-              <div
-                className="flex min-w-0 items-center @[128px]:gap-1.5 gap-0.5"
-                data-testid="selection-status-controls"
-              >
-                <SelectionModeBadge
-                  compactValue={{
-                    accessibleLabel: `${selectedCount} of ${maxSelectionCount} files selected.`,
-                    label: formatCompactSelectionCount(selectedCount),
-                  }}
+      <ExplorerColumnsProvider value={explorerColumns}>
+        <div className="grid h-full min-w-0 grid-rows-[auto_1fr] overflow-hidden">
+          {/* Fixed Header - Toolbar and filter controls */}
+          <div className="min-w-0 shrink-0">
+            <FileExplorerToolbar
+              bulkSelectionControl={
+                <ActionButtons
+                  addMultipleSelectedFiles={addMultipleSelectedFiles}
+                  addMultipleSelectedFilesChunked={addMultipleSelectedFilesChunked}
+                  cancelSelectAll={cancelSelectAll}
+                  currentFolderId={
+                    getRootFolderId(rootDirectoryHandle, rootIdByPath) ?? currentFolderId
+                  }
+                  displayedFiles={displayedFileList}
+                  encodeFileSelection={encodeFileSelection}
+                  filteredTree={quickFilteredTree ?? []}
+                  hasActiveQuickFilter={deferredQuickFilter.trim().length > 0}
+                  hasFilesInTree={selectAllWiring.hasFilesInTree}
+                  isLoadingForSelectAll={isLoadingForSelectAll}
                   maxSelectionCount={maxSelectionCount}
-                  onMaxSelectionCountChange={handleMaxSelectionCountChange}
-                  show={!!rootDirectoryHandle}
-                  triggerVariant="icon"
+                  quickFilterSelectAllOverride={selectAllWiring.quickFilterSelectAllOverride}
+                  selectAllRecursively={selectAllWiring.selectAll}
+                  selectedFiles={selectedFilesList}
+                  setSelectedFiles={setSelectedFilesFromList}
+                  visibleFilePaths={visibleFilePaths}
                 />
-                <div className="@[72px]:block hidden" data-testid="selection-counter-control">
-                  <SelectionCounter
-                    compact
-                    maxSelectionCount={maxSelectionCount}
-                    selectedCount={selectedCount}
+              }
+              columnsControl={
+                <ExplorerColumnVisibilityControls show={Boolean(rootDirectoryHandle)} />
+              }
+              compactActionsControl={
+                <CompactToolbarActions
+                  onCollapseAll={collapseAll}
+                  onExpandAll={expandAll}
+                  onRefresh={handleRefresh}
+                  setFiltersExpanded={setFiltersExpanded}
+                  state={resolveCompactToolbarActionsState({
+                    hasRoot: Boolean(rootDirectoryHandle),
+                    isExpandingAll: isAnyExpandAllRunning,
+                    isFiltersExpanded,
+                    isLoading,
+                    isOperationInProgress: isCancellableOperationRunning({
+                      forestCancelExpandAll,
+                      isExpandingAll,
+                      isForestExpandingAll,
+                      loadingProgress,
+                    }),
+                    isRefreshing,
+                  })}
+                />
+              }
+              filtersControl={
+                rootDirectoryHandle ? (
+                  <ViewFiltersToggleButton
+                    hasHiddenActiveFilter={!isFiltersExpanded && quickFilter.trim().length > 0}
+                    isFiltersExpanded={isFiltersExpanded}
+                    setFiltersExpanded={setFiltersExpanded}
                   />
+                ) : null
+              }
+              isLoading={isLoading}
+              onDirectorySelect={handleToolbarDirectorySelect}
+              selectionStatusControl={
+                <div
+                  // overflow-hidden is STRUCTURAL, not cosmetic: this cluster
+                  // is `min-w-0`, so a shrunk box lets its content spill to the
+                  // right and PAINT OVER the Expand/Collapse cluster beside it
+                  // — measured live at a 349px panel, the counter covered the
+                  // left half of Expand All and swallowed its clicks. Clipping
+                  // makes that a visual truncation instead of a dead control.
+                  className="flex min-w-0 items-center @[128px]:gap-1.5 gap-0.5 overflow-hidden"
+                  data-testid="selection-status-controls"
+                >
+                  <SelectionModeBadge
+                    compactValue={{
+                      accessibleLabel: `${selectedCount} of ${maxSelectionCount} files selected.`,
+                      label: formatCompactSelectionCount(selectedCount),
+                    }}
+                    maxSelectionCount={maxSelectionCount}
+                    onMaxSelectionCountChange={handleMaxSelectionCountChange}
+                    show={!!rootDirectoryHandle}
+                    triggerVariant="icon"
+                  />
+                  {/* Yields ONLY where it actually competes.
+                      The Expand/Collapse cluster shares this track, but only
+                      from the toolbar's 236px step — below that the pair is in
+                      the compact menu and nothing is competing, so the counter
+                      stays. MEASURED on the built preview: the left track needs
+                      180px to hold pl-3 (12) + this cluster's 106px of content
+                      + the 4px gap + the 58px expansion pair, and the track is
+                      (toolbarWidth - 28) / 2, so 180px of track is a 388px
+                      toolbar. Hence exactly one hidden band, 236px..388px.
+                      Gated on the TOOLBAR container because both edges of that
+                      band are toolbar widths. */}
+                  <div
+                    className="@[388px]/explorer-toolbar:block @max-[236px]/explorer-toolbar:block hidden"
+                    data-testid="selection-counter-control"
+                  >
+                    <SelectionCounter
+                      compact
+                      maxSelectionCount={maxSelectionCount}
+                      selectedCount={selectedCount}
+                    />
+                  </div>
                 </div>
-              </div>
-            }
-            treeActionsControl={
-              rootDirectoryHandle ? (
-                <PanelTreeActionButtons
-                  cancelExpandAll={cancelExpandAll}
-                  cancellable={cancellable}
-                  expandAllProgress={expandAllProgress}
-                  forestCancelExpandAll={forestCancelExpandAll}
-                  handleCancelOperation={handleCancelOperation}
-                  isCancelling={isCancelling}
-                  isExpandingAll={isExpandingAll}
-                  isForestExpandingAll={isForestExpandingAll}
+              }
+              treeActionsControl={
+                rootDirectoryHandle ? (
+                  <PanelTreeActionButtons
+                    cancelExpandAll={cancelExpandAll}
+                    cancellable={cancellable}
+                    expandAllProgress={expandAllProgress}
+                    forestCancelExpandAll={forestCancelExpandAll}
+                    handleCancelOperation={handleCancelOperation}
+                    isCancelling={isCancelling}
+                    isExpandingAll={isExpandingAll}
+                    isForestExpandingAll={isForestExpandingAll}
+                    isLoading={isLoading}
+                    isRefreshing={isRefreshing}
+                    loadingProgress={loadingProgress}
+                    onRefresh={handleRefresh}
+                  />
+                ) : null
+              }
+              treeExpansionControl={
+                <PanelTreeExpansionButtons
+                  hasRoot={Boolean(rootDirectoryHandle)}
+                  isExpandingAll={isAnyExpandAllRunning}
                   isLoading={isLoading}
                   isRefreshing={isRefreshing}
-                  loadingProgress={loadingProgress}
-                  onRefresh={handleRefresh}
+                  onCollapseAll={collapseAll}
+                  onExpandAll={expandAll}
                 />
-              ) : null
-            }
-          />
-          {/* Filter section: one toggled block (driven from the toolbar's
-              view-filters button) hosting the preset row, the filter chips, and
-              the quick-filter row. grid-rows 0fr->1fr animates to natural
-              content height (unlike a max-height cap, which clips when many
-              filter chips wrap). */}
-          {rootDirectoryHandle && (
-            <div
-              className={cn(
-                'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
-                isFiltersExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
-              )}
-              id="view-filters-content"
-              inert={!isFiltersExpanded}
-            >
-              <div className="overflow-hidden">
-                <div className="space-y-2 border-b px-2 py-2">
-                  <div className="flex items-center gap-1.5">
-                    <ToolbarPresetSelector
-                      className="@[300px]:h-9 h-8 min-w-0 flex-1"
-                      onFilterChange={handleFilterChange}
-                    />
-                    <FilterChipsToggleButton
-                      isFilterChipsVisible={isFilterChipsVisible}
-                      setFilterChipsVisible={setFilterChipsVisible}
-                    />
-                  </div>
-                  {/* Filter chips - independently collapsible to reclaim vertical
-                      space. Same grid-rows technique as the section collapse so
-                      toggling animates to natural height without clipping. */}
-                  <div
-                    className={cn(
-                      'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
-                      isFilterChipsVisible
-                        ? 'grid-rows-[1fr] opacity-100'
-                        : 'grid-rows-[0fr] opacity-0'
-                    )}
-                    inert={!isFilterChipsVisible}
-                  >
-                    <div className="overflow-hidden">
-                      <FilterStatus
-                        disabledExcludeFilters={disabledExcludeFilters}
-                        disabledIncludeFilters={disabledIncludeFilters}
-                        excludeFilters={excludeFilters}
-                        includeFilters={includeFilters}
-                        onToggleFilter={toggleFilterEnabled}
-                        quickFilter={quickFilter}
-                        useRegex={useRegex}
+              }
+            />
+            {/* Filter section: one toggled block (driven from the toolbar's
+                view-filters button) hosting the preset row, the filter chips, and
+                the quick-filter row. grid-rows 0fr->1fr animates to natural
+                content height (unlike a max-height cap, which clips when many
+                filter chips wrap). */}
+            {rootDirectoryHandle && (
+              <div
+                className={cn(
+                  'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+                  isFiltersExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                )}
+                id="view-filters-content"
+                inert={!isFiltersExpanded}
+              >
+                <div className="overflow-hidden">
+                  <div className="space-y-2 border-b px-2 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <ToolbarPresetSelector
+                        className="@[300px]:h-9 h-8 min-w-0 flex-1"
+                        onFilterChange={handleFilterChange}
+                      />
+                      <FilterChipsToggleButton
+                        isFilterChipsVisible={isFilterChipsVisible}
+                        setFilterChipsVisible={setFilterChipsVisible}
                       />
                     </div>
+                    {/* Filter chips - independently collapsible to reclaim vertical
+                        space. Same grid-rows technique as the section collapse so
+                        toggling animates to natural height without clipping. */}
+                    <div
+                      className={cn(
+                        'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+                        isFilterChipsVisible
+                          ? 'grid-rows-[1fr] opacity-100'
+                          : 'grid-rows-[0fr] opacity-0'
+                      )}
+                      inert={!isFilterChipsVisible}
+                    >
+                      <div className="overflow-hidden">
+                        <FilterStatus
+                          disabledExcludeFilters={disabledExcludeFilters}
+                          disabledIncludeFilters={disabledIncludeFilters}
+                          excludeFilters={excludeFilters}
+                          includeFilters={includeFilters}
+                          onToggleFilter={toggleFilterEnabled}
+                          quickFilter={quickFilter}
+                          useRegex={useRegex}
+                        />
+                      </div>
+                    </div>
+                    {/* Quick filter input. The tree action buttons live on the
+                        toolbar so they stay reachable while this block is
+                        collapsed. */}
+                    <FileFilterBar
+                      isFiltering={isQuickFiltering}
+                      onChange={setQuickFilter}
+                      onClear={clearQuickFilter}
+                      value={quickFilter}
+                    />
                   </div>
-                  {/* Quick filter input. The tree action buttons live on the
-                      toolbar so they stay reachable while this block is
-                      collapsed. */}
-                  <FileFilterBar
-                    isFiltering={isQuickFiltering}
-                    onChange={setQuickFilter}
-                    onClear={clearQuickFilter}
-                    value={quickFilter}
-                  />
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
-        {/* Scrollable Middle Content - File Tree */}
-        <div className="relative min-h-0 flex-1 overflow-hidden">
-          {/* Restoration indicator - floats above the tree as an overlay so
-              mounting/unmounting never shifts the tree rows below it. */}
-          <div className="pointer-events-none absolute inset-x-2 top-2 z-10">
-            <RestorationStatus
-              isRestoring={isRestoringExpandedPaths}
-              progress={restorationProgress}
+          {/* Scrollable Middle Content - File Tree */}
+          <div className="relative min-h-0 flex-1 overflow-hidden" ref={treeAreaRef}>
+            {/* Restoration indicator - floats above the tree as an overlay so
+                mounting/unmounting never shifts the tree rows below it. */}
+            <div className="pointer-events-none absolute inset-x-2 top-2 z-10">
+              <RestorationStatus
+                isRestoring={isRestoringExpandedPaths}
+                progress={restorationProgress}
+              />
+            </div>
+            {/* Expand/Collapse All are NOT here any more. They floated over
+                this corner (BST-571) until BST-1208 put the tree grid's column
+                header in it — the overlay covered the trailing header cell and
+                swallowed its clicks. They now live in the toolbar's left track
+                (whole-branch review F11). */}
+            {/* Scrollable content — scroll root for session scroll restore.
+                While the selection bar floats above, the scroll owner keeps
+                matching bottom padding so the last rows stay reachable; the bar
+                itself never enters normal flow, so rows never shift. */}
+            <div
+              className={explorerScrollRootClassName(selectedCount, selectionBarPinned)}
+              data-testid="explorer-scroll-root"
+              ref={explorerScrollRootRef}
+            >
+              <Suspense fallback={<LoadingFallback />}>
+                <FileRowMetadataProvider value={rowMetadata.contextValue}>
+                  <FileExplorerSidebar
+                    cancelChildLoading={cancelChildLoading}
+                    currentFolderId={currentFolderId}
+                    filterError={filterErrorAsError}
+                    isDisplayTreeFiltered={quickFilteredTree !== unfilteredFileTree}
+                    isInitialLoad={isInitialLoad}
+                    isLoading={isLoading}
+                    isLoadingForSelectAll={isLoadingForSelectAll}
+                    isLoadingForSelection={isLoadingForSelection}
+                    loadingFiles={loadingFiles}
+                    loadingPathForSelection={loadingPathForSelection}
+                    loadingPaths={loadingPaths}
+                    mainRootId={mainRootId}
+                    onLoadChildren={loadChildren}
+                    onRemoveRoot={removeRootDirectory}
+                    onSelectFolderRecursively={handleSelectFolderRecursively}
+                    quickFilteredTree={quickFilteredTree}
+                    rootDirectoryHandle={rootDirectoryHandle}
+                    rootDirectoryHandles={rootDirectoryHandles}
+                    rootIdByPath={rootIdByPath}
+                    setFocusedRoot={setFocusedRoot}
+                    treeError={error}
+                  />
+                </FileRowMetadataProvider>
+              </Suspense>
+            </div>
+            {/* Ephemeral selection actions. Same overlay contract as the
+                indicators above: it floats, so it never shifts tree rows. */}
+            <FileExplorerSelectionActions
+              onClear={handleClearSelection}
+              onPinnedChange={setSelectionBarPinned}
+              pinned={selectionBarPinned}
+              selectedCount={selectedCount}
+              trailingContent={selectionActions}
             />
           </div>
-          {/* Expand/Collapse All float over the tree's (usually empty)
-              top-right corner instead of crowding the toolbar (BST-571).
-              Same overlay contract as RestorationStatus: never shifts rows. */}
-          <PanelFloatingTreeActions
-            hasRoot={Boolean(rootDirectoryHandle)}
-            isExpandingAll={isExpandingAll || isForestExpandingAll}
-            isLoading={isLoading}
-            isRefreshing={isRefreshing}
-            isRestoring={isRestoringExpandedPaths}
-            onCollapseAll={collapseAll}
-            onExpandAll={expandAll}
+
+          {/* Forest Expand All confirmation - multi-root sweeps are staged */}
+          <ExpandAllConfirmDialog
+            onCancel={forestExpandConfirm.dismiss}
+            onConfirm={forestExpandConfirm.confirm}
+            open={forestExpandConfirm.isOpen}
+            rootCount={rootDirectoryHandles.length}
           />
-          {/* Scrollable content — scroll root for session scroll restore.
-              While the selection bar floats above, the scroll owner keeps
-              matching bottom padding so the last rows stay reachable; the bar
-              itself never enters normal flow, so rows never shift. */}
-          <div
-            className={explorerScrollRootClassName(selectedCount, selectionBarPinned)}
-            data-testid="explorer-scroll-root"
-            ref={explorerScrollRootRef}
-          >
-            <Suspense fallback={<LoadingFallback />}>
-              <FileExplorerSidebar
-                cancelChildLoading={cancelChildLoading}
-                currentFolderId={currentFolderId}
-                filterError={filterErrorAsError}
-                isDisplayTreeFiltered={quickFilteredTree !== unfilteredFileTree}
-                isInitialLoad={isInitialLoad}
-                isLoading={isLoading}
-                isLoadingForSelectAll={isLoadingForSelectAll}
-                isLoadingForSelection={isLoadingForSelection}
-                loadingFiles={loadingFiles}
-                loadingPathForSelection={loadingPathForSelection}
-                loadingPaths={loadingPaths}
-                mainRootId={mainRootId}
-                onLoadChildren={loadChildren}
-                onRemoveRoot={removeRootDirectory}
-                onSelectFolderRecursively={handleSelectFolderRecursively}
-                quickFilteredTree={quickFilteredTree}
-                rootDirectoryHandle={rootDirectoryHandle}
-                rootDirectoryHandles={rootDirectoryHandles}
-                rootIdByPath={rootIdByPath}
-                setFocusedRoot={setFocusedRoot}
-                treeError={error}
-              />
-            </Suspense>
-          </div>
-          {/* Ephemeral selection actions. Same overlay contract as the
-              indicators above: it floats, so it never shifts tree rows. */}
-          <FileExplorerSelectionActions
-            onClear={handleClearSelection}
-            onPinnedChange={setSelectionBarPinned}
-            pinned={selectionBarPinned}
-            selectedCount={selectedCount}
-            trailingContent={selectionActions}
-          />
-        </div>
 
-        {/* Forest Expand All confirmation - multi-root sweeps are staged */}
-        <ExpandAllConfirmDialog
-          onCancel={forestExpandConfirm.dismiss}
-          onConfirm={forestExpandConfirm.confirm}
-          open={forestExpandConfirm.isOpen}
-          rootCount={rootDirectoryHandles.length}
-        />
+          {/* Restore Access Modal - shown when stored handles exist but need permission */}
+          <RestoreAccessModal
+            folderNames={
+              storedFolders.length > 0
+                ? storedFolders.map((f) => f.name)
+                : pendingRestore?.name
+                  ? [pendingRestore.name]
+                  : ['previous folder']
+            }
+            isOpen={
+              !rootDirectoryHandle && (!!pendingRestore || showDeniedBanner || showStaleBanner)
+            }
+            isRestoring={isRestoring}
+            onChooseDifferentFolder={handleChooseDifferentFolderFromRestore}
+            onDismiss={dismissRestore}
+            onRestore={() => {
+              // CRITICAL: Chrome requires requestPermission() to be called as the ABSOLUTE
+              // FIRST operation in the click handler. Even console.log can break gesture context.
+              // See: https://developer.chrome.com/blog/user-activation
+              const rawHandle = pendingRestore?.rawHandle;
 
-        {/* Restore Access Modal - shown when stored handles exist but need permission */}
-        <RestoreAccessModal
-          folderNames={
-            storedFolders.length > 0
-              ? storedFolders.map((f) => f.name)
-              : pendingRestore?.name
-                ? [pendingRestore.name]
-                : ['previous folder']
-          }
-          isOpen={!rootDirectoryHandle && (!!pendingRestore || showDeniedBanner || showStaleBanner)}
-          isRestoring={isRestoring}
-          onChooseDifferentFolder={handleChooseDifferentFolderFromRestore}
-          onDismiss={dismissRestore}
-          onRestore={() => {
-            // CRITICAL: Chrome requires requestPermission() to be called as the ABSOLUTE
-            // FIRST operation in the click handler. Even console.log can break gesture context.
-            // See: https://developer.chrome.com/blog/user-activation
-            const rawHandle = pendingRestore?.rawHandle;
+              // Helper to complete restore after permission and hydration
+              const completeRestore = (handle: FileSystemDirectoryHandle) => {
+                // CRITICAL: Wait for Zustand store hydration before setting folder ID.
+                // The store may not have loaded folderStates from localStorage yet.
+                // If we call setCurrentFolderId before hydration, it won't find any
+                // existing folder state and will create a new empty one instead.
 
-            // Helper to complete restore after permission and hydration
-            const completeRestore = (handle: FileSystemDirectoryHandle) => {
-              // CRITICAL: Wait for Zustand store hydration before setting folder ID.
-              // The store may not have loaded folderStates from localStorage yet.
-              // If we call setCurrentFolderId before hydration, it won't find any
-              // existing folder state and will create a new empty one instead.
-
-              const doRestore = () => {
-                const directoryHandle = {
-                  _internal: handle,
-                  kind: 'directory' as const,
-                  name: handle.name,
-                  path: handle.name,
-                  platform: 'web' as const,
-                  // Stamp the durable rootId (pendingRestore.folderId IS the rootId,
-                  // keyed in the handle cache) so the eager setRootDirectoryHandle and
-                  // the registerRestoredHandles burst below reconcile to ONE root by
-                  // rootKey — identity is rootId-only, no path fallback. Conditional
-                  // spread keeps the field absent (not undefined) under
-                  // exactOptionalPropertyTypes; ensureStamped is the loud backstop.
-                  ...(pendingRestore?.folderId ? { rootId: pendingRestore.folderId } : {}),
+                const doRestore = () => {
+                  const directoryHandle = {
+                    _internal: handle,
+                    kind: 'directory' as const,
+                    name: handle.name,
+                    path: handle.name,
+                    platform: 'web' as const,
+                    // Stamp the durable rootId (pendingRestore.folderId IS the rootId,
+                    // keyed in the handle cache) so the eager setRootDirectoryHandle and
+                    // the registerRestoredHandles burst below reconcile to ONE root by
+                    // rootKey — identity is rootId-only, no path fallback. Conditional
+                    // spread keeps the field absent (not undefined) under
+                    // exactOptionalPropertyTypes; ensureStamped is the loud backstop.
+                    ...(pendingRestore?.folderId ? { rootId: pendingRestore.folderId } : {}),
+                  };
+                  // beginRestore's burst seeds its result with already-granted
+                  // handles (incl. this one), so registering its FULL return is
+                  // the multi-root-complete path; the eager single-handle set
+                  // keeps the focused tree responsive while the burst settles.
+                  setRootDirectoryHandle(directoryHandle);
+                  beginRestore()
+                    .then((restoredHandles) =>
+                      restoredHandles.length > 0
+                        ? registerRestoredHandles(restoredHandles)
+                        : undefined
+                    )
+                    .catch(() => {})
+                    .finally(() => {
+                      setIsRestoring(false);
+                      setAccessLoading(false);
+                    });
                 };
-                // beginRestore's burst seeds its result with already-granted
-                // handles (incl. this one), so registering its FULL return is
-                // the multi-root-complete path; the eager single-handle set
-                // keeps the focused tree responsive while the burst settles.
-                setRootDirectoryHandle(directoryHandle);
-                beginRestore()
-                  .then((restoredHandles) =>
-                    restoredHandles.length > 0
-                      ? registerRestoredHandles(restoredHandles)
-                      : undefined
-                  )
-                  .catch(() => {})
-                  .finally(() => {
-                    setIsRestoring(false);
-                    setAccessLoading(false);
-                  });
-              };
 
-              // Type guard to check if store has persist middleware using safe property access
-              const hasPersistApi = (s: unknown): s is StoreWithPersist<unknown> => {
-                if (typeof s !== 'function' || !('persist' in s)) {
-                  return false;
-                }
-                const persistObj = (s as Record<string, unknown>)['persist'];
-                if (typeof persistObj !== 'object' || persistObj === null) {
-                  return false;
-                }
-                const persist = persistObj as Record<string, unknown>;
-                return (
-                  typeof persist['hasHydrated'] === 'function' &&
-                  typeof persist['onFinishHydration'] === 'function'
-                );
-              };
+                // Type guard to check if store has persist middleware using safe property access
+                const hasPersistApi = (s: unknown): s is StoreWithPersist<unknown> => {
+                  if (typeof s !== 'function' || !('persist' in s)) {
+                    return false;
+                  }
+                  const persistObj = (s as Record<string, unknown>)['persist'];
+                  if (typeof persistObj !== 'object' || persistObj === null) {
+                    return false;
+                  }
+                  const persist = persistObj as Record<string, unknown>;
+                  return (
+                    typeof persist['hasHydrated'] === 'function' &&
+                    typeof persist['onFinishHydration'] === 'function'
+                  );
+                };
 
-              // Track subscription for cleanup if component unmounts during hydration
-              let unsubscribeRef: (() => void) | null = null;
-              let isCancelled = false;
+                // Track subscription for cleanup if component unmounts during hydration
+                let unsubscribeRef: (() => void) | null = null;
+                let isCancelled = false;
 
-              // Check if store has hydrated
-              if (hasPersistApi(store)) {
-                if (store.persist.hasHydrated()) {
-                  doRestore();
-                } else {
-                  unsubscribeRef = store.persist.onFinishHydration(() => {
-                    if (!isCancelled) {
-                      unsubscribeRef?.();
-                      unsubscribeRef = null;
-                      doRestore();
-                    }
-                  });
-                }
-              } else {
-                // No persist API available, proceed without waiting
-                doRestore();
-              }
-
-              // Return cleanup function to prevent memory leaks
-              // Note: This is captured in closure but the click handler is synchronous,
-              // so we just need the flags for the hydration callback case
-              return () => {
-                isCancelled = true;
-                unsubscribeRef?.();
-              };
-            };
-
-            // If we have a raw handle, call requestPermission IMMEDIATELY - no other code first
-            if (rawHandle && typeof rawHandle.requestPermission === 'function') {
-              rawHandle.requestPermission({ mode: 'read' }).then(
-                (permissionResult) => {
-                  if (permissionResult === 'granted') {
-                    setAccessLoading(true);
-                    setIsRestoring(true);
-                    completeRestore(rawHandle);
+                // Check if store has hydrated
+                if (hasPersistApi(store)) {
+                  if (store.persist.hasHydrated()) {
+                    doRestore();
                   } else {
-                    // Permission denied - use beginRestore to update UI state
+                    unsubscribeRef = store.persist.onFinishHydration(() => {
+                      if (!isCancelled) {
+                        unsubscribeRef?.();
+                        unsubscribeRef = null;
+                        doRestore();
+                      }
+                    });
+                  }
+                } else {
+                  // No persist API available, proceed without waiting
+                  doRestore();
+                }
+
+                // Return cleanup function to prevent memory leaks
+                // Note: This is captured in closure but the click handler is synchronous,
+                // so we just need the flags for the hydration callback case
+                return () => {
+                  isCancelled = true;
+                  unsubscribeRef?.();
+                };
+              };
+
+              // If we have a raw handle, call requestPermission IMMEDIATELY - no other code first
+              if (rawHandle && typeof rawHandle.requestPermission === 'function') {
+                rawHandle.requestPermission({ mode: 'read' }).then(
+                  (permissionResult) => {
+                    if (permissionResult === 'granted') {
+                      setAccessLoading(true);
+                      setIsRestoring(true);
+                      completeRestore(rawHandle);
+                    } else {
+                      // Permission denied - use beginRestore to update UI state
+                      setAccessLoading(true);
+                      setIsRestoring(true);
+                      beginRestore()
+                        .then((restoredHandles) => registerRestoredHandles(restoredHandles))
+                        .catch(() => {})
+                        .finally(() => {
+                          setIsRestoring(false);
+                          setAccessLoading(false);
+                        });
+                    }
+                  },
+                  (err) => {
+                    logger.warn('requestPermission threw, falling back to legacy path', { err });
+                    // Fall back to legacy path
                     setAccessLoading(true);
                     setIsRestoring(true);
                     beginRestore()
@@ -1175,38 +1247,25 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
                         setAccessLoading(false);
                       });
                   }
-                },
-                (err) => {
-                  logger.warn('requestPermission threw, falling back to legacy path', { err });
-                  // Fall back to legacy path
-                  setAccessLoading(true);
-                  setIsRestoring(true);
-                  beginRestore()
-                    .then((restoredHandles) => registerRestoredHandles(restoredHandles))
-                    .catch(() => {})
-                    .finally(() => {
-                      setIsRestoring(false);
-                      setAccessLoading(false);
-                    });
-                }
-              );
-              return;
-            }
+                );
+                return;
+              }
 
-            // No raw handle - fall back to legacy async path
-            setAccessLoading(true);
-            setIsRestoring(true);
-            beginRestore()
-              .then((restoredHandles) => registerRestoredHandles(restoredHandles))
-              .catch(() => {})
-              .finally(() => {
-                setIsRestoring(false);
-                setAccessLoading(false);
-              });
-          }}
-          variant={showStaleBanner ? 'stale' : showDeniedBanner ? 'denied' : 'pending'}
-        />
-      </div>
+              // No raw handle - fall back to legacy async path
+              setAccessLoading(true);
+              setIsRestoring(true);
+              beginRestore()
+                .then((restoredHandles) => registerRestoredHandles(restoredHandles))
+                .catch(() => {})
+                .finally(() => {
+                  setIsRestoring(false);
+                  setAccessLoading(false);
+                });
+            }}
+            variant={showStaleBanner ? 'stale' : showDeniedBanner ? 'denied' : 'pending'}
+          />
+        </div>
+      </ExplorerColumnsProvider>
     </FileExplorerErrorBoundary>
   );
 });

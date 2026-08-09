@@ -11,11 +11,22 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { Eye, EyeOff, MoreHorizontal, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Eye,
+  EyeOff,
+  MoreHorizontal,
+  RefreshCw,
+  SlidersHorizontal,
+} from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useMemo, useState } from 'react';
-import { FloatingTreeActions } from '../components/floating-tree-actions';
 import { TreeActionButtons } from '../components/tree-action-buttons';
+import {
+  resolveTreeExpansionDisabledState,
+  TreeExpansionButtons,
+} from '../components/tree-expansion-buttons';
 import { computeScanningStatusProps } from '../utils/scanning-status-props';
 import type { useFileExplorerStoreContext } from './file-explorer-provider';
 import {
@@ -108,11 +119,16 @@ export function ViewFiltersToggleButton({
 
 type CompactRefreshState = 'disabled' | 'ready' | 'refreshing';
 type CompactViewFiltersState = 'collapsed' | 'expanded';
+interface CompactExpansionState {
+  collapseDisabled: boolean;
+  expandDisabled: boolean;
+}
 type CompactToolbarActionsState =
   | { availability: 'unavailable' }
   | { availability: 'yielded-to-cancel' }
   | {
       availability: 'available';
+      expansion: CompactExpansionState;
       filters: CompactViewFiltersState;
       refresh: CompactRefreshState;
     };
@@ -150,6 +166,11 @@ export function isCancellableOperationRunning(args: {
 
 interface CompactToolbarActionsInput {
   hasRoot: boolean;
+  /**
+   * Feeds the SHARED expansion disabled rule below, so the menu's Expand /
+   * Collapse items and their toolbar-button counterparts can never disagree.
+   */
+  isExpandingAll: boolean;
   isFiltersExpanded: boolean;
   isLoading: boolean;
   /**
@@ -178,6 +199,7 @@ interface CompactToolbarActionsInput {
 
 export function resolveCompactToolbarActionsState({
   hasRoot,
+  isExpandingAll,
   isFiltersExpanded,
   isLoading,
   isOperationInProgress,
@@ -189,9 +211,17 @@ export function resolveCompactToolbarActionsState({
   if (isOperationInProgress) {
     return { availability: 'yielded-to-cancel' };
   }
+  // ONE disabled rule for both surfaces: the menu below 236px and the buttons
+  // above it must never disagree about whether an action is available.
+  const disabled = resolveTreeExpansionDisabledState({ isExpandingAll, isLoading, isRefreshing });
+  const expansion: CompactExpansionState = {
+    collapseDisabled: disabled.collapse,
+    expandDisabled: disabled.expand,
+  };
   if (isRefreshing) {
     return {
       availability: 'available',
+      expansion,
       filters: isFiltersExpanded ? 'expanded' : 'collapsed',
       refresh: 'refreshing',
     };
@@ -199,22 +229,38 @@ export function resolveCompactToolbarActionsState({
   if (isLoading) {
     return {
       availability: 'available',
+      expansion,
       filters: isFiltersExpanded ? 'expanded' : 'collapsed',
       refresh: 'disabled',
     };
   }
   return {
     availability: 'available',
+    expansion,
     filters: isFiltersExpanded ? 'expanded' : 'collapsed',
     refresh: 'ready',
   };
 }
 
+/**
+ * Narrow-width home for the toolbar actions that have no room as buttons.
+ *
+ * Below 236px the right track is 76px — two 24px controls and the symmetric
+ * 12px gutters — so Refresh, View Filters AND the tree expansion actions fold
+ * in here. This is the SAME breakpoint the expansion buttons and the
+ * Refresh/View-Filters buttons appear at, so every action has exactly one home
+ * at every width (whole-branch review F11: the floating overlay that used to
+ * host expand/collapse at all widths is gone).
+ */
 export function CompactToolbarActions({
+  onCollapseAll,
+  onExpandAll,
   onRefresh,
   setFiltersExpanded,
   state,
 }: {
+  onCollapseAll: () => void;
+  onExpandAll: () => void;
   onRefresh: () => void;
   setFiltersExpanded: (expanded: boolean) => void;
   state: CompactToolbarActionsState;
@@ -236,6 +282,22 @@ export function CompactToolbarActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          data-testid="expand-all-menu-item"
+          disabled={state.expansion.expandDisabled}
+          onClick={() => onExpandAll()}
+        >
+          <ChevronsUpDown className="size-4" />
+          Expand all directories
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          data-testid="collapse-all-menu-item"
+          disabled={state.expansion.collapseDisabled}
+          onClick={() => onCollapseAll()}
+        >
+          <ChevronsDownUp className="size-4" />
+          Collapse all directories
+        </DropdownMenuItem>
         <DropdownMenuItem disabled={state.refresh !== 'ready'} onClick={() => onRefresh()}>
           <RefreshCw className={cn('size-4', state.refresh === 'refreshing' && 'animate-spin')} />
           Refresh file tree
@@ -375,16 +437,20 @@ export const PanelTreeActionButtons = React.memo(
 PanelTreeActionButtons.displayName = 'PanelTreeActionButtons';
 
 /**
- * Mounts the floating Expand/Collapse All cluster over the tree area once a
- * workspace root exists (same gate as the toolbar's tree-actions cluster).
- * Kept as its own leaf so the gating branch lives outside the panel body.
+ * Mounts the toolbar's Expand/Collapse All cluster once a workspace root exists
+ * (same gate as the toolbar's other tree actions). Kept as its own leaf so the
+ * gating branch lives outside the panel body.
+ *
+ * No `isRestoring` gate any more: that existed only because the floating
+ * overlay and RestorationStatus fought for the tree area's top band. In the
+ * toolbar nothing overlaps, and hiding the cancel-adjacent actions mid-restore
+ * was itself a small trap.
  */
-export const PanelFloatingTreeActions = ({
+export const PanelTreeExpansionButtons = ({
   hasRoot,
   isExpandingAll,
   isLoading,
   isRefreshing,
-  isRestoring,
   onCollapseAll,
   onExpandAll,
 }: {
@@ -392,20 +458,14 @@ export const PanelFloatingTreeActions = ({
   isExpandingAll: boolean;
   isLoading: boolean;
   isRefreshing: boolean;
-  /**
-   * True while expanded-paths restoration runs. Both overlays pin to the tree
-   * area's top band, so the cluster yields to RestorationStatus rather than
-   * drawing over its right-aligned percentage readout.
-   */
-  isRestoring: boolean;
   onCollapseAll: () => void;
   onExpandAll: () => void;
 }) => {
-  if (!hasRoot || isRestoring) {
+  if (!hasRoot) {
     return null;
   }
   return (
-    <FloatingTreeActions
+    <TreeExpansionButtons
       isExpandingAll={isExpandingAll}
       isLoading={isLoading}
       isRefreshing={isRefreshing}

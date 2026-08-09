@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
 import { bootstrapFileExplorer } from './utils/file-explorer-setup';
-import { getFileTree } from './utils/file-tree-locators';
+import { clickExplorerTreeAction, getFileTree } from './utils/file-tree-locators';
 import { addMockRoot, type FileTree } from './utils/mock-fs';
 
 /**
@@ -37,12 +37,19 @@ const TREE_B: FileTree = {
 };
 
 /**
- * Click the Expand All / Collapse All action. The buttons live in the
- * floating cluster pinned over the tree area (BST-571) and are visible at
- * every panel width — the old toolbar overflow-kebab fallback is gone.
+ * Click the Expand All / Collapse All action.
+ *
+ * These are RESPONSIVE (BST-1208). They were in a floating overlay pinned over
+ * the tree area (BST-571), visible at every panel width — that overlay is gone
+ * because it covered the tree grid's column header and intercepted its clicks.
+ * They now live in the toolbar's left track above 236px and in the compact
+ * "More Explorer actions" menu below it. The Explorer opens at its 180px
+ * minimum, so in this harness the MENU is the live route: clicking the testid
+ * directly times out. `clickExplorerTreeAction` drives whichever surface is
+ * actually offering the action, and fails loudly if that is not exactly one.
  */
 async function clickTreeAction(page: Page, action: 'collapse-all' | 'expand-all'): Promise<void> {
-  await page.getByTestId(`${action}-button-small`).click();
+  await clickExplorerTreeAction(page, action);
 }
 
 test.describe('Forest expand-all (multi-root)', { tag: '@web-smoke' }, () => {

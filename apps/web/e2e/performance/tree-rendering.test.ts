@@ -6,11 +6,8 @@ import {
   persistCurrentExplorerStoreSnapshot,
   restoreInlineFixture,
 } from '../utils/file-explorer-restoration';
-import {
-  CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR,
-  getContextExplorerRightResizeHandle,
-  waitForAppLoad,
-} from '../utils/layout-helpers';
+import { widenExplorerForDirectTreeActions, widenExplorerPanel } from '../utils/file-tree-locators';
+import { waitForAppLoad } from '../utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
@@ -55,26 +52,6 @@ test.describe('Performance: Tree Rendering', () => {
         count + (typeof entry === 'object' && entry !== null ? 1 + countDirectories(entry) : 0),
       0
     );
-
-  const widenExplorerPanel = async (page: Page): Promise<void> => {
-    const panel = page.locator(CONTEXT_EXPLORER_RIGHT_PANEL_SELECTOR);
-    const resizeHandle = getContextExplorerRightResizeHandle(page);
-    const initialWidth = await panel.evaluate((element) => element.clientWidth);
-    const handleBox = await resizeHandle.boundingBox();
-    if (!handleBox) {
-      throw new Error('Explorer resize handle was unavailable.');
-    }
-
-    const startX = handleBox.x + handleBox.width / 2;
-    const startY = handleBox.y + handleBox.height / 2;
-    await page.mouse.move(startX, startY);
-    await page.mouse.down();
-    await page.mouse.move(startX - 320, startY, { steps: 20 });
-    await page.mouse.up();
-    await expect
-      .poll(() => panel.evaluate((element) => element.clientWidth))
-      .toBeGreaterThan(initialWidth + 1);
-  };
 
   const installResizeObserverTracker = async (page: Page) => {
     await page.addInitScript(() => {
@@ -446,6 +423,10 @@ test.describe('Performance: Tree Rendering', () => {
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
+    // Asserts on the BUTTON's own spinner/disabled state, so it needs the
+    // wide layout where the button exists (below 236px it lives in the
+    // compact menu and is not in the DOM at all).
+    await widenExplorerForDirectTreeActions(page);
     const expandAllButton = page.getByTestId('expand-all-button-small');
     const initialExpandedCount = await getExpandedDirectoryCount(page);
 
@@ -488,6 +469,7 @@ test.describe('Performance: Tree Rendering', () => {
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
+    await widenExplorerForDirectTreeActions(page);
     const expandAllButton = page.getByTestId('expand-all-button-small');
 
     await expandAllButton.click();
@@ -528,6 +510,7 @@ test.describe('Performance: Tree Rendering', () => {
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
+    await widenExplorerForDirectTreeActions(page);
     await page.getByTestId('expand-all-button-small').click();
     await expect(page.getByTestId('expand-all-button-small')).toBeEnabled({ timeout: 30_000 });
 
@@ -576,6 +559,9 @@ test.describe('Performance: Tree Rendering', () => {
     const explorer = new FileExplorerPage(page);
     await explorer.selectRoot();
 
+    // widenExplorerPanel above already cleared the 236px step; assert it
+    // rather than assume, since this test drives the button directly.
+    await widenExplorerForDirectTreeActions(page);
     const expandAllButton = page.getByTestId('expand-all-button-small');
     const cancelButton = page.getByRole('button', { name: 'Cancel operation' });
     const initialExpandedCount = await getExpandedDirectoryCount(page);

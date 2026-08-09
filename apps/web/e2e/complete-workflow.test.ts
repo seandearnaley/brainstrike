@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState, seedWorkspaceFocusedShellLayout } from './utils/app-state';
-import { getFileTree } from './utils/file-tree-locators';
+import { clickExplorerTreeAction, getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
@@ -103,7 +103,7 @@ test.describe('Complete File Explorer Workflow', () => {
     await expect(filterInput).toHaveValue('Button');
 
     // Then expand all
-    await page.getByTestId('expand-all-button-small').click();
+    await clickExplorerTreeAction(page, 'expand-all');
 
     // Wait for expansion to complete - use polling pattern from quick-filter.test.ts
     // This is more robust as it waits for the element to exist before checking visibility
@@ -219,9 +219,7 @@ test.describe('Complete File Explorer Workflow', () => {
 
     await expect(page.getByText('4/10')).toBeVisible({ timeout: 10_000 });
 
-    const expandAllButton = page.getByTestId('expand-all-button-small');
-    await expect(expandAllButton).toBeVisible();
-    await expandAllButton.click();
+    await clickExplorerTreeAction(page, 'expand-all');
 
     const buttonCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
     const inputCheckbox = fileTree.getByRole('checkbox', { name: 'Select Input.tsx' });
@@ -249,9 +247,7 @@ test.describe('Complete File Explorer Workflow', () => {
 
     await expect(page.getByText('4/10')).toBeVisible({ timeout: 10_000 });
 
-    const expandAllButton = page.getByTestId('expand-all-button-small');
-    await expect(expandAllButton).toBeVisible();
-    await expandAllButton.click();
+    await clickExplorerTreeAction(page, 'expand-all');
 
     const buttonCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
     const inputCheckbox = fileTree.getByRole('checkbox', { name: 'Select Input.tsx' });
