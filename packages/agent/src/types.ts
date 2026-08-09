@@ -388,6 +388,26 @@ export interface StreamChunkToolCallTelemetry {
   readonly type: 'tool-call-telemetry';
   readonly value: readonly ToolCallTelemetrySample[];
 }
+/**
+ * Run-end calibration pair over the final prompt's estimator-visible share.
+ * `estimatedPromptTokens` counts model-visible tool-output projections plus
+ * tool definitions once; `finalStepPromptTokens` is the most recent provider
+ * step's prompt size, which contains prior tool outputs once via Mastra's resend
+ * behavior. Conversation/system-prompt text outside those shares is excluded.
+ */
+export interface TokenEstimateCalibrationSample {
+  readonly estimatedPromptTokens: number;
+  readonly finalStepPromptTokens: number;
+  readonly model: string;
+  readonly modelVisibleProjectionCount: number;
+  readonly occurredAt: number;
+  readonly provider: string;
+  readonly stepCount: number;
+}
+export interface StreamChunkTokenEstimateCalibration {
+  readonly type: 'token-estimate-calibration';
+  readonly value: TokenEstimateCalibrationSample;
+}
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
@@ -444,6 +464,7 @@ export type StreamChunk =
   | StreamChunkRunEvent
   | StreamChunkShellOutput
   | StreamChunkText
+  | StreamChunkTokenEstimateCalibration
   | StreamChunkToolCallTelemetry
   | StreamChunkTool
   | StreamChunkToolApprovalRequired

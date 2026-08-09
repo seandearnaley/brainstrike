@@ -75,6 +75,7 @@ import { migration082CanvasDocuments } from '../migrations/082-canvas-documents.
 import { migration083ToolCallTelemetry } from '../migrations/083-tool-call-telemetry.js';
 import { migration084AssistantToolProjectionRewrites } from '../migrations/084-assistant-tool-projection-rewrites.js';
 import { migration085ToolCallTelemetryOccurredAtIndex } from '../migrations/085-tool-call-telemetry-occurred-at-index.js';
+import { migration086TokenEstimateCalibration } from '../migrations/086-token-estimate-calibration.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -273,6 +274,7 @@ const customMigrations: Migration[] = [
     'custom-085-tool-call-telemetry-occurred-at-index',
     migration085ToolCallTelemetryOccurredAtIndex
   ),
+  customMigration('custom-086-token-estimate-calibration', migration086TokenEstimateCalibration),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

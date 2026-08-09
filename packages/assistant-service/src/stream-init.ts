@@ -599,6 +599,11 @@ export interface AgentStreamCapabilities<
       runId: string,
       getDatabase: AgentStreamDatabaseProvider<K['database']>
     ) => AsyncIterable<StreamChunk>;
+    readonly persistTokenEstimateCalibration: (
+      stream: AsyncIterable<StreamChunk>,
+      runId: string,
+      getDatabase: AgentStreamDatabaseProvider<K['database']>
+    ) => AsyncIterable<StreamChunk>;
     readonly recordHookRunOutcome: (
       database: K['database'],
       runId: string,
@@ -910,16 +915,20 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     // Run-event observer wrapper (a no-op when there is no runId to stamp).
     const observe = (source: AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk> =>
       runId
-        ? capabilities.runPersistence.persistToolCallTelemetry(
-            capabilities.runPersistence.persistChildRunUsage(
-              capabilities.runPersistence.observeRunEvents(
-                source,
+        ? capabilities.runPersistence.persistTokenEstimateCalibration(
+            capabilities.runPersistence.persistToolCallTelemetry(
+              capabilities.runPersistence.persistChildRunUsage(
+                capabilities.runPersistence.observeRunEvents(
+                  source,
+                  runId,
+                  queuedRunEvents,
+                  getDatabase
+                ),
                 runId,
-                queuedRunEvents,
+                resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings),
                 getDatabase
               ),
               runId,
-              resolveDesktopObserverUsageTarget(runtime.memory?.memorySettings),
               getDatabase
             ),
             runId,

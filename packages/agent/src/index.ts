@@ -687,6 +687,7 @@ export type {
   StreamChunkTool,
   StreamChunkToolApprovalRequired,
   StreamIterator,
+  TokenEstimateCalibrationSample,
   ToolCallTelemetrySample,
   ToolProjectionRewriteEntry,
   ToolProjectionRewriteLookup,
