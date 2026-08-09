@@ -7,18 +7,22 @@
 // "this particular version is safe to install before it has aged", and it stops
 // meaning anything the moment the version HAS aged. The entries carried a
 // self-cleanup note ("remove once these versions age past whatever
-// minimumReleaseAge floor is eventually configured"), but no floor is configured
-// in this repo, so the note pointed at an event that never happens. Nothing ever
-// triggered the cleanup and every entry quietly became permanent — a supply-chain
-// exemption nobody re-decided. Control case: `@mastra/core@1.50.0` sat in the
-// list for a month while the resolved version had already moved to ^1.51.0, so
-// the exemption covered a version the repo does not even install
+// minimumReleaseAge floor is eventually configured"), but at the time NO floor
+// was configured, so the note pointed at an event that never happens. Nothing
+// ever triggered the cleanup and every entry quietly became permanent — a
+// supply-chain exemption nobody re-decided. Control case: `@mastra/core@1.50.0`
+// sat in the list for a month while the resolved version had already moved on,
+// so the exemption covered a version the repo did not even install
 // (docs/agents/mastra-boundary.md flagged it; nothing enforced it).
 //
-// The rule this guard enforces: an exclusion EXPIRES. Once the excluded version
-// is older than MAX_EXCLUSION_AGE_DAYS, any `minimumReleaseAge` floor this repo
-// might ever configure would admit it on its own, so the exemption is dead
-// weight and must be deleted.
+// The rule this guard enforces: an exclusion EXPIRES. An exclusion stops being
+// load-bearing the moment the version is older than the configured
+// `minimumReleaseAge` floor, because past that point the floor admits the
+// version on its own. maxExclusionAgeDays() therefore DERIVES the window from
+// that floor (floor + EXCLUSION_GRACE_DAYS) rather than hard-coding one, so the
+// two numbers cannot drift into the state BST-1183 review caught: a 30-day
+// window guarding a 3-day exception, i.e. 27 days of dead exemption — the very
+// shape of the bug above.
 //
 // WHY A COMMITTED LEDGER RATHER THAN AN npm REGISTRY LOOKUP. The age check needs
 // each version's publish date. Reading it live from registry.npmjs.org would put
@@ -46,19 +50,30 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * How old an excluded version may get before its exclusion must be deleted.
+ * Fallback window used ONLY when no `minimumReleaseAge` floor is configured.
  *
- * 30 days is deliberately far above any plausible `minimumReleaseAge` floor
- * (pnpm's own default when enabled is 1440 minutes — one day), so the guard
- * never fires while an exemption could still be load-bearing. It only fires once
- * the entry is provably inert.
- *
- * That justification is about a DIFFERENT setting, and this repo has not yet
- * decided whether to configure it — so assertMaxAgeClearsFloor() checks it
- * mechanically rather than leaving it as prose. Writing an unenforced note and
- * trusting it is the exact failure this whole guard exists to correct.
+ * With no floor there is nothing to derive from, so this stays a deliberate
+ * placeholder: far above any plausible floor (pnpm's own suggested setting is
+ * 1440 minutes — one day), so the guard cannot fire while an exemption might
+ * still be load-bearing.
  */
-export const MAX_EXCLUSION_AGE_DAYS = 30;
+export const UNFLOORED_MAX_EXCLUSION_AGE_DAYS = 30;
+
+/**
+ * Slack between "the floor would now admit this version" and "the guard fails".
+ *
+ * An exclusion is genuinely dead the instant the version clears the floor.
+ * failing at exactly that moment would turn every routine dependency bump into a
+ * same-day cleanup chore, so one week of grace is allowed — enough to cover an
+ * absence, short enough that a dead exemption cannot quietly become permanent.
+ */
+export const EXCLUSION_GRACE_DAYS = 7;
+
+/**
+ * Back-compat alias for the unfloored window. Fixture trees in the paired test
+ * configure no floor, so this remains the value they age against.
+ */
+export const MAX_EXCLUSION_AGE_DAYS = UNFLOORED_MAX_EXCLUSION_AGE_DAYS;
 
 /** Repo-relative path of the committed publish-date ledger. */
 export const EXCLUSION_LEDGER_PATH = 'scripts/minimum-release-age-exclusions.json';
@@ -340,7 +355,13 @@ export function exclusionAgeDays(publishedAt, now) {
 
 /**
  * The configured `minimumReleaseAge` floor in DAYS, or `null` when the setting
- * is absent (the state this repo is in today). pnpm expresses it in minutes.
+ * is absent. pnpm expresses it in minutes.
+ *
+ * This repo DOES configure a floor (BST-1183), so a `null` here is a red flag —
+ * either the setting was removed, which is a supply-chain relaxation, or this
+ * parser stopped matching it. The paired test asserts a real value for that
+ * reason. `null` remains meaningful for fixture trees and for any consumer that
+ * has not configured one.
  *
  * The key regex stops at `\s*:`, so `minimumReleaseAgeExclude:` — which shares
  * the prefix — cannot match it.
@@ -359,36 +380,30 @@ export function readMinimumReleaseAgeFloorDays(repoRoot) {
   if (!value) {
     throw new Error(
       `verify-minimum-release-age-exclusions.mjs could not read the minimumReleaseAge value from:\n  ${declaration}\n` +
-        'Only a plain integer number of minutes is supported. This guard compares MAX_EXCLUSION_AGE_DAYS against ' +
-        'that floor, so an unreadable value would leave the comparison unmade.'
+        'Only a plain integer number of minutes is supported. This guard DERIVES its expiry window from that ' +
+        'floor, so an unreadable value would leave the window undefined.'
     );
   }
   return Number(value[1]) / (60 * 24);
 }
 
 /**
- * Throw when a configured `minimumReleaseAge` floor has caught up with
- * MAX_EXCLUSION_AGE_DAYS.
+ * The age at which an exclusion must be deleted, DERIVED from the configured
+ * floor.
  *
- * The whole "delete it, it is inert" premise depends on the floor being SHORTER
- * than this guard's window: only then has any excluded version already aged past
- * the floor by the time deletion is demanded. If someone later sets
- * `minimumReleaseAge: 43200` (30 days), the invariant inverts — the guard would
- * order deletion of an entry pnpm still needs, and following that instruction
- * would break `pnpm install`. Nothing else in this repo reads both values, so
- * that would land silently.
+ * An exclusion is load-bearing only while the version is younger than the
+ * floor — past that, pnpm admits it unaided and the entry is dead weight. So the
+ * window is `floor + EXCLUSION_GRACE_DAYS`, and the old inversion hazard
+ * (a floor at or above a hard-coded window, which would order deletion of
+ * exclusions pnpm still needs) is impossible by construction rather than by a
+ * separate assertion.
+ *
+ * With no floor configured there is nothing to derive from, so the deliberate
+ * UNFLOORED_MAX_EXCLUSION_AGE_DAYS placeholder applies.
  */
-function assertMaxAgeClearsFloor(repoRoot) {
+export function maxExclusionAgeDays(repoRoot) {
   const floorDays = readMinimumReleaseAgeFloorDays(repoRoot);
-  if (floorDays !== null && floorDays >= MAX_EXCLUSION_AGE_DAYS) {
-    throw new Error(
-      `pnpm-workspace.yaml configures a minimumReleaseAge floor of ${floorDays} day(s), which is not shorter than ` +
-        `MAX_EXCLUSION_AGE_DAYS (${MAX_EXCLUSION_AGE_DAYS}). This guard's remedy — "delete the entry, the floor ` +
-        'would admit it anyway" — is only true while the floor is the shorter of the two. As configured, the ' +
-        'guard would demand deletion of exclusions pnpm still needs and break `pnpm install`. Raise ' +
-        'MAX_EXCLUSION_AGE_DAYS above the new floor (and re-read its rationale) before landing that floor.'
-    );
-  }
+  return floorDays === null ? UNFLOORED_MAX_EXCLUSION_AGE_DAYS : floorDays + EXCLUSION_GRACE_DAYS;
 }
 
 /**
@@ -414,7 +429,7 @@ export function findExclusionProblems({
   now = new Date(),
   entries = readExclusionEntries(repoRoot),
 }) {
-  assertMaxAgeClearsFloor(repoRoot);
+  const maxAgeDays = maxExclusionAgeDays(repoRoot);
   const ledger = readExclusionLedger(repoRoot);
   const problems = [];
 
@@ -429,8 +444,8 @@ export function findExclusionProblems({
       problems.push({ ageDays, entry, kind: 'future-publish-date', record });
       continue;
     }
-    if (ageDays > MAX_EXCLUSION_AGE_DAYS) {
-      problems.push({ ageDays, entry, kind: 'expired', record });
+    if (ageDays > maxAgeDays) {
+      problems.push({ ageDays, entry, kind: 'expired', maxAgeDays, record });
     }
   }
 
@@ -455,7 +470,7 @@ function describeProblem(problem) {
   if (problem.kind === 'expired') {
     return (
       `${problem.entry} was published ${problem.record.publishedAt} — ${Math.floor(problem.ageDays)} days ago, ` +
-      `past the ${MAX_EXCLUSION_AGE_DAYS}-day limit. The exception has served its purpose (recorded reason: ` +
+      `past the ${problem.maxAgeDays}-day limit. The exception has served its purpose (recorded reason: ` +
       `${problem.record.reason}). DELETE it from minimumReleaseAgeExclude: in pnpm-workspace.yaml and delete its ` +
       `record from ${EXCLUSION_LEDGER_PATH}. Do not extend publishedAt.`
     );
@@ -497,7 +512,7 @@ export function main(options = {}) {
     const count = entries.length;
     console.log(
       `verify-minimum-release-age-exclusions: OK (${count} minimumReleaseAgeExclude entr${count === 1 ? 'y' : 'ies'}` +
-        `, none older than ${MAX_EXCLUSION_AGE_DAYS} days)`
+        `, none older than ${maxExclusionAgeDays(repoRoot)} days)`
     );
     return;
   }
