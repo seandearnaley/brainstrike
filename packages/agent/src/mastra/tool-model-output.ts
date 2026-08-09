@@ -96,8 +96,11 @@ const NATIVE_SELF_BOUND_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
  * NATIVE_TOOL_RESULT_CHAR_BUDGET and relies on the generic projection: their
  * carefully built results (head+tail retention, truncation hints — BST-1189)
  * must pass through unmodified instead of being replaced by the generic
- * prefix preview at the tighter default ceiling. A Map, not a record, so
- * hostile MCP tool names (`constructor`, …) cannot resolve prototype members.
+ * prefix preview at the tighter default ceiling. executeCommand has its own
+ * text projection since BST-1201 and reaches this map only through the
+ * dispatcher fail-soft fallback, which needs the same pass-through envelope.
+ * A Map, not a record, so hostile MCP tool names (`constructor`, …) cannot
+ * resolve prototype members.
  */
 const MODEL_PROJECTION_BUDGET_OVERRIDES: ReadonlyMap<string, ModelProjectionBudget> = new Map([
   [NATIVE_TOOL_ID.executeCommand, NATIVE_SELF_BOUND_MODEL_PROJECTION_BUDGET],
