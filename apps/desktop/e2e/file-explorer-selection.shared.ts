@@ -17,9 +17,12 @@ import {
   getContextExplorerFileExplorerPanel,
   getContextExplorerMiddlePanel,
 } from './utils/context-explorer-locators';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 
-export { getContextExplorerFileExplorerPanel, getContextExplorerMiddlePanel, loadElectronHelpers };
+// NOTE: deliberately no `loadElectronHelpers` re-export. This module documents
+// that a harness-owned app must only be closed via `closeForStateSeeding()`, so
+// it should not also hand callers `closeElectronApp`. Specs that genuinely need
+// the helpers import './utils/load-electron-helpers' directly.
+export { getContextExplorerFileExplorerPanel, getContextExplorerMiddlePanel };
 
 /**
  * Harness surface the seeding helpers need.

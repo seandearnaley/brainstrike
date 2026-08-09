@@ -29,28 +29,48 @@ interface FakeContext {
     process: () => FakeElectronProcess;
     windows: () => { isClosed: () => boolean }[];
   };
+  disposed: boolean;
   window: { isClosed: () => boolean };
 }
 
 const launchedContexts: FakeContext[] = [];
 
+/**
+ * Playwright disposes the `ElectronApplication` on close, after which
+ * `app.process()` throws `TypeError: Cannot read properties of undefined
+ * (reading '_object')`. Whether that disposal has landed by the time the
+ * harness next touches the context is a race: the observed 10-spec run
+ * produced the `AggregateError` (disposed) 7 times and the bare guard error
+ * (not yet disposed) 3 times, so both branches are real and both are covered
+ * below.
+ */
 function createFakeContext(): FakeContext {
   const electronProcess = new FakeElectronProcess();
-  return {
+  const context: FakeContext = {
     app: {
-      process: () => electronProcess,
+      process: () => {
+        if (context.disposed) {
+          throw new TypeError("Cannot read properties of undefined (reading '_object')");
+        }
+        return electronProcess;
+      },
       windows: () => [{ isClosed: () => false }],
     },
+    disposed: false,
     window: { isClosed: () => false },
   };
+  return context;
 }
 
 /**
  * Playwright reaps the Electron child with SIGKILL after `app.close()`, so a
  * clean teardown still surfaces `code=null, signal=SIGKILL` to the guard.
  */
-const closeElectronApp = vi.fn(async (context: FakeContext) => {
+const closeElectronApp = vi.fn(async (context: FakeContext, options?: { dispose?: boolean }) => {
   context.app.process().exit(null, 'SIGKILL');
+  if (options?.dispose) {
+    context.disposed = true;
+  }
 });
 
 vi.mock('../../e2e/utils/load-electron-helpers', () => ({
@@ -106,11 +126,35 @@ describe('ElectronHarness state seeding', () => {
 
     const context = await harness.ensureContext();
     // Reproduces the pre-fix seeding path: close the context directly, so the
-    // guard never learns the exit was intentional.
+    // guard never learns the exit was intentional. Playwright has not disposed
+    // the ElectronApplication yet, so the harness's own close still succeeds
+    // and only the health check fails.
     await closeElectronApp(context as unknown as FakeContext);
 
     await expect(harness.restart()).rejects.toThrow(
       /Electron process exited unexpectedly before intentional close began/
     );
+  });
+
+  it('reports both failures when the out-of-band close also disposed the app', async () => {
+    const harness = createHarness();
+
+    const context = await harness.ensureContext();
+    await closeElectronApp(context as unknown as FakeContext, { dispose: true });
+
+    const error = await harness.restart().then(
+      () => null,
+      (thrown: unknown) => thrown
+    );
+
+    expect(error).toBeInstanceOf(AggregateError);
+    const aggregate = error as AggregateError;
+    expect(aggregate.message).toBe(
+      'Electron process health check and intentional close both failed'
+    );
+    expect((aggregate.errors[0] as Error).message).toMatch(
+      /Electron process exited unexpectedly before intentional close began \(code=null, signal=SIGKILL\)/
+    );
+    expect((aggregate.errors[1] as Error).message).toMatch(/reading '_object'/);
   });
 });
