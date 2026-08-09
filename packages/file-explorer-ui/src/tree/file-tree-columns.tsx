@@ -44,14 +44,6 @@ export const EXPLORER_METADATA_COLUMN_CONFIGS: readonly ExplorerColumnConfig[] =
       column.id !== 'name'
   );
 
-export function getExplorerColumnLabel(columnId: ExplorerColumnId): string {
-  const config = EXPLORER_COLUMN_CONFIGS.find((column) => column.id === columnId);
-  if (!config) {
-    throw new Error(`Unknown Explorer column id "${columnId}"`);
-  }
-  return config.label;
-}
-
 /**
  * Resize bounds for one metadata column, in the shape `ColumnResizeHandle`
  * wants. Derived from the same map the persisted widths are clamped against,
