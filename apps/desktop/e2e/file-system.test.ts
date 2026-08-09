@@ -86,9 +86,15 @@ test.describe('File System Integration', () => {
     const initialTimeOrigin = await window.evaluate(() => performance.timeOrigin);
 
     await selectMockRoot(window);
-    await expect(window.getByRole('button', { name: /view filters/i })).toBeVisible({
-      timeout: 15_000,
-    });
+    // "Root attached" signal must be layout-independent: BST-657 moved the
+    // view-filters toggle into a compact overflow menu below the toolbar's
+    // 236px container-query step, and the desktop Explorer panel opens at its
+    // 180px minimum — so that button is `display:none` (absent from the a11y
+    // tree) here. The filter block itself mounts on rootDirectoryHandle alone
+    // and stays attached at every width (only `inert` toggles).
+    await expect(
+      getContextExplorerFileExplorerPanel(window).locator('#view-filters-content')
+    ).toBeAttached({ timeout: 15_000 });
     await expect(getContextExplorerFileExplorerPanel(window)).toBeVisible({ timeout: 15_000 });
     await expect
       .poll(async () => window.evaluate(() => performance.timeOrigin), {
