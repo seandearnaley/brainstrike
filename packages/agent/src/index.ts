@@ -186,6 +186,11 @@ export {
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
 export {
+  formatGrepContentHeader,
+  formatGrepContentRow,
+  formatGrepProjectionPageRange,
+} from './mastra/grep-model-format';
+export {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,
@@ -222,12 +227,15 @@ export {
   type ReadToolOutputArtifactInput,
   ReadToolOutputArtifactInputSchema,
   type ReadToolOutputArtifactPageOptions,
+  readToolOutputArtifact,
   readToolOutputArtifactPage,
   type ScopedToolOutputArtifactRangeResult,
   type ScopedToolOutputArtifactReader,
   type ToolOutputArtifactModelProjection,
   ToolOutputArtifactReadError,
   type ToolOutputArtifactReadFailureReason,
+  type ToolOutputArtifactSearchProjection,
+  type ToolOutputArtifactSearchResult,
 } from './mastra/tool-output-artifact-reader';
 export {
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,

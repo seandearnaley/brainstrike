@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   projectToolOutputArtifactPage,
   ReadToolOutputArtifactInputSchema,
+  readToolOutputArtifact,
   readToolOutputArtifactPage,
   type ScopedToolOutputArtifactReader,
 } from '../mastra/tool-output-artifact-reader';
@@ -341,5 +342,157 @@ describe('tool output artifact reader', () => {
       offsetByte: 0,
     });
     expect(projection.value.next).toBeUndefined();
+  });
+
+  it('searches a bounded artifact slice and projects matching lines in compact grep format', async () => {
+    const content = ['alpha', 'Needle first', 'beta', 'second needle'].join('\n');
+    const artifactRef = referenceFor(content);
+    const result = await readToolOutputArtifact(
+      {
+        cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+        mode: 'cursor',
+        pattern: 'needle',
+      },
+      { now: () => NOW, reader: readerFor(content, artifactRef) }
+    );
+
+    expect(projectToolOutputArtifactPage(result)).toEqual({
+      type: 'text',
+      value: [
+        'grep content 1-2/2',
+        `artifact bytes 0-${artifactRef.byteLength}`,
+        '  2: Needle first',
+        '  4: second needle',
+      ].join('\n'),
+    });
+  });
+
+  it('returns a valid empty grep projection for a complete zero-match search', async () => {
+    const content = 'alpha\nbeta\ngamma';
+    const artifactRef = referenceFor(content);
+    const result = await readToolOutputArtifact(
+      {
+        cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+        mode: 'cursor',
+        pattern: 'missing',
+      },
+      { now: () => NOW, reader: readerFor(content, artifactRef) }
+    );
+
+    const projection = projectToolOutputArtifactPage(result);
+    expect(projection).toEqual({
+      type: 'text',
+      value: ['grep content empty@offset=0/0', `artifact bytes 0-${artifactRef.byteLength}`].join(
+        '\n'
+      ),
+    });
+    expect(projection.value).not.toContain('continue:');
+  });
+
+  it('fits oversized match sets with an actionable cursor and rejects silent limitation', async () => {
+    const content = Array.from(
+      { length: 12 },
+      (_, index) => `match-${index}-${'x'.repeat(620)}`
+    ).join('\n');
+    const artifactRef = referenceFor(content);
+    const result = await readToolOutputArtifact(
+      {
+        cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+        maxBytes: 8000,
+        mode: 'cursor',
+        pattern: 'match-',
+      },
+      { now: () => NOW, reader: readerFor(content, artifactRef) }
+    );
+    const projection = projectToolOutputArtifactPage(result);
+
+    expect(projection.type).toBe('text');
+    expect(projection.value).toContain(
+      'continue: reuse the prior brainstrike.readToolOutputArtifact search input with cursor=bsto1.'
+    );
+    expect(Array.from(projection.value).length + 26).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+
+    if (!('searchLimited' in result)) {
+      throw new TypeError('Expected a search result.');
+    }
+    const { nextCursor: _nextCursor, ...withoutContinuation } = result;
+    expect(() =>
+      projectToolOutputArtifactPage({
+        ...withoutContinuation,
+        matches: [],
+        searchLimited: true,
+      })
+    ).toThrow(
+      'Tool output artifact search projection received a limited result without continuation guidance'
+    );
+  });
+
+  it('supports regex matching and independently controls case sensitivity', async () => {
+    const content = ['ERROR-17', 'error-23', 'plain'].join('\n');
+    const artifactRef = referenceFor(content);
+    const cursor = encodeToolOutputArtifactCursor(artifactRef, 0);
+    const reader = readerFor(content, artifactRef);
+
+    const regex = projectToolOutputArtifactPage(
+      await readToolOutputArtifact(
+        { cursor, isRegex: true, mode: 'cursor', pattern: '^error-\\d+$' },
+        { now: () => NOW, reader }
+      )
+    );
+    expect(regex.value).toContain('  1: ERROR-17');
+    expect(regex.value).toContain('  2: error-23');
+
+    const caseSensitive = projectToolOutputArtifactPage(
+      await readToolOutputArtifact(
+        { caseSensitive: true, cursor, mode: 'cursor', pattern: 'error-' },
+        { now: () => NOW, reader }
+      )
+    );
+    expect(caseSensitive.value).not.toContain('  1: ERROR-17');
+    expect(caseSensitive.value).toContain('  2: error-23');
+
+    const caseInsensitive = projectToolOutputArtifactPage(
+      await readToolOutputArtifact(
+        { caseSensitive: false, cursor, mode: 'cursor', pattern: 'error-' },
+        { now: () => NOW, reader }
+      )
+    );
+    expect(caseInsensitive.value).toContain('  1: ERROR-17');
+    expect(caseInsensitive.value).toContain('  2: error-23');
+  });
+
+  it('does not mutate cursor paging when a search is interleaved', async () => {
+    const content = 'head-needle-middle-tail';
+    const artifactRef = referenceFor(content);
+    const reader = readerFor(content, artifactRef);
+    const first = await readToolOutputArtifactPage(
+      { artifactRef, maxBytes: 5, mode: 'artifact' },
+      { now: () => NOW, reader }
+    );
+    if (!first.nextCursor) {
+      throw new TypeError('Expected a continuation cursor.');
+    }
+
+    const expectedNext = await readToolOutputArtifactPage(
+      { cursor: first.nextCursor, maxBytes: 8, mode: 'cursor' },
+      { now: () => NOW, reader }
+    );
+    const search = await readToolOutputArtifact(
+      { cursor: first.nextCursor, maxBytes: 8, mode: 'cursor', pattern: 'needle' },
+      { now: () => NOW, reader }
+    );
+    expect(projectToolOutputArtifactPage(search).value).toContain('  1: needle-m');
+
+    const resumed = await readToolOutputArtifactPage(
+      { cursor: first.nextCursor, maxBytes: 8, mode: 'cursor' },
+      { now: () => NOW, reader }
+    );
+    expect(resumed).toEqual(expectedNext);
+    expect(
+      decodeToolOutputArtifactContent(first.content, first.contentEncoding) +
+        decodeToolOutputArtifactContent(resumed.content, resumed.contentEncoding)
+    ).toBe('head-needle-m');
   });
 });

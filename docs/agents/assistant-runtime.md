@@ -328,11 +328,15 @@ display/transcript can render media, and they retain the explicit aggregate
 media plus non-media metadata ceilings with or without durable settlement.
 Desktop builds the paired `brainstrike.readToolOutputArtifact` capability only
 when server-owned resource and thread scope plus the database bridge exist.
-The registered model tool accepts only the opaque continuation cursor, never
-artifact metadata or ownership ids. The tool returns the raw bounded page to display/persistence and a
-separately fitted model projection whose continuation call remains inside the
-domain projection budget. No capability means no registered tool; Desktop
-never installs a stub or an unscoped fallback.
+The registered model tool accepts the opaque continuation cursor plus bounded
+page/search options, never artifact metadata or ownership ids. Plain calls
+return the raw bounded page; `pattern` calls search the same validated slice and
+project compact grep-style matching lines. Any unscanned source or
+projection-omitted match carries an advancing cursor; missing continuation
+guidance fails the run. Artifact-mint hints advertise whole-result delegation
+only when persona assembly registered an artifact-reader-capable `agent-*` tool
+for that run. No capability means no registered tool; Desktop never installs a
+stub or an unscoped fallback.
 
 Without that trusted host capability, MCP text/JSON keeps the temporary inline
 behavior and is bounded inside `execute()` before inline persistence. The UI
