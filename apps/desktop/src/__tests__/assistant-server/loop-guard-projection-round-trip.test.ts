@@ -1,6 +1,7 @@
 import {
   applyToolModelOutputProjections,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -208,7 +209,9 @@ describe('BST-1188 loop-guard warning/refusal projection round trip', () => {
       new Map([
         ['globWorkspace', 'brainstrike.globWorkspace'],
         ['grepSearch', 'brainstrike.grepSearch'],
-      ])
+      ]),
+      undefined,
+      resolveScaledToolResultBudget(131_072)
     );
     const globProjection = (
       tools['globWorkspace'] as {

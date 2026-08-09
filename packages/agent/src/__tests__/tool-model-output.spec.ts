@@ -28,13 +28,19 @@ import {
   attachToolCallTelemetryMetadata,
   readToolCallTelemetryMetadata,
 } from '../mastra/tool-call-telemetry';
-import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
+import {
+  applyToolModelOutputProjections as applyToolModelOutputProjectionsWithBudget,
+  assertDomainProjectionWithinBudget,
+  buildDefaultModelProjectionBudget,
+} from '../mastra/tool-model-output';
 import { ToolProjectionInputRejectedError } from '../mastra/tool-projection-input-rejected';
 import {
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
   MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
   TOOL_RESULT_TRUNCATED_CODE,
 } from '../stream/tool-output-limits';
@@ -51,6 +57,21 @@ type TestTool = ToolsInput[string] & {
   toModelOutput?: (output: unknown) => unknown;
   transform?: ToolPayloadTransform;
 };
+
+const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);
+
+function applyToolModelOutputProjections(
+  tools: ToolsInput,
+  toolNameMap: ReadonlyMap<string, string>,
+  observer?: (toolName: string, output: unknown) => void
+): ToolsInput {
+  return applyToolModelOutputProjectionsWithBudget(
+    tools,
+    toolNameMap,
+    observer,
+    ANCHOR_TOOL_RESULT_BUDGET
+  );
+}
 
 function asTool(value: Record<string, unknown>): TestTool {
   return value as unknown as TestTool;
@@ -75,6 +96,24 @@ async function transformOutput(
 }
 
 describe('applyToolModelOutputProjections', () => {
+  it('accepts a ceiling-sized stored text projection under a floor-tier run budget', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192);
+    expect(floorBudget.domainModelResultCharBudget).toBe(2000);
+    const replayOutput = {
+      type: 'text',
+      value: 'x'.repeat(CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget - 26),
+    };
+
+    expect(() =>
+      assertDomainProjectionWithinBudget(
+        'remote.replayed-tool',
+        replayOutput,
+        buildDefaultModelProjectionBudget(CEILING_SCALED_TOOL_RESULT_BUDGET)
+      )
+    ).not.toThrow();
+    expect(decodedTextModelOutputChars(replayOutput.value)).toBe(12_000);
+  });
+
   it('keeps raw execution untouched and gives the model a bounded text projection', async () => {
     const rawOnlyTail = 'raw-only-tail';
     const rawOutput = {

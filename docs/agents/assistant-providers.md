@@ -822,22 +822,24 @@ whole-set searches never run the counts. Do not "optimize" selective filtered
 searches back onto the ANN index without re-running that benchmark.
 
 Tool output budget (anti-thrash contract): budgets are token-denominated at 4
-chars/token (mirrors `countTokensHeuristic`). Native producers self-bound
+chars/token (mirrors `countTokensHeuristic`). The two default budgets are
+resolved once per Mastra run from the active model context window; explicit
+per-tool overrides remain fixed and authoritative. Native producers self-bound
 result lists via `fitItemsToCharBudget`. Purpose-built domain projections
 (`readWorkspaceFile`, `grepSearch`, `globWorkspace`, `querySelf`,
 `findWorkspaceSymbol`/`lspInspect`, workspace-context, and
-workspace-retrieval, plus `webSearch` and `webExtract`) self-fit against the
-6000-character `MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET` using decoded text
-length.
+workspace-retrieval, plus `webSearch` and `webExtract`) use decoded text length
+for their self-fit contract. `MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET` is the
+6000-character 128k anchor definition, not a universal per-run value.
 `decodedWorkspaceTextModelOutputChars` counts code points in the value the
 model actually reads and adds the small fixed
 `PROJECTION_ENVELOPE_RESERVE_CHARS` reserve; it does not measure
 `JSON.stringify(...).length`. A newline therefore costs one character, not
 two, so line-dense pages fit roughly twice as much content at the same budget
 as they did before BST-1195. The generic/default non-domain projection path
-and the `boundToolOutputForModel` transport guard are unaffected: they still
-measure serialized JSON characters at their own higher 8000- and
-12000-character ceilings as defence in depth.
+and the `boundToolOutputForModel` transport guard still measure serialized JSON
+characters. The generic model-result ceiling remains 8000 characters; the
+transport default is the resolved per-run value described below.
 If the requested page exceeds the envelope, it shortens the page and returns a
 26-character random `nextCursor` handle that resumes at the exact source line
 and column, including within a long generated/minified line. The authoritative
@@ -892,9 +894,10 @@ pass through the default projector unmodified instead of being replaced by the
 generic prefix preview. Regression guard:
 `packages/agent/src/__tests__/tool-model-output.spec.ts`, "self-bounded native
 tool results".
-Purpose-built domain projections have the stricter
-`MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS` (1500) / 6000-character contract so the
-remaining envelope can carry PostToolUse guidance. Domain projectors MUST
+Purpose-built domain projections have a stricter resolved contract so the
+remaining envelope can carry PostToolUse guidance. The
+`MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS` (1500) / 6000-character constants define
+the 128k anchor tier. Domain projectors MUST
 self-fit a complete page; central code throws on overflow instead of
 prefix-truncating a page whose continuation/provenance it cannot understand.
 Only generated/default projections may use the generic truncation path.
@@ -911,6 +914,33 @@ budget guard — and still fails the run, whether thrown inside the projector or
 raised centrally on an oversized returned value. When adding a projector,
 choose per throw site: marker for "not my result", plain error for "my
 producer violated its contract".
+
+### Context-window-scaled default budgets
+
+`createMastraAgentRuntime` resolves the active model once in
+`packages/agent/src/mastra/agent-runtime.ts`, reads its catalog
+`contextWindow`, and calls `resolveScaledToolResultBudget`. Runtime-discovered
+Ollama and LM Studio ids use the shared conservative 32,768-token declaration
+from `@brainstrike/assistant-contract`; unknown ids for catalog-backed providers
+still throw. The plain resolved carrier is threaded through MCP inline bounding,
+the core and deferred discovery surfaces, persona projections, and
+`RunTokenDiagnostics`; no mutable module-global budget exists.
+
+The anchor is 131,072 context tokens. Defaults scale linearly and round to the
+nearest token: domain is `round(1500 * contextWindow / 131072)` clamped to
+500..3000 tokens (2000..12000 characters), while transport is
+`round(3000 * contextWindow / 131072)` clamped to 1000..6000 tokens
+(4000..24000 characters). Thus a 128k model retains byte-identical 1500/3000
+behavior and no model exceeds the settled 2x small-page ceiling. Per-tool
+entries in `MODEL_PROJECTION_BUDGET_OVERRIDES` and
+`TOOL_RESULT_TOKEN_BUDGET_OVERRIDES` continue to win unchanged.
+
+Replay validation is deliberately asymmetric. A fresh purpose-built projection
+uses the current run's resolved default. A stored/settled projection may have
+been produced by a larger-window run, so replay always validates the default
+domain portion against the fixed ceiling tier (3000 tokens / 12000 characters),
+never the possibly smaller current run value. The out-of-scope total model
+envelope and every explicit per-tool override remain unchanged.
 The file-read staleness tracker is updated only after cursor validation and
 page construction succeed inside the per-file lock; a rejected stale cursor
 must not mark externally changed bytes as fresh for a later write.
@@ -1044,7 +1074,9 @@ the independent serialized-character safety envelope. Paired proofs:
 
 MCP text/JSON uses a separate temporary inline ceiling only when the host does
 not supply durable artifact settlement: it is bounded to
-`MAX_TOOL_RESULT_TOKENS` (3000). Multimodal output always stays inline so the
+the active run's resolved transport default. `MAX_TOOL_RESULT_TOKENS` (3000) is
+the 128k anchor; the resolved range is 1000..6000 tokens. Multimodal output
+always stays inline so the
 display/transcript channels can render it; durable settlement never converts
 image/audio `content` arrays into text artifacts. Raw media is permitted only
 up to the assistant aggregate encoded-media ceiling and 12000 non-media
@@ -1122,7 +1154,10 @@ domain budget, the projector fits a shorter code-point prefix and recomputes
 the cursor at that byte boundary; it never generically truncates content or
 loses continuation state.
 
-Finally, the UI transport independently caps streamed output at 3000 tokens.
+Finally, the UI transport independently applies the generic transport backstop.
+Callers inside an active run use the resolved 1000..6000-token default; the
+context-free data-stream mapper retains the 3000-token anchor fallback because
+its replay/session boundary has no active-model carrier.
 Oversized collections
 (matches/entries/results/items/files/chunks/rows/subAgentToolResults) are
 structurally trimmed; opaque outputs become a SUCCESSFUL

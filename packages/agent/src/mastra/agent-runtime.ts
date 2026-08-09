@@ -8,6 +8,7 @@ import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
+import { resolveToolResultBudgetForModel } from '../stream/tool-output-limits';
 import type { AgentHookRunner } from '../tools/hook-runner';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData } from '../types';
@@ -375,6 +376,19 @@ export async function createMastraAgentRuntime(
   const hookRunner = hookRunnerOption ?? sanitizedRuntime.hookRunner;
   const permissionSnapshot = permissionPolicy ?? sanitizedRuntime.permissionPolicy;
   const planModeActive = normalizedProvider !== 'local' && sanitizedRuntime.planMode === true;
+  // Create the provider-specific model instance before tool discovery. The
+  // DISCOVERY path passes an inert listing-only model so no provider lookup or
+  // inference occurs there.
+  const modelName = model ?? getDefaultModel(normalizedProvider);
+  const languageModel =
+    modelOverride ??
+    instantiateLanguageModel(normalizedProvider, apiKey, modelName, sanitizedRuntime);
+
+  assertModernLanguageModel(languageModel, normalizedProvider, modelName);
+  // Resolve once per run. Static catalog models use their declared context
+  // window; runtime-discovered Ollama/LM Studio ids share the conservative
+  // 32,768-token declaration from @brainstrike/assistant-contract.
+  const resolvedToolResultBudget = resolveToolResultBudgetForModel(normalizedProvider, modelName);
   const {
     artifactSettledTools,
     askTools,
@@ -395,19 +409,10 @@ export async function createMastraAgentRuntime(
     planModeActive,
     preserveExecuteBackedWebSearch,
     provider: normalizedProvider,
+    resolvedToolResultBudget,
     toolOutputArtifactStore,
     workspaceSkills: sanitizedRuntime.workspaceSkills,
   });
-  // Create provider-specific model instance. The DISCOVERY path passes
-  // `modelOverride` (an inert listing-only model) so provider/model are never
-  // resolved — listing suspended runs performs no inference and must not require
-  // a provider key or a static default model.
-  const modelName = model ?? getDefaultModel(normalizedProvider);
-  const languageModel =
-    modelOverride ??
-    instantiateLanguageModel(normalizedProvider, apiKey, modelName, sanitizedRuntime);
-
-  assertModernLanguageModel(languageModel, normalizedProvider, modelName);
   const persistedDiscoveryMessages = createPersistedDiscoveryMessageLoader({
     enabled: hydrateToolDiscoveryFromMemory,
     memory,
@@ -422,6 +427,7 @@ export async function createMastraAgentRuntime(
       modelName,
       ...(persistedDiscoveryMessages ? { persistedDiscoveryMessages } : {}),
       provider: normalizedProvider,
+      resolvedToolResultBudget,
       toolNameMap,
     }).catch(async (error: unknown) => {
       // Discovery has already opened MCP transports, but ownership does not
@@ -472,8 +478,11 @@ export async function createMastraAgentRuntime(
     // prompt (`providerReportedPromptTokens`). Subagent tool outputs never
     // enter the parent's prompt, so they must not inflate that aggregate —
     // see `RunTokenDiagnostics.recordSubagentToolOutput`'s doc comment.
-    guardedTools: applyToolModelOutputProjections(guardedTools, toolNameMap, (toolId, output) =>
-      tokenDiagnostics.recordSubagentToolOutput(toolId, output)
+    guardedTools: applyToolModelOutputProjections(
+      guardedTools,
+      toolNameMap,
+      (toolId, output) => tokenDiagnostics.recordSubagentToolOutput(toolId, output),
+      resolvedToolResultBudget
     ),
     languageModel,
     permissionSnapshot,

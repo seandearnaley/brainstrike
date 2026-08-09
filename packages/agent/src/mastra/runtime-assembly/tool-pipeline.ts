@@ -26,6 +26,7 @@ import type { McpConfig } from '../../mcp/config';
 import { createListingOnlyModel } from '../../providers/listing-only-model';
 import { applyProviderNativeWebSearch } from '../../providers/native-web-search';
 import { createAssistantSkillTools } from '../../skills/skill-tools';
+import type { ScaledToolResultBudget } from '../../stream/tool-output-limits';
 import { applyToolGuards } from '../../tools/guard-tool-execution';
 import type { AgentHookRunner } from '../../tools/hook-runner';
 import { applyToolHooks } from '../../tools/hook-tool-wrap';
@@ -259,6 +260,7 @@ export async function prepareHostedToolDiscovery(params: {
   modelName: string;
   persistedDiscoveryMessages?: () => Promise<readonly MastraDBMessage[]>;
   provider: ResolvedRuntimeConfiguration['provider'];
+  resolvedToolResultBudget: ScaledToolResultBudget;
   toolNameMap: ReadonlyMap<string, string>;
 }): Promise<{
   discoverySurface?: ToolDiscoverySurface;
@@ -303,6 +305,7 @@ export async function prepareHostedToolDiscovery(params: {
   const initialTools = discoverySurface?.coreTools ?? params.eligibleTools;
   const tokenDiagnostics = await createRunTokenDiagnostics({
     capability: resolveTokenMeasurementCapability(params.provider, params.modelName),
+    resolvedToolResultBudget: params.resolvedToolResultBudget,
     tools: initialTools,
   });
   const recordModelOutput = (toolId: string, output: unknown): void =>
@@ -310,14 +313,16 @@ export async function prepareHostedToolDiscovery(params: {
   const modelProjectedTools = applyToolModelOutputProjections(
     initialTools,
     params.toolNameMap,
-    recordModelOutput
+    recordModelOutput,
+    params.resolvedToolResultBudget
   );
   const modelProjectedDeferredTools =
     hasDeferredTools && discoverySurface
       ? applyToolModelOutputProjections(
           discoverySurface.deferredTools,
           params.toolNameMap,
-          recordModelOutput
+          recordModelOutput,
+          params.resolvedToolResultBudget
         )
       : undefined;
   const toolSearchProcessor = modelProjectedDeferredTools
@@ -374,6 +379,7 @@ export interface RuntimeToolMapParams {
   planModeActive: boolean;
   preserveExecuteBackedWebSearch: boolean | undefined;
   provider: ResolvedRuntimeConfiguration['provider'];
+  resolvedToolResultBudget: ScaledToolResultBudget;
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined;
   workspaceSkills: WorkspaceSkills | undefined;
 }
@@ -424,6 +430,7 @@ export async function composeRuntimeToolMap(
     mcpClient,
     mcpConfig: params.mcpConfig,
     sanitizedLocalTools,
+    scaledDefaultTokens: params.resolvedToolResultBudget.transportResultTokens,
     timeoutOverrideMs: params.mcpTimeoutMs,
     toolNameMap,
   });

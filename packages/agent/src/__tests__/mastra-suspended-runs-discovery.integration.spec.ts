@@ -4,7 +4,7 @@
  *
  * Unlike mastra-tool-approval-suspend.spec.ts, this file deliberately does NOT
  * mock `../providers/provider-factory` — it exercises the REAL `getDefaultModel`
- * / `createProvider`. The mocked suites returned `getDefaultModel: () => 'fake-model'`,
+ * / `createProvider`. The mocked suites historically returned a synthetic model id,
  * which masked the live 500: the desktop discovery route builds the listing
  * runtime with `provider: 'ollama'`, but ollama has NO static default model, so
  * the pre-fix `createMastraAgentRuntime` threw `No default model configured for

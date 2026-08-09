@@ -4,16 +4,32 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   createPreparedTokenMeasurement,
-  createRunTokenDiagnostics,
+  createRunTokenDiagnostics as createRunTokenDiagnosticsWithBudget,
   serializeModelOutputForTokenMeasurement,
 } from '../mastra/token-measurement';
 import { createProviderNativeWebSearchTool } from '../providers/native-web-search';
+import { resolveScaledToolResultBudget } from '../stream/tool-output-limits';
 import { TOKEN_MEASUREMENT_FIXTURES } from './fixtures/token-measurement-fixtures';
 
 const EXACT_O200K: TokenMeasurementCapability = {
   mode: 'exact-selected-model',
   tokenizer: 'o200k_base',
 };
+
+const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);
+
+function createRunTokenDiagnostics(
+  params: Omit<
+    Parameters<typeof createRunTokenDiagnosticsWithBudget>[0],
+    'resolvedToolResultBudget'
+  >,
+  dependencies?: Parameters<typeof createRunTokenDiagnosticsWithBudget>[1]
+): ReturnType<typeof createRunTokenDiagnosticsWithBudget> {
+  return createRunTokenDiagnosticsWithBudget(
+    { ...params, resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET },
+    dependencies
+  );
+}
 
 describe('prepared token measurement', () => {
   it.each(TOKEN_MEASUREMENT_FIXTURES)('matches the verified o200k count for $name', async ({
@@ -103,12 +119,27 @@ describe('run token diagnostics', () => {
       measurementStatus: 'measured',
       modelVisibleProjectionCount: 1,
       providerReportedPromptTokens: 321,
+      resolvedDomainBudgetTokens: 1500,
+      resolvedTransportBudgetTokens: 3000,
       tokenizer: 'o200k_base',
       toolDefinitionCount: 1,
     });
     expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
     expect(fields.modelVisibleProjectionTokens).toBeGreaterThan(0);
     expect(JSON.stringify(fields)).not.toContain(secret);
+  });
+
+  it('logs the resolved per-run tool-result budgets unconditionally', async () => {
+    const diagnostics = await createRunTokenDiagnosticsWithBudget({
+      capability: EXACT_O200K,
+      resolvedToolResultBudget: resolveScaledToolResultBudget(200_000),
+      tools: {},
+    });
+
+    expect(diagnostics.toLogFields()).toMatchObject({
+      resolvedDomainBudgetTokens: 2289,
+      resolvedTransportBudgetTokens: 4578,
+    });
   });
 
   it('records privacy-safe per-tool model-facing characters and generic truncation', async () => {

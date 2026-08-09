@@ -1173,7 +1173,7 @@ describe('mcp-tool-loader', () => {
       expect(result).toHaveProperty('filesystem_list_directory');
     });
 
-    it('keeps oversized text-only MCP persistence within the temporary inline ceiling', async () => {
+    it('keeps oversized text-only MCP persistence within the resolved transport ceiling', async () => {
       const mockMcpClient = createMockMcpClient({
         filesystem: {
           read_file: {
@@ -1196,6 +1196,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: 1000,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1207,9 +1208,10 @@ describe('mcp-tool-loader', () => {
 
       expect(output).toMatchObject({
         code: 'tool_result_truncated',
+        maxTokens: 1000,
         truncated: true,
       });
-      expect(JSON.stringify(output).length).toBeLessThanOrEqual(12_000);
+      expect(JSON.stringify(output).length).toBeLessThanOrEqual(4000);
     });
 
     it('preserves complete oversized MCP output when durable settlement is enabled', async () => {

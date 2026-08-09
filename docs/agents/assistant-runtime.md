@@ -262,10 +262,11 @@ post-hook execution result without replacing it. A discriminated internal
 carrier takes PostToolUse context to `toModelOutput`; Mastra's official
 display/transcript transforms unwrap it so live application consumers and the
 durable transcript retain the exact domain result. Generated/default
-projections use the 2000-token / 8000-serialized-character ceiling.
-Purpose-built domain
-projectors MUST self-fit complete output within 1500 tokens / 6000 serialized
-characters and fail loudly on overflow; the central seam never truncates an
+projections use the unchanged 2000-token / 8000-serialized-character ceiling.
+Purpose-built domain projectors MUST self-fit complete output within the active
+run's context-window-scaled default (500..3000 tokens / 2000..12000
+characters; 1500 / 6000 at the 128k anchor) and fail loudly on overflow; the
+central seam never truncates an
 opaque page after its continuation was computed. Guarded failures bypass custom
 projectors. Successful PostToolUse metadata is stripped before projection
 (one explicit internal envelope preserves every original result shape),
@@ -283,8 +284,11 @@ separately typed boundary.
 Mastra may replay a stored `providerMetadata.mastra.modelOutput` through the
 same tool projector while preparing a later same-run provider step. A
 purpose-built projector that emits a recognizable canonical envelope must
-therefore accept its own envelope idempotently, validate the same domain budget,
-and never reinterpret arbitrary lookalike domain objects. `grepSearch` pins this
+therefore accept its own envelope idempotently. Stored/settled replay validates
+the default domain portion against the fixed ceiling tier rather than a smaller
+current-run budget; fresh projections use the per-run resolved tier. It must
+validate the applicable domain budget and never reinterpret arbitrary lookalike
+domain objects. `grepSearch` pins this
 with the exact `{ type: 'text', value: 'grep …' }` replay that previously
 terminated a hosted Claude verification run.
 

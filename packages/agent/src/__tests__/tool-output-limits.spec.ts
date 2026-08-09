@@ -3,10 +3,89 @@ import {
   boundToolOutputForModel,
   fitItemsToCharBudget,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
+  resolveToolResultBudgetForModel,
   TOOL_RESULT_TOO_LARGE_CODE,
 } from '../stream/tool-output-limits';
 
+describe('resolveScaledToolResultBudget', () => {
+  it.each([
+    {
+      contextWindow: 8192,
+      expected: {
+        contextWindow: 8192,
+        domainModelResultCharBudget: 2000,
+        domainModelResultTokens: 500,
+        transportResultCharBudget: 4000,
+        transportResultTokens: 1000,
+      },
+      tier: 'floor',
+    },
+    {
+      contextWindow: 131_072,
+      expected: {
+        contextWindow: 131_072,
+        domainModelResultCharBudget: 6000,
+        domainModelResultTokens: 1500,
+        transportResultCharBudget: 12_000,
+        transportResultTokens: 3000,
+      },
+      tier: '128k anchor',
+    },
+    {
+      contextWindow: 200_000,
+      expected: {
+        contextWindow: 200_000,
+        domainModelResultCharBudget: 9156,
+        domainModelResultTokens: 2289,
+        transportResultCharBudget: 18_312,
+        transportResultTokens: 4578,
+      },
+      tier: 'mid-range',
+    },
+    {
+      contextWindow: 1_050_000,
+      expected: {
+        contextWindow: 1_050_000,
+        domainModelResultCharBudget: 12_000,
+        domainModelResultTokens: 3000,
+        transportResultCharBudget: 24_000,
+        transportResultTokens: 6000,
+      },
+      tier: 'ceiling',
+    },
+  ])('resolves the $tier tier exactly', ({ contextWindow, expected }) => {
+    expect(resolveScaledToolResultBudget(contextWindow)).toEqual(expected);
+  });
+
+  it('uses the shared conservative context window for a dynamic Ollama model', () => {
+    expect(resolveToolResultBudgetForModel('ollama', 'runtime-only-model')).toEqual(
+      resolveScaledToolResultBudget(32_768)
+    );
+  });
+
+  it('does not hide an unknown catalog-backed model', () => {
+    expect(() => resolveToolResultBudgetForModel('openai', 'runtime-only-model')).toThrow(
+      /Unknown LLM model/
+    );
+  });
+});
+
 describe('boundToolOutputForModel structural degradation', () => {
+  it('uses the scaled transport default only after explicit and per-tool overrides', () => {
+    const generic = boundToolOutputForModel('remote.generic', 'x'.repeat(30_000), undefined, 1000)
+      .output as { maxTokens?: number };
+    const skill = boundToolOutputForModel('skill', 'x'.repeat(30_000), undefined, 1000).output as {
+      maxTokens?: number;
+    };
+    const explicit = boundToolOutputForModel('remote.generic', 'x'.repeat(30_000), 2000, 1000)
+      .output as { maxTokens?: number };
+
+    expect(generic.maxTokens).toBe(1000);
+    expect(skill.maxTokens).toBe(6000);
+    expect(explicit.maxTokens).toBe(2000);
+  });
+
   it('returns small outputs unchanged', () => {
     const output = { matches: [{ path: 'a.ts' }], totalMatches: 1 };
     const bounded = boundToolOutputForModel('brainstrike.grepSearch', output);
