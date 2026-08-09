@@ -119,13 +119,24 @@ type CompactToolbarActionsState =
 
 /**
  * True while the toolbar's scanning indicator — and therefore its cancel — is
- * on screen. Mirrors computeScanningStatusProps' own visibility rule, and is
- * the signal that makes the compact menu yield the narrow track.
+ * on screen. This is the signal that makes the compact menu yield the narrow
+ * track, so it must be EXACTLY the indicator's own visibility rule: a state
+ * where this returns true but no cancel renders would leave the 180px track
+ * holding Select All and nothing else — a worse version of the bug BST-657
+ * fixed.
+ *
+ * The `isForestExpandingAll && forestCancelExpandAll` pairing is deliberate,
+ * not redundant: resolveExpandAllScanningSource falls through to the focused
+ * provider when the forest cancel is null, and that provider is idle during a
+ * forest sweep, so computeScanningStatusProps would return null. Threading the
+ * cancel through keeps the two rules identical by construction rather than by
+ * the two forest contexts happening to ship from the same provider.
  *
  * Run-boundary only: it flips once per operation, never per progress frame, so
  * reading it in the panel does not defeat the PanelTreeActionButtons leaf.
  */
 export function isCancellableOperationRunning(args: {
+  forestCancelExpandAll: (() => void) | null;
   isExpandingAll: boolean;
   isForestExpandingAll: boolean;
   loadingProgress: { isInitialLoading?: boolean } | null | undefined;
@@ -133,7 +144,7 @@ export function isCancellableOperationRunning(args: {
   return (
     Boolean(args.loadingProgress?.isInitialLoading) ||
     args.isExpandingAll ||
-    args.isForestExpandingAll
+    (args.isForestExpandingAll && args.forestCancelExpandAll !== null)
   );
 }
 
@@ -142,11 +153,24 @@ interface CompactToolbarActionsInput {
   isFiltersExpanded: boolean;
   isLoading: boolean;
   /**
-   * True while a cancellable operation (initial load, refresh, or an expand-all
-   * sweep) is running. The 76px narrow track fits two 24px controls beside the
-   * 12px gutter, and during an operation the second one must be the scanning
-   * indicator's cancel — the compact menu's Refresh item is disabled anyway,
-   * and View Filters can wait for the few seconds a sweep takes.
+   * True while a cancellable operation is running. The 76px narrow track fits
+   * two 24px controls beside the 12px gutter, and during an operation the
+   * second one must be the scanning indicator's cancel — the compact menu's
+   * Refresh item is disabled anyway, and the cancel has no other route.
+   *
+   * Read the cost honestly: this is NOT only "the few seconds a sweep takes".
+   * `isInitialLoading` is `isLoading && loadingPaths.size === 0`, so it holds
+   * for a whole first workspace scan and for the whole body of handleRefresh —
+   * below 236px the compact menu is the only route to View Filters, so that
+   * toggle is unreachable for the length of a cold scan and blinks out on
+   * every refresh. Scoping the yield to expand-all only would not fix it: at
+   * 180px an initial load would then paint cancel + menu + Select All = 80px
+   * into a 76px track and clip, which is precisely the overlap BST-657 fixed.
+   * Losing a filter toggle while an operation runs beats an unclickable
+   * control, so the yield stays broad.
+   *
+   * Note refresh is covered INCIDENTALLY, via isInitialLoading — neither this
+   * flag nor isCancellableOperationRunning reads `isRefreshing`.
    */
   isOperationInProgress: boolean;
   isRefreshing: boolean;

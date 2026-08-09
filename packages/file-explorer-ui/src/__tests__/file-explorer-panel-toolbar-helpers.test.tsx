@@ -60,7 +60,11 @@ describe('resolveCompactToolbarActionsState', () => {
     ).toEqual({ availability: 'yielded-to-cancel' });
   });
 
-  it('yields even while refreshing, so a stuck refresh stays abortable', () => {
+  it('keeps yielding when a refresh spinner is also active', () => {
+    // Narrow scope on purpose: isOperationInProgress is passed in literally, so
+    // this only proves isRefreshing cannot override an already-true yield. The
+    // refresh -> yield wiring lives in isCancellableOperationRunning (which
+    // never reads isRefreshing) and is covered there.
     expect(
       resolveCompactToolbarActionsState({
         ...baseInput,
@@ -83,10 +87,12 @@ describe('resolveCompactToolbarActionsState', () => {
 
 describe('isCancellableOperationRunning', () => {
   const idle = {
+    forestCancelExpandAll: null,
     isExpandingAll: false,
     isForestExpandingAll: false,
     loadingProgress: null,
   };
+  const forestCancel = () => undefined;
 
   it('is false when nothing is running', () => {
     expect(isCancellableOperationRunning(idle)).toBe(false);
@@ -103,10 +109,39 @@ describe('isCancellableOperationRunning', () => {
   it('is true during a forest sweep, where the focused provider stays idle', () => {
     // Each section expands inside its OWN provider, so isExpandingAll is false
     // even though a cancellable sweep is very much running.
-    expect(isCancellableOperationRunning({ ...idle, isForestExpandingAll: true })).toBe(true);
+    expect(
+      isCancellableOperationRunning({
+        ...idle,
+        forestCancelExpandAll: forestCancel,
+        isForestExpandingAll: true,
+      })
+    ).toBe(true);
+  });
+
+  it('does NOT yield for a forest sweep with no forest cancel to offer', () => {
+    // resolveExpandAllScanningSource falls through to the focused provider when
+    // the forest cancel is null, and that provider is idle mid-forest-sweep, so
+    // computeScanningStatusProps renders no indicator. Yielding here would
+    // unmount the compact menu and leave the 180px track with Select All alone.
+    expect(
+      isCancellableOperationRunning({
+        ...idle,
+        forestCancelExpandAll: null,
+        isForestExpandingAll: true,
+      })
+    ).toBe(false);
   });
 
   it('is true during the initial load', () => {
+    expect(
+      isCancellableOperationRunning({ ...idle, loadingProgress: { isInitialLoading: true } })
+    ).toBe(true);
+  });
+
+  it('yields for a refresh, which surfaces as isInitialLoading rather than isRefreshing', () => {
+    // handleRefresh drives isLoading with no per-path loads, so the tree context
+    // reports isInitialLoading — this is the ONLY route by which a refresh makes
+    // the compact menu yield, since nothing here reads isRefreshing.
     expect(
       isCancellableOperationRunning({ ...idle, loadingProgress: { isInitialLoading: true } })
     ).toBe(true);

@@ -4,7 +4,10 @@
  * Rendered in the file-explorer toolbar's right cluster (not inside the
  * collapsible view-filters block) so it stays reachable while filters are
  * collapsed. Button sizes follow the toolbar's container-query steps to match
- * their siblings; outside that container the base size applies. Includes an
+ * their siblings. This cluster is now COUPLED to `@container/explorer-toolbar`:
+ * the base state of Refresh and the progress readouts is `hidden`, so mounting
+ * it outside that container hides them entirely rather than falling back to a
+ * base size. Only the cancel is container-independent. Includes an
  * optional inline scanning status indicator placed ahead of the fixed-width
  * button: the cluster is right-justified with a flexible column to its left,
  * which absorbs the indicator's width (on mount and on digit growth), so the
@@ -172,8 +175,11 @@ export const TreeActionButtons = React.memo(
             hide the whole indicator: the count is the progress signal during
             expand, and the cancel X is the user's only way to abort a
             slow/stuck reload (the Refresh button is disabled). During a plain
-            first load nothing else spins, so the indicator's own spinner
-            stays visible as the sole activity cue. */}
+            first load nothing else spins, so at >=236px the indicator's own
+            spinner is the sole activity cue. BELOW 236px the spinner and count
+            are gated off regardless of `hideSpinner`, so a first load shows a
+            bare cancel X and no activity cue at all -- the 76px track cannot
+            hold both, and an abort beats a progress readout. */}
         {scanningStatus?.isScanning && (
           <InlineScanningIndicator
             hideSpinner={isRefreshing || isExpandingAll}
