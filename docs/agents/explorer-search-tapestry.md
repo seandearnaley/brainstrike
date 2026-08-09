@@ -486,6 +486,15 @@ fallback.
   replaced by the full Refresh and View Filters controls; all three right-side
   controls are 28px with 4px gaps. Select All remains the edge action at every
   width, preventing any sibling from intercepting its pointer region.
+  At **300px** a FOURTH control joins — the tree-grid Columns popover
+  (BST-1208) — because that is the first width whose ~136px right track holds
+  four 28px controls, three 4px gaps and the 12px gutter. It sits in its own
+  `@[300px]/explorer-toolbar:contents` wrapper, before Refresh/View Filters, so
+  the documented three-control geometry at 236px is unchanged. 300px is ALSO
+  the width below which the tree grid suppresses its metadata columns
+  (`METADATA_COLUMNS_MIN_WIDTH` in `shell/explorer-columns-context.tsx`) — the
+  two are tied on purpose so the grid never shows a column the user has no way
+  to hide. Pinned by `file-explorer-toolbar.test.tsx`.
 - **The cancel affordance is never width-gated.** The inline scanning
   indicator's Cancel (X) is the ONLY way to abort a running expand-all sweep —
   Refresh is disabled for the duration and the compact menu has never carried a

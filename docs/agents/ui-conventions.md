@@ -126,6 +126,43 @@ Windowing and performance:
   splits the 1px rule across neighbours. Pinned live by "paints tree rows at
   exactly the pitch its virtualizer models" in `apps/web/e2e/file-explorer.test.ts`;
   jsdom has no layout, so no unit test can catch this class of drift.
+- **Explorer tree GRID (BST-1208).** The file explorer renders four columns:
+  `name` (the tree column — pinned, no width, never hideable) plus
+  `type`/`tokens`/`size`. One definition serves every renderer
+  (`tree/file-tree-columns.tsx`); widths come from
+  `app-state/stores/explorer-column-sizes-store` and visibility from
+  `explorer-column-visibility-store` (default: Name + Tokens; Type/Size
+  opt-in). Rules:
+  - Metadata cells subscribe PER COMPOSITE KEY to the BST-1207 metadata store
+    (`useSyncExternalStore`). A token arrival must repaint one cell — never a
+    row rebuild, never a sibling row
+    (`__tests__/explorer-tree-grid.test.tsx`). The columns array is memoized on
+    the visible-column id list, which is content-stable.
+  - The store is owned by the PANEL (the only place `onTokenResolved` can reach
+    the background indexer) and reads its tree-shaped sources through
+    `indexing/file-row-metadata-source-registry.ts`; each rendered tree
+    registers the enumeration for ITS root. A directory the registry cannot
+    enumerate answers with an explicit incomplete subtree — NEVER `null`, which
+    `computeDirectoryRollup` throws on by design.
+  - Non-values are explicit and distinct: `pending` is a placeholder (never
+    `0`), `excluded` is an em dash with the binary tooltip, and a PARTIAL
+    directory rollup never renders a number. Folder rollups also refuse
+    subtrees above `DIRECTORY_ROLLUP_MAX_FILES`, reported honestly as "not
+    fully enumerated".
+  - **Header shape depends on the scroll owner.** Single-root passes
+    `showColumnHeader` and uses TreeTable's own sticky header inside its
+    viewport. FOREST mode renders ONE panel-level header
+    (`shell/explorer-column-header.tsx`) ABOVE the shared scroller and keeps
+    every section table headerless — N sticky headers would stack against the
+    same scrollport. That header aligns by construction: same `table-fixed` +
+    `<colgroup>` algorithm, same width store, minus the scroller's measured
+    scrollbar gutter (0 with overlay scrollbars). Pinned by
+    `__tests__/explorer-column-header.test.tsx`. Do NOT put sticky headers
+    inside shared-scroller sections.
+  - Below 300px of panel width every metadata column is suppressed
+    (name-only). That threshold is deliberately the same width at which the
+    toolbar can host the Columns control — see the narrow-toolbar geometry in
+    `docs/agents/explorer-search-tapestry.md`; keep the two in step.
 - Row render stability is a pinned contract (`tree-table-render-stability.test.tsx`):
   row-facing handlers are identity-stable (`useEventCallback`), the keyboard
   `actions` object and the virtualizer measure adapter are memoized, and the

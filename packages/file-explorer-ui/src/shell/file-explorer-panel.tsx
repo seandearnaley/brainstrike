@@ -38,6 +38,7 @@ import { RestoreAccessModal } from '../components/restore-access-modal';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { FilterStatus } from '../file-explorer-status-components';
 import { useExplorerScrollRestore } from '../hooks/use-explorer-scroll-restore';
+import { useStableSet } from '../hooks/use-stable-set';
 import {
   FileRowMetadataProvider,
   useExplorerRowMetadata,
@@ -458,9 +459,13 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   // Composite keys for the same visible set, feeding the background indexer's
   // second (visible/expanded) trigger so the tree can show real token counts
   // for rows the user only expanded. See BST-1207 decision D2.
-  const visibleFileSelectionKeys = useMemo(
-    () => collectVisibleFileSelectionKeys(quickFilteredTree ?? []),
-    [quickFilteredTree]
+  //
+  // Stabilized by membership: a tree commit that changes nothing visible (a
+  // selection toggle, a loading flag) still produces a FRESH Set, and that bare
+  // identity change re-arms the visible-indexing debounce for work that is
+  // already done. Content equality is the whole fix.
+  const visibleFileSelectionKeys = useStableSet(
+    useMemo(() => collectVisibleFileSelectionKeys(quickFilteredTree ?? []), [quickFilteredTree])
   );
 
   // Per-row metadata seam (BST-1207/1208). Owned here because `onTokenResolved`

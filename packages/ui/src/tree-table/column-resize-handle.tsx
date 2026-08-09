@@ -34,12 +34,16 @@ interface DragState {
 
 const HANDLE_CLASS_NAME = [
   // Position the handle as a thin overlay on the right edge with a wider hit
-  // target than the visible affordance for easier mouse targeting.
-  'absolute top-0 right-[-3px] z-10 h-full w-2.5 cursor-col-resize',
+  // target than the visible affordance for easier mouse targeting. It sits
+  // entirely INSIDE the header cell: an overhang past the last column pushed
+  // the table wider than its viewport and produced a permanent few-pixel
+  // horizontal scrollbar on any surface where the table exactly fills its
+  // container (the Explorer tree grid is always in that state).
+  'absolute top-0 right-0 z-10 h-full w-2.5 cursor-col-resize',
   'select-none touch-none',
   // Inner 1px indicator (drawn via ::after) keeps the resting state
   // ultra-subtle while the wider hit zone stays mouse-friendly.
-  "after:absolute after:top-1.5 after:bottom-1.5 after:right-[3px] after:w-px after:bg-border/40 after:content-[''] after:transition-colors",
+  "after:absolute after:top-1.5 after:bottom-1.5 after:right-0 after:w-px after:bg-border/40 after:content-[''] after:transition-colors",
   // Hover/focus elevate the indicator into a clear primary color stripe.
   'hover:after:bg-primary/70 hover:after:w-0.5',
   'focus-visible:outline-none focus-visible:after:bg-primary focus-visible:after:w-0.5',
