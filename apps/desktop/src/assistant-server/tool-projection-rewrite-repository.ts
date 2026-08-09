@@ -3,18 +3,8 @@ import {
   NATIVE_TOOL_INPUT_SCHEMAS,
   type RuntimeData,
   type ToolProjectionRewriteEntry,
-  type ToolProjectionRewriteLookup,
 } from '@brainstrike/agent';
-import {
-  denormalizeNativeToolName,
-  NATIVE_TOOL_ID,
-  type NativeToolId,
-} from '@brainstrike/assistant-contract';
-import {
-  ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
-  ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE,
-  MASTRA_MEMORY_TABLES,
-} from '@brainstrike/assistant-contract/mastra-memory-schema';
+import { isNativeToolId, NATIVE_TOOL_ID, type NativeToolId } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
 import {
@@ -34,6 +24,13 @@ import {
   resolveToolExecuteInputCandidate,
   type ToolExecuteRunContext,
 } from './tool-execute-support';
+import { type RecencyPruneInvocation, selectRecencyPruneCandidates } from './tool-projection-prune';
+import {
+  commitProjectionRewriteCandidates,
+  listPriorInvocations,
+  type PersistedToolInvocation,
+  type ProjectionRewriteDatabaseProvider,
+} from './tool-projection-rewrite-store';
 import { readStateScope } from './workspace-file-staleness';
 import {
   decodedWorkspaceTextModelOutputChars,
@@ -46,27 +43,7 @@ const logger = createLogger('ToolProjectionRewriteRepository');
 /** Cline's 64 KiB stale-read compaction trigger, measured in projected chars. */
 export const TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS = 65_536;
 
-interface ProjectionRewriteDatabaseTransaction {
-  readonly query: <T = Record<string, unknown>>(
-    sql: string,
-    params?: readonly unknown[]
-  ) => Promise<{ rows: T[] }>;
-}
-
-interface ProjectionRewriteDatabase extends ProjectionRewriteDatabaseTransaction {
-  readonly transaction: <T>(
-    callback: (tx: ProjectionRewriteDatabaseTransaction) => Promise<T>
-  ) => Promise<T>;
-}
-
-type ProjectionRewriteDatabaseProvider = () => Promise<ProjectionRewriteDatabase>;
-
-interface PersistedToolInvocation {
-  readonly args: Record<string, unknown>;
-  readonly result: unknown;
-  readonly toolCallId: string;
-  readonly toolName: string;
-}
+export { createToolProjectionRewriteLookup } from './tool-projection-rewrite-store';
 
 interface ReadProjectionResult {
   readonly ambiguousRootNames?: string[];
@@ -86,10 +63,21 @@ interface PreparedToolInvocation {
   readonly readIsDedup: boolean;
 }
 
-interface RewriteCandidate extends ToolProjectionRewriteEntry {
+type RewriteCandidate = ToolProjectionRewriteEntry & {
   readonly originalChars: number;
   readonly reclaimableChars: number;
-}
+};
+
+/**
+ * Supersession-only candidate shape: `readCandidate`/`grepCandidate`/
+ * `collectCandidates` implement ONLY Layer 1 (BST-1192) detection, which
+ * always produces a `kind: 'supersession'` row with a real superseder. Typing
+ * their return as the full `RewriteCandidate` union (which also admits the
+ * Layer 2 `kind: 'prune'` member) would let a later edit silently widen
+ * `supersededByToolCallId` past the `null`-only prune shape without a type
+ * error — see the discriminated union in `packages/agent/src/types.ts`.
+ */
+type SupersessionRewriteCandidate = Extract<RewriteCandidate, { kind: 'supersession' }>;
 
 export interface SuccessfulToolProjection {
   readonly input: unknown;
@@ -106,51 +94,6 @@ export interface ToolProjectionRewriteDependencies {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function readContentParts(value: unknown): readonly unknown[] | undefined {
-  if (Array.isArray(value)) {
-    return value;
-  }
-  if (!isRecord(value)) {
-    return;
-  }
-  if (Array.isArray(value['content'])) {
-    return value['content'];
-  }
-  if (Array.isArray(value['parts'])) {
-    return value['parts'];
-  }
-  return;
-}
-
-function parsePersistedInvocation(value: unknown): PersistedToolInvocation | undefined {
-  if (!isRecord(value) || value['type'] !== 'tool-invocation') {
-    return;
-  }
-  const invocation = value['toolInvocation'];
-  if (!isRecord(invocation)) {
-    return;
-  }
-  const args = invocation['args'];
-  const toolCallId = invocation['toolCallId'];
-  const toolName = invocation['toolName'];
-  if (
-    !isRecord(args) ||
-    typeof toolCallId !== 'string' ||
-    toolCallId.length === 0 ||
-    typeof toolName !== 'string' ||
-    toolName.length === 0 ||
-    !Object.hasOwn(invocation, 'result')
-  ) {
-    return;
-  }
-  return {
-    args,
-    result: invocation['result'],
-    toolCallId,
-    toolName: denormalizeNativeToolName(toolName),
-  };
 }
 
 function parseReadProjectionResult(value: unknown): ReadProjectionResult | undefined {
@@ -217,7 +160,7 @@ function readCandidate(
   invocation: PersistedToolInvocation,
   result: ReadProjectionResult,
   superseder: PersistedToolInvocation
-): RewriteCandidate | undefined {
+): SupersessionRewriteCandidate | undefined {
   try {
     const markerText = buildReadSupersededMarker(result, superseder.toolName);
     // BST-1195: the ONE domain-projection ruler for `type: 'text'` outputs is
@@ -230,6 +173,7 @@ function readCandidate(
     ]);
     const markerChars = decodedWorkspaceTextModelOutputChars([markerText]);
     return {
+      kind: 'supersession',
       markerText,
       originalChars,
       reclaimableChars: Math.max(0, originalChars - markerChars),
@@ -246,7 +190,9 @@ function readCandidate(
   }
 }
 
-function grepCandidate(invocation: PersistedToolInvocation): RewriteCandidate | undefined {
+function grepCandidate(
+  invocation: PersistedToolInvocation
+): SupersessionRewriteCandidate | undefined {
   let result: GrepToolResult;
   try {
     result = parseGrepToolResult(invocation.result);
@@ -264,6 +210,7 @@ function grepCandidate(invocation: PersistedToolInvocation): RewriteCandidate | 
   ]);
   const markerChars = decodedWorkspaceTextModelOutputChars([markerText]);
   return {
+    kind: 'supersession',
     markerText,
     originalChars,
     reclaimableChars: Math.max(0, originalChars - markerChars),
@@ -411,7 +358,7 @@ function prepareInvocation(
 function collectCandidates(args: {
   readonly current: SuccessfulToolProjection;
   readonly invocations: readonly PersistedToolInvocation[];
-}): RewriteCandidate[] {
+}): SupersessionRewriteCandidate[] {
   if (!(isRecord(args.current.input) && args.current.toolCallId)) {
     throw new TypeError('Tracked tool projection input and tool-call id must be present.');
   }
@@ -420,6 +367,7 @@ function collectCandidates(args: {
     prepareInvocation(
       {
         args: args.current.input,
+        modelOutput: undefined,
         result: args.current.result,
         toolCallId: args.current.toolCallId,
         toolName: args.current.toolId,
@@ -427,7 +375,7 @@ function collectCandidates(args: {
       false
     ),
   ];
-  const candidates: RewriteCandidate[] = [];
+  const candidates: SupersessionRewriteCandidate[] = [];
   for (let earlierIndex = 0; earlierIndex < history.length - 1; earlierIndex += 1) {
     const earlier = history[earlierIndex];
     if (!earlier) {
@@ -455,98 +403,22 @@ function collectCandidates(args: {
   return candidates;
 }
 
-async function listPriorInvocations(
-  database: ProjectionRewriteDatabase,
-  threadId: string
-): Promise<PersistedToolInvocation[]> {
-  const result = await database.query<{ content: unknown }>(
-    `SELECT messages.content AS content
-     FROM ${MASTRA_MEMORY_TABLES.messages} AS messages
-     WHERE messages.thread_id = $1
-       AND messages.role = 'assistant'
-       AND NOT EXISTS (
-         SELECT 1 FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} AS tombstones
-         WHERE tombstones.message_id = messages.id
-       )
-     ORDER BY messages."createdAt" ASC, messages.id ASC`,
-    [threadId]
-  );
-  const invocations: PersistedToolInvocation[] = [];
-  for (const row of result.rows) {
-    for (const part of readContentParts(row.content) ?? []) {
-      const invocation = parsePersistedInvocation(part);
-      if (invocation) {
-        invocations.push(invocation);
-      }
-    }
+function toRecencyPruneInvocation(
+  invocation: PersistedToolInvocation
+): RecencyPruneInvocation | undefined {
+  if (!isNativeToolId(invocation.toolName)) {
+    return;
   }
-  const existing = await database.query<{ toolCallId: string }>(
-    `SELECT tool_call_id AS "toolCallId"
-     FROM ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE} WHERE thread_id = $1`,
-    [threadId]
-  );
-  const existingIds = new Set(existing.rows.map((row) => row.toolCallId));
-  return invocations.filter((invocation) => !existingIds.has(invocation.toolCallId));
-}
-
-async function commitCandidates(
-  database: ProjectionRewriteDatabase,
-  threadId: string,
-  candidates: readonly RewriteCandidate[]
-): Promise<number> {
-  const rewriteId = crypto.randomUUID();
-  return await database.transaction(async (tx) => {
-    const result = await tx.query<{ toolCallId: string }>(
-      `INSERT INTO ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE}
-        (tool_call_id, thread_id, rewrite_id, superseded_by_tool_call_id, marker_text, original_chars)
-       SELECT batch.tool_call_id, $1, $2, batch.superseded_by_tool_call_id,
-              batch.marker_text, batch.original_chars
-       FROM unnest($3::text[], $4::text[], $5::text[], $6::integer[])
-         AS batch(tool_call_id, superseded_by_tool_call_id, marker_text, original_chars)
-       ON CONFLICT (tool_call_id) DO NOTHING
-       RETURNING tool_call_id AS "toolCallId"`,
-      [
-        threadId,
-        rewriteId,
-        candidates.map((candidate) => candidate.toolCallId),
-        candidates.map((candidate) => candidate.supersededByToolCallId),
-        candidates.map((candidate) => candidate.markerText),
-        candidates.map((candidate) => candidate.originalChars),
-      ]
+  if (invocation.modelOutput === undefined) {
+    throw new TypeError(
+      `Native-tool history ${invocation.toolCallId} is missing its persisted model projection.`
     );
-    return result.rows.length;
-  });
-}
-
-export function createToolProjectionRewriteLookup(
-  databaseProvider: ProjectionRewriteDatabaseProvider
-): ToolProjectionRewriteLookup {
+  }
   return {
-    listActiveRewrites: async (threadId) => {
-      const database = await databaseProvider();
-      const result = await database.query<{
-        markerText: string;
-        supersededByToolCallId: string;
-        toolCallId: string;
-      }>(
-        `SELECT tool_call_id AS "toolCallId",
-                superseded_by_tool_call_id AS "supersededByToolCallId",
-                marker_text AS "markerText"
-         FROM ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE}
-         WHERE thread_id = $1`,
-        [threadId]
-      );
-      return new Map(
-        result.rows.map((row) => [
-          row.toolCallId,
-          {
-            markerText: row.markerText,
-            supersededByToolCallId: row.supersededByToolCallId,
-            toolCallId: row.toolCallId,
-          },
-        ])
-      );
-    },
+    args: invocation.args,
+    modelOutput: invocation.modelOutput,
+    toolCallId: invocation.toolCallId,
+    toolName: invocation.toolName,
   };
 }
 
@@ -564,28 +436,62 @@ export async function recordSuccessfulToolProjection(
   const databaseProvider =
     dependencies.getDatabase ?? (getDatabase as ProjectionRewriteDatabaseProvider);
   const database = await databaseProvider();
-  const invocations = await listPriorInvocations(database, threadId);
-  const candidates = collectCandidates({ current, invocations });
+  const scan = await listPriorInvocations(database, threadId);
+  const candidates = collectCandidates({ current, invocations: scan.invocations });
   const reclaimableChars = candidates.reduce(
     (total, candidate) => total + candidate.reclaimableChars,
     0
   );
-  if (reclaimableChars < TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS) {
+  const supersessionCandidateIds = new Set<string>();
+  if (reclaimableChars >= TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS) {
+    for (const candidate of candidates) {
+      supersessionCandidateIds.add(candidate.toolCallId);
+    }
+    const insertedIds = await commitProjectionRewriteCandidates(database, threadId, candidates);
+    if (insertedIds.size > 0) {
+      (dependencies.resetLoopGuards ?? resetToolCallLoopGuards)(
+        readStateScope(current.runtimeData)
+      );
+      logger.info(
+        {
+          code: 'tool_projection_rewrite_batch_committed',
+          inserted: insertedIds.size,
+          reclaimableChars,
+          threadId,
+        },
+        'committed superseded native-tool projection rewrite batch'
+      );
+    }
+  }
+
+  const pruneCandidates = selectRecencyPruneCandidates({
+    currentTurnToolCallIds: scan.currentTurnToolCallIds,
+    invocations: scan.invocations
+      .filter((invocation) => !supersessionCandidateIds.has(invocation.toolCallId))
+      .map(toRecencyPruneInvocation)
+      .filter((invocation): invocation is RecencyPruneInvocation => invocation !== undefined),
+  });
+  if (pruneCandidates.length === 0) {
     return;
   }
-  const inserted = await commitCandidates(database, threadId, candidates);
-  if (inserted === 0) {
+  const prunedIds = await commitProjectionRewriteCandidates(database, threadId, pruneCandidates);
+  if (prunedIds.size === 0) {
     return;
   }
+  const prunedReclaimableChars = pruneCandidates.reduce(
+    (total, candidate) =>
+      prunedIds.has(candidate.toolCallId) ? total + candidate.reclaimableChars : total,
+    0
+  );
   (dependencies.resetLoopGuards ?? resetToolCallLoopGuards)(readStateScope(current.runtimeData));
   logger.info(
     {
-      code: 'tool_projection_rewrite_batch_committed',
-      inserted,
-      reclaimableChars,
+      code: 'tool_projection_prune_batch_committed',
+      prunedRows: prunedIds.size,
+      reclaimableChars: prunedReclaimableChars,
       threadId,
     },
-    'committed superseded native-tool projection rewrite batch'
+    'committed recency-pruned native-tool projection rewrite batch'
   );
 }
 

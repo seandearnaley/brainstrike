@@ -240,6 +240,10 @@ export {
   isToolProjectionInputRejected,
   ToolProjectionInputRejectedError,
 } from './mastra/tool-projection-input-rejected';
+export {
+  buildToolProjectionRewriteInputProcessor,
+  ToolProjectionRewriteProcessor,
+} from './mastra/tool-projection-rewrite-processor';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';
@@ -432,6 +436,7 @@ export {
   toJsonSafe,
 } from './stream/json';
 export {
+  APPROX_CHARS_PER_TOKEN,
   decodedTextModelOutputChars,
   fitItemsToCharBudget,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,

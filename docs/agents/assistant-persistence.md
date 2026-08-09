@@ -858,8 +858,9 @@ Desktop native workspace inspection history is compacted at the transient
 provider-request boundary without mutating Mastra-owned message content.
 
 - **Where state lives:**
-  `brainstrike_assistant_tool_projection_rewrites` (migration 084 in BOTH
-  runners plus the byte-identical app-shell bootstrap mirror; no FKs because
+  `brainstrike_assistant_tool_projection_rewrites` (migration 084 plus the
+  migration-087 kind extension in BOTH runners and the final-shape-equivalent
+  app-shell bootstrap mirror; no FKs because
   numbered migrations run without Mastra's lazy tables). `tool_call_id` is the
   primary key; `thread_id` owns cleanup; `rewrite_id` groups one committed
   batch for diagnostics; `superseded_by_tool_call_id` is the live-evidence
@@ -910,7 +911,55 @@ provider-request boundary without mutating Mastra-owned message content.
   stub from referring to evidence the new batch will collapse. Below-threshold
   scans do not reset the guards.
 
-Layer 2 recency-window pruning is deliberately outside this contract/pass.
+## RECENCY-WINDOW TOOL-PROJECTION PRUNING (BST-1200, LAYER 2)
+
+Layer 2 reuses Layer 1's transient overlay and never mutates Mastra message
+content.
+
+- **State and replay kind:** migration 087 adds CHECK-constrained
+  `kind IN ('supersession', 'prune')`, makes
+  `superseded_by_tool_call_id` nullable, and ties the two with a second CHECK:
+  supersession requires a non-null superseder; prune requires NULL. Existing
+  rows backfill to `supersession`. The processor keeps Layer 1's
+  current-prompt superseder-presence gate only for supersession rows. A prune
+  row applies whenever its own call remains in the already-tombstone-filtered
+  prompt; rewinding unrelated later messages does not make age-selected
+  evidence fresh again.
+- **Deterministic selection:** desktop measures each persisted
+  `providerMetadata.mastra.modelOutput` text projection with
+  `decodedTextModelOutputChars`; a malformed/missing native projection aborts
+  the optimization visibly. `TOOL_PROJECTION_PRUNE_PROTECT_WINDOW_TOKENS`
+  (40,000) protects whole invocations overlapping the newest window, derived
+  as 160,000 decoded chars through `APPROX_CHARS_PER_TOKEN = 4`.
+  `TOOL_PROJECTION_PRUNE_MIN_RECLAIM_TOKENS` (20,000) gates the sum of decoded
+  full-result-minus-marker savings, likewise derived as 80,000 chars. Below
+  the floor the pass writes nothing. Repeated Mastra snapshot copies of one
+  `toolCallId` keep their latest projection and count once. `skill`,
+  `skill_read`, and `skill_search`
+  are ineligible at every age; `brainstrike.runSkillScript` is ordinary
+  prunable output.
+- **Current turn is an explicit persisted boundary:** the scan uses the latest
+  visible persisted user message, matching the runtime's last-real-user turn
+  anchor. Assistant rows after that anchor are current-turn rows, and every
+  tool-call id they carry or reference is ineligible even if an earlier
+  snapshot repeats it. With no visible user anchor, every assistant row is
+  conservatively current. Current-turn results still participate in the
+  newest-window size walk, but can never become candidates.
+- **Markers are generic and visible:** one line names the canonical native tool
+  id, a 12-hex SHA-256 digest of `stableNormalizedArgsKey(args)`, and directs
+  the model to re-run the tool. Raw invocation args/results stay byte-identical
+  in `mastra_messages`.
+- **Trigger and commit:** the scan runs after successful executions at Layer
+  1's existing four decoration points (`grepSearch`, `readWorkspaceFile`,
+  `stringReplaceWorkspaceFile`, `writeWorkspaceFile`). This keeps one
+  deterministic post-success path and fixed-count SQL reads; it adds no job,
+  queue, LLM call, or per-invocation query. One transaction inserts the batch
+  with `ON CONFLICT (tool_call_id) DO NOTHING`, so replay scans cannot
+  double-prune. Only an actually inserted prune batch resets
+  `resetToolCallLoopGuards(readStateScope(runtimeData))`, preventing dedup stubs
+  from pointing at newly collapsed evidence, and emits the structured
+  `tool_projection_prune_batch_committed` log with row and reclaimed-char
+  totals.
 
 ## CONVERSATION REWIND TOMBSTONES (BST-1115)
 

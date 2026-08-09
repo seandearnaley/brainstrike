@@ -1,3 +1,7 @@
+import {
+  type ToolProjectionRewriteEntry,
+  ToolProjectionRewriteProcessor,
+} from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,9 +10,17 @@ import { projectReadWorkspaceFileModelOutput } from '../../assistant-server/read
 import { readProjectionHeaderPrefix } from '../../assistant-server/read-workspace-file-result-contract';
 import {
   buildGrepSupersededMarker,
+  createToolProjectionRewriteLookup,
   recordSuccessfulToolProjection,
   TOOL_PROJECTION_REWRITE_BATCH_THRESHOLD_CHARS,
 } from '../../assistant-server/tool-projection-rewrite-repository';
+
+// apps/desktop does not (and must not) depend on @mastra/core directly — the
+// mastra-boundary contract keeps Mastra Node-only and embedded inside
+// packages/agent. Derive the processor's own request-arg shape structurally
+// from the already-imported `ToolProjectionRewriteProcessor` instead of
+// importing '@mastra/core/processors' here.
+type ProcessLLMRequestArgs = Parameters<ToolProjectionRewriteProcessor['processLLMRequest']>[0];
 
 function invocation(args: {
   readonly id: string;
@@ -19,6 +31,9 @@ function invocation(args: {
   return JSON.stringify({
     content: [
       {
+        providerMetadata: {
+          mastra: { modelOutput: { type: 'text', value: JSON.stringify(args.result) } },
+        },
         toolInvocation: {
           args: args.input,
           result: args.result,
@@ -67,6 +82,47 @@ function readResult(contentLength: number, endLine = 100, overrides: Record<stri
 
 const LARGE_READ_CONTENT_CHARS = 5000;
 const READS_TO_CROSS_BATCH_THRESHOLD = 14;
+
+async function replayWithRewrites(
+  lookup: {
+    listActiveRewrites: (
+      threadId: string
+    ) => Promise<ReadonlyMap<string, ToolProjectionRewriteEntry>>;
+  },
+  calls: readonly { id: string; output: string; toolName: string }[]
+): Promise<ProcessLLMRequestArgs['prompt']> {
+  const prompt: ProcessLLMRequestArgs['prompt'] = calls.flatMap((call) => [
+    {
+      content: [
+        { input: {}, toolCallId: call.id, toolName: call.toolName, type: 'tool-call' as const },
+      ],
+      role: 'assistant' as const,
+    },
+    {
+      content: [
+        {
+          output: { type: 'text' as const, value: call.output },
+          toolCallId: call.id,
+          toolName: call.toolName,
+          type: 'tool-result' as const,
+        },
+      ],
+      role: 'tool' as const,
+    },
+  ]);
+  const result = await new ToolProjectionRewriteProcessor('thread-1', lookup).processLLMRequest({
+    abort: (reason?: string): never => {
+      throw new Error(reason ?? 'processor aborted');
+    },
+    model: {} as ProcessLLMRequestArgs['model'],
+    prompt,
+    retryCount: 0,
+    state: {},
+    stepNumber: 1,
+    steps: [],
+  });
+  return result?.prompt ?? prompt;
+}
 
 async function insertLargeReads(
   db: PGlite,
@@ -144,10 +200,17 @@ describe('tool projection rewrite overlay', () => {
         tool_call_id text PRIMARY KEY,
         thread_id text NOT NULL,
         rewrite_id text NOT NULL,
-        superseded_by_tool_call_id text NOT NULL,
+        superseded_by_tool_call_id text,
+        kind text NOT NULL DEFAULT 'supersession'
+          CHECK (kind IN ('supersession', 'prune')),
         marker_text text NOT NULL,
         original_chars integer NOT NULL CHECK (original_chars >= 0),
-        created_at timestamptz NOT NULL DEFAULT NOW()
+        created_at timestamptz NOT NULL DEFAULT NOW(),
+        CONSTRAINT brainstrike_tool_projection_rewrite_kind_superseder_check
+          CHECK (
+            (kind = 'supersession' AND superseded_by_tool_call_id IS NOT NULL)
+            OR (kind = 'prune' AND superseded_by_tool_call_id IS NULL)
+          )
       );
     `);
   });
@@ -571,5 +634,125 @@ describe('tool projection rewrite overlay', () => {
     expect(
       (await db.query('SELECT * FROM brainstrike_assistant_tool_projection_rewrites')).rows
     ).toHaveLength(0);
+  });
+
+  it('prunes only old non-skill projections without mutating raw history or reviving on rewind', async () => {
+    const seeded = [
+      { id: 'old-python-a', size: 90_000, toolName: NATIVE_TOOL_ID.runPython },
+      { id: 'old-python-b', size: 90_000, toolName: NATIVE_TOOL_ID.runPython },
+      { id: 'old-skill', size: 90_000, toolName: NATIVE_TOOL_ID.skill },
+    ] as const;
+    for (const [index, item] of seeded.entries()) {
+      await insertMessage(
+        db,
+        {
+          id: item.id,
+          input: { fixture: item.id },
+          result: { payload: `${item.id}:${'x'.repeat(item.size)}` },
+          toolName: item.toolName,
+        },
+        new Date(Date.UTC(2026, 7, 8, 10, index)).toISOString()
+      );
+    }
+    await db.query(
+      `INSERT INTO mastra_messages (id, thread_id, content, role, type, "createdAt", "resourceId")
+       VALUES ('user-current', 'thread-1', '{"format":2,"parts":[{"type":"text","text":"continue"}]}'::jsonb,
+               'user', 'v2', '2026-08-08T11:00:00Z', 'resource-1')`
+    );
+    const currentTurn = [
+      { id: 'current-turn-old', size: 90_000, toolName: NATIVE_TOOL_ID.runPython },
+      {
+        id: 'unrelated-later-message',
+        size: 170_000,
+        toolName: NATIVE_TOOL_ID.executeCommand,
+      },
+    ] as const;
+    for (const [index, item] of currentTurn.entries()) {
+      await insertMessage(
+        db,
+        {
+          id: item.id,
+          input: { fixture: item.id },
+          result: { payload: `${item.id}:${'x'.repeat(item.size)}` },
+          toolName: item.toolName,
+        },
+        new Date(Date.UTC(2026, 7, 8, 11, index + 1)).toISOString()
+      );
+    }
+    const before = await db.query<{ content: string }>(
+      `SELECT content::text AS content FROM mastra_messages WHERE role = 'assistant' ORDER BY id`
+    );
+    await recordSuccessfulToolProjection(
+      {
+        input: { content: 'trigger', path: 'src/unrelated.ts', root: 'root-a' },
+        result: {
+          bytesWritten: 7,
+          created: true,
+          path: 'src/unrelated.ts',
+          rootId: 'root-a',
+          rootName: 'workspace',
+        },
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'write-trigger',
+        toolId: NATIVE_TOOL_ID.writeWorkspaceFile,
+      },
+      { getDatabase: databaseProvider, resetLoopGuards }
+    );
+
+    const overlays = await db.query<{ kind: string; toolCallId: string }>(
+      `SELECT kind, tool_call_id AS "toolCallId" FROM brainstrike_assistant_tool_projection_rewrites ORDER BY tool_call_id`
+    );
+    expect(overlays.rows).toEqual([
+      { kind: 'prune', toolCallId: 'old-python-a' },
+      { kind: 'prune', toolCallId: 'old-python-b' },
+    ]);
+    expect(
+      (
+        await db.query<{ content: string }>(
+          `SELECT content::text AS content FROM mastra_messages WHERE role = 'assistant' ORDER BY id`
+        )
+      ).rows
+    ).toEqual(before.rows);
+
+    const calls = [...seeded, ...currentTurn].map((item) => ({
+      id: item.id,
+      output: `${item.id}:original`,
+      toolName: item.toolName,
+    }));
+    const lookup = createToolProjectionRewriteLookup(databaseProvider);
+    const replay = JSON.stringify(await replayWithRewrites(lookup, calls));
+    expect(replay).toContain('tool=brainstrike.runPython');
+    expect(replay).toContain('old-skill:original');
+    expect(replay).toContain('current-turn-old:original');
+    expect(replay).toContain('unrelated-later-message:original');
+    expect(replay).not.toContain('old-python-a:original');
+
+    await db.query(
+      `INSERT INTO brainstrike_assistant_message_tombstones (message_id, thread_id, rewind_id)
+       VALUES ('message-unrelated-later-message', 'thread-1', 'rewind-unrelated')`
+    );
+    expect(JSON.stringify(await replayWithRewrites(lookup, calls))).not.toContain(
+      'old-python-a:original'
+    );
+    await recordSuccessfulToolProjection(
+      {
+        input: { content: 'trigger', path: 'src/unrelated.ts', root: 'root-a' },
+        result: {
+          bytesWritten: 7,
+          created: true,
+          path: 'src/unrelated.ts',
+          rootId: 'root-a',
+          rootName: 'workspace',
+        },
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'write-trigger-2',
+        toolId: NATIVE_TOOL_ID.writeWorkspaceFile,
+      },
+      { getDatabase: databaseProvider, resetLoopGuards }
+    );
+    expect(
+      (await db.query('SELECT * FROM brainstrike_assistant_tool_projection_rewrites')).rows
+    ).toHaveLength(2);
+    expect(resetLoopGuards).toHaveBeenCalledOnce();
   });
 });

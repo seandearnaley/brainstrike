@@ -216,11 +216,15 @@ Migration 084 owns the FK-less
 `brainstrike_assistant_tool_projection_rewrites` overlay used by BST-1192's
 transient stale-read replay processor. Register it in both migration runners,
 the reset registry, all three table-enumerating clear paths, and the shared
-thread-delete sidecar list. Mirror its DDL byte-for-byte in renderer lazy
+thread-delete sidecar list. Mirror its final schema in renderer lazy
 assistant bootstrap because that repository's delete CTE references every
 sidecar unconditionally even though desktop main owns normal writes. Durable
-Mastra message content is never mutated; rewind recovery is the processor's
-current-prompt superseder-presence check. Full contract:
+Mastra message content is never mutated. Migration 087 adds the
+supersession/prune discriminator and nullable superseder used by BST-1200's
+recency pruning; both the migration ledger and bootstrap mirror carry the final
+shape. Supersession rewind recovery remains the processor's current-prompt
+superseder-presence check, while prune rows remain active whenever their own
+call is visible. Full contract:
 `docs/agents/assistant-persistence.md` § STALE TOOL-PROJECTION REWRITE OVERLAYS.
 
 ## PGLITE EXTENSION INVARIANT

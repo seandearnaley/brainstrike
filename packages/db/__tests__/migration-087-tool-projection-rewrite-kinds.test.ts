@@ -1,0 +1,102 @@
+import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
+import { vector } from '@electric-sql/pglite-pgvector';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runMigrations } from '../src/drizzle/migrate.js';
+import { MigrationRunner, migrations } from '../src/migrations/index.js';
+import { wasmLoader } from '../src/wasm-loader.js';
+import { createPGliteTestDataDir } from './test-data-dir';
+
+const TABLE = 'brainstrike_assistant_tool_projection_rewrites';
+
+describe('migration 087: tool projection rewrite kinds (BST-1200)', () => {
+  let db: PGlite;
+  let runner: MigrationRunner;
+
+  beforeEach(async () => {
+    db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-tool-rewrite-kinds'));
+    runner = new MigrationRunner(db);
+    await runner.initialize();
+    await runner.up(migrations.filter((migration) => migration.version < 87));
+  });
+
+  afterEach(async () => db.close());
+
+  it('backfills supersession rows and round-trips prune rows idempotently', async () => {
+    await db.query(
+      `INSERT INTO ${TABLE}
+        (tool_call_id, thread_id, rewrite_id, superseded_by_tool_call_id, marker_text, original_chars)
+       VALUES ('call-old', 'thread-1', 'rewrite-1', 'call-new', 'superseded marker', 42)`
+    );
+    const migration = migrations.find((candidate) => candidate.version === 87);
+    expect(migration).toBeDefined();
+    await db.exec(migration!.up);
+    await db.exec(migration!.up);
+
+    await db.query(
+      `INSERT INTO ${TABLE}
+        (tool_call_id, thread_id, rewrite_id, kind, superseded_by_tool_call_id, marker_text, original_chars)
+       VALUES ('call-pruned', 'thread-1', 'rewrite-2', 'prune', NULL, 'pruned marker', 84)`
+    );
+    const rows = await db.query<{
+      kind: string;
+      supersededByToolCallId: string | null;
+      toolCallId: string;
+    }>(
+      `SELECT tool_call_id AS "toolCallId", kind,
+              superseded_by_tool_call_id AS "supersededByToolCallId"
+       FROM ${TABLE} ORDER BY tool_call_id`
+    );
+    expect(rows.rows).toEqual([
+      { kind: 'supersession', supersededByToolCallId: 'call-new', toolCallId: 'call-old' },
+      { kind: 'prune', supersededByToolCallId: null, toolCallId: 'call-pruned' },
+    ]);
+  });
+
+  it('rejects rewrite-kind and superseder-nullability mismatches', async () => {
+    const migration = migrations.find((candidate) => candidate.version === 87)!;
+    await db.exec(migration.up);
+    await expect(
+      db.query(
+        `INSERT INTO ${TABLE}
+          (tool_call_id, thread_id, rewrite_id, kind, superseded_by_tool_call_id, marker_text, original_chars)
+         VALUES ('bad-prune', 'thread-1', 'rewrite-1', 'prune', 'fake-call', 'marker', 1)`
+      )
+    ).rejects.toThrow(/check constraint/i);
+    await expect(
+      db.query(
+        `INSERT INTO ${TABLE}
+          (tool_call_id, thread_id, rewrite_id, kind, superseded_by_tool_call_id, marker_text, original_chars)
+         VALUES ('bad-supersession', 'thread-1', 'rewrite-1', 'supersession', NULL, 'marker', 1)`
+      )
+    ).rejects.toThrow(/check constraint/i);
+  });
+});
+
+describe('migration 087 in the drizzle runner', () => {
+  let db: PGlite;
+
+  beforeEach(() => {
+    db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
+  });
+
+  afterEach(async () => db.close());
+
+  it('creates the final rewrite-kind shape in the production runner', {
+    timeout: 60_000,
+  }, async () => {
+    expect((await runMigrations(db)).success).toBe(true);
+    const columns = await db.query<{ columnName: string; isNullable: string }>(
+      `SELECT column_name AS "columnName", is_nullable AS "isNullable"
+       FROM information_schema.columns
+       WHERE table_name = $1 AND column_name IN ('kind', 'superseded_by_tool_call_id')
+       ORDER BY column_name`,
+      [TABLE]
+    );
+    expect(columns.rows).toEqual([
+      { columnName: 'kind', isNullable: 'NO' },
+      { columnName: 'superseded_by_tool_call_id', isNullable: 'YES' },
+    ]);
+  });
+});
