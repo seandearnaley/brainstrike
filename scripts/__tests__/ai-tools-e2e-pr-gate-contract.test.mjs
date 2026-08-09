@@ -58,16 +58,32 @@ test('REAL REPO: every desktop AI Tools settings title is selected by Desktop E2
   assert.match(smokeCommand, /--grep=["']@smoke["']/);
 });
 
+test('REAL REPO: desktop smoke tags remain selected by nightly regression', () => {
+  const desktopPackage = JSON.parse(read('apps/desktop/package.json'));
+  assert.match(
+    desktopPackage.scripts['test:e2e:lane:full-regression'],
+    /--grep-invert=["']@desktop-embedding-["']/
+  );
+  assert.match(
+    read('apps/desktop/playwright.config.ts'),
+    /\{\s*(?:\/\/[^\n]*\n\s*)*name:\s*['"]regression['"],\s*\}/m
+  );
+});
+
 test('REAL REPO: pull-request E2E jobs invoke both smoke lane scripts', () => {
   const workflow = parseYaml(read('.github/workflows/test.yml'));
   assert.ok(workflow.on?.pull_request, 'test.yml must run on pull requests');
 
-  const jobRuns = (jobId) =>
-    workflow.jobs[jobId].steps
-      .map((step) => step.run)
-      .filter((run) => typeof run === 'string')
-      .join('\n');
+  const assertRequiredSmokeStep = (jobId, commandPattern) => {
+    const job = workflow.jobs[jobId];
+    assert.doesNotMatch(String(job.if ?? ''), /pull_request/);
+    const matchingSteps = job.steps.filter(
+      (step) => typeof step.run === 'string' && commandPattern.test(step.run)
+    );
+    assert.equal(matchingSteps.length, 1, `${jobId} must have one exact smoke invocation`);
+    assert.equal(matchingSteps[0].if, undefined, `${jobId} smoke step must be unconditional`);
+  };
 
-  assert.match(jobRuns('web-e2e'), /pnpm --filter @brainstrike\/web run test:e2e:lane:smoke/);
-  assert.match(jobRuns('desktop-e2e'), /pnpm run test:e2e:lane:smoke/);
+  assertRequiredSmokeStep('web-e2e', /pnpm --filter @brainstrike\/web run test:e2e:lane:smoke/);
+  assertRequiredSmokeStep('desktop-e2e', /pnpm run test:e2e:lane:smoke/);
 });

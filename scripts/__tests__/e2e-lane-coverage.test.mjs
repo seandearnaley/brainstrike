@@ -684,10 +684,9 @@ test('REAL REPO: the modelled project grep filters still match the Playwright co
   );
   const webConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/playwright.config.ts'), 'utf8');
 
-  // desktop:regression's grepInvert is the only project filter that changes a
-  // verdict — it means a @smoke-titled desktop spec missing from the smoke lane's
-  // file list runs nowhere.
-  assert.match(desktopConfig, /grepInvert: \/@smoke\/,\s*\n\s*name: 'regression',/);
+  // desktop:regression is project-level unfiltered. Package/workflow lane
+  // commands own the complementary embedding grep/grepInvert filters.
+  assert.match(desktopConfig, /\{\s*(?:\/\/[^\n]*\n\s*)*name: 'regression',\s*\}/);
   assert.match(desktopConfig, /grep: \/@smoke\/,\s*\n\s*name: 'smoke',/);
   assert.match(webConfig, /grep: \/@smoke\/,\s*\n\s*name: 'smoke',/);
   assert.doesNotMatch(
