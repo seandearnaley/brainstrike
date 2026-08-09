@@ -262,10 +262,11 @@ post-hook execution result without replacing it. A discriminated internal
 carrier takes PostToolUse context to `toModelOutput`; Mastra's official
 display/transcript transforms unwrap it so live application consumers and the
 durable transcript retain the exact domain result. Generated/default
-projections use the 2000-token / 8000-serialized-character ceiling.
-Purpose-built domain
-projectors MUST self-fit complete output within 1500 tokens / 6000 serialized
-characters and fail loudly on overflow; the central seam never truncates an
+projections use the unchanged 2000-token / 8000-serialized-character ceiling.
+Purpose-built domain projectors MUST self-fit complete output within the active
+run's context-window-scaled default (500..3000 tokens / 2000..12000
+characters; 1500 / 6000 at the 128k anchor) and fail loudly on overflow; the
+central seam never truncates an
 opaque page after its continuation was computed. Guarded failures bypass custom
 projectors. Successful PostToolUse metadata is stripped before projection
 (one explicit internal envelope preserves every original result shape),
@@ -283,10 +284,43 @@ separately typed boundary.
 Mastra may replay a stored `providerMetadata.mastra.modelOutput` through the
 same tool projector while preparing a later same-run provider step. A
 purpose-built projector that emits a recognizable canonical envelope must
-therefore accept its own envelope idempotently, validate the same domain budget,
-and never reinterpret arbitrary lookalike domain objects. `grepSearch` pins this
+therefore accept its own envelope idempotently. Stored/settled replay validates
+the default domain portion against the fixed ceiling tier rather than a smaller
+current-run budget; fresh projections use the per-run resolved tier. It must
+validate the applicable domain budget and never reinterpret arbitrary lookalike
+domain objects. `grepSearch` pins this
 with the exact `{ type: 'text', value: 'grep …' }` replay that previously
 terminated a hosted Claude verification run.
+
+**Known tradeoff (BST-1206 review): replay's hook-context composition also
+uses the ceiling tier, not the resolved one — documented, not yet fixed.**
+When a settled/replayed projection carries `hookContext`, the domain payload
+(validated above, accepted at the ceiling tier — up to 12,000 chars) is
+combined with that hook context via `composeHookContextWithProjection`, which
+ALSO receives the ceiling-tier budget object on replay, not the current run's
+resolved one. In principle this could be tightened — accept the stored domain
+projection at the ceiling tier (unchanged, for the reasons above) while fitting
+any newly-composed hook context against the resolved budget, truncating the
+hook context (never the domain payload) when it does not fit. In practice this
+composition step's *total* envelope check is `totalSerializedChars`
+(`MAX_MODEL_TOOL_RESULT_CHAR_BUDGET`, the fixed 8000-character raw-output
+ceiling mentioned above) — a THIRD budget axis, deliberately left fixed and out
+of BST-1206's scope (only the domain and transport budgets scale; see
+`tool-output-limits.ts`'s anchor/floor/ceiling formula). Because that field is
+identical on both the ceiling-tier and per-run-resolved `ModelProjectionBudget`
+objects today, passing one or the other to `composeHookContextWithProjection`
+on replay currently has NO differential effect — making the fix meaningful
+requires also scaling `totalSerializedChars`/`totalTokens`, which would expand
+BST-1206's scope reactively during PR stabilization instead of as a deliberate,
+separately-tested change. Net effect: a projection settled during a huge-window
+run (domain payload sized up to the 12,000-char ceiling) that replays with hook
+context on a small-window run (e.g. an 8192-token local model) can compose a
+combined envelope sized for the ORIGINAL run's budget, not the replaying run's
+— the same 12,000-char-vs-3000-token-window mismatch the domain-only case
+already accepts by design, just one layer further out. Deferred as a follow-up
+(paired with BST-1219's desktop-projector threading, since both require
+widening what budget context reaches a replay) rather than implemented
+here.
 
 `ModelOutputProjectionObserver` receives `(toolName, output)` at this final
 projection seam. `RunTokenDiagnostics` uses it to retain one privacy-safe
@@ -299,6 +333,20 @@ truncation is recognized only from final `{type:'json', value:{truncated:true}}`
 projections. `grepSearch` and `globWorkspace` attach zero-match, request-offset,
 and typed truncation metadata to their raw result in a private WeakMap before
 projection, so no projected-text parsing or user search data enters telemetry.
+
+At run end, the same diagnostics instance may emit one internal
+`token-estimate-calibration` chunk only for a completed run with at least one
+measured model-visible tool output. The numerator is the chars/4 backstop over
+model-visible tool-output projections plus tool definitions, each counted once.
+The denominator is `finalStepPromptTokens`, the single most recent step's
+prompt-token count; via Mastra's resend behavior that prompt already contains
+every prior tool output exactly once, unlike the cross-step accumulated billing
+total. Both figures therefore use the same final-prompt-content basis.
+Conversation/system-prompt text outside tool outputs and definitions is excluded
+from both. The desktop run-persistence capability consumes the chunk before
+renderer serialization; incomplete runs, missing final-step usage, failed
+measurement, zero measured projections, or missing model/provider attribution
+emit no sample.
 
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
@@ -328,11 +376,15 @@ display/transcript can render media, and they retain the explicit aggregate
 media plus non-media metadata ceilings with or without durable settlement.
 Desktop builds the paired `brainstrike.readToolOutputArtifact` capability only
 when server-owned resource and thread scope plus the database bridge exist.
-The registered model tool accepts only the opaque continuation cursor, never
-artifact metadata or ownership ids. The tool returns the raw bounded page to display/persistence and a
-separately fitted model projection whose continuation call remains inside the
-domain projection budget. No capability means no registered tool; Desktop
-never installs a stub or an unscoped fallback.
+The registered model tool accepts the opaque continuation cursor plus bounded
+page/search options, never artifact metadata or ownership ids. Plain calls
+return the raw bounded page; `pattern` calls search the same validated slice and
+project compact grep-style matching lines. Any unscanned source or
+projection-omitted match carries an advancing cursor; missing continuation
+guidance fails the run. Artifact-mint hints advertise whole-result delegation
+only when persona assembly registered an artifact-reader-capable `agent-*` tool
+for that run. No capability means no registered tool; Desktop never installs a
+stub or an unscoped fallback.
 
 Without that trusted host capability, MCP text/JSON keeps the temporary inline
 behavior and is bounded inside `execute()` before inline persistence. The UI
@@ -427,7 +479,7 @@ an isolated description, schema estimate, or hand-built provider payload is
 not sufficient evidence.
 
 The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
-ProjectionSafeToolCallFilter → ProviderHistoryCompat →
+ProjectionSafeToolCallFilter → ToolProjectionRewriteProcessor → ProviderHistoryCompat →
 OpenAIToolSearchHistoryCompat → OpenAIDuplicateItemCompat →
 ProjectionAwareTokenLimiter. The OpenAI-only compatibility seams are absent for
 every other provider; token limiting is always last. OpenAIDuplicateItemCompat

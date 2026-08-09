@@ -15,10 +15,13 @@ function capture() {
 describe('drawer queries read the queue through its first-class columns', () => {
   /**
    * Regression pin for the review finding: deriving chunk/set identity by
-   * splitting `job_queue.dedupe_key` is wrong. `buildEmbedJobDedupeKey`
-   * (packages/pipeline) emits `embed:<chunkId>:<setId>:<modelKey>`, so
-   * `split_part(dedupe_key, ':', 1)` yields the literal 'embed' — every
-   * failure would silently read as merely pending.
+   * splitting `job_queue.dedupe_key` is wrong. The old pipeline builder emitted
+   * `embed:<chunkId>:<setId>:<modelKey>`, so `split_part(dedupe_key, ':', 1)`
+   * yielded the literal 'embed' — every failure silently read as merely
+   * pending. #2364 has since collapsed the rival formats into one canonical
+   * `buildEmbedJobDedupeKey` in `@brainstrike/indexing-contract`, but that does
+   * NOT make the key parseable: `parseDedupeKey` rejects embedding job keys
+   * outright, so the columns stay the only supported route.
    */
   it('never parses dedupe_key', async () => {
     const chunks = capture();

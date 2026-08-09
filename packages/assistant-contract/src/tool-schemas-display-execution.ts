@@ -99,14 +99,26 @@ export const EXECUTION_TOOL_SCHEMAS = {
 
   'brainstrike.readToolOutputArtifact': {
     description:
-      'Read the next bounded UTF-8 page from an oversized tool result retained for the current thread. Pass the prior continuation cursor unchanged.',
+      'Page or search the next bounded UTF-8 slice of an oversized tool result. Pass the prior cursor unchanged.',
     parameters: [
+      {
+        description: 'Case-sensitive search (default false).',
+        name: 'caseSensitive',
+        required: false,
+        type: 'boolean',
+      },
       {
         description:
           'Exact opaque continuation cursor from the previous result. Copy byte-for-byte; never decode, pad, edit, or recreate it.',
         name: 'cursor',
         required: true,
         type: 'string',
+      },
+      {
+        description: 'Treat pattern as JavaScript regex (default false).',
+        name: 'isRegex',
+        required: false,
+        type: 'boolean',
       },
       {
         description: 'Optional UTF-8 source-byte page target (4-8000; default 6000).',
@@ -116,9 +128,17 @@ export const EXECUTION_TOOL_SCHEMAS = {
         required: false,
         type: 'number',
       },
+      {
+        description: 'Literal or JavaScript regex pattern for the next artifact slice.',
+        maxLength: 2000,
+        minLength: 1,
+        name: 'pattern',
+        required: false,
+        type: 'string',
+      },
     ],
     returns:
-      'A contiguous byte-addressed page with content, offsetByte, endByte, artifactRef, and nextCursor exactly when bytes remain.',
+      'A contiguous page, or compact grep-style matching lines with continuation whenever scanning or rendering is limited.',
     toolId: 'brainstrike.readToolOutputArtifact',
   },
 

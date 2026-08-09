@@ -149,6 +149,11 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
 - **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry
   (tool-output-limits.ts) so an oversized delegation result trims structurally
   (truncated + hint) instead of a hard size error.
+- **Durable artifact analysis:** built-in personas include the read-only
+  `brainstrike.readToolOutputArtifact` capability when the run registers it.
+  Oversized-result settlement advertises whole-result delegation only after
+  persona assembly has registered at least one artifact-reader-capable
+  `agent-*` tool; permission/model-pin skips cannot produce a false hint.
 - **Desktop wiring:** `packages/assistant-service/src/stream-init.ts` (desktop capabilities composed in `apps/desktop/src/assistant-server.ts`) sets
   `runtime.personas` to the per-request RESOLVED set (built-ins + user personas,
   availability applied — `resolvePersonaRuntimeFields`) on the shared runtime
@@ -195,4 +200,3 @@ per request, so edits apply on the next turn).
 When changing this flow, update this section and the paired tests.
 
 ---
-

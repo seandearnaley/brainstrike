@@ -1,4 +1,7 @@
 import {
+  formatGrepContentHeader,
+  formatGrepContentRow,
+  formatGrepProjectionPageRange,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
@@ -221,11 +224,7 @@ function assertProjectionFits(
 }
 
 function pageRange(offset: number, kept: number, total: number, lowerBound: boolean): string {
-  const totalLabel = `${total}${lowerBound ? '+' : ''}`;
-  if (kept === 0) {
-    return `empty@offset=${offset}/${totalLabel}`;
-  }
-  return `${offset + 1}-${offset + kept}/${totalLabel}`;
+  return formatGrepProjectionPageRange({ kept, lowerBound, offset, total });
 }
 
 function nextOffset(offset: number, kept: number, total: number): number {
@@ -244,12 +243,20 @@ function nextOffset(offset: number, kept: number, total: number): number {
  */
 function buildGrepHeader(result: GrepToolResult, kept: number): string {
   const total = result.outputMode === 'files' ? result.totalFiles : result.totalMatches;
-  let header = `${grepProjectionHeaderPrefix(result.outputMode)}${pageRange(
-    result.offset,
-    kept,
-    total,
-    result.scanLimited
-  )}`;
+  let header =
+    result.outputMode === 'content'
+      ? formatGrepContentHeader({
+          kept,
+          lowerBound: result.scanLimited,
+          offset: result.offset,
+          total,
+        })
+      : `${grepProjectionHeaderPrefix(result.outputMode)}${pageRange(
+          result.offset,
+          kept,
+          total,
+          result.scanLimited
+        )}`;
   if (result.outputMode === 'files') {
     header += ` matches=${result.totalMatches}`;
   }
@@ -298,11 +305,11 @@ function renderContentItems(
     const ordered = Array.from(groupRows.entries()).sort(([a], [b]) => a - b);
     for (const [line, row] of ordered) {
       lines.push(
-        `  ${line}${row.isMatch ? ':' : '-'} ${clipEnd(
-          row.text,
-          MAX_LINE_TEXT_CHARS,
-          row.isMatch ? 'line' : 'context'
-        )}`
+        formatGrepContentRow(
+          line,
+          clipEnd(row.text, MAX_LINE_TEXT_CHARS, row.isMatch ? 'line' : 'context'),
+          row.isMatch
+        )
       );
     }
     groupRows = new Map();

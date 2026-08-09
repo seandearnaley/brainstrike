@@ -2385,7 +2385,51 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   });
 
-  it('bootstraps the migration-084 tool projection rewrite shape for thread deletion', async () => {
+  it('bootstraps the migration-086 token-estimate calibration shape for thread deletion', async () => {
+    const dataDir = createPgliteTestDataDir('token-estimate-calibration-bootstrap-shape');
+    const db = await wasmLoader.createPGlite(dataDir);
+    try {
+      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      await repository.createThread('workspace-a');
+
+      const columns = await db.query<{ column_name: string }>(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_name = 'brainstrike_token_estimate_calibration'
+         ORDER BY ordinal_position`
+      );
+      expect(columns.rows.map((row) => row.column_name)).toEqual([
+        'id',
+        'thread_id',
+        'run_id',
+        'model',
+        'provider',
+        'estimated_prompt_tokens',
+        'final_step_prompt_tokens',
+        'step_count',
+        'model_visible_projection_count',
+        'occurred_at',
+      ]);
+
+      const indexes = await db.query<{ indexname: string }>(
+        `SELECT indexname
+         FROM pg_indexes
+         WHERE tablename = 'brainstrike_token_estimate_calibration'
+           AND indexname <> 'brainstrike_token_estimate_calibration_pkey'`
+      );
+      expect(indexes.rows.map((row) => row.indexname).sort()).toEqual(
+        [
+          'brainstrike_token_estimate_calibration_model_idx',
+          'brainstrike_token_estimate_calibration_occurred_at_idx',
+          'brainstrike_token_estimate_calibration_thread_idx',
+        ].sort()
+      );
+    } finally {
+      await wasmLoader.closeCached(dataDir);
+    }
+  });
+
+  it('bootstraps the migration-084/087 tool projection rewrite shape for thread deletion', async () => {
     const dataDir = createPgliteTestDataDir('tool-projection-rewrite-bootstrap-shape');
     const db = await wasmLoader.createPGlite(dataDir);
     try {
@@ -2403,6 +2447,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         'thread_id',
         'rewrite_id',
         'superseded_by_tool_call_id',
+        'kind',
         'marker_text',
         'original_chars',
         'created_at',
@@ -3367,6 +3412,13 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       [thread.id]
     );
     await db.query(
+      `INSERT INTO brainstrike_token_estimate_calibration
+        (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
+         final_step_prompt_tokens)
+       VALUES ('calibration-delete', $1, 'run-delete', 'model', 'provider', 42, 50)`,
+      [thread.id]
+    );
+    await db.query(
       `INSERT INTO brainstrike_assistant_tool_projection_rewrites
         (tool_call_id, thread_id, rewrite_id, superseded_by_tool_call_id, marker_text, original_chars)
        VALUES ('read-old', $1, 'rewrite-delete', 'read-new', 'read a.ts lines 1-2/2 [superseded]', 42)`,
@@ -3397,6 +3449,9 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_tool_call_telemetry', 'thread_id', thread.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_token_estimate_calibration', 'thread_id', thread.id)
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_assistant_tool_projection_rewrites', 'thread_id', thread.id)
@@ -3463,6 +3518,13 @@ describe('createPgliteAssistantThreadRepository integration', () => {
          VALUES ($1, $2, $3, 'brainstrike.globWorkspace', 17)`,
         [`tool-telemetry-${thread.id}`, thread.id, `run-${thread.id}`]
       );
+      await db.query(
+        `INSERT INTO brainstrike_token_estimate_calibration
+          (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
+           final_step_prompt_tokens)
+         VALUES ($1, $2, $3, 'model', 'provider', 17, 20)`,
+        [`calibration-${thread.id}`, thread.id, `run-${thread.id}`]
+      );
     }
 
     await repository.deleteThreads([first.id, second.id]);
@@ -3522,6 +3584,15 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_tool_call_telemetry', 'thread_id', survivor.id)
+    ).resolves.toBe(1);
+    await expect(
+      countRows(db, 'brainstrike_token_estimate_calibration', 'thread_id', first.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_token_estimate_calibration', 'thread_id', second.id)
+    ).resolves.toBe(0);
+    await expect(
+      countRows(db, 'brainstrike_token_estimate_calibration', 'thread_id', survivor.id)
     ).resolves.toBe(1);
     // The op-log seam (BST-993): one tombstone per actually-deleted thread.
     await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', first.id)).resolves.toBe(1);

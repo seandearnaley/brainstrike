@@ -1,3 +1,4 @@
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
@@ -8,6 +9,7 @@ import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
+import { resolveToolResultBudgetForModel } from '../stream/tool-output-limits';
 import type { AgentHookRunner } from '../tools/hook-runner';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData } from '../types';
@@ -41,7 +43,6 @@ import {
   resolveRuntimeConfiguration,
 } from './runtime-configuration';
 import type { RunTokenDiagnostics } from './token-measurement';
-import { applyToolModelOutputProjections } from './tool-model-output';
 import type { ToolOutputArtifactSettlementStore } from './tool-output-artifact-settlement';
 import type { BrainstrikeToolSearchProcessor, ToolDiscoveryMetadata } from './tool-search-runtime';
 
@@ -375,6 +376,20 @@ export async function createMastraAgentRuntime(
   const hookRunner = hookRunnerOption ?? sanitizedRuntime.hookRunner;
   const permissionSnapshot = permissionPolicy ?? sanitizedRuntime.permissionPolicy;
   const planModeActive = normalizedProvider !== 'local' && sanitizedRuntime.planMode === true;
+  // Create the provider-specific model instance before tool discovery. The
+  // DISCOVERY path passes an inert listing-only model so no provider lookup or
+  // inference occurs there.
+  const modelName = model ?? getDefaultModel(normalizedProvider);
+  const languageModel =
+    modelOverride ??
+    instantiateLanguageModel(normalizedProvider, apiKey, modelName, sanitizedRuntime);
+
+  assertModernLanguageModel(languageModel, normalizedProvider, modelName);
+  // Resolve once per run. Static catalog models use their declared context
+  // window; runtime-discovered Ollama/LM Studio ids share the conservative
+  // 32,768-token declaration from @brainstrike/assistant-contract.
+  const resolvedToolResultBudget = resolveToolResultBudgetForModel(normalizedProvider, modelName);
+  let registeredDelegationToolNames: readonly string[] = [];
   const {
     artifactSettledTools,
     askTools,
@@ -385,6 +400,7 @@ export async function createMastraAgentRuntime(
     toolNameMap,
   } = await composeRuntimeToolMap({
     apiKey,
+    getDelegationToolNames: () => registeredDelegationToolNames,
     hasStorage: Boolean(storage),
     hookRunner,
     inlineMaxSerializedCharsByToolName: toolOutputArtifactInlineMaxSerializedCharsByToolName,
@@ -395,19 +411,10 @@ export async function createMastraAgentRuntime(
     planModeActive,
     preserveExecuteBackedWebSearch,
     provider: normalizedProvider,
+    resolvedToolResultBudget,
     toolOutputArtifactStore,
     workspaceSkills: sanitizedRuntime.workspaceSkills,
   });
-  // Create provider-specific model instance. The DISCOVERY path passes
-  // `modelOverride` (an inert listing-only model) so provider/model are never
-  // resolved — listing suspended runs performs no inference and must not require
-  // a provider key or a static default model.
-  const modelName = model ?? getDefaultModel(normalizedProvider);
-  const languageModel =
-    modelOverride ??
-    instantiateLanguageModel(normalizedProvider, apiKey, modelName, sanitizedRuntime);
-
-  assertModernLanguageModel(languageModel, normalizedProvider, modelName);
   const persistedDiscoveryMessages = createPersistedDiscoveryMessageLoader({
     enabled: hydrateToolDiscoveryFromMemory,
     memory,
@@ -422,6 +429,7 @@ export async function createMastraAgentRuntime(
       modelName,
       ...(persistedDiscoveryMessages ? { persistedDiscoveryMessages } : {}),
       provider: normalizedProvider,
+      resolvedToolResultBudget,
       toolNameMap,
     }).catch(async (error: unknown) => {
       // Discovery has already opened MCP transports, but ownership does not
@@ -462,6 +470,27 @@ export async function createMastraAgentRuntime(
     personasById,
     subAgents,
   } = resolvePersonaRuntimeParts({
+    // BST-1206 review (P2): a persona that pins its OWN model must project
+    // its tools against THAT model's resolved budget, not the parent's — so
+    // `guardedTools` here is deliberately the RAW (pre-model-output-projection)
+    // map. `resolvePersonaRuntimeParts`/`buildPersonaSubAgents` apply
+    // `applyToolModelOutputProjections` themselves, per persona, choosing the
+    // pinned model's own resolved budget when one is pinned and the parent's
+    // `resolvedToolResultBudget` otherwise (see build-persona-subagents.ts).
+    guardedTools,
+    languageModel,
+    permissionSnapshot,
+    personas,
+    planModeActive,
+    provider: normalizedProvider,
+    resolvedToolResultBudget,
+    resolvePinnedModel: createPersonaPinnedModelResolver({
+      apiKey,
+      instantiate: instantiateLanguageModel,
+      parentProvider: normalizedProvider,
+      runtime: sanitizedRuntime,
+    }),
+    toolNameMap,
     // Persona agents get the same raw/model split. Their independent policy
     // gate clones full tool descriptors, so `toModelOutput` survives intact.
     // Thread the SAME `tokenDiagnostics` instance as the primary tool map so
@@ -472,22 +501,14 @@ export async function createMastraAgentRuntime(
     // prompt (`providerReportedPromptTokens`). Subagent tool outputs never
     // enter the parent's prompt, so they must not inflate that aggregate —
     // see `RunTokenDiagnostics.recordSubagentToolOutput`'s doc comment.
-    guardedTools: applyToolModelOutputProjections(guardedTools, toolNameMap, (toolId, output) =>
-      tokenDiagnostics.recordSubagentToolOutput(toolId, output)
-    ),
-    languageModel,
-    permissionSnapshot,
-    personas,
-    planModeActive,
-    provider: normalizedProvider,
-    resolvePinnedModel: createPersonaPinnedModelResolver({
-      apiKey,
-      instantiate: instantiateLanguageModel,
-      parentProvider: normalizedProvider,
-      runtime: sanitizedRuntime,
-    }),
-    toolNameMap,
+    toolOutputObserver: (toolId, output) =>
+      tokenDiagnostics.recordSubagentToolOutput(toolId, output),
   });
+  registeredDelegationToolNames = Array.from(delegationToolPersonas, ([toolName, personaId]) =>
+    personasById.get(personaId)?.allowedToolIds.includes(NATIVE_TOOL_ID.readToolOutputArtifact)
+      ? toolName
+      : null
+  ).filter((toolName): toolName is string => toolName !== null);
 
   const composedInstructions = composeRuntimeInstructions({
     budgetNote,

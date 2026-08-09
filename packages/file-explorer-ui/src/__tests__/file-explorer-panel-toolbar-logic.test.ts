@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isCancellableOperationRunning,
   resolveCompactToolbarActionsState,
-} from '../shell/file-explorer-panel-toolbar-helpers';
+} from '../shell/file-explorer-panel-toolbar-logic';
 import { computeScanningStatusProps } from '../utils/scanning-status-props';
 
 const baseInput = {

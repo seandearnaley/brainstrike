@@ -5,6 +5,7 @@ import type { ToolsInput } from '@mastra/core/agent';
 import { toJsonSafe } from '../stream/json';
 import {
   boundToolOutputForModel,
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
@@ -15,6 +16,7 @@ import {
   NATIVE_SELF_BOUND_MODEL_RESULT_TOKEN_BUDGET,
   NATIVE_SELF_BOUND_MODEL_RESULT_TOKENS,
   NATIVE_TOOL_RESULT_TOKEN_BUDGET,
+  type ScaledToolResultBudget,
   SKILL_ACTIVATION_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
   SKILL_ACTIVATION_MODEL_RESULT_CHAR_BUDGET,
   SKILL_ACTIVATION_MODEL_RESULT_TOKEN_BUDGET,
@@ -53,7 +55,7 @@ interface ModelContentOutput {
   readonly value: readonly unknown[];
 }
 
-interface ModelProjectionBudget {
+export interface ModelProjectionBudget {
   readonly domainSerializedChars: number;
   readonly domainTokens: number;
   /** Token budget for bounding the RAW tool output before envelope fitting. */
@@ -62,13 +64,40 @@ interface ModelProjectionBudget {
   readonly totalTokens: number;
 }
 
-const DEFAULT_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
-  domainSerializedChars: MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
-  domainTokens: MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
-  rawOutputTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
-  totalSerializedChars: MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
-  totalTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
-};
+/**
+ * BST-1219 (follow-up, not yet landed): desktop's purpose-built TEXT
+ * projectors (`apps/desktop/src/assistant-server/workspace-*-model-projection.ts`
+ * etc.) still self-fit to the FIXED anchor domain budget
+ * ({@link MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET} /
+ * {@link MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS}) — they are not yet threaded
+ * with the per-run resolved budget. Scaling this runtime assertion DOWN for a
+ * sub-anchor model (e.g. local Ollama) before that threading lands would
+ * reject a legitimate anchor-sized projection a producer is still allowed to
+ * emit, turning ordinary reads/searches into a hard `RangeError`. The domain
+ * fields therefore floor at the anchor — `max(resolved, anchor)` — so the
+ * assertion never drops below what producers actually enforce; only the
+ * UPWARD scale (larger-window models get a bigger domain budget) is live.
+ * Remove this floor once BST-1219 threads `resolvedToolResultBudget` into the
+ * desktop projector constructors so both layers scale together again.
+ */
+export function buildDefaultModelProjectionBudget(
+  resolved: ScaledToolResultBudget
+): ModelProjectionBudget {
+  return {
+    domainSerializedChars: Math.max(
+      resolved.domainModelResultCharBudget,
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    ),
+    domainTokens: Math.max(resolved.domainModelResultTokens, MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS),
+    rawOutputTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
+    totalSerializedChars: MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
+    totalTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
+  };
+}
+
+const CEILING_DEFAULT_MODEL_PROJECTION_BUDGET = buildDefaultModelProjectionBudget(
+  CEILING_SCALED_TOOL_RESULT_BUDGET
+);
 
 const SKILL_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
   domainSerializedChars: SKILL_ACTIVATION_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
@@ -114,8 +143,11 @@ const MODEL_PROJECTION_BUDGET_OVERRIDES: ReadonlyMap<string, ModelProjectionBudg
   [NATIVE_TOOL_ID.skillSearch, NATIVE_SELF_BOUND_MODEL_PROJECTION_BUDGET],
 ]);
 
-function resolveModelProjectionBudget(toolName: string): ModelProjectionBudget {
-  return MODEL_PROJECTION_BUDGET_OVERRIDES.get(toolName) ?? DEFAULT_MODEL_PROJECTION_BUDGET;
+function resolveModelProjectionBudget(
+  toolName: string,
+  defaultBudget: ModelProjectionBudget
+): ModelProjectionBudget {
+  return MODEL_PROJECTION_BUDGET_OVERRIDES.get(toolName) ?? defaultBudget;
 }
 
 function isExecutableTool(tool: unknown): tool is ExecutableToolWithModelOutput {
@@ -141,10 +173,12 @@ function stringifyJsonSafe(value: unknown): string {
 function serializeBoundedOutput(
   toolName: string,
   output: unknown,
-  modelTokenBudgetOverride?: number
+  modelTokenBudgetOverride: number | undefined,
+  defaultBudget: ModelProjectionBudget
 ): string {
   const modelTokenBudget =
-    modelTokenBudgetOverride ?? resolveModelProjectionBudget(toolName).rawOutputTokens;
+    modelTokenBudgetOverride ??
+    resolveModelProjectionBudget(toolName, defaultBudget).rawOutputTokens;
   const bounded = boundToolOutputForModel(toolName, output, modelTokenBudget).output;
   if (typeof bounded === 'string') {
     return bounded;
@@ -163,7 +197,8 @@ function stringifyMcpTextPart(part: McpContentPart): string {
 
 function createMcpMultimodalModelOutput(
   toolName: string,
-  output: unknown
+  output: unknown,
+  defaultBudget: ModelProjectionBudget
 ): Record<string, unknown> | undefined {
   const multimodal = readMcpMultimodalOutput(output);
   if (!multimodal) {
@@ -178,7 +213,9 @@ function createMcpMultimodalModelOutput(
   }
   textSegments.push(...companionTextSegments);
   const projectedText =
-    textSegments.length > 0 ? serializeBoundedOutput(toolName, textSegments.join('\n')) : undefined;
+    textSegments.length > 0
+      ? serializeBoundedOutput(toolName, textSegments.join('\n'), undefined, defaultBudget)
+      : undefined;
   let textInserted = false;
   const value: Record<string, unknown>[] = [];
 
@@ -213,18 +250,25 @@ function createMcpMultimodalModelOutput(
 function createDefaultModelOutput(
   toolName: string,
   output: unknown,
+  defaultBudget: ModelProjectionBudget,
   domainBudget = false
 ): Record<string, unknown> {
-  const budget = resolveModelProjectionBudget(toolName);
-  const projected = createMcpMultimodalModelOutput(toolName, output) ?? {
+  const budget = resolveModelProjectionBudget(toolName, defaultBudget);
+  const projected = createMcpMultimodalModelOutput(toolName, output, defaultBudget) ?? {
     type: 'text',
-    value: serializeBoundedOutput(toolName, output),
+    value: serializeBoundedOutput(toolName, output, undefined, defaultBudget),
   };
   const tokenBudget = domainBudget ? budget.domainTokens : budget.totalTokens;
   const serializedCharBudget = domainBudget
     ? budget.domainSerializedChars
     : budget.totalSerializedChars;
-  return boundProjectedModelOutput(toolName, projected, tokenBudget, serializedCharBudget);
+  return boundProjectedModelOutput(
+    toolName,
+    projected,
+    tokenBudget,
+    serializedCharBudget,
+    defaultBudget
+  );
 }
 
 function isModelContentOutput(output: unknown): output is ModelContentOutput {
@@ -325,7 +369,8 @@ function boundContentModelOutput(
   toolName: string,
   output: ModelContentOutput,
   modelTokenBudget: number,
-  maxSerializedChars: number
+  maxSerializedChars: number,
+  defaultBudget: ModelProjectionBudget
 ): Record<string, unknown> {
   if (stringifyJsonSafe(maskMediaDataForMeasurement(output)).length <= maxSerializedChars) {
     return output as unknown as Record<string, unknown>;
@@ -333,7 +378,12 @@ function boundContentModelOutput(
 
   const preservedParts = output.value.filter(isModelPreservedContentPart);
   const textAndUnknownParts = output.value.filter((part) => !isModelPreservedContentPart(part));
-  const boundedText = serializeBoundedOutput(toolName, textAndUnknownParts, modelTokenBudget);
+  const boundedText = serializeBoundedOutput(
+    toolName,
+    textAndUnknownParts,
+    modelTokenBudget,
+    defaultBudget
+  );
   return fitContentTextToModelBudget(toolName, boundedText, preservedParts, maxSerializedChars);
 }
 
@@ -341,13 +391,14 @@ function fitTextModelOutput(
   toolName: string,
   text: string,
   modelTokenBudget: number,
-  maxSerializedChars: number
+  maxSerializedChars: number,
+  defaultBudget: ModelProjectionBudget
 ): Record<string, unknown> {
   const build = (value: string): Record<string, unknown> => ({ type: 'text', value });
   if (stringifyJsonSafe(build(text)).length <= maxSerializedChars) {
     return build(text);
   }
-  const boundedText = serializeBoundedOutput(toolName, text, modelTokenBudget);
+  const boundedText = serializeBoundedOutput(toolName, text, modelTokenBudget, defaultBudget);
   if (stringifyJsonSafe(build(boundedText)).length <= maxSerializedChars) {
     return build(boundedText);
   }
@@ -368,14 +419,27 @@ function fitTextModelOutput(
 function boundProjectedModelOutput(
   toolName: string,
   output: unknown,
-  modelTokenBudget: number = MAX_MODEL_TOOL_RESULT_TOKENS,
-  maxSerializedChars: number = MAX_MODEL_TOOL_RESULT_CHAR_BUDGET
+  modelTokenBudget: number,
+  maxSerializedChars: number,
+  defaultBudget: ModelProjectionBudget
 ): Record<string, unknown> {
   if (isModelContentOutput(output)) {
-    return boundContentModelOutput(toolName, output, modelTokenBudget, maxSerializedChars);
+    return boundContentModelOutput(
+      toolName,
+      output,
+      modelTokenBudget,
+      maxSerializedChars,
+      defaultBudget
+    );
   }
   if (isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string') {
-    return fitTextModelOutput(toolName, output['value'], modelTokenBudget, maxSerializedChars);
+    return fitTextModelOutput(
+      toolName,
+      output['value'],
+      modelTokenBudget,
+      maxSerializedChars,
+      defaultBudget
+    );
   }
   if (isRecord(output) && output['type'] === 'json') {
     const projected = {
@@ -389,14 +453,16 @@ function boundProjectedModelOutput(
       toolName,
       stringifyJsonSafe(projected['value']),
       modelTokenBudget,
-      maxSerializedChars
+      maxSerializedChars,
+      defaultBudget
     );
   }
   return fitTextModelOutput(
     toolName,
-    serializeBoundedOutput(toolName, output, modelTokenBudget),
+    serializeBoundedOutput(toolName, output, modelTokenBudget, defaultBudget),
     modelTokenBudget,
-    maxSerializedChars
+    maxSerializedChars,
+    defaultBudget
   );
 }
 
@@ -450,11 +516,11 @@ interface DomainProjectionAssertion {
   readonly normalized: Record<string, unknown>;
 }
 
-function assertDomainProjectionWithinBudget(
+export function assertDomainProjectionWithinBudget(
   toolName: string,
-  output: unknown
+  output: unknown,
+  budget: ModelProjectionBudget
 ): DomainProjectionAssertion {
-  const budget = resolveModelProjectionBudget(toolName);
   const isGenuineTextProjection =
     isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string';
   let normalized: Record<string, unknown>;
@@ -555,9 +621,9 @@ function composeHookContextWithProjection(
   toolName: string,
   domainProjection: Record<string, unknown>,
   hookContext: string,
-  isDecodedTextRuler: boolean
+  isDecodedTextRuler: boolean,
+  budget: ModelProjectionBudget
 ): Record<string, unknown> {
-  const budget = resolveModelProjectionBudget(toolName);
   const composition = readHookProjectionComposition(domainProjection);
   const context = capHookContextForProjection(hookContext);
   // BST-1195: `isDecodedTextRuler` comes from the caller's
@@ -594,30 +660,46 @@ function composeHookContextWithProjection(
   return composition.build(fittedContext);
 }
 
-function projectDefaultModelOutput(toolName: string, output: unknown): Record<string, unknown> {
+function projectDefaultModelOutput(
+  toolName: string,
+  output: unknown,
+  resolvedDefaultBudget: ModelProjectionBudget
+): Record<string, unknown> {
   const settled = readSettledToolOutputModelProjection(output);
   if (settled) {
+    const replayBudget = resolveModelProjectionBudget(
+      toolName,
+      CEILING_DEFAULT_MODEL_PROJECTION_BUDGET
+    );
     const { isDecodedTextRuler, normalized } = assertDomainProjectionWithinBudget(
       toolName,
-      settled.output
+      settled.output,
+      replayBudget
     );
     return settled.hookContext
       ? composeHookContextWithProjection(
           toolName,
           normalized,
           settled.hookContext,
-          isDecodedTextRuler
+          isDecodedTextRuler,
+          replayBudget
         )
       : normalized;
   }
   const projectionSource = readSettledToolOutputProjectionSource(output);
   if (isGuardedToolError(projectionSource)) {
-    return createDefaultModelOutput(toolName, projectionSource);
+    return createDefaultModelOutput(toolName, projectionSource, resolvedDefaultBudget);
   }
   const envelope = readHookResultEnvelope(projectionSource);
   const domainOutput = envelope ? envelope.result : projectionSource;
   const hookContext = envelope?.additionalContext;
-  const defaultProjection = createDefaultModelOutput(toolName, domainOutput, Boolean(hookContext));
+  const freshBudget = resolveModelProjectionBudget(toolName, resolvedDefaultBudget);
+  const defaultProjection = createDefaultModelOutput(
+    toolName,
+    domainOutput,
+    resolvedDefaultBudget,
+    Boolean(hookContext)
+  );
   if (!hookContext) {
     return defaultProjection;
   }
@@ -625,7 +707,13 @@ function projectDefaultModelOutput(toolName: string, output: unknown): Record<st
   // self-fits via the serialized ruler, see createDefaultModelOutput /
   // fitTextModelOutput), so its hook-composed candidate keeps measuring
   // serialized size too: isDecodedTextRuler is always false here.
-  return composeHookContextWithProjection(toolName, defaultProjection, hookContext, false);
+  return composeHookContextWithProjection(
+    toolName,
+    defaultProjection,
+    hookContext,
+    false,
+    freshBudget
+  );
 }
 
 const MAX_PROJECTION_SHAPE_KEYS = 12;
@@ -671,44 +759,54 @@ function projectExistingModelOutput(
   toolName: string,
   projector: (output: unknown) => unknown,
   receiver: ExecutableToolWithModelOutput,
-  output: unknown
+  output: unknown,
+  resolvedDefaultBudget: ModelProjectionBudget
 ): unknown {
   const settled = readSettledToolOutputModelProjection(output);
   if (settled) {
+    const replayBudget = resolveModelProjectionBudget(
+      toolName,
+      CEILING_DEFAULT_MODEL_PROJECTION_BUDGET
+    );
     const { isDecodedTextRuler, normalized } = assertDomainProjectionWithinBudget(
       toolName,
-      settled.output
+      settled.output,
+      replayBudget
     );
     return settled.hookContext
       ? composeHookContextWithProjection(
           toolName,
           normalized,
           settled.hookContext,
-          isDecodedTextRuler
+          isDecodedTextRuler,
+          replayBudget
         )
       : normalized;
   }
   const projectionSource = readSettledToolOutputProjectionSource(output);
   if (isGuardedToolError(projectionSource)) {
-    return projectDefaultModelOutput(toolName, projectionSource);
+    return projectDefaultModelOutput(toolName, projectionSource, resolvedDefaultBudget);
   }
   const envelope = readHookResultEnvelope(projectionSource);
   const domainOutput = envelope ? envelope.result : projectionSource;
   const hookContext = envelope?.additionalContext;
+  const freshBudget = resolveModelProjectionBudget(toolName, resolvedDefaultBudget);
   const boundResolvedProjection = (resolved: unknown): unknown => {
     if (resolved === null || resolved === undefined) {
-      return projectDefaultModelOutput(toolName, projectionSource);
+      return projectDefaultModelOutput(toolName, projectionSource, resolvedDefaultBudget);
     }
     const { isDecodedTextRuler, normalized } = assertDomainProjectionWithinBudget(
       toolName,
-      resolved
+      resolved,
+      freshBudget
     );
     if (hookContext) {
       return composeHookContextWithProjection(
         toolName,
         normalized,
         hookContext,
-        isDecodedTextRuler
+        isDecodedTextRuler,
+        freshBudget
       );
     }
     return normalized;
@@ -734,7 +832,7 @@ function projectExistingModelOutput(
       toolName,
       valueShape: summarizeProjectionValueShape(domainOutput),
     });
-    return projectDefaultModelOutput(toolName, output);
+    return projectDefaultModelOutput(toolName, output, resolvedDefaultBudget);
   };
   let projected: unknown;
   try {
@@ -796,8 +894,10 @@ function readTelemetrySource(output: unknown): unknown {
 export function applyToolModelOutputProjections(
   tools: ToolsInput,
   toolNameMap: ReadonlyMap<string, string>,
-  observer?: ModelOutputProjectionObserver
+  observer: ModelOutputProjectionObserver | undefined,
+  resolvedToolResultBudget: ScaledToolResultBudget
 ): ToolsInput {
+  const resolvedDefaultBudget = buildDefaultModelProjectionBudget(resolvedToolResultBudget);
   const projected: ToolsInput = {};
 
   for (const [toolId, tool] of Object.entries(tools)) {
@@ -821,7 +921,13 @@ export function applyToolModelOutputProjections(
         value: (output: unknown) =>
           observeModelOutput(
             originalToolName,
-            projectExistingModelOutput(originalToolName, originalProjection, cloned, output),
+            projectExistingModelOutput(
+              originalToolName,
+              originalProjection,
+              cloned,
+              output,
+              resolvedDefaultBudget
+            ),
             observer,
             readTelemetrySource(output)
           ),
@@ -837,7 +943,7 @@ export function applyToolModelOutputProjections(
       value: (output: unknown) =>
         observeModelOutput(
           originalToolName,
-          projectDefaultModelOutput(originalToolName, output),
+          projectDefaultModelOutput(originalToolName, output, resolvedDefaultBudget),
           observer,
           readTelemetrySource(output)
         ),

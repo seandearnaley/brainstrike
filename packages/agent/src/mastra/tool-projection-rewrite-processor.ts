@@ -33,10 +33,10 @@ function collectPresentToolCallIds(prompt: Prompt): Set<string> {
 /**
  * Applies durable overlay rows only at the transient provider boundary.
  *
- * A row is active for this request only while its superseding call is still
- * present in the already-tombstone-filtered prompt. Rewinding that later call
- * away therefore restores the original result without an undo log or any
- * mutation of Mastra-owned message content.
+ * Supersession rows are active only while their superseding call remains in
+ * the already-tombstone-filtered prompt. Prune rows have no superseder and
+ * remain active whenever their own call is present. Neither kind mutates
+ * Mastra-owned message content.
  */
 export class ToolProjectionRewriteProcessor implements Processor<'tool-projection-rewrite'> {
   readonly id = 'tool-projection-rewrite';
@@ -67,7 +67,10 @@ export class ToolProjectionRewriteProcessor implements Processor<'tool-projectio
       if (!rewrite.markerText.trim()) {
         throw new Error('Tool projection rewrite marker must be non-empty.');
       }
-      if (!presentToolCallIds.has(rewrite.supersededByToolCallId)) {
+      if (
+        rewrite.kind === 'supersession' &&
+        !presentToolCallIds.has(rewrite.supersededByToolCallId)
+      ) {
         return part;
       }
       rewrittenCount += 1;
@@ -94,7 +97,7 @@ export class ToolProjectionRewriteProcessor implements Processor<'tool-projectio
     }
     logger.info(
       { code: 'tool_projection_history_rewritten', rewrittenCount, threadId: this.threadId },
-      'rewrote superseded native-tool projections for provider replay'
+      'rewrote overlaid native-tool projections for provider replay'
     );
     return { prompt };
   }

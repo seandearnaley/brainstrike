@@ -51,6 +51,27 @@ describe('ContextUsageMeter', () => {
     expect(screen.queryByText(/est\./)).not.toBeInTheDocument();
   });
 
+  it('keeps recordUsage provider truth exact regardless of the conversation heuristic (BST-1205)', () => {
+    mockMessages = [
+      {
+        content: [
+          {
+            result: { content: 'x'.repeat(80_000) },
+            toolName: 'brainstrike.readWorkspaceFile',
+            type: 'tool-call',
+          },
+        ],
+        role: 'assistant',
+      },
+    ];
+    useContextUsageStore.getState().recordUsage('t1', { inputTokens: 4321, outputTokens: 123 });
+
+    render(<ContextUsageMeter {...props} estimatedTokens={20_000} />);
+
+    expect(screen.getByTestId('context-usage-trigger')).toHaveTextContent(/4\.4K/);
+    expect(screen.queryByText(/est\./)).not.toBeInTheDocument();
+  });
+
   it('reads the active fallback key when no threadKey is provided', () => {
     useContextUsageStore.getState().recordUsage('active', { inputTokens: 5000, outputTokens: 500 });
     render(<ContextUsageMeter {...props} threadKey={undefined} />);

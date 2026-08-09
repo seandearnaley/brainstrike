@@ -55,6 +55,7 @@ async function process(
 
 function entry(overrides: Partial<ToolProjectionRewriteEntry> = {}): ToolProjectionRewriteEntry {
   return {
+    kind: 'supersession',
     markerText: 'read src/a.ts lines 1-20/20 [superseded — see the later read of this file]',
     supersededByToolCallId: 'call-new',
     toolCallId: 'call-old',
@@ -103,6 +104,43 @@ describe('ToolProjectionRewriteProcessor', () => {
     expect(rewritten).toBe(original);
     expect(JSON.stringify(rewritten)).toContain('original evidence');
     expect(JSON.stringify(rewritten)).not.toContain('[superseded');
+  });
+
+  it('applies prune rows without a superseder while preserving the supersession presence gate', async () => {
+    const original = promptWithCalls([
+      { id: 'call-pruned', output: 'old prunable evidence' },
+      { id: 'call-superseded', output: 'old superseded evidence' },
+    ]);
+    const pruneMarker =
+      '[pruned old tool result — tool=brainstrike.readWorkspaceFile args=0123456789ab; re-run the tool to obtain it again]';
+    const rewritten = await process(
+      new ToolProjectionRewriteProcessor('thread-1', {
+        listActiveRewrites: async () =>
+          new Map([
+            [
+              'call-pruned',
+              entry({
+                kind: 'prune',
+                markerText: pruneMarker,
+                supersededByToolCallId: null,
+                toolCallId: 'call-pruned',
+              }),
+            ],
+            [
+              'call-superseded',
+              entry({
+                supersededByToolCallId: 'call-missing-superseder',
+                toolCallId: 'call-superseded',
+              }),
+            ],
+          ]),
+      }),
+      original
+    );
+
+    expect(JSON.stringify(rewritten)).toContain(pruneMarker);
+    expect(JSON.stringify(rewritten)).toContain('old superseded evidence');
+    expect(JSON.stringify(rewritten)).not.toContain('old prunable evidence');
   });
 
   it('keeps repeated growing-file rereads from bloating the next provider request', async () => {

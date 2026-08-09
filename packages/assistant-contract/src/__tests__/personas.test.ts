@@ -69,6 +69,7 @@ describe('BUILT_IN_PERSONAS', () => {
       'brainstrike.queryEmbeddingSpace',
       'brainstrike.grepSearch',
       'brainstrike.globWorkspace',
+      'brainstrike.readToolOutputArtifact',
       'brainstrike.readWorkspaceFile',
       'brainstrike.readWorkspaceDirectory',
     ]);
@@ -77,6 +78,7 @@ describe('BUILT_IN_PERSONAS', () => {
   it('analyze names exactly its D2 tool list (read + web, includes grepSearch)', () => {
     const analyze = BUILT_IN_PERSONAS.find((persona) => persona.id === 'analyze');
     expect(analyze?.allowedToolIds).toEqual([
+      'brainstrike.readToolOutputArtifact',
       'brainstrike.readWorkspaceFile',
       'brainstrike.readWorkspaceDirectory',
       'brainstrike.grepSearch',

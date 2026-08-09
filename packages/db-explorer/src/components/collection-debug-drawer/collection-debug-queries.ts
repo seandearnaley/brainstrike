@@ -51,13 +51,15 @@ export interface DrawerChunkSummary {
  * `(queue, job_type, embedding_set_id, state, updated_at)` to serve exactly
  * this lookup.
  *
- * Do NOT go back to decomposing `dedupe_key`. There are already TWO key
- * formats in the tree — `chunk-embedding-job-batch.ts` writes
- * `<chunkId>:<setId>:<contentHash>` while `buildEmbedJobDedupeKey`
- * (`packages/pipeline/src/identifiers.ts`) emits
- * `embed:<chunkId>:<setId>:<modelKey>` — so any fixed `split_part` position is
- * wrong for one of them, and under the `embed:`-prefixed form it silently
- * yields zero failures and reports every failure as merely pending.
+ * Do NOT go back to decomposing `dedupe_key`. BST-1214 (#2364) collapsed the
+ * two rival key formats into the single producer `buildEmbedJobDedupeKey` in
+ * `@brainstrike/indexing-contract`, and that fix deliberately did NOT make the
+ * key parseable: `parseDedupeKey` now REJECTS embedding job keys rather than
+ * guessing, and every build site documents that positional parsing is not a
+ * supported way to recover chunk/set identity. The columns above are. A
+ * canonical format is not a stable one — it is free to gain a component, which
+ * is exactly how the original `split_part(dedupe_key, ':', 1)` came to report
+ * every failed embedding as merely pending.
  *
  * Known bound: terminal rows are pruned after
  * `DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS` (1 hour), so a

@@ -56,6 +56,7 @@ const PRESENT_RELATIONS = [
   'brainstrike_assistant_tool_output_artifacts',
   'brainstrike_canvas_versions',
   'brainstrike_tool_call_telemetry',
+  'brainstrike_token_estimate_calibration',
   'brainstrike_diagnostic_events',
   'brainstrike_mind_ops',
   'brainstrike_thread_message_index',

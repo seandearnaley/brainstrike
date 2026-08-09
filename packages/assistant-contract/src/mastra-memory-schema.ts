@@ -205,10 +205,19 @@ export const CANVAS_VERSIONS_TABLE = 'brainstrike_canvas_versions';
 export const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
 
 /**
- * Transient request-build overlays for superseded native-tool projections
- * (BST-1192, migration 084 in BOTH runners plus the app-shell bootstrap
- * mirror). The mirror is required because thread deletion references every
- * registered sidecar unconditionally, while desktop main owns normal writes.
+ * Privacy-safe estimator/provider prompt-token pairs (BST-1205, migration 086
+ * in BOTH runners plus the app-shell bootstrap mirror). The mirror is required
+ * because thread deletion references every registered sidecar unconditionally,
+ * while desktop main owns normal writes.
+ */
+export const TOKEN_ESTIMATE_CALIBRATION_TABLE = 'brainstrike_token_estimate_calibration';
+
+/**
+ * Transient request-build overlays for superseded or recency-pruned native-tool
+ * projections (BST-1192/BST-1200, migrations 084 + 087 in BOTH runners plus
+ * the app-shell bootstrap mirror). The mirror is required because thread
+ * deletion references every registered sidecar unconditionally, while desktop
+ * main owns normal writes.
  */
 export const ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE =
   'brainstrike_assistant_tool_projection_rewrites';
@@ -225,6 +234,7 @@ export const ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE =
 export const THREAD_DELETE_SIDECAR_TABLES = [
   { table: ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE, threadColumn: 'thread_id' },
   { table: 'brainstrike_canvas_versions', threadColumn: 'thread_id' },
+  { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumn: 'thread_id' },
   { table: TOOL_CALL_TELEMETRY_TABLE, threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_edit_checkpoints', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_run_errors', threadColumn: 'thread_id' },

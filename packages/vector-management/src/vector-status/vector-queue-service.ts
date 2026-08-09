@@ -3,7 +3,10 @@ import {
   type ApiKeyValidationUnavailableReason,
   checkApiKeyAvailability,
 } from '@brainstrike/embeddings';
-import { canonicalizeEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
+import {
+  buildEmbedJobDedupeKey,
+  canonicalizeEmbeddingProviderModelKey,
+} from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 
 /**
@@ -770,7 +773,7 @@ async function enqueueEmbeddingChunkJobsBatch(
 
   const jobs = await jobQueue.enqueueBatch(
     batch.map((row) => ({
-      dedupeKey: `${row.id}:${embeddingSetId}:${row.contentHash}`,
+      dedupeKey: buildEmbedJobDedupeKey(row.id, embeddingSetId, row.contentHash),
       jobType: 'embed_chunk' as const,
       maxAttempts: 5,
       payload: {

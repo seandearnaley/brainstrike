@@ -13,6 +13,14 @@ export const CONTEXT_BUDGET_DEFAULT_MAX_OUTPUT_TOKENS = 4096;
 export const CONTEXT_BUDGET_SAFETY_MARGIN_MIN = 1024;
 export const CONTEXT_BUDGET_SAFETY_MARGIN_RATIO = 0.05;
 
+/**
+ * Conservative context-window declaration for runtime-discovered Ollama and
+ * LM Studio models, whose local-server catalogs do not publish this value.
+ * Large models are intentionally under-budgeted; small models rely on the
+ * local server's own context cap as the final enforcement boundary.
+ */
+export const DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW = 32_768;
+
 export function deriveEffectiveInputBudget(
   contextWindow: number,
   maxOutputTokens?: number

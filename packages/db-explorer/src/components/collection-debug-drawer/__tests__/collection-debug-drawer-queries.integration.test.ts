@@ -9,9 +9,11 @@
  * It exists because of a specific review finding: the first version derived
  * chunk/set identity with `split_part(job_queue.dedupe_key, ':', N)`, which
  * silently returned zero failures under the `embed:<chunkId>:<setId>:<modelKey>`
- * key format that `buildEmbedJobDedupeKey` produces. The rewrite reads the
+ * key format the pipeline builder then produced. The rewrite reads the
  * first-class `chunk_id` / `embedding_set_id` columns instead, and the
- * assertions below pin the behaviour that string-parsing got wrong.
+ * assertions below pin the behaviour that string-parsing got wrong. #2364 later
+ * unified the key producers, which removes the format DIVERGENCE but not the
+ * hazard — the canonical key is explicitly documented as unparseable.
  *
  * The SQL is imported from the drawer module itself, not copied: a copy would
  * be the "same SQL drifting apart" channel this codebase repeatedly closes, and

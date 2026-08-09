@@ -12,6 +12,7 @@ export const DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS = 60 * 60 * 
 export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = [
   'job_queue',
   'brainstrike_tool_call_telemetry',
+  'brainstrike_token_estimate_calibration',
 ] as const;
 // PGlite runs a single standalone backend with no autovacuum launcher, so
 // column statistics are never collected unless maintenance runs ANALYZE
@@ -32,7 +33,22 @@ export const DEFAULT_DATABASE_MAINTENANCE_ACTIVE_PRUNE_LIMIT = 5000;
 // batch so a huge backlog cannot block the single-connection engine.
 export const DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS =
   60 * 24 * 60 * 60 * 1000;
+export const DEFAULT_DATABASE_MAINTENANCE_TOKEN_ESTIMATE_CALIBRATION_RETENTION_MS =
+  60 * 24 * 60 * 60 * 1000;
+const TOKEN_ESTIMATE_CALIBRATION_TABLE = 'brainstrike_token_estimate_calibration';
 const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
+const OCCURRED_AT_RETENTION_TABLES = [
+  {
+    option: 'toolCallTelemetryRetentionMs',
+    resultKey: 'prunedToolCallTelemetryRows',
+    table: TOOL_CALL_TELEMETRY_TABLE,
+  },
+  {
+    option: 'tokenEstimateCalibrationRetentionMs',
+    resultKey: 'prunedTokenEstimateCalibrationRows',
+    table: TOKEN_ESTIMATE_CALIBRATION_TABLE,
+  },
+] as const;
 
 const ACTIVE_JOB_STATES = ['queued', 'running'] as const satisfies readonly JobState[];
 const TERMINAL_JOB_STATES = [
@@ -54,6 +70,7 @@ export interface ScheduledDatabaseMaintenanceOptions {
   readonly analyzeTables?: readonly string[];
   readonly now?: () => Date;
   readonly terminalJobRetentionMs?: number;
+  readonly tokenEstimateCalibrationRetentionMs?: number;
   readonly toolCallTelemetryRetentionMs?: number;
   readonly vacuumTables?: readonly string[];
 }
@@ -64,6 +81,7 @@ export interface ScheduledDatabaseMaintenanceResult {
   readonly completedAt: string;
   readonly durationMs: number;
   readonly prunedTerminalJobs: number;
+  readonly prunedTokenEstimateCalibrationRows: number;
   readonly prunedToolCallTelemetryRows: number;
   readonly reason?: ScheduledDatabaseMaintenanceSkipReason;
   readonly startedAt: string;
@@ -136,6 +154,20 @@ function resolveToolCallTelemetryRetentionMs(options: ScheduledDatabaseMaintenan
   return retentionMs;
 }
 
+function resolveTokenEstimateCalibrationRetentionMs(
+  options: ScheduledDatabaseMaintenanceOptions
+): number {
+  const retentionMs =
+    options.tokenEstimateCalibrationRetentionMs ??
+    DEFAULT_DATABASE_MAINTENANCE_TOKEN_ESTIMATE_CALIBRATION_RETENTION_MS;
+  if (!Number.isFinite(retentionMs) || retentionMs < 0) {
+    throw new Error(
+      'Scheduled database maintenance tokenEstimateCalibrationRetentionMs must be non-negative.'
+    );
+  }
+  return retentionMs;
+}
+
 function resolveActivePruneLimit(options: ScheduledDatabaseMaintenanceOptions): number {
   const limit = options.activePruneLimit ?? DEFAULT_DATABASE_MAINTENANCE_ACTIVE_PRUNE_LIMIT;
   if (!Number.isInteger(limit) || limit <= 0) {
@@ -199,19 +231,39 @@ async function pruneFinishedJobsBounded(
   return normalizeCount(result.rows[0]?.count);
 }
 
-async function pruneToolCallTelemetry(
+async function pruneByOccurredAt(
   db: ScheduledDatabaseMaintenanceDb,
+  table: (typeof OCCURRED_AT_RETENTION_TABLES)[number]['table'],
   olderThanIso: string
 ): Promise<number> {
   const result = await db.query<CountRow>(
     `WITH del AS (
-       DELETE FROM ${TOOL_CALL_TELEMETRY_TABLE}
+       DELETE FROM ${table}
         WHERE occurred_at < $1
        RETURNING 1
      ) SELECT COUNT(*)::text AS count FROM del`,
     [olderThanIso]
   );
   return normalizeCount(result.rows[0]?.count);
+}
+
+async function hasExpiredByOccurredAt(
+  db: ScheduledDatabaseMaintenanceDb,
+  table: (typeof OCCURRED_AT_RETENTION_TABLES)[number]['table'],
+  olderThanIso: string
+): Promise<boolean> {
+  const result = await db.query<ExistsRow>(
+    `SELECT EXISTS (
+       SELECT 1 FROM ${table}
+        WHERE occurred_at < $1
+     ) AS present`,
+    [olderThanIso]
+  );
+  const present = result.rows[0]?.present;
+  if (typeof present !== 'boolean') {
+    throw new Error(`Invalid database maintenance EXISTS probe result: ${String(present)}`);
+  }
+  return present;
 }
 
 interface ExistsRow {
@@ -224,30 +276,13 @@ interface ExistsRow {
 // active-queue path is that nothing is past the cutoff yet, and without this
 // probe every ~10-minute tick would still pay for planning and running the
 // bounded DELETE below for zero deletions.
-async function hasExpiredToolCallTelemetry(
+async function pruneByOccurredAtBounded(
   db: ScheduledDatabaseMaintenanceDb,
-  olderThanIso: string
-): Promise<boolean> {
-  const result = await db.query<ExistsRow>(
-    `SELECT EXISTS (
-       SELECT 1 FROM ${TOOL_CALL_TELEMETRY_TABLE}
-        WHERE occurred_at < $1
-     ) AS present`,
-    [olderThanIso]
-  );
-  const present = result.rows[0]?.present;
-  if (typeof present !== 'boolean') {
-    throw new Error(`Invalid database maintenance EXISTS probe result: ${String(present)}`);
-  }
-  return present;
-}
-
-async function pruneToolCallTelemetryBounded(
-  db: ScheduledDatabaseMaintenanceDb,
+  table: (typeof OCCURRED_AT_RETENTION_TABLES)[number]['table'],
   olderThanIso: string,
   limit: number
 ): Promise<number> {
-  if (!(await hasExpiredToolCallTelemetry(db, olderThanIso))) {
+  if (!(await hasExpiredByOccurredAt(db, table, olderThanIso))) {
     return 0;
   }
   // ORDER BY occurred_at ASC mirrors DiagnosticEventsRepository.purge()'s
@@ -256,9 +291,9 @@ async function pruneToolCallTelemetryBounded(
   // instead of an arbitrary subset.
   const result = await db.query<CountRow>(
     `WITH del AS (
-       DELETE FROM ${TOOL_CALL_TELEMETRY_TABLE}
+       DELETE FROM ${table}
         WHERE id IN (
-          SELECT id FROM ${TOOL_CALL_TELEMETRY_TABLE}
+          SELECT id FROM ${table}
            WHERE occurred_at < $1
            ORDER BY occurred_at ASC
            LIMIT $2
@@ -268,6 +303,33 @@ async function pruneToolCallTelemetryBounded(
     [olderThanIso, limit]
   );
   return normalizeCount(result.rows[0]?.count);
+}
+
+async function pruneOccurredAtRetentionTables(
+  db: ScheduledDatabaseMaintenanceDb,
+  retentionMs: Readonly<Record<(typeof OCCURRED_AT_RETENTION_TABLES)[number]['option'], number>>,
+  startedAtMs: number,
+  limit?: number
+): Promise<
+  Pick<
+    ScheduledDatabaseMaintenanceResult,
+    'prunedTokenEstimateCalibrationRows' | 'prunedToolCallTelemetryRows'
+  >
+> {
+  const counts = {
+    prunedTokenEstimateCalibrationRows: 0,
+    prunedToolCallTelemetryRows: 0,
+  };
+  // Registry table names are module-owned constants, never caller input; SQL
+  // interpolation therefore retains the existing injection-safe boundary.
+  for (const entry of OCCURRED_AT_RETENTION_TABLES) {
+    const olderThanIso = new Date(startedAtMs - retentionMs[entry.option]).toISOString();
+    counts[entry.resultKey] =
+      limit === undefined
+        ? await pruneByOccurredAt(db, entry.table, olderThanIso)
+        : await pruneByOccurredAtBounded(db, entry.table, olderThanIso, limit);
+  }
+  return counts;
 }
 
 async function runMaintenanceStatement(
@@ -322,6 +384,11 @@ export async function runScheduledDatabaseMaintenance(
   // other retention/limit options below: a malformed value must fail loudly
   // immediately, not lie dormant until the queue happens to go idle.
   const toolCallTelemetryRetentionMs = resolveToolCallTelemetryRetentionMs(options);
+  const tokenEstimateCalibrationRetentionMs = resolveTokenEstimateCalibrationRetentionMs(options);
+  const occurredAtRetentionMs = {
+    tokenEstimateCalibrationRetentionMs,
+    toolCallTelemetryRetentionMs,
+  };
   const vacuumTableNames = resolveVacuumTables(options);
   // Validated on every pass (not just idle ones) so a malformed option
   // throws immediately instead of lying dormant until the queue goes idle.
@@ -350,17 +417,16 @@ export async function runScheduledDatabaseMaintenance(
     // the same reason job rows once did. The migration-085 occurred_at-leading
     // index makes the guard probe and the DELETE itself index scans rather
     // than sequential scans (the migration-083 composite index alone cannot
-    // serve this tool_id-less predicate); pruneToolCallTelemetryBounded also
-    // skips the DELETE entirely when nothing is past the cutoff, which is the
-    // common case on a ~10-minute tick.
-    const telemetryActiveOlderThanIso = new Date(
-      startedAtMs - toolCallTelemetryRetentionMs
-    ).toISOString();
-    const prunedToolCallTelemetryRows = await pruneToolCallTelemetryBounded(
-      db,
-      telemetryActiveOlderThanIso,
-      activePruneLimit
-    );
+    // serve this tool_id-less predicate); the shared bounded retention helper
+    // also skips each DELETE entirely when nothing is past its cutoff, which
+    // is the common case on a ~10-minute tick.
+    const { prunedTokenEstimateCalibrationRows, prunedToolCallTelemetryRows } =
+      await pruneOccurredAtRetentionTables(
+        db,
+        occurredAtRetentionMs,
+        startedAtMs,
+        activePruneLimit
+      );
     const partialCompletedAtDate = resolveNow(options);
     return {
       activeJobs,
@@ -368,6 +434,7 @@ export async function runScheduledDatabaseMaintenance(
       completedAt: partialCompletedAtDate.toISOString(),
       durationMs: Math.max(0, partialCompletedAtDate.getTime() - startedAtMs),
       prunedTerminalJobs,
+      prunedTokenEstimateCalibrationRows,
       prunedToolCallTelemetryRows,
       reason: 'active-job-queue',
       startedAt,
@@ -377,23 +444,23 @@ export async function runScheduledDatabaseMaintenance(
   }
 
   const olderThanIso = new Date(startedAtMs - retentionMs).toISOString();
-  const telemetryOlderThanIso = new Date(startedAtMs - toolCallTelemetryRetentionMs).toISOString();
-  // These four awaits are deliberately sequential, not Promise.all'd:
+  // These maintenance operations are deliberately sequential, not Promise.all'd:
   // 1. PGlite runs a single standalone WASM Postgres backend with no
   //    connection pool (see the PGLITE EXTENSION INVARIANT / durability-gate
   //    notes in docs/agents/database.md) — statements issued concurrently on
   //    one connection are still serialized by the engine, so Promise.all
   //    buys zero real parallelism here, only a misleading appearance of it.
   // 2. There is a genuine data dependency: VACUUM (ANALYZE) on job_queue and
-  //    brainstrike_tool_call_telemetry must observe the dead tuples that
-  //    pruneTerminalJobs/pruneToolCallTelemetry just created in THOSE SAME
-  //    tables to reclaim them. Racing the prune and its own table's VACUUM
+  //    both telemetry tables must observe the dead tuples their prune calls
+  //    just created in THOSE SAME tables to reclaim them. Racing a prune and
+  //    its own table's VACUUM
   //    via Promise.all would be a correctness regression, not just a missed
   //    optimization — VACUUM/ANALYZE also cannot be wrapped in a normal
   //    transaction. If VACUUM or ANALYZE fails after pruning, the next idle
   //    maintenance pass retries them; deleted terminal rows stay deleted.
   const prunedTerminalJobs = await pruneTerminalJobs(db, olderThanIso);
-  const prunedToolCallTelemetryRows = await pruneToolCallTelemetry(db, telemetryOlderThanIso);
+  const { prunedTokenEstimateCalibrationRows, prunedToolCallTelemetryRows } =
+    await pruneOccurredAtRetentionTables(db, occurredAtRetentionMs, startedAtMs);
   const vacuumedTables = await vacuumTables(db, vacuumTableNames);
   const analyzedTables = await analyzeTables(db, analyzeTableNames);
   const completedAtDate = resolveNow(options);
@@ -404,6 +471,7 @@ export async function runScheduledDatabaseMaintenance(
     completedAt: completedAtDate.toISOString(),
     durationMs: Math.max(0, completedAtDate.getTime() - startedAtMs),
     prunedTerminalJobs,
+    prunedTokenEstimateCalibrationRows,
     prunedToolCallTelemetryRows,
     startedAt,
     status: 'completed',

@@ -2,6 +2,7 @@ import type {
   EmbeddingProviderType,
   ProviderDimensionParameter,
 } from '@brainstrike/indexing-contract';
+import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
 import type { FileChunkInsert } from './models/file-chunk.js';
 import { type EnqueueParams, JobQueue } from './queue/job-queue.js';
 import { FileChunkRepository } from './repositories/file-chunk-repository.js';
@@ -31,14 +32,6 @@ function assertPositiveInteger(value: number, message: string): void {
   }
 }
 
-function buildDedupeKey(
-  chunkId: string,
-  embeddingSetId: string | null,
-  contentHash: string
-): string {
-  return `${chunkId}:${embeddingSetId ?? 'none'}:${contentHash}`;
-}
-
 function buildEmbeddingJobParams(args: InsertChunksAndEnqueueEmbeddingJobsArgs): EnqueueParams[] {
   const modelKey = requireNonEmptyString(
     args.model,
@@ -63,7 +56,10 @@ function buildEmbeddingJobParams(args: InsertChunksAndEnqueueEmbeddingJobsArgs):
       );
     }
     return {
-      dedupeKey: buildDedupeKey(chunkId, embeddingSetId, chunk.contentHash),
+      // Canonical embed-job key, shared with the @brainstrike/pipeline enqueue
+      // port. Never recover chunk/set identity by splitting this key — read
+      // job_queue.chunk_id / job_queue.embedding_set_id (see BST-1214).
+      dedupeKey: buildEmbedJobDedupeKey(chunkId, embeddingSetId, chunk.contentHash),
       jobType: 'embed_chunk',
       payload: {
         chunkId,

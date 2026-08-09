@@ -25,6 +25,7 @@ export interface CollectCombinedToolsOptions {
   mcpClient: McpRuntimeClient | undefined;
   mcpConfig: McpConfig | undefined;
   sanitizedLocalTools: ToolsInput | undefined;
+  scaledDefaultTokens: number;
   timeoutOverrideMs: number | undefined;
   toolNameMap: Map<string, string>;
 }
@@ -37,6 +38,7 @@ export async function collectCombinedTools({
   sanitizedLocalTools,
   mcpClient,
   mcpConfig,
+  scaledDefaultTokens,
   toolNameMap,
   timeoutOverrideMs,
 }: CollectCombinedToolsOptions): Promise<ToolsInput> {
@@ -78,7 +80,10 @@ export async function collectCombinedTools({
 
     const enabled = filterEnabledServerTools(server, toolsForServer, toolNameMap);
     if (enabled) {
-      Object.assign(combined, wrapMcpToolOutputs(enabled, toolNameMap, durableArtifactSettlement));
+      Object.assign(
+        combined,
+        wrapMcpToolOutputs(enabled, toolNameMap, durableArtifactSettlement, scaledDefaultTokens)
+      );
     }
   }
 
@@ -102,7 +107,8 @@ function isExecutableTool(tool: ToolsInput[string]): tool is ExecutableTool {
 function wrapMcpToolOutputs(
   tools: ToolsInput,
   toolNameMap: ReadonlyMap<string, string>,
-  durableArtifactSettlement: boolean
+  durableArtifactSettlement: boolean,
+  scaledDefaultTokens: number | undefined
 ): ToolsInput {
   const wrapped: ToolsInput = {};
   for (const [toolId, tool] of Object.entries(tools)) {
@@ -121,7 +127,8 @@ function wrapMcpToolOutputs(
       if (!multimodalSize) {
         return durableArtifactSettlement
           ? output
-          : boundToolOutputForModel(originalToolName, output).output;
+          : boundToolOutputForModel(originalToolName, output, undefined, scaledDefaultTokens)
+              .output;
       }
       if (multimodalSize.mediaDataChars > MAX_MCP_INLINE_MEDIA_DATA_CHARS) {
         throw new RangeError(
