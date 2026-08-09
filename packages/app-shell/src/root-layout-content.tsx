@@ -402,9 +402,11 @@ const CONTEXT_EXPLORER_PANEL_CONSTRAINTS = {
 function ContextExplorerSurface({
   contextExplorerPanelContent,
   contextExplorerPageContent,
+  loadEmbeddingQueue,
 }: {
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
+  readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
 }): ReactElement {
   const setState = useContextExplorerLayoutStore((state) => state.setState);
   const panelState = useContextExplorerLayoutStore(
@@ -421,8 +423,9 @@ function ContextExplorerSurface({
     setState,
   });
   const resolvedPanelContent = useMemo(
-    () => contextExplorerPanelContent ?? <ExplorerSearchTabs />,
-    [contextExplorerPanelContent]
+    () =>
+      contextExplorerPanelContent ?? <ExplorerSearchTabs loadEmbeddingQueue={loadEmbeddingQueue} />,
+    [contextExplorerPanelContent, loadEmbeddingQueue]
   );
   // Platform-injected markdown preview capabilities (external links, image src
   // resolution). Detected by the `window.platform` bridge (capability presence,
@@ -521,6 +524,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
               <ContextExplorerSurface
                 contextExplorerPageContent={contextExplorerPageContent}
                 contextExplorerPanelContent={contextExplorerPanelContent}
+                loadEmbeddingQueue={loadEmbeddingQueue}
               />
             }
           />

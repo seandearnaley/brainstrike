@@ -83,10 +83,17 @@ function buildDescription(counts: ImportCounts): string {
   return description;
 }
 
+/**
+ * Builds the shared post-import handler: outcome toast, then collection stats,
+ * then whichever data grids the calling surface owns. `loadRecords`/`loadChunks`
+ * are optional because surfaces outside the Database panel (the explorer's
+ * selection bar) have no record/chunk grid to reload — they are omitted, never
+ * stubbed, so a missing refresh is a stated absence rather than a silent no-op.
+ */
 export function createImportCompletionHandler(
   toast: ReturnType<typeof useToast>['toast'],
-  loadRecords: () => Promise<void>,
-  loadChunks: () => Promise<void>,
+  loadRecords?: (() => Promise<void>) | undefined,
+  loadChunks?: (() => Promise<void>) | undefined,
   refreshCollectionStats?: () => Promise<void>
 ) {
   return async (results: EnhancedImportResult[]): Promise<void> => {
@@ -102,7 +109,11 @@ export function createImportCompletionHandler(
     if (refreshCollectionStats) {
       await refreshCollectionStats();
     }
-    await loadRecords();
-    await loadChunks();
+    if (loadRecords) {
+      await loadRecords();
+    }
+    if (loadChunks) {
+      await loadChunks();
+    }
   };
 }

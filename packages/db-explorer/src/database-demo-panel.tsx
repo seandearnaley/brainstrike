@@ -1,11 +1,5 @@
-import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog';
-import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
-import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import {
-  type CachedCollection,
-  useVectorStatusUIStore,
-} from '@brainstrike/app-state/stores/vector-status-ui-store';
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { type EmbeddingSet, refreshCollectionIndexingStats } from '@brainstrike/db';
 import {
   useClearAllData,
@@ -18,16 +12,16 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { separatorClassName, useToast } from '@brainstrike/ui';
-import { CreateEmbeddingSetDialog, useEmbeddingControls } from '@brainstrike/vector-management';
+import { useEmbeddingControls } from '@brainstrike/vector-management';
 import { Database } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { ClearDatabaseDialog } from './components/clear-database-dialog';
 import { CollectionBrowserView } from './components/collection-browser-view';
+import { CreateCollectionDialog } from './components/create-collection-dialog';
 import { DatabaseDemoCollectionDialogs } from './components/database-demo-collection-dialogs';
 import { DatabaseDemoPrimaryPanel } from './components/database-demo-primary-panel';
 import { SemanticSearchProvider, useSemanticSearch } from './contexts/semantic-search-context';
-import { useAvailableModels, useAvailableProviders } from './hooks/use-available-models';
 import { useCollectionDialogs } from './hooks/use-collection-dialogs';
 import { useDatabaseClearAction } from './hooks/use-database-clear-action';
 import { useDatabaseDemoActions } from './hooks/use-database-demo-actions';
@@ -46,52 +40,11 @@ import type { EnhancedImportResult } from './types';
 import { useDatabaseDemoData } from './use-database-demo-data';
 import type { UseImportFlowResult } from './use-import-flow';
 import { useImportFlow } from './use-import-flow';
+import { collectionCacheSnapshotFromEmbeddingSet } from './utils/collection-cache-snapshot';
 
 interface DatabaseDemoPanelProps {
   embeddingQueue?: QueueAdapter | null;
   onDatabaseCleared: (() => void) | null;
-}
-
-interface CreateCollectionDialogProps {
-  db: ReturnType<typeof usePGliteDatabase>;
-  onClose: () => void;
-  onCreated: (newSetId: string, newSet: EmbeddingSet) => void;
-  repository: ReturnType<typeof useEmbeddingSetsRepository>;
-}
-
-function CreateCollectionDialog({
-  db,
-  onClose,
-  onCreated,
-  repository,
-}: CreateCollectionDialogProps): ReactElement {
-  const models = useModelRegistryStore((state) => state.models);
-  const providers = useModelRegistryStore((state) => state.providers);
-  const isRegistryLoading = useModelRegistryStore((state) => state.isLoading);
-  useEnsureModelRegistry({ db });
-  const { catalog: runtimeEmbeddingCatalog, isLoading: isRuntimeCatalogLoading } =
-    useLocalRuntimeEmbeddingModelCatalog({
-      maxVerificationModels: 8,
-      verifyEmbeddingDimensions: true,
-    });
-  const availableModels = useAvailableModels(models, runtimeEmbeddingCatalog);
-  const availableProviders = useAvailableProviders(providers, runtimeEmbeddingCatalog);
-
-  return (
-    <CreateEmbeddingSetDialog
-      isLoading={isRegistryLoading || isRuntimeCatalogLoading}
-      models={availableModels}
-      onOpenChange={(open: boolean) => {
-        if (!open) {
-          onClose();
-        }
-      }}
-      onSetCreated={onCreated}
-      open
-      providers={availableProviders}
-      repository={repository}
-    />
-  );
 }
 
 function DatabasePanelFrame({
@@ -179,24 +132,6 @@ function DatabasePanelStateContent({ error }: { error?: Error }): ReactElement {
       </div>
     </>
   );
-}
-
-function collectionCacheSnapshotFromEmbeddingSet(set: EmbeddingSet): CachedCollection {
-  return {
-    category: set.category ?? null,
-    chunkCount: 0,
-    createdAt: set.createdAt,
-    description: set.description ?? null,
-    dimensions: set.dimensions,
-    distance: set.distance,
-    embeddingCount: 0,
-    fileCount: 0,
-    id: set.id,
-    modelId: set.modelId,
-    modelKey: set.modelKey,
-    name: set.name ?? null,
-    tags: set.tags ?? null,
-  };
 }
 
 interface DatabaseDemoSemanticSearchTestSnapshot {

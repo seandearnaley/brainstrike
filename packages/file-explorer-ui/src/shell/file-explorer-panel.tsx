@@ -65,6 +65,7 @@ import {
   useFileExplorerStoreSelector,
 } from './file-explorer-provider';
 import { createFileExplorerRefreshEvent } from './file-explorer-refresh-event';
+import { FileExplorerSelectionActions } from './file-explorer-selection-actions';
 import FileExplorerSidebar from './file-explorer-sidebar';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
@@ -77,13 +78,34 @@ import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
+/**
+ * Bottom breathing room for the floating selection bar. Applied to the scroll
+ * owner (never to the tree) so the last rows stay reachable while the bar is up.
+ */
+const SELECTION_BAR_SCROLL_PADDING = 'pb-20';
+
+function explorerScrollRootClassName(hasSelection: boolean): string {
+  return cn('h-full overflow-y-auto', hasSelection && SELECTION_BAR_SCROLL_PADDING);
+}
+
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;
+
+export interface FileExplorerPanelProps {
+  /**
+   * Host-composed controls for the ephemeral selection bar (see
+   * `FileExplorerSelectionActions`). Kept as an injected node so feature
+   * packages that depend on this one — the collection import flow lives in
+   * `@brainstrike/db-explorer` — can contribute actions without this package
+   * depending on them back.
+   */
+  readonly selectionActions?: React.ReactNode | undefined;
+}
 
 /**
  * FileExplorerPanel - Contains the file tree and toolbar
  * This component can be used independently in a panel of an IDE layout
  */
-const FileExplorerPanelInner = React.memo(() => {
+const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPanelProps) => {
   const { fileSystemAdapter, storageAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   // Persist + restore the explorer scroll position across sessions. Wired to the
@@ -742,6 +764,13 @@ const FileExplorerPanelInner = React.memo(() => {
     selectAllRecursively,
   });
 
+  // Routing through the list setter (rather than the raw store setter) keeps
+  // the cross-root partition semantics: every active root's folderState is
+  // cleared too, not just the focused root's top-level set.
+  const handleClearSelection = useCallback(() => {
+    setSelectedFilesFromList([]);
+  }, [setSelectedFilesFromList]);
+
   const handleCancelOperation = useCallback(() => {
     cancelOperation();
     showToast({
@@ -932,9 +961,12 @@ const FileExplorerPanelInner = React.memo(() => {
             onCollapseAll={collapseAll}
             onExpandAll={expandAll}
           />
-          {/* Scrollable content — scroll root for session scroll restore */}
+          {/* Scrollable content — scroll root for session scroll restore.
+              While the selection bar floats above, the scroll owner keeps
+              matching bottom padding so the last rows stay reachable; the bar
+              itself never enters normal flow, so rows never shift. */}
           <div
-            className="h-full overflow-y-auto"
+            className={explorerScrollRootClassName(selectedCount > 0)}
             data-testid="explorer-scroll-root"
             ref={explorerScrollRootRef}
           >
@@ -964,6 +996,13 @@ const FileExplorerPanelInner = React.memo(() => {
               />
             </Suspense>
           </div>
+          {/* Ephemeral selection actions. Same overlay contract as the
+              indicators above: it floats, so it never shifts tree rows. */}
+          <FileExplorerSelectionActions
+            onClear={handleClearSelection}
+            selectedCount={selectedCount}
+            trailingContent={selectionActions}
+          />
         </div>
 
         {/* Forest Expand All confirmation - multi-root sweeps are staged */}
@@ -1143,9 +1182,9 @@ FileExplorerPanelInner.displayName = 'FileExplorerPanelInner';
  * so toolbar Expand All / Collapse All can drive every root section's own
  * tree context (the inner panel and the sidebar sections both consume it).
  */
-export const FileExplorerPanel = () => (
+export const FileExplorerPanel = ({ selectionActions }: FileExplorerPanelProps = {}) => (
   <ForestTreeActionsProvider>
-    <FileExplorerPanelInner />
+    <FileExplorerPanelInner selectionActions={selectionActions} />
   </ForestTreeActionsProvider>
 );
 
