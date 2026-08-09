@@ -10,9 +10,14 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import { createTool } from '@mastra/core/tools';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { resolveScaledToolResultBudget } from '../../stream/tool-output-limits';
+import {
+  decodedTextModelOutputChars,
+  resolveScaledToolResultBudget,
+  type ScaledToolResultBudget,
+} from '../../stream/tool-output-limits';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import type { PermissionToolGateLogger } from '../permission-tool-gate';
+import { applyToolModelOutputProjections, getActiveToolResultBudget } from '../tool-model-output';
 
 // Mastra vendors its own AI SDK v5 provider types (the workspace
 // `@ai-sdk/provider` is a different major and is NOT assignable), so extract
@@ -335,11 +340,11 @@ describe('buildPersonaSubAgents', () => {
     expect(warns).toContain('subagent_persona_pin_unresolvable');
   });
 
-  describe('BST-1206 review (P2): a pinned persona projects against ITS OWN resolved budget', () => {
-    // A domain-specific projector (identity passthrough) so the wrapped
-    // `toModelOutput` exercises `assertDomainProjectionWithinBudget` — the
-    // generic default projector checks a DIFFERENT, fixed budget field
-    // (out of BST-1206's scope) and would not reveal a budget mix-up.
+  describe('resolves a reused projector budget at each parent or persona call', () => {
+    // A domain-specific projector that fits its OWN output to the active
+    // budget, matching desktop's construction-time fallback plus per-call
+    // active-context behavior. This catches the producer/consumer mismatch;
+    // an identity projector would exercise only the outer assertion.
     // A real, registered read-risk native tool id: `assertReadOnlyPersona`
     // resolves risk against the native tool registry, so a made-up id would
     // throw `PersonaToolRiskViolationError` before budget resolution ever runs.
@@ -356,44 +361,65 @@ describe('buildPersonaSubAgents', () => {
         ...(model ? { model } : {}),
       } satisfies AssistantPersonaDefinition;
     }
-    function makeDomainGuardedTools() {
+    function makeDomainGuardedTools(capturedParentBudget: ScaledToolResultBudget) {
       const guardedTools: ToolsInput = {
         [domainSanitizedId]: createTool({
           description: 'domain tool',
           execute: () => Promise.resolve('unused'),
           id: domainSanitizedId,
           inputSchema: z.object({}),
-          toModelOutput: (output: unknown) => ({ type: 'text', value: String(output) }),
+          toModelOutput: (output: unknown) => {
+            const activeBudget =
+              getActiveToolResultBudget()?.domainModelResultCharBudget ??
+              capturedParentBudget.domainModelResultCharBudget;
+            return {
+              type: 'text',
+              value: String(output).slice(0, Math.max(0, activeBudget - 26)),
+            };
+          },
         }),
       };
       const toolNameMap = new Map([[domainSanitizedId, domainToolId]]);
       return { guardedTools, toolNameMap };
     }
-    // Anchor-sized boundary: MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET is 6000
-    // chars; BST-1206 P1 floors every FRESH domain check at this anchor, so
-    // a 6000-char-or-under projection always fits regardless of budget tier.
-    // 7974 raw chars + the 26-char decoded-text envelope reserve = 8000
-    // measured chars — strictly between the anchor (6000) and the ceiling
-    // (12000) tier, so it distinguishes an anchor/floor-tier budget from a
-    // ceiling-tier one.
-    const midTierRawValue = 'x'.repeat(7974);
+    const ceilingRawValue = 'x'.repeat(12_000);
 
-    async function invokeDomainToolModelOutput(agent: Agent): Promise<() => unknown> {
-      const tools = (await agent.getToolsForExecution({})) as unknown as Record<
-        string,
-        { toModelOutput?: (output: unknown) => unknown }
-      >;
-      const tool = assertDefined(tools[domainSanitizedId], 'Expected domain tool on child agent');
+    function invokeDomainToolModelOutput(tools: ToolsInput): { type: 'text'; value: string } {
+      const tool = assertDefined(
+        (tools as Record<string, { toModelOutput?: (output: unknown) => unknown }>)[
+          domainSanitizedId
+        ],
+        'Expected domain tool'
+      );
       const toModelOutput = assertDefined(
         tool.toModelOutput,
         'Expected the domain tool to carry a wrapped toModelOutput'
       );
-      return () => toModelOutput(midTierRawValue);
+      const projection = toModelOutput(ceilingRawValue);
+      if (
+        !projection ||
+        typeof projection !== 'object' ||
+        (projection as { type?: unknown }).type !== 'text' ||
+        typeof (projection as { value?: unknown }).value !== 'string'
+      ) {
+        throw new TypeError('Expected a text domain projection');
+      }
+      return projection as { type: 'text'; value: string };
     }
 
-    it('uses the PINNED model window (small) instead of the large-window parent', async () => {
+    async function invokeChildDomainToolModelOutput(
+      agent: Agent
+    ): Promise<{ type: 'text'; value: string }> {
+      const tools = (await agent.getToolsForExecution({})) as unknown as Record<
+        string,
+        { toModelOutput?: (output: unknown) => unknown }
+      >;
+      return invokeDomainToolModelOutput(tools as unknown as ToolsInput);
+    }
+
+    it('fits a pinned small-window child producer to the child budget, not its large parent', async () => {
       const largeParentBudget = resolveScaledToolResultBudget(1_050_000); // gpt-5.6-sol, ceiling tier
-      const { guardedTools, toolNameMap } = makeDomainGuardedTools();
+      const { guardedTools, toolNameMap } = makeDomainGuardedTools(largeParentBudget);
       const result = buildPersonaSubAgents({
         guardedTools,
         languageModel: fakeModel,
@@ -408,17 +434,14 @@ describe('buildPersonaSubAgents', () => {
         result.subAgents['domain-persona'],
         'Expected domain-persona subagent'
       );
-      const callToolModelOutput = await invokeDomainToolModelOutput(child);
+      const projection = await invokeChildDomainToolModelOutput(child);
 
-      // If the child incorrectly inherited the parent's 12,000-char ceiling
-      // budget, this 8,000-char projection would NOT throw. Because it uses
-      // its own anchor-floored (BST-1206 P1) 6,000-char budget, it must.
-      expect(callToolModelOutput).toThrow(/domain model projection exceeds/);
+      expect(decodedTextModelOutputChars(projection.value)).toBe(2000);
     });
 
-    it('uses the PINNED model window (large) instead of the small-window parent', async () => {
+    it('lets a pinned large-window child producer widen beyond its small parent budget', async () => {
       const smallParentBudget = resolveScaledToolResultBudget(8192); // floor tier
-      const { guardedTools, toolNameMap } = makeDomainGuardedTools();
+      const { guardedTools, toolNameMap } = makeDomainGuardedTools(smallParentBudget);
       const pinnedLargeModel: LanguageModelV2 = { ...fakeModel, modelId: 'pinned-large' };
       const result = buildPersonaSubAgents({
         guardedTools,
@@ -434,34 +457,49 @@ describe('buildPersonaSubAgents', () => {
         result.subAgents['domain-persona'],
         'Expected domain-persona subagent'
       );
-      const callToolModelOutput = await invokeDomainToolModelOutput(child);
+      const projection = await invokeChildDomainToolModelOutput(child);
 
-      // If the child incorrectly inherited the parent's anchor-floored
-      // 6,000-char budget, this 8,000-char projection would throw. Because it
-      // uses the pinned model's own ceiling-tier (12,000-char) budget, it
-      // must not.
-      expect(callToolModelOutput).not.toThrow();
+      expect(decodedTextModelOutputChars(projection.value)).toBe(12_000);
     });
 
-    it('un-pinned personas still use the parent budget (no pin, no per-persona resolution)', async () => {
-      const largeParentBudget = resolveScaledToolResultBudget(1_050_000); // ceiling tier
-      const { guardedTools, toolNameMap } = makeDomainGuardedTools();
+    it('keeps an un-pinned persona on the parent exact resolved budget', async () => {
+      const parentBudget = resolveScaledToolResultBudget(131_072); // anchor tier
+      const { guardedTools, toolNameMap } = makeDomainGuardedTools(parentBudget);
       const result = buildPersonaSubAgents({
         guardedTools,
         languageModel: fakeModel,
         logger: noopLogger,
         permissionSnapshot: readAllowSnapshot,
         personas: [makeDomainPersona()],
-        resolvedToolResultBudget: largeParentBudget,
+        resolvedToolResultBudget: parentBudget,
         toolNameMap,
       });
       const child = assertDefined(
         result.subAgents['domain-persona'],
         'Expected domain-persona subagent'
       );
-      const callToolModelOutput = await invokeDomainToolModelOutput(child);
+      const projection = await invokeChildDomainToolModelOutput(child);
 
-      expect(callToolModelOutput).not.toThrow();
+      expect(decodedTextModelOutputChars(projection.value)).toBe(
+        parentBudget.domainModelResultCharBudget
+      );
+    });
+
+    it('keeps a parent projection on the parent exact resolved budget', () => {
+      const parentBudget = resolveScaledToolResultBudget(8192); // floor tier
+      const { guardedTools, toolNameMap } = makeDomainGuardedTools(parentBudget);
+      const projectedParentTools = applyToolModelOutputProjections(
+        guardedTools,
+        toolNameMap,
+        undefined,
+        parentBudget
+      );
+
+      const projection = invokeDomainToolModelOutput(projectedParentTools);
+
+      expect(decodedTextModelOutputChars(projection.value)).toBe(
+        parentBudget.domainModelResultCharBudget
+      );
     });
   });
 });

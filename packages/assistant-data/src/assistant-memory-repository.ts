@@ -829,9 +829,9 @@ CREATE TABLE IF NOT EXISTS ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (
   final_step_prompt_tokens integer NOT NULL CHECK (final_step_prompt_tokens >= 0),
   step_count integer NOT NULL DEFAULT 1 CHECK (step_count >= 1),
   model_visible_projection_count integer NOT NULL DEFAULT 0 CHECK (model_visible_projection_count >= 0),
+  occurred_at timestamptz NOT NULL DEFAULT NOW(),
   resolved_domain_budget_tokens integer CHECK (resolved_domain_budget_tokens IS NULL OR resolved_domain_budget_tokens > 0),
-  resolved_transport_budget_tokens integer CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0),
-  occurred_at timestamptz NOT NULL DEFAULT NOW()
+  resolved_transport_budget_tokens integer CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0)
 );
 
 ALTER TABLE ${TOKEN_ESTIMATE_CALIBRATION_TABLE}

@@ -10,6 +10,7 @@ import {
   type FindWorkspaceSymbolInput,
   type GlobWorkspaceInput,
   type GrepSearchInput,
+  getActiveToolResultBudget,
   type HybridSearchInput,
   type InspectCommandSessionsInput,
   type ListEmbeddingSetsInput,
@@ -201,6 +202,8 @@ export function buildDesktopAssistantTools(
   const resolvedDomainCharBudget =
     dependencies.resolvedToolResultBudget?.domainModelResultCharBudget ??
     MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
+  const resolveActiveDomainCharBudget = (): number =>
+    getActiveToolResultBudget()?.domainModelResultCharBudget ?? resolvedDomainCharBudget;
   const toolOutputArtifactReader = dependencies.toolOutputArtifactReader;
   const tools: MastraTools = {
     [NATIVE_TOOL_ID.findWorkspaceSymbol]: {
@@ -220,7 +223,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.findWorkspaceSymbol,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.findWorkspaceSymbol],
       toModelOutput: (output: unknown) =>
-        projectFindWorkspaceSymbolModelOutput(output, resolvedDomainCharBudget),
+        projectFindWorkspaceSymbolModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.lspInspect]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.lspInspect],
@@ -239,7 +242,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.lspInspect,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
       toModelOutput: (output: unknown) =>
-        projectLspInspectModelOutput(output, resolvedDomainCharBudget),
+        projectLspInspectModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.grepSearch]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.grepSearch],
@@ -267,7 +270,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.grepSearch,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],
       toModelOutput: (output: unknown) =>
-        projectGrepSearchModelOutput(output, resolvedDomainCharBudget),
+        projectGrepSearchModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.globWorkspace]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.globWorkspace],
@@ -295,7 +298,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.globWorkspace,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.globWorkspace],
       toModelOutput: (output: unknown) =>
-        projectGlobWorkspaceModelOutput(output, resolvedDomainCharBudget),
+        projectGlobWorkspaceModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.querySelf]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.querySelf],
@@ -322,7 +325,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.querySelf,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.querySelf],
       toModelOutput: (output: unknown) =>
-        projectQuerySelfModelOutput(output, resolvedDomainCharBudget),
+        projectQuerySelfModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.queryDiagnostics]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.queryDiagnostics],
@@ -360,7 +363,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.webSearch,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
       toModelOutput: (output: unknown) =>
-        projectWebSearchModelOutput(output, resolvedDomainCharBudget),
+        projectWebSearchModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.webExtract]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webExtract],
@@ -381,7 +384,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.webExtract,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webExtract],
       toModelOutput: (output: unknown) =>
-        projectWebExtractModelOutput(output, resolvedDomainCharBudget),
+        projectWebExtractModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.readWorkspaceFile]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceFile],
@@ -413,7 +416,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.readWorkspaceFile,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceFile],
       toModelOutput: (output: unknown) =>
-        projectReadWorkspaceFileModelOutput(output, resolvedDomainCharBudget),
+        projectReadWorkspaceFileModelOutput(output, resolveActiveDomainCharBudget()),
     },
     ...(toolOutputArtifactReader
       ? {
@@ -438,7 +441,8 @@ export function buildDesktopAssistantTools(
             },
             id: NATIVE_TOOL_ID.readToolOutputArtifact,
             inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
-            toModelOutput: projectToolOutputArtifactPage,
+            toModelOutput: (output: unknown) =>
+              projectToolOutputArtifactPage(output, resolveActiveDomainCharBudget()),
           },
         }
       : {}),
@@ -560,7 +564,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.listWorkspaceContext,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
       toModelOutput: (output: unknown) =>
-        projectListWorkspaceContextModelOutput(output, resolvedDomainCharBudget),
+        projectListWorkspaceContextModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.readWorkspaceContext]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceContext],
@@ -796,7 +800,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.queryEmbeddingSpace,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace],
       toModelOutput: (output: unknown) =>
-        projectQueryEmbeddingSpaceModelOutput(output, resolvedDomainCharBudget),
+        projectQueryEmbeddingSpaceModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.hybridSearch]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.hybridSearch],
@@ -817,7 +821,7 @@ export function buildDesktopAssistantTools(
       id: NATIVE_TOOL_ID.hybridSearch,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch],
       toModelOutput: (output: unknown) =>
-        projectHybridSearchModelOutput(output, resolvedDomainCharBudget),
+        projectHybridSearchModelOutput(output, resolveActiveDomainCharBudget()),
     },
     ...(isLocalProvider
       ? {}
@@ -914,7 +918,7 @@ export function buildDesktopAssistantTools(
     id: NATIVE_TOOL_ID.executeCommand,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],
     toModelOutput: (output: unknown) =>
-      projectExecuteCommandModelOutput(output, resolvedDomainCharBudget),
+      projectExecuteCommandModelOutput(output, resolveActiveDomainCharBudget()),
   };
 
   const skillScriptResolver = dependencies.skillScriptResolver;

@@ -84,6 +84,34 @@ const CEILING_DEFAULT_MODEL_PROJECTION_BUDGET = buildDefaultModelProjectionBudge
   CEILING_SCALED_TOOL_RESULT_BUDGET
 );
 
+let activeToolResultBudget: ScaledToolResultBudget | undefined;
+
+/**
+ * The resolved budget for the synchronous custom-projector call currently on
+ * this stack. Desktop's purpose-built projectors use this because Mastra's
+ * `toModelOutput(output)` callback has no budget parameter and one tool object
+ * can be re-projected for a persona running under a different model budget.
+ *
+ * This deliberately uses save/restore module state rather than async context:
+ * every desktop custom projector is synchronous end-to-end, so Node cannot
+ * interleave another call before the `finally` restores the previous value.
+ * Async projectors remain supported by the outer projection pipeline, but they
+ * must not depend on this synchronous-only context after returning a Promise.
+ */
+export function getActiveToolResultBudget(): ScaledToolResultBudget | undefined {
+  return activeToolResultBudget;
+}
+
+function withActiveToolResultBudget<T>(budget: ScaledToolResultBudget, run: () => T): T {
+  const previous = activeToolResultBudget;
+  activeToolResultBudget = budget;
+  try {
+    return run();
+  } finally {
+    activeToolResultBudget = previous;
+  }
+}
+
 const SKILL_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
   domainSerializedChars: SKILL_ACTIVATION_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
   domainTokens: SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
@@ -745,7 +773,8 @@ function projectExistingModelOutput(
   projector: (output: unknown) => unknown,
   receiver: ExecutableToolWithModelOutput,
   output: unknown,
-  resolvedDefaultBudget: ModelProjectionBudget
+  resolvedDefaultBudget: ModelProjectionBudget,
+  resolvedToolResultBudget: ScaledToolResultBudget
 ): unknown {
   const settled = readSettledToolOutputModelProjection(output);
   if (settled) {
@@ -821,7 +850,9 @@ function projectExistingModelOutput(
   };
   let projected: unknown;
   try {
-    projected = Reflect.apply(projector, receiver, [domainOutput]);
+    projected = withActiveToolResultBudget(resolvedToolResultBudget, () =>
+      Reflect.apply(projector, receiver, [domainOutput])
+    );
   } catch (error) {
     return failSoft(error);
   }
@@ -911,7 +942,8 @@ export function applyToolModelOutputProjections(
               originalProjection,
               cloned,
               output,
-              resolvedDefaultBudget
+              resolvedDefaultBudget,
+              resolvedToolResultBudget
             ),
             observer,
             readTelemetrySource(output)

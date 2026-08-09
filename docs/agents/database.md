@@ -238,8 +238,10 @@ Migration 089 adds nullable positive domain/transport resolved-budget token
 columns. New calibration rows persist the concrete run tier; historical rows
 remain NULL because backfilling an anchor would fabricate evidence. The
 renderer-lazy bootstrap mirrors both the fresh final shape and idempotent
-`ADD COLUMN IF NOT EXISTS` upgrade seam, and the estimator lens groups by model
-plus both tier columns.
+`ADD COLUMN IF NOT EXISTS` upgrade seam. Its ordinal column order matches the
+migrated path: migration 086's trailing `occurred_at` precedes the two columns
+migration 089 appends. The estimator lens groups by model plus both tier
+columns.
 
 The least-new-mechanism seam is a standalone table modeled on migration 083.
 Both figures already meet in the agent/main-process stream before the existing

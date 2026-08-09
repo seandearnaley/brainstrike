@@ -489,7 +489,8 @@ function searchContinuation(result: ToolOutputArtifactSearchResult, kept: number
 }
 
 function projectToolOutputArtifactSearchResult(
-  result: ToolOutputArtifactSearchResult
+  result: ToolOutputArtifactSearchResult,
+  domainModelResultCharBudget: number = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
 ): ToolOutputArtifactSearchProjection {
   const artifactLine = `artifact bytes ${result.offsetByte}-${result.endByte}`;
   const keptRows: string[] = [];
@@ -513,10 +514,7 @@ function projectToolOutputArtifactSearchResult(
       row,
       ...(continuation ? [continuation] : []),
     ];
-    if (
-      decodedTextModelOutputChars(candidateLines.join('\n')) >
-      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
-    ) {
+    if (decodedTextModelOutputChars(candidateLines.join('\n')) > domainModelResultCharBudget) {
       break;
     }
     keptRows.push(row);
@@ -534,24 +532,32 @@ function projectToolOutputArtifactSearchResult(
     ...keptRows,
     ...(continuation ? [continuation] : []),
   ];
-  if (decodedTextModelOutputChars(lines.join('\n')) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedTextModelOutputChars(lines.join('\n')) > domainModelResultCharBudget) {
     throw new RangeError(
-      `Tool output artifact search projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+      `Tool output artifact search projection exceeds the ${domainModelResultCharBudget}-character domain budget`
     );
   }
   return { type: 'text', value: lines.join('\n') };
 }
 
 export function projectToolOutputArtifactPage(
-  output: ToolOutputArtifactPage
+  output: ToolOutputArtifactPage,
+  domainModelResultCharBudget?: number
 ): ToolOutputArtifactModelProjection;
 export function projectToolOutputArtifactPage(
-  output: ToolOutputArtifactSearchResult
+  output: ToolOutputArtifactSearchResult,
+  domainModelResultCharBudget?: number
 ): ToolOutputArtifactSearchProjection;
-export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifactModelOutput;
-export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifactModelOutput {
+export function projectToolOutputArtifactPage(
+  output: unknown,
+  domainModelResultCharBudget?: number
+): ToolOutputArtifactModelOutput;
+export function projectToolOutputArtifactPage(
+  output: unknown,
+  domainModelResultCharBudget: number = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): ToolOutputArtifactModelOutput {
   if (isToolOutputArtifactSearchResult(output)) {
-    return projectToolOutputArtifactSearchResult(output);
+    return projectToolOutputArtifactSearchResult(output, domainModelResultCharBudget);
   }
   if (!isToolOutputArtifactPage(output)) {
     throw new TypeError('Tool output artifact reader returned an invalid page.');
@@ -566,7 +572,7 @@ export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifa
   // Prefer the complete page when it fits before binary-searching the strictly
   // cursor-bearing prefixes.
   const completePage = buildModelPage(output, decoded);
-  if (JSON.stringify(completePage).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (JSON.stringify(completePage).length <= domainModelResultCharBudget) {
     return completePage;
   }
 
@@ -577,7 +583,7 @@ export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifa
   while (low <= high) {
     const kept = Math.floor((low + high) / 2);
     const candidate = buildModelPage(output, codePoints.slice(0, kept).join(''));
-    if (JSON.stringify(candidate).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (JSON.stringify(candidate).length <= domainModelResultCharBudget) {
       best = candidate;
       low = kept + 1;
     } else {

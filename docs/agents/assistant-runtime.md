@@ -276,7 +276,12 @@ truncated at that composition stage. The `skill` activation exception keeps
 its complete 6000-token instruction budget and adds a dedicated bounded hook
 allowance plus structural reserve instead of rebinding to the generic
 1500-token domain budget. Persona agents receive the same projections before
-their independent permission gate. Mastra 1.51's documented CoreTool
+their independent permission gate. A reused parent-owned tool is invoked under
+a save/restore active-budget context for the synchronous custom-projector call,
+so a pinned child producer fits to the child's resolved tier rather than the
+construction-time parent tier; every desktop custom projector is synchronous,
+and the context is restored before any returned Promise can be observed.
+Mastra 1.51's documented CoreTool
 projection callback receives the raw execute output. Brainstrike never
 shape-guesses `{toolCallId,input,output}` as adapter metadata because that exact
 object is valid domain evidence; a future direct AI SDK adapter belongs at a

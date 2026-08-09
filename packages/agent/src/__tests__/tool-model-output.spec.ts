@@ -32,6 +32,7 @@ import {
   applyToolModelOutputProjections as applyToolModelOutputProjectionsWithBudget,
   assertDomainProjectionWithinBudget,
   buildDefaultModelProjectionBudget,
+  getActiveToolResultBudget,
 } from '../mastra/tool-model-output';
 import { ToolProjectionInputRejectedError } from '../mastra/tool-projection-input-rejected';
 import {
@@ -97,6 +98,59 @@ async function transformOutput(
 }
 
 describe('applyToolModelOutputProjections', () => {
+  it('exposes the resolved budget only while invoking a synchronous domain projector', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192);
+    let observedBudget: ReturnType<typeof getActiveToolResultBudget>;
+    const projector = vi.fn(() => {
+      observedBudget = getActiveToolResultBudget();
+      return { type: 'text', value: 'projected' };
+    });
+    const projected = applyToolModelOutputProjectionsWithBudget(
+      {
+        custom: asTool({
+          execute: () => 'raw',
+          id: 'custom',
+          toModelOutput: projector,
+        }),
+      },
+      new Map([['custom', 'custom']]),
+      undefined,
+      floorBudget
+    );
+
+    expect(getActiveToolResultBudget()).toBeUndefined();
+    expect((projected['custom'] as TestTool).toModelOutput?.('raw')).toEqual({
+      type: 'text',
+      value: 'projected',
+    });
+    expect(observedBudget).toBe(floorBudget);
+    expect(getActiveToolResultBudget()).toBeUndefined();
+  });
+
+  it('restores the prior budget when a synchronous domain projector throws', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192);
+    const projected = applyToolModelOutputProjectionsWithBudget(
+      {
+        custom: asTool({
+          execute: () => 'raw',
+          id: 'custom',
+          toModelOutput: () => {
+            expect(getActiveToolResultBudget()).toBe(floorBudget);
+            throw new RangeError('projector failed');
+          },
+        }),
+      },
+      new Map([['custom', 'custom']]),
+      undefined,
+      floorBudget
+    );
+
+    expect(() => (projected['custom'] as TestTool).toModelOutput?.('raw')).toThrow(
+      'projector failed'
+    );
+    expect(getActiveToolResultBudget()).toBeUndefined();
+  });
+
   it('accepts a ceiling-sized stored text projection under a floor-tier run budget', () => {
     const floorBudget = resolveScaledToolResultBudget(8192);
     expect(floorBudget.domainModelResultCharBudget).toBe(2000);

@@ -938,7 +938,11 @@ misconfiguration (a registered entry with an invalid `contextWindow`) still
 throws through `resolveScaledToolResultBudget`'s own validation rather than
 being swallowed as "unknown model". The plain resolved carrier is threaded
 through MCP inline bounding, the core and deferred discovery surfaces, persona
-projections, and `RunTokenDiagnostics`; no mutable module-global budget exists.
+projections, and `RunTokenDiagnostics`. The sole module-scoped context is the
+save/restore `activeToolResultBudget` around one synchronous custom-projector
+call: it is not run state, is never held across a Promise, and exists because
+Mastra's `toModelOutput(output)` signature cannot carry the per-call budget
+when a persona re-projects a parent-owned tool object.
 
 BST-1219 (done; follow-up to PR #2349) closes the producer/guard seam for fresh
 desktop projections. `packages/assistant-service/src/stream-init.ts` normalizes
@@ -946,7 +950,12 @@ the trusted provider, applies the same default-model fallback, resolves the
 budget before `capabilities.tools.build`, and carries it in
 `AgentStreamToolDependencies.resolvedToolResultBudget`.
 `buildDesktopAssistantTools` captures its domain-character value in every
-purpose-built projector and in `readWorkspaceFile`'s page fitter. The later
+purpose-built projector only as a fallback for direct callers and in
+`readWorkspaceFile`'s page fitter. Wrapped parent/persona projection calls read
+the active resolved carrier synchronously, so the SAME desktop tool object can
+narrow or widen for a pinned child's own budget. `readToolOutputArtifact` uses
+that seam too; its page and search projectors self-fit against the passed
+domain budget instead of the fixed 6000-character anchor. The later
 Mastra runtime independently resolves the same provider/model pair once for
 its guard and transport pipeline; `stream-init-tool-budget.test.ts` pins parity
 between those two resolutions. Invalid providers remain a visible anchor
