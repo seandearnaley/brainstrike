@@ -119,7 +119,7 @@ export function CompactToolbarActions({
   setFiltersExpanded: (expanded: boolean) => void;
   state: CompactToolbarActionsState;
 }) {
-  if (state.availability === 'unavailable') {
+  if (state.availability !== 'available') {
     return null;
   }
 

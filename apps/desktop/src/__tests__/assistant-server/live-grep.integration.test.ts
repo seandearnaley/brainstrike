@@ -669,7 +669,7 @@ describe('runLiveGrep — binary-detection superset (--text; NUL-containing sour
     // policy INCLUDES it and the js-walk reads it as utf8 and matches. With
     // `--text`, rg surfaces it too — restoring the superset.
     const dir = await makeWorkspace({
-      'src/a.ts': 'line one   some bytes\nBINTOKEN appears here\n',
+      'src/a.ts': 'line one \0 some bytes\nBINTOKEN appears here\n',
       'src/clean.ts': 'BINTOKEN clean\n',
     });
     const result = await runLiveGrep(
@@ -704,7 +704,7 @@ describe('runLiveGrep — binary-detection superset (--text; NUL-containing sour
       'node_modules/dep/index.ts': 'PARITY_TOKEN dep\n',
       'src/ignored.ts': 'PARITY_TOKEN gitignored\n',
       'src/plain.ts': 'PARITY_TOKEN plain\n',
-      'src/withnul.ts': 'before   nul\nPARITY_TOKEN after a nul\n',
+      'src/withnul.ts': 'before \0 nul\nPARITY_TOKEN after a nul\n',
       'vendor/lib.min.js': 'PARITY_TOKEN minified\n',
     });
     await fsPromises.mkdir(path.join(dir, '.git'), { recursive: true });

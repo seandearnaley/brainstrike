@@ -5,7 +5,11 @@ import * as React from 'react';
 
 interface FileExplorerToolbarProps {
   bulkSelectionControl?: React.ReactNode;
-  /** Narrow-width menu for actions that cannot coexist with 24px targets and the edge gutters. */
+  /**
+   * Narrow-width menu for actions that cannot coexist with 24px targets and the
+   * edge gutters. Renders nothing while an operation is cancellable, so the
+   * scanning indicator's cancel gets the slot instead.
+   */
   compactActionsControl?: React.ReactNode;
   /** Filter visibility toggle rendered between the tree actions and the right-edge bulk selection control. */
   filtersControl?: React.ReactNode;
@@ -13,9 +17,10 @@ interface FileExplorerToolbarProps {
   onDirectorySelect: () => Promise<void>;
   selectionStatusControl?: React.ReactNode;
   /**
-   * Tree operations (refresh / expand / collapse) rendered in the right
-   * cluster. They live on the toolbar — not inside the collapsible filter
-   * block — so they stay reachable while view filters are collapsed.
+   * Tree operations (refresh) plus the inline scanning indicator, rendered in
+   * the right cluster. They live on the toolbar — not inside the collapsible
+   * filter block, and not inside the narrow-hidden wrapper — so the indicator's
+   * cancel stays reachable at every panel width.
    */
   treeActionsControl?: React.ReactNode;
 }
@@ -72,12 +77,18 @@ const FileExplorerToolbar = React.memo(
                 symmetric 12px edge gutter. At 236px, the full Refresh and View
                 Filters actions replace the compact menu; three 28px controls,
                 two 4px gaps, and the 12px gutter exactly fit the 104px track.
-                Select All stays last so it remains the protected edge action. */}
+                Select All stays last so it remains the protected edge action.
+
+                Tree actions sit OUTSIDE the narrow-hidden wrapper: the cluster
+                carries the scanning indicator's Cancel (X), which is the only
+                way to abort a running expand-all sweep, and hiding it wholesale
+                at 180px left desktop users with no abort at all (BST-657
+                regression). The cluster gates its own children instead — only
+                the cancel survives the narrow track, and the compact menu
+                yields its slot for the duration (see CompactToolbarActions). */}
             <div className="flex w-full min-w-0 items-center justify-end @[236px]/explorer-toolbar:gap-1 gap-0 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
-              <div className="@[236px]/explorer-toolbar:contents hidden">
-                {treeActionsControl}
-                {filtersControl}
-              </div>
+              {treeActionsControl}
+              <div className="@[236px]/explorer-toolbar:contents hidden">{filtersControl}</div>
               {compactActionsControl}
               {bulkSelectionControl}
             </div>
