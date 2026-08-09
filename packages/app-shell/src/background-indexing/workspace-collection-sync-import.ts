@@ -260,7 +260,7 @@ async function collectDiscoveredPreparedFiles(args: {
     const result: unknown = args.fileContents[compositeKey];
     assertFileContentResult(result, compositeKey);
     const indexingError = getContentIndexingError(result);
-    if (indexingError) {
+    if (indexingError !== null) {
       excludedEntries += 1;
       logger.debug('Workspace Index skipped file content that cannot be indexed', {
         reason: indexingError,
@@ -492,7 +492,7 @@ function getSkippedBatchContentError(
     return 'Background cache import descriptor is missing.';
   }
   const indexingError = getContentIndexingError(result);
-  if (indexingError) {
+  if (indexingError !== null) {
     return indexingError;
   }
   if (result.status !== 'accessible') {

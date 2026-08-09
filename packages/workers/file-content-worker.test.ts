@@ -71,7 +71,7 @@ describe('file-content-worker', () => {
     MockFileSystemAdapter.setMockFileContent('/file.txt', 'hello');
 
     const results = await worker([req]);
-    expect(displayResult(results[req.compositeKey])).toBe('hello');
+    expect(results[req.compositeKey]).toEqual({ content: 'hello', status: 'accessible' });
   });
 
   it('prefers handle-based reads when a handle is available', async () => {
@@ -103,7 +103,10 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(displayResult(results[req.compositeKey])).toMatch('File too large');
+    expect(results[req.compositeKey]).toEqual({
+      message: expect.stringContaining('File too large'),
+      status: 'inaccessible',
+    });
     expect(readSpy).not.toHaveBeenCalled();
   });
 
@@ -133,7 +136,10 @@ describe('file-content-worker', () => {
     vi.spyOn(utils, 'isBinaryExtension').mockReturnValue(true);
 
     const results = await worker([req]);
-    expect(displayResult(results[req.compositeKey])).toMatch('Binary file');
+    expect(results[req.compositeKey]).toEqual({
+      message: expect.stringContaining('Binary file'),
+      status: 'inaccessible',
+    });
   });
 
   it('returns binary error when content is not text', async () => {
@@ -234,7 +240,10 @@ describe('file-content-worker', () => {
 
     const results = await worker([req]);
 
-    expect(displayResult(results[req.compositeKey])).toMatch('Error accessing file');
+    expect(results[req.compositeKey]).toEqual({
+      message: 'Error accessing file',
+      status: 'inaccessible',
+    });
   });
 
   it('maps structured TOO_LARGE errors from adapter reads', async () => {

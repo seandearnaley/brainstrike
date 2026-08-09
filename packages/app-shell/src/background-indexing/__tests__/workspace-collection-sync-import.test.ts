@@ -318,6 +318,37 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     ]);
   });
 
+  it('excludes an inaccessible scan result even when its message is empty', async () => {
+    const processFiles = vi.fn(
+      async (requests: readonly FileContentRequest[]): Promise<Record<string, FileContentResult>> =>
+        Object.fromEntries(
+          requests.map((request) => [
+            request.compositeKey,
+            { message: '', status: 'inaccessible' as const },
+          ])
+        )
+    );
+
+    const result = await collectPreparedChangesInBatches({
+      abortSignal: new AbortController().signal,
+      existingEntries: [],
+      fileContentProcessor: { processFiles },
+      fileNodes: [makeFileNode('empty-message.txt', 42, 1000)],
+      fileSystemAdapter: {} as FileSystemAdapter,
+      onCurrentFile: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 1,
+        contentReadConcurrency: 1,
+        importBatchSize: 1,
+      },
+      rootId: ROOT,
+      rootPath: ROOT,
+    });
+
+    expect(result).toMatchObject({ changes: [], excludedEntries: 1 });
+  });
+
   it('fails closed when the content processor omits a requested scan result', async () => {
     const processFiles = vi.fn(async () => ({}));
 
@@ -1036,7 +1067,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
       async () => {}
     );
     const change = makeMinimalChange();
-    const message = 'Access was revoked after the workspace scan.';
+    const message = '';
     const processFiles = vi.fn(
       async (): Promise<Record<string, FileContentResult>> => ({
         [change.compositeKey]: { message, status: 'inaccessible' },
