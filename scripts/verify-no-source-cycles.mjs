@@ -602,7 +602,7 @@ export async function findSourceCycles({ apps = RENDERER_APPS, root = REPO_ROOT 
   }
 
   // The same cycle can surface from more than one app; report it once.
-  const deduped = [...new Map(cycles.map((cycle) => [cycle.join(' '), cycle])).values()];
+  const deduped = [...new Map(cycles.map((cycle) => [cycle.join('\0'), cycle])).values()];
   return { cycles: deduped, moduleCount };
 }
 
