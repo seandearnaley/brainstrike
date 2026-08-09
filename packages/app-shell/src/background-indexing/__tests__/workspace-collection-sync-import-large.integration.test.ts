@@ -6,7 +6,11 @@ import {
   migrate,
   wasmLoader,
 } from '@brainstrike/db';
-import type { FileContentProcessor, FileContentRequest } from '@brainstrike/file-explorer-hooks';
+import type {
+  FileContentProcessor,
+  FileContentRequest,
+  FileContentResult,
+} from '@brainstrike/file-explorer-hooks';
 import type { ChunkingWorkerPort } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
@@ -61,12 +65,17 @@ function makeChange(index: number): PreparedCacheChange {
 
 function createProcessor(): FileContentProcessor {
   return {
-    async processFiles(requests: readonly FileContentRequest[]): Promise<Record<string, string>> {
-      const contents: Record<string, string> = {};
+    async processFiles(
+      requests: readonly FileContentRequest[]
+    ): Promise<Record<string, FileContentResult>> {
+      const contents: Record<string, FileContentResult> = {};
       for (const request of requests) {
-        contents[request.compositeKey] = request.fileNode.path.endsWith(`file-${INVALID_INDEX}.txt`)
-          ? `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
-          : `content for ${request.fileNode.path}`;
+        contents[request.compositeKey] = {
+          content: request.fileNode.path.endsWith(`file-${INVALID_INDEX}.txt`)
+            ? `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
+            : `content for ${request.fileNode.path}`,
+          status: 'accessible',
+        };
       }
       return contents;
     },

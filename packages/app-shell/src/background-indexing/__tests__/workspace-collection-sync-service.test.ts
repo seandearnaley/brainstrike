@@ -95,7 +95,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const unchangedHash = await generateContentHash(unchangedContent);
     const fileContentProcessor = {
       processFiles: vi.fn(async () => ({
-        [COMPOSITE_KEY]: unchangedContent,
+        [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
       })),
     };
     const deps = createDeps({
@@ -187,7 +187,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       resolveQosPolicy: vi
@@ -242,7 +242,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 3;',
+          [COMPOSITE_KEY]: { content: 'export const value = 3;', status: 'accessible' as const },
         })),
       },
       resolveQosPolicy: vi
@@ -307,7 +307,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 7;',
+          [COMPOSITE_KEY]: { content: 'export const value = 7;', status: 'accessible' as const },
         })),
       },
       resolveQosPolicy: vi.fn(
@@ -474,7 +474,7 @@ describe('WorkspaceCollectionSyncService', () => {
       },
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -561,7 +561,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -756,7 +756,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -839,7 +839,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [ROOT_B_COMPOSITE_KEY]: newContent,
+          [ROOT_B_COMPOSITE_KEY]: { content: newContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -1047,7 +1047,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: newContent,
+          [COMPOSITE_KEY]: { content: newContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -1282,7 +1282,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [keptCompositeKey]: newContent,
+          [keptCompositeKey]: { content: newContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -1535,7 +1535,10 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [subtreeCompositeKey]: 'export const Button = 1;',
+          [subtreeCompositeKey]: {
+            content: 'export const Button = 1;',
+            status: 'accessible' as const,
+          },
         })),
       },
       fileSystemAdapter: {
@@ -1640,7 +1643,7 @@ describe('WorkspaceCollectionSyncService', () => {
       },
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -1694,7 +1697,7 @@ describe('WorkspaceCollectionSyncService', () => {
       },
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -1760,7 +1763,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 1;',
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
         })),
       },
     });
@@ -1824,9 +1827,12 @@ describe('WorkspaceCollectionSyncService', () => {
           Object.fromEntries(
             requests.map((request) => [
               request.compositeKey,
-              request.compositeKey.includes('binary-content.md')
-                ? 'looks like markdown but contains a null\0byte'
-                : 'export const value = 1;',
+              {
+                content: request.compositeKey.includes('binary-content.md')
+                  ? 'looks like markdown but contains a null\0byte'
+                  : 'export const value = 1;',
+                status: 'accessible' as const,
+              },
             ])
           )
         ),
@@ -1872,7 +1878,10 @@ describe('WorkspaceCollectionSyncService', () => {
           }
           onProgress({ key: firstRequest.compositeKey });
           return {
-            [firstRequest.compositeKey]: 'export const value = 1;',
+            [firstRequest.compositeKey]: {
+              content: 'export const value = 1;',
+              status: 'accessible' as const,
+            },
           };
         }),
       },
@@ -1902,8 +1911,11 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]:
-            'export const marker = "Binary file - preview not available"; export const ok = true;',
+          [COMPOSITE_KEY]: {
+            content:
+              'export const marker = "Binary file - preview not available"; export const ok = true;',
+            status: 'accessible' as const,
+          },
         })),
       },
     });
@@ -1932,10 +1944,13 @@ describe('WorkspaceCollectionSyncService', () => {
         processFiles: vi
           .fn()
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: 'export const value = 1;',
+            [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
           })
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: 'Binary file - preview not available',
+            [COMPOSITE_KEY]: {
+              message: 'Binary file - preview not available',
+              status: 'inaccessible' as const,
+            },
           }),
       },
     });
@@ -1959,7 +1974,7 @@ describe('WorkspaceCollectionSyncService', () => {
         processFiles: vi
           .fn()
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: 'export const value = 1;',
+            [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
           })
           .mockResolvedValueOnce({}),
       },
@@ -2001,10 +2016,10 @@ describe('WorkspaceCollectionSyncService', () => {
         processFiles: vi
           .fn()
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: initialContent,
+            [COMPOSITE_KEY]: { content: initialContent, status: 'accessible' as const },
           })
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: importTimeContent,
+            [COMPOSITE_KEY]: { content: importTimeContent, status: 'accessible' as const },
           }),
       },
     });
@@ -2057,12 +2072,24 @@ describe('WorkspaceCollectionSyncService', () => {
         processFiles: vi
           .fn()
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: 'export const indexValue = 1;',
-            [secondCompositeKey]: 'export const utilValue = 2;',
+            [COMPOSITE_KEY]: {
+              content: 'export const indexValue = 1;',
+              status: 'accessible' as const,
+            },
+            [secondCompositeKey]: {
+              content: 'export const utilValue = 2;',
+              status: 'accessible' as const,
+            },
           })
           .mockResolvedValueOnce({
-            [COMPOSITE_KEY]: 'export const indexValue = 1;',
-            [secondCompositeKey]: 'export const utilValue = 2;',
+            [COMPOSITE_KEY]: {
+              content: 'export const indexValue = 1;',
+              status: 'accessible' as const,
+            },
+            [secondCompositeKey]: {
+              content: 'export const utilValue = 2;',
+              status: 'accessible' as const,
+            },
           }),
       },
     });
@@ -2114,7 +2141,7 @@ describe('WorkspaceCollectionSyncService', () => {
       const deps = createDeps({
         fileContentProcessor: {
           processFiles: vi.fn(async () => ({
-            [COMPOSITE_KEY]: 'export const value = 2;',
+            [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
           })),
         },
       });
@@ -2183,7 +2210,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -2253,7 +2280,7 @@ describe('WorkspaceCollectionSyncService', () => {
       }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2328,7 +2355,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       resolveQosPolicy: vi
@@ -2374,7 +2401,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       resolveQosPolicy: vi
@@ -2413,7 +2440,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2469,7 +2496,7 @@ describe('WorkspaceCollectionSyncService', () => {
       ensureChunkingWorker: vi.fn(async () => chunkingWorkerPort),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2497,7 +2524,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       subscribeToBackfillProgress: vi.fn((callback) => {
@@ -2600,7 +2627,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       getBackfillsInFlight: vi.fn().mockResolvedValueOnce([]),
@@ -2648,7 +2675,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       subscribeToBackfillProgress: vi.fn((callback) => {
@@ -2706,7 +2733,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       subscribeToBackfillProgress: vi.fn((callback) => {
@@ -2776,7 +2803,7 @@ describe('WorkspaceCollectionSyncService', () => {
       }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2820,7 +2847,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enqueueBackfill: vi.fn(async () => ({ canceled: true }) as const),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2843,7 +2870,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -2886,7 +2913,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       getBackfillsInFlight: vi.fn(async () => [
@@ -2921,7 +2948,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       getBackfillsInFlight: vi.fn(async () => [
@@ -2969,7 +2996,10 @@ describe('WorkspaceCollectionSyncService', () => {
           return Object.fromEntries(
             requests.map((request, index) => [
               request.compositeKey,
-              `export const value${index} = ${index};`,
+              {
+                content: `export const value${index} = ${index};`,
+                status: 'accessible' as const,
+              },
             ])
           );
         }),
@@ -3003,7 +3033,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -3055,7 +3085,7 @@ describe('WorkspaceCollectionSyncService', () => {
       }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -3138,7 +3168,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       validateHostedProviderAccess: vi.fn(async () => {
@@ -3179,7 +3209,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enqueueBackfill: vi.fn(async () => ({ requestId: 'background-indexing-backfill:test' })),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: unchangedContent,
+          [COMPOSITE_KEY]: { content: unchangedContent, status: 'accessible' as const },
         })),
       },
       fileRecordRepository: {
@@ -3242,7 +3272,7 @@ describe('WorkspaceCollectionSyncService', () => {
       } as unknown as WorkspaceCollectionSyncServiceDependencies['embeddingSetsRepository'],
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -3286,7 +3316,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       getBackfillsInFlight: vi.fn(async () => [
@@ -3346,7 +3376,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
     });
@@ -3404,7 +3434,7 @@ describe('WorkspaceCollectionSyncService', () => {
       }),
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       subscribeToBackfillProgress: vi.fn((callback) => {
@@ -3439,7 +3469,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 2;',
+          [COMPOSITE_KEY]: { content: 'export const value = 2;', status: 'accessible' as const },
         })),
       },
       subscribeToBackfillProgress: vi.fn((callback) => {
@@ -3491,7 +3521,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 1;',
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
         })),
       },
       resolveDbRootId: vi.fn().mockResolvedValue('root-db-1'),
@@ -3518,7 +3548,7 @@ describe('WorkspaceCollectionSyncService', () => {
     const deps = createDeps({
       fileContentProcessor: {
         processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: 'export const value = 1;',
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
         })),
       },
       resolveDbRootId: vi.fn().mockResolvedValue(null),
