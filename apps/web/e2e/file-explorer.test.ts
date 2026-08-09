@@ -268,7 +268,14 @@ test.describe('File Explorer', () => {
         const ownerRect = owner.getBoundingClientRect();
         const panelRect = panel.getBoundingClientRect();
         const rowRect = row.getBoundingClientRect();
+        // The single-root grid's sticky column header (BST-1208) is IN FLOW
+        // inside the table, so it contributes to the table's painted height.
+        // Subtract the MEASURED header (0 on headerless surfaces) — the same
+        // coordinate rule as the pitch spec below; see the "header inside the
+        // scrollport" section of docs/agents/ui-conventions.md.
+        const header = treegrid.querySelector<HTMLElement>('thead');
         return {
+          headerHeight: header ? header.getBoundingClientRect().height : 0,
           ownerBottom: ownerRect.bottom,
           ownerHeight: ownerRect.height,
           ownerOverflowX: getComputedStyle(owner).overflowX,
@@ -284,7 +291,9 @@ test.describe('File Explorer', () => {
       expect(Math.abs(geometry.ownerBottom - geometry.panelBottom)).toBeLessThanOrEqual(1);
       expect(geometry.ownerHeight).toBeGreaterThan(geometry.rowHeight * 3);
       expect(geometry.rowHeight).toBeLessThanOrEqual(40);
-      expect(geometry.tableHeight).toBeLessThanOrEqual(40);
+      // Intrinsic CONTENT height: one sparse row must not stretch to fill the
+      // panel, whatever chrome the header adds above it.
+      expect(geometry.tableHeight - geometry.headerHeight).toBeLessThanOrEqual(40);
     });
 
     test('paints tree rows at exactly the pitch its virtualizer models', {
