@@ -37,6 +37,7 @@ const {
   mockImportServiceState: {
     // Captured from the service options so tests can fire the service's first
     // progress emission explicitly, the way the real service would.
+    emitComplete: null as ((results: unknown[]) => Promise<void>) | null,
     emitProgress: null as (() => void) | null,
     isImporting: false,
     progress: null as Record<string, unknown> | null,
@@ -142,8 +143,12 @@ vi.mock('@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog'
 }));
 
 vi.mock('../enhanced-file-import-service', () => ({
-  useEnhancedFileImportService: (options: { onProgress?: () => void }) => {
+  useEnhancedFileImportService: (options: {
+    onComplete?: (results: unknown[]) => Promise<void>;
+    onProgress?: () => void;
+  }) => {
     mockImportServiceState.emitProgress = options.onProgress ?? null;
+    mockImportServiceState.emitComplete = options.onComplete ?? null;
     return {
       cancelImport: vi.fn(),
       chunkRepository: null,
@@ -233,6 +238,7 @@ beforeEach(() => {
   mockRefreshCollectionIndexingStats.mockClear();
   mockUseSelectionActionBarPin.mockClear();
   mockImportServiceState.emitProgress = null;
+  mockImportServiceState.emitComplete = null;
   mockImportServiceState.isImporting = false;
   mockImportServiceState.progress = null;
   mockSelectedFilePaths.current = new Set(['root-1|@|/workspace/a.ts', 'root-1|@|/workspace/b.ts']);
@@ -268,7 +274,7 @@ describe('ExplorerImportAction', () => {
     const picker = await openPicker();
 
     const confirm = within(picker).getByRole('button', {
-      name: 'Import selected files into collection',
+      name: 'Import 2 files into the selected collection',
     });
     expect(confirm).toBeDisabled();
     expect(confirm).toHaveAttribute('title', 'Select a collection first');
@@ -283,7 +289,7 @@ describe('ExplorerImportAction', () => {
     const picker = await openPicker();
 
     const confirm = within(picker).getByRole('button', {
-      name: 'Import selected files into collection',
+      name: 'Import 2 files into the selected collection',
     });
     expect(confirm).toBeDisabled();
     expect(confirm).toHaveAttribute(
@@ -306,13 +312,69 @@ describe('ExplorerImportAction', () => {
     });
 
     await user.click(
-      within(picker).getByRole('button', { name: 'Import selected files into collection' })
+      within(picker).getByRole('button', { name: 'Import 2 files into the selected collection' })
     );
 
     await waitFor(() => {
       expect(mockImportFiles).toHaveBeenCalledTimes(1);
     });
     expect(mockImportFiles.mock.calls[0]?.[0]).toEqual(mockSelectedFilePaths.current);
+  });
+
+  it('refreshes the collection the run imported into, not whatever is active when it lands', async () => {
+    // The picker — and its per-row Delete — sit one click behind a trigger that
+    // stays enabled for the whole run, so the active collection can move out
+    // from under an in-flight import. The service pins its own target at start;
+    // completion has to describe the same run.
+    const user = userEvent.setup();
+    mockCollections.current = [collection({ id: 'docs' }), collection({ id: 'notes' })];
+    const picker = await openPicker();
+
+    await user.click(within(picker).getByRole('option', { name: /Collection docs/ }));
+    await waitFor(() => {
+      expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBe('docs');
+    });
+    await user.click(
+      within(picker).getByRole('button', { name: 'Import 2 files into the selected collection' })
+    );
+
+    // The user re-points the picker while the run is still going.
+    act(() => {
+      useVectorStatusUIStore.getState().setActiveEmbeddingSetId('notes');
+    });
+
+    await act(async () => {
+      await mockImportServiceState.emitComplete?.([]);
+    });
+
+    expect(mockRefreshCollectionIndexingStats).toHaveBeenCalledTimes(1);
+    expect(mockRefreshCollectionIndexingStats.mock.calls[0]?.[1]).toEqual(['docs']);
+  });
+
+  it('still refreshes the run target after the active collection is deleted', async () => {
+    // Deleting the active collection sets the active id to null. Reading it at
+    // completion would throw out of the service's onComplete instead of
+    // refreshing the collection that actually gained files.
+    const user = userEvent.setup();
+    const picker = await openPicker();
+
+    await user.click(within(picker).getByRole('option', { name: /Collection docs/ }));
+    await waitFor(() => {
+      expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBe('docs');
+    });
+    await user.click(
+      within(picker).getByRole('button', { name: 'Import 2 files into the selected collection' })
+    );
+
+    act(() => {
+      useVectorStatusUIStore.getState().setActiveEmbeddingSetId(null);
+    });
+
+    await act(async () => {
+      await mockImportServiceState.emitComplete?.([]);
+    });
+
+    expect(mockRefreshCollectionIndexingStats.mock.calls[0]?.[1]).toEqual(['docs']);
   });
 
   it('opens the create-collection dialog from the picker', async () => {
@@ -372,6 +434,42 @@ describe('ExplorerImportAction', () => {
       expect(mockUseSelectionActionBarPin).toHaveBeenCalledWith(true);
     });
 
+    it('releases the pin once a clean run finishes', async () => {
+      // `showImportProgress` latches on the first progress event and is only
+      // cleared by the card's Close button, so pinning on it alone would hold
+      // the bar — and the tree padding it forces — open forever at zero
+      // selection. A finished, error-free run needs no acknowledgement.
+      mockImportServiceState.isImporting = false;
+      mockImportServiceState.progress = {
+        completed: 8,
+        current: '',
+        errors: [],
+        phase: 'complete',
+        total: 8,
+      };
+
+      await renderAction(<ExplorerImportAction />);
+
+      expect(mockUseSelectionActionBarPin).toHaveBeenLastCalledWith(false);
+    });
+
+    it('holds the pin when a finished run reported errors', async () => {
+      // Errors are the one thing the user has to actually read, so that run
+      // keeps the bar until it is dismissed.
+      mockImportServiceState.isImporting = false;
+      mockImportServiceState.progress = {
+        completed: 8,
+        current: '',
+        errors: [{ error: 'boom', file: '/workspace/b.ts' }],
+        phase: 'complete',
+        total: 8,
+      };
+
+      await renderAction(<ExplorerImportAction />);
+
+      expect(mockUseSelectionActionBarPin).toHaveBeenLastCalledWith(true);
+    });
+
     it('refuses to start a second import', async () => {
       act(() => {
         useVectorStatusUIStore.getState().setActiveEmbeddingSetId('docs');
@@ -379,7 +477,7 @@ describe('ExplorerImportAction', () => {
       const picker = await openPicker();
 
       const confirm = within(picker).getByRole('button', {
-        name: 'Import selected files into collection',
+        name: 'Import 2 files into the selected collection',
       });
       expect(confirm).toBeDisabled();
       expect(confirm).toHaveAttribute('title', 'An import is already running');

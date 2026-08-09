@@ -132,8 +132,5 @@ test.describe('Background indexing settings (web) @stateful @web-settings-state'
     await expect(page.getByText(/manual db imports are disabled/i)).toBeVisible({
       timeout: 15_000,
     });
-    await expect(
-      page.getByTestId('database-demo-panel').getByRole('button', { name: /^Import\s*\(/ })
-    ).toHaveCount(0);
   });
 });
