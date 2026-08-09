@@ -670,6 +670,24 @@ fixture-teardown error. Restart uses the same close/guard path and must surface
 close failures; if close and process health both fail, both errors are retained.
 Do not restore the former warn-and-relaunch behavior.
 
+**A harness-owned app may only be closed through the harness.** Tests that seed
+on-disk userData (`electron-storage.json`) need the app down mid-test so no
+process owns the file; they must call `ElectronHarness.closeForStateSeeding()`,
+never `closeElectronApp(context)` directly. An out-of-band close is invisible to
+the guard, so the process's exit is recorded as unexpected and the *next*
+`restart()` fails the test — with `signal=SIGKILL`, which is just Playwright
+reaping the child after `app.close()`, plus a `TypeError` reading `_object` from
+the already-disposed `ElectronApplication`. That combination is a lifecycle-bypass
+signature, not a crash, not memory pressure, and not an orphaned process: read it
+as "somebody closed the app behind the harness's back". All ten
+`file-explorer-selection-restore.desktop.test.ts` specs failed this way the
+moment the desktop lane started loading again. The seeding helpers take
+`SeedableElectronHarness`, whose required `closeForStateSeeding` makes the
+guarded path the only typed way to shut down for seeding. Specs that launch their
+own Electron app (`launchElectronDevAppInTest`) are unaffected — the harness never
+observes those processes. Paired test:
+`apps/desktop/src/__tests__/electron-harness-state-seeding.test.ts`.
+
 ### E2E module-format contract (BST-1217)
 
 `scripts/e2e-module-format-contract.mjs` (paired test:

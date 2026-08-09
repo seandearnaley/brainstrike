@@ -21,6 +21,22 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 export { getContextExplorerFileExplorerPanel, getContextExplorerMiddlePanel, loadElectronHelpers };
 
+/**
+ * Harness surface the seeding helpers need.
+ *
+ * `closeForStateSeeding` is mandatory: the harness registers every process it
+ * launches with `ElectronProcessExitGuard`, so closing a harness-owned app any
+ * other way (e.g. `closeElectronApp` directly) records the exit as unexpected
+ * and fails the test before it reaches its first assertion (BST-1087).
+ */
+export interface SeedableElectronHarness {
+  closeForStateSeeding: () => Promise<void>;
+  ensureContext: () => Promise<{
+    app: ElectronApplication;
+    window: Page;
+  }>;
+}
+
 export interface ElectronE2eFileSystemFixture {
   directoriesByPath: Record<string, unknown[]>;
   fileContentsByPath: Record<string, string>;
@@ -675,12 +691,7 @@ export function createRestoredQuerySelectionSnapshot(args: {
 }
 
 export async function seedRestoredExplicitSelectionState(args: {
-  electronHarness: {
-    ensureContext: () => Promise<{
-      app: ElectronApplication;
-      window: Page;
-    }>;
-  };
+  electronHarness: SeedableElectronHarness;
   expandedDirectoryPaths: string[];
   rootPath: string;
   selectedFilePaths: string[];
@@ -693,9 +704,8 @@ export async function seedRestoredExplicitSelectionState(args: {
   });
   const currentContext = await electronHarness.ensureContext();
   const userDataDir = await currentContext.app.evaluate(async ({ app }) => app.getPath('userData'));
-  const { closeElectronApp } = await loadElectronHelpers();
 
-  await closeElectronApp(currentContext);
+  await electronHarness.closeForStateSeeding();
 
   const storagePath = path.join(userDataDir, 'electron-storage.json');
   let existingStorage: Record<string, string> = {};
@@ -721,12 +731,7 @@ export async function seedRestoredExplicitSelectionState(args: {
 
 export async function seedRestoredQuerySelectionState(args: {
   coveredDirectoryPaths: string[];
-  electronHarness: {
-    ensureContext: () => Promise<{
-      app: ElectronApplication;
-      window: Page;
-    }>;
-  };
+  electronHarness: SeedableElectronHarness;
   expandedDirectoryPaths: string[];
   excludeFilters?: string[];
   excludedPaths?: string[];
@@ -764,9 +769,8 @@ export async function seedRestoredQuerySelectionState(args: {
   });
   const currentContext = await electronHarness.ensureContext();
   const userDataDir = await currentContext.app.evaluate(async ({ app }) => app.getPath('userData'));
-  const { closeElectronApp } = await loadElectronHelpers();
 
-  await closeElectronApp(currentContext);
+  await electronHarness.closeForStateSeeding();
 
   const storagePath = path.join(userDataDir, 'electron-storage.json');
   let existingStorage: Record<string, string> = {};
@@ -804,12 +808,7 @@ export async function writeLive3dmolRestoreFixture(args: {
 }
 
 export async function seedLive3dmolRestoreState(args: {
-  electronHarness: {
-    ensureContext: () => Promise<{
-      app: ElectronApplication;
-      window: Page;
-    }>;
-  };
+  electronHarness: SeedableElectronHarness;
   rootPath: string;
 }): Promise<void> {
   const { rootPath } = args;
@@ -873,12 +872,7 @@ export async function seedLive3dmolRestoreState(args: {
 }
 
 export async function seedSelectionSnapshotRows(args: {
-  electronHarness: {
-    ensureContext: () => Promise<{
-      app: ElectronApplication;
-      window: Page;
-    }>;
-  };
+  electronHarness: SeedableElectronHarness;
   filePaths: string[];
   snapshotId: string;
 }): Promise<void> {
