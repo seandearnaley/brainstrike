@@ -106,4 +106,12 @@ describe('formatSimilarityScore', () => {
     expect(formatSimilarityScore(1.4).label).toBe('100.00%');
     expect(formatSimilarityScore(-0.2).label).toBe('0.00%');
   });
+
+  it('keeps the label and its text equivalent in agreement for a non-finite score', () => {
+    const formatted = formatSimilarityScore(Number.NaN);
+    expect(formatted.label).toBe('0.00%');
+    // The assistive text must not contradict the visible label by reporting NaN.
+    expect(formatted.textEquivalent).not.toMatch(/nan/i);
+    expect(formatted.textEquivalent).toBe('Score 0.00 percent (0)');
+  });
 });

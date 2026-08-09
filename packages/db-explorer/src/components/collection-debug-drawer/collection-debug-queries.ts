@@ -42,23 +42,50 @@ export interface DrawerChunkSummary {
 }
 
 /**
+ * How the drawer identifies a failed embedding job.
+ *
+ * `job_queue` carries FIRST-CLASS `chunk_id` / `embedding_set_id` columns
+ * (populated by `extractEmbedChunkId` / `extractEmbedEmbeddingSetId` in
+ * `packages/db/src/queue/job-queue.ts` whenever `job_type = 'embed_chunk'`),
+ * and a partial index `idx_job_queue_embed_set_state` on
+ * `(queue, job_type, embedding_set_id, state, updated_at)` to serve exactly
+ * this lookup.
+ *
+ * Do NOT go back to decomposing `dedupe_key`. There are already TWO key
+ * formats in the tree — `chunk-embedding-job-batch.ts` writes
+ * `<chunkId>:<setId>:<contentHash>` while `buildEmbedJobDedupeKey`
+ * (`packages/pipeline/src/identifiers.ts`) emits
+ * `embed:<chunkId>:<setId>:<modelKey>` — so any fixed `split_part` position is
+ * wrong for one of them, and under the `embed:`-prefixed form it silently
+ * yields zero failures and reports every failure as merely pending.
+ *
+ * Known bound: terminal rows are pruned after
+ * `DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS` (1 hour), so a
+ * chunk that failed, was retried, and succeeded can still read as "failed"
+ * until its terminal row ages out. The chunk's own `hasEmbedding` is the
+ * authority on whether a vector exists; `failed` only reports that the queue
+ * recorded a failure recently.
+ */
+const FAILED_EMBED_JOB_PREDICATE = `
+    jq.queue = 'embeddings'
+    AND jq.job_type = 'embed_chunk'
+    AND jq.state = 'failed'`;
+
+/**
  * Chunks for one file, ordered by chunk index.
  *
- * Scoped by file id alone (not by embedding set): the file was already
- * resolved within the active collection, and `file_chunks.embedding_set_id`
- * is nullable — filtering on it here would silently hide chunks written
- * before a set was assigned.
+ * Chunk ROWS are scoped by file id alone (not by `file_chunks.embedding_set_id`):
+ * the file was already resolved within the active collection, and that column
+ * is nullable — filtering on it here would silently hide chunks written before
+ * a set was assigned. The FAILURE lookup, however, is scoped to the active set,
+ * matching the incomplete-files query: a failure recorded against a different
+ * embedding set must not mark this chunk.
  *
  * `vector_dims` is projected instead of the vector itself so the heavy
  * embedding payload never crosses the boundary; content IS loaded in full so
  * Copy Content copies the real chunk rather than a truncation.
  */
-const CHUNKS_FOR_FILE_QUERY = `
-  WITH failed_jobs AS (
-    SELECT DISTINCT split_part(jq.dedupe_key, ':', 1) AS chunk_id
-    FROM job_queue jq
-    WHERE jq.queue = 'embeddings' AND jq.state = 'failed'
-  )
+export const CHUNKS_FOR_FILE_QUERY = `
   SELECT
     fc.id AS "id",
     fc.chunk_index AS "chunkIndex",
@@ -66,22 +93,29 @@ const CHUNKS_FOR_FILE_QUERY = `
     COALESCE(fc.token_count, 0) AS "tokenCount",
     (fc.embedding IS NOT NULL) AS "hasEmbedding",
     COALESCE(vector_dims(fc.embedding), 0) AS "embeddingDimensions",
-    (fj.chunk_id IS NOT NULL) AS "failed"
+    EXISTS (
+      SELECT 1
+      FROM job_queue jq
+      WHERE ${FAILED_EMBED_JOB_PREDICATE}
+        AND jq.chunk_id = fc.id
+        AND jq.embedding_set_id = $2
+    ) AS "failed"
   FROM file_chunks fc
-  LEFT JOIN failed_jobs fj ON fj.chunk_id = fc.id
   WHERE fc.file_record_id = $1
   ORDER BY fc.chunk_index ASC
-  LIMIT $2 OFFSET $3
+  LIMIT $3 OFFSET $4
 `.trim();
 
 export async function loadChunksForFile(
   database: unknown,
   fileRecordId: string,
+  embeddingSetId: string,
   page = 0
 ): Promise<DrawerChunkSummary[]> {
   const queryable = asDrawerQueryable(database);
   const result = await queryable.query<DrawerChunkSummary>(CHUNKS_FOR_FILE_QUERY, [
     fileRecordId,
+    embeddingSetId,
     DRAWER_CHUNK_PAGE_SIZE,
     page * DRAWER_CHUNK_PAGE_SIZE,
   ]);
@@ -102,12 +136,12 @@ export interface DrawerIncompleteFile {
  * Files in the collection that are not fully embedded — the drawer's
  * failed/pending list.
  *
- * "failed" is only knowable from the embedding queue, whose `dedupe_key` is
- * `"<chunkId>:<embeddingSetId>"` (the same decomposition `usePendingChunks`
- * uses). Files with merely-unembedded chunks are reported as pending, so a
- * genuine failure is never flattened into "still working".
+ * "failed" is only knowable from the embedding queue; see
+ * FAILED_EMBED_JOB_PREDICATE for why this reads the first-class columns rather
+ * than parsing `dedupe_key`. Files with merely-unembedded chunks are reported
+ * as pending, so a genuine failure is never flattened into "still working".
  */
-const INCOMPLETE_FILES_QUERY = `
+export const INCOMPLETE_FILES_QUERY = `
   WITH target AS (SELECT $1::text AS set_id),
   scoped_files AS (
     SELECT fr.id, fr.name, fr.path, fr.chunks_processed_at
@@ -115,11 +149,11 @@ const INCOMPLETE_FILES_QUERY = `
     JOIN target ON fr.embedding_set_id = target.set_id
   ),
   failed_jobs AS (
-    SELECT DISTINCT split_part(jq.dedupe_key, ':', 1) AS chunk_id
+    SELECT DISTINCT jq.chunk_id AS chunk_id
     FROM job_queue jq, target
-    WHERE jq.queue = 'embeddings'
-      AND jq.state = 'failed'
-      AND split_part(jq.dedupe_key, ':', 2) = target.set_id
+    WHERE ${FAILED_EMBED_JOB_PREDICATE}
+      AND jq.embedding_set_id = target.set_id
+      AND jq.chunk_id IS NOT NULL
   ),
   chunk_rollup AS (
     SELECT

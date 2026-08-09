@@ -30,6 +30,7 @@ import {
 import { DrawerSection } from './drawer-primitives';
 import type { CollectionDebugDrawerProps } from './drawer-props';
 import { chunkRowToTarget } from './drawer-targets';
+import { openRowContextMenu } from './open-row-context-menu';
 
 type ClaimTarget = (target: ContextTarget, element: HTMLElement) => void;
 
@@ -165,8 +166,11 @@ export function RetrievalPreviewSection({
             const score = formatSimilarityScore(result.similarity);
             return (
               <li key={result.chunkId}>
+                {/* Enter and click open this row's context menu — see the
+                    equivalent note in failed-embeddings-section. */}
                 <button
                   className="flex w-full items-start gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  onClick={(event) => openRowContextMenu(event.currentTarget)}
                   onContextMenu={(event) =>
                     onClaimTarget(
                       chunkRowToTarget({ content: result.content, id: result.chunkId }),

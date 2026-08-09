@@ -100,6 +100,9 @@ export function formatSimilarityScore(score: number): FormattedScore {
   const percent = (safe * 100).toFixed(2);
   return {
     label: `${percent}%`,
-    textEquivalent: `Score ${percent} percent (${Number(score.toFixed(4))})`,
+    // Both readings derive from the SAME clamped value. Reporting the raw
+    // `score` here let a non-finite input render "0.00%" visually while
+    // announcing "(NaN)" to a screen reader.
+    textEquivalent: `Score ${percent} percent (${Number(safe.toFixed(4))})`,
   };
 }

@@ -20,6 +20,7 @@ import {
 import { deriveFileEmbeddingStatus } from './drawer-model';
 import { DrawerSection, StatusDot } from './drawer-primitives';
 import { fileRowToTarget } from './drawer-targets';
+import { openRowContextMenu } from './open-row-context-menu';
 
 type ClaimTarget = (target: ContextTarget, element: HTMLElement) => void;
 
@@ -132,8 +133,12 @@ export function FailedEmbeddingsSection({
           const status = deriveFileEmbeddingStatus(file);
           return (
             <li key={file.id}>
+              {/* This row's only affordance is its context menu, so Enter and
+                  click both open it (see openRowContextMenu) — the button role
+                  never promises an action it cannot perform. */}
               <button
                 className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                onClick={(event) => openRowContextMenu(event.currentTarget)}
                 onContextMenu={(event) =>
                   onClaimTarget(
                     fileRowToTarget({ id: file.id, name: file.name, path: file.path }),

@@ -55,6 +55,17 @@ const RECORDS: DatabaseFileRecordSummary[] = [
     size: 400,
     updatedAt: '2026-01-01T00:00:00.000Z',
   },
+  {
+    chunksCount: 300,
+    chunksProcessedAt: '2026-01-01T00:00:00.000Z',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    embeddedChunksCount: 300,
+    id: 'file-3',
+    name: 'gamma.md',
+    path: 'docs/gamma.md',
+    size: 90_000,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
 ];
 
 const CHUNK_ROWS = [
@@ -78,6 +89,24 @@ const CHUNK_ROWS = [
   },
 ];
 
+/** Chunk pages requested during a test, derived from the query's OFFSET param. */
+let chunkQueryPages: number[] = [];
+
+function chunkPageRows(page: number) {
+  return Array.from({ length: 50 }, (_, i) => {
+    const index = page * 50 + i;
+    return {
+      chunkIndex: index,
+      content: `chunk body ${index}`,
+      embeddingDimensions: 768,
+      failed: false,
+      hasEmbedding: true,
+      id: `big-chunk-${index}`,
+      tokenCount: 4,
+    };
+  });
+}
+
 const INCOMPLETE_ROWS = [
   {
     chunksCount: 4,
@@ -95,11 +124,17 @@ function makeDatabase() {
     // `scoped_files` is unique to the incomplete-files query; the chunk query
     // is the one that filters on a single file_record_id. Both mention
     // `FROM file_chunks fc`, so discriminate on the narrower marker first.
-    query: vi.fn((sql: string) => {
+    query: vi.fn((sql: string, params?: readonly unknown[]) => {
       if (sql.includes('scoped_files')) {
         return Promise.resolve({ rows: INCOMPLETE_ROWS });
       }
       if (sql.includes('WHERE fc.file_record_id = $1')) {
+        const [fileRecordId, , limit, offset] = (params ?? []) as [string, string, number, number];
+        const page = Math.floor(Number(offset) / Number(limit));
+        chunkQueryPages.push(page);
+        if (fileRecordId === 'file-3') {
+          return Promise.resolve({ rows: chunkPageRows(page) });
+        }
         return Promise.resolve({ rows: CHUNK_ROWS });
       }
       throw new Error(`Unexpected query: ${sql.slice(0, 60)}`);
@@ -119,7 +154,7 @@ function renderContent(overrides: { systemRole?: 'workspace-index' | null } = {}
         chunkRepository={null}
         database={makeDatabase()}
         fileRepository={null}
-        recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 1, totalRecords: 2 }}
+        recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 1, totalRecords: 3 }}
         records={RECORDS}
       />
     </ActionRegistryProvider>
@@ -144,6 +179,7 @@ describe('collection debug drawer content', () => {
     __resetDatabaseDemoStoreForTests();
     executeSearch.mockReset();
     executorAvailable = true;
+    chunkQueryPages = [];
   });
 
   afterEach(async () => {
@@ -189,7 +225,7 @@ describe('collection debug drawer content', () => {
             chunkRepository={null}
             database={{ query: () => Promise.reject(new Error('pglite exploded')) }}
             fileRepository={null}
-            recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 1, totalRecords: 2 }}
+            recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 1, totalRecords: 3 }}
             records={RECORDS}
           />
         </ActionRegistryProvider>
@@ -268,6 +304,86 @@ describe('collection debug drawer content', () => {
       expect(within(list).getByText('beta.md')).toBeInTheDocument();
       expect(within(list).getByText('Failed')).toBeInTheDocument();
       expect(within(list).getByText('1/4')).toBeInTheDocument();
+    });
+  });
+
+  describe('chunk pagination', () => {
+    it('states the visible chunk range and pages a file larger than one chunk page', async () => {
+      const user = userEvent.setup();
+      renderContent();
+
+      await user.click(screen.getByRole('button', { name: /gamma\.md/ }));
+      await screen.findByTestId('collection-debug-chunk-list');
+
+      // 300 chunks cannot fit one 50-row page: say so rather than showing 50
+      // rows that look like the whole file.
+      expect(screen.getByTestId('collection-debug-chunk-range')).toHaveTextContent(
+        /1[–-]50 of 300/
+      );
+
+      await user.click(screen.getByRole('button', { name: /next chunk page/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('collection-debug-chunk-range')).toHaveTextContent(
+          /51[–-]100 of 300/
+        );
+      });
+      // Page 1 must actually be requested with the right offset.
+      expect(chunkQueryPages).toContain(1);
+    });
+  });
+
+  describe('row semantics', () => {
+    it('honors keyboard activation on a failed-list row by opening its menu', async () => {
+      const user = userEvent.setup();
+      const { writtenTexts } = renderContent();
+      const list = await screen.findByTestId('collection-debug-failed-list');
+
+      // These rows are buttons whose only affordance is the context menu, so
+      // Enter must actually do something rather than silently no-op.
+      within(list)
+        .getByRole('button', { name: /beta\.md/ })
+        .focus();
+      await user.keyboard('{Enter}');
+
+      const menu = await screen.findByRole('menu');
+      await user.click(within(menu).getByRole('menuitem', { name: 'Copy Path' }));
+
+      await waitFor(() => {
+        expect(writtenTexts).toContain('docs/beta.md');
+      });
+    });
+
+    it('honors keyboard activation on a retrieval result row by opening its menu', async () => {
+      const user = userEvent.setup();
+      executeSearch.mockResolvedValue([
+        {
+          chunkId: 'chunk-1',
+          content: 'the quick brown fox',
+          fileName: 'alpha.md',
+          filePath: 'docs/alpha.md',
+          fileRecordId: 'file-1',
+          nodeId: 'chunk-chunk-1',
+          similarity: 0.5,
+        },
+      ]);
+      const { writtenTexts } = renderContent();
+
+      await user.type(screen.getByLabelText('Retrieval preview query'), 'fox');
+      await user.click(screen.getByRole('button', { name: /^Run$/ }));
+
+      const results = await screen.findByTestId('collection-debug-retrieval-results');
+      within(results)
+        .getByRole('button', { name: /quick brown fox/ })
+        .focus();
+      await user.keyboard('{Enter}');
+
+      const menu = await screen.findByRole('menu');
+      await user.click(within(menu).getByRole('menuitem', { name: 'Copy Content' }));
+
+      await waitFor(() => {
+        expect(writtenTexts).toContain('the quick brown fox');
+      });
     });
   });
 
