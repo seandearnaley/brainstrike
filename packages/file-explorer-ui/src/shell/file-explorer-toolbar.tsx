@@ -73,7 +73,7 @@ const FileExplorerToolbar = React.memo(
             {/* The left track is the toolbar's only cluster with slack: the
                 right one is exactly full at 180/236/300px. Expand/Collapse
                 therefore live HERE, and the selection counter yields to them
-                below 160px of track (the mode badge still carries the compact
+                below 180px of track (the mode badge still carries the compact
                 count), so the two never fight for the same pixels. */}
             <div className="flex w-full min-w-0 items-center gap-1 @[128px]/explorer-toolbar:pl-3 @[96px]/explorer-toolbar:pl-1.5 pl-1">
               {selectionStatusControl}

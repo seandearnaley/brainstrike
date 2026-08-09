@@ -165,7 +165,7 @@ export function useColumnSizing<T>({
         return;
       }
       // Preserve persisted widths for columns that are not currently rendered
-      // (e.g., the optional `score` column in collection-browser, or columns
+      // (e.g., columns
       // hidden by visibility toggles in preview-table). Starting from
       // `controlledSizes` rather than `resolvedSizes` keeps those entries
       // intact so the downstream persistence store doesn't wipe them when it

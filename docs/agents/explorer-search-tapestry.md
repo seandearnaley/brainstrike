@@ -516,7 +516,7 @@ fallback.
   `@[300px]/explorer-toolbar:contents` wrapper, before Refresh/View Filters, so
   the documented three-control geometry at 236px is unchanged. 300px is ALSO
   the width below which the tree grid suppresses its metadata columns
-  (`METADATA_COLUMNS_MIN_WIDTH` in `shell/explorer-columns-context.tsx`) — the
+  (`METADATA_COLUMNS_MIN_WIDTH` in `shell/explorer-columns-context.ts`) — the
   two are tied on purpose so the grid never shows a column the user has no way
   to hide. Pinned by `file-explorer-toolbar.test.tsx`.
 - **The cancel affordance is never width-gated.** The inline scanning

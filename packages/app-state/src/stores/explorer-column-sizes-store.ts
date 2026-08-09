@@ -1,10 +1,10 @@
 /**
  * Singleton store for the Explorer tree-grid column widths (BST-1208).
  *
- * Third sibling of `context-preview-column-sizes-store.ts` and
- * `collection-browser-column-sizes-store.ts`, built from the same factory, so
- * sanitization, migration and persistence behave identically across every
- * TreeTable surface.
+ * Sibling of `context-preview-column-sizes-store.ts`, built from the same
+ * factory, so sanitization, migration and persistence behave identically
+ * across every TreeTable surface. (A collection-browser sibling existed until
+ * BST-1213 retired that surface.)
  *
  * The `name` column is deliberately ABSENT: it is the tree column, pinned to
  * the remaining space, and has no persisted pixel width. Only the metadata
@@ -16,9 +16,9 @@
  * `localStorage.clear()` removes the persisted slice, but the live singleton
  * survives a web reset (which does not force a reload), so
  * `resetExplorerColumnSizesStoreToDefault` is wired in alongside it — the same
- * shape the Explorer sort and column-visibility stores use. The two older
- * column-size siblings still rely on the storage clear alone; they are not part
- * of this change.
+ * shape the Explorer sort and column-visibility stores use. The older
+ * context-preview sibling still relies on the storage clear alone; it is not
+ * part of this change.
  */
 import {
   createSingletonColumnSizesStore,
