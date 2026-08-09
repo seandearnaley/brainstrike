@@ -212,6 +212,17 @@ pruning outside that window. Migration coverage:
 (index created on both runners; a forced-seqscan-off `EXPLAIN` probe proves
 the bare `occurred_at` predicate resolves to an index scan on it).
 
+Migration 084 owns the FK-less
+`brainstrike_assistant_tool_projection_rewrites` overlay used by BST-1192's
+transient stale-read replay processor. Register it in both migration runners,
+the reset registry, all three table-enumerating clear paths, and the shared
+thread-delete sidecar list. Mirror its DDL byte-for-byte in renderer lazy
+assistant bootstrap because that repository's delete CTE references every
+sidecar unconditionally even though desktop main owns normal writes. Durable
+Mastra message content is never mutated; rewind recovery is the processor's
+current-prompt superseder-presence check. Full contract:
+`docs/agents/assistant-persistence.md` § STALE TOOL-PROJECTION REWRITE OVERLAYS.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

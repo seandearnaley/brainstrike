@@ -20,6 +20,19 @@ import type { LocalLlmHostClient } from './providers/local/llm-host-client';
 import type { AssistantRunEvent } from './run-events';
 import type { AgentHookRunner } from './tools/hook-runner';
 
+export interface ToolProjectionRewriteEntry {
+  readonly markerText: string;
+  readonly supersededByToolCallId: string;
+  readonly toolCallId: string;
+}
+
+/** Desktop-injected, read-only access to durable request-build overlays. */
+export interface ToolProjectionRewriteLookup {
+  readonly listActiveRewrites: (
+    threadId: string
+  ) => Promise<ReadonlyMap<string, ToolProjectionRewriteEntry>>;
+}
+
 // The 7 supporting types below are byte-identical and dependency-free in both
 // @brainstrike/agent and @brainstrike/assistant-contract; the dependency-light
 // contract package owns them, agent re-exports for public-API stability.
@@ -103,7 +116,7 @@ export interface AssistantUiMessage {
 /**
  * Agent runtime data. Extends the dependency-light `assistant-contract`
  * `RuntimeData` (the canonical wire/UI contract) and overrides only the two
- * fields that bind to runtime libraries, plus three server-only fields. The
+ * fields that bind to runtime libraries, plus server-only fields. The
  * shared fields — including `provider` (which now inherits `'local'`) — live
  * in the contract; this is what removes the old "keep the two declarations in
  * sync" drift hazard.
@@ -195,6 +208,13 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * Do NOT move this to assistant-contract.
    */
   providerOptions?: RuntimeProviderOptions;
+  /**
+   * Desktop-injected lookup for superseded native-tool projection overlays.
+   * The input processor consults it only while building a provider request;
+   * durable Mastra message content is never changed. Server-side only, never
+   * serialized over IPC/HTTP. Agent-only — mirrors `hookRunner`.
+   */
+  toolProjectionRewriteLookup?: ToolProjectionRewriteLookup;
   /**
    * Server-injected Agent Skills engine (desktop). When present (and the
    * provider is not the built-in local model), the runtime folds Mastra's

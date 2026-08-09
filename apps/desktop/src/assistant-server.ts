@@ -82,6 +82,7 @@ import {
   resumeStreamIfAvailable,
 } from './assistant-server/stream-resume';
 import { readThreadTaskList } from './assistant-server/task-list-repository';
+import { createToolProjectionRewriteLookup } from './assistant-server/tool-projection-rewrite-repository';
 import { scanUserPersonas } from './assistant-server/user-personas-loader';
 import { WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS } from './assistant-server/web-extract-model-projection';
 import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
@@ -97,6 +98,7 @@ import { loadMcpConfig } from './mcp-loader';
 import { resolveDesktopPythonExecutable } from './python-runtime';
 
 const logger = desktopAssistantServerLogger;
+const toolProjectionRewriteLookup = createToolProjectionRewriteLookup(getDatabase);
 
 /**
  * Desktop's instantiation of the service's opaque capability kinds
@@ -495,6 +497,7 @@ async function handleAssistantPost(
             embeddingHostManager: options.embeddingHostManager,
             llmHostManager: options.llmHostManager,
           },
+          toolProjectionRewriteLookup,
           toolResumeAction: core.toolResumeAction,
         });
         if (!(turnBoundaries && result.ok)) {

@@ -113,6 +113,10 @@ describe('edit checkpoint capture on write', () => {
       bytesWritten: 6,
       created: true,
       path: '/new.txt',
+      // BST-1192: writeWorkspaceFile now returns its resolved rootId so
+      // stale-read supersession can compare canonical file identity instead
+      // of display-name-only rootName.
+      rootId: ROOT_ID,
       rootName: 'Project',
     });
 
@@ -222,6 +226,11 @@ describe('capture is non-fatal and gated', () => {
       bytesWritten: 2,
       created: true,
       path: '/x.txt',
+      // BST-1192: rootId is always present on a successful write, DB
+      // unavailability or not — bookkeeping failure must never alter the
+      // already-successful tool result (only the checkpoint journal, and
+      // the projection-rewrite overlay, are skipped).
+      rootId: ROOT_ID,
       rootName: 'Project',
     });
     expect(await fsPromises.readFile(path.join(rootPath, 'x.txt'), 'utf8')).toBe('hi');

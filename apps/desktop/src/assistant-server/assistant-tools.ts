@@ -102,6 +102,7 @@ import {
   type ToolExecuteInput,
   type ToolExecuteRunContext,
 } from './tool-execute-support';
+import { applyToolProjectionRewriteRecording } from './tool-projection-rewrite-repository';
 import { projectWebExtractModelOutput } from './web-extract-model-projection';
 import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool';
 import { projectWebSearchModelOutput } from './web-search-model-projection';
@@ -974,5 +975,5 @@ export function buildDesktopAssistantTools(
       enabledCount: Object.keys(filteredTools).length,
     });
   }
-  return filteredTools;
+  return applyToolProjectionRewriteRecording(filteredTools, runtimeData);
 }

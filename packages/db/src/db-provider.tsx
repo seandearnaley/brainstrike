@@ -902,6 +902,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await clearRelationIfPresent(tx, 'brainstrike_canvas_versions');
       // Durable per-tool model-facing telemetry (migration 083): FK-less.
       await clearRelationIfPresent(tx, 'brainstrike_tool_call_telemetry');
+      // Superseded native-tool projection overlays (migration 084): FK-less.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_projection_rewrites');
       // Complete tool output can contain sensitive command results and has no FK
       // to Mastra-owned message tables, so it must be deleted explicitly.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
@@ -991,6 +993,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     await clearRelationIfPresent(tx, 'brainstrike_canvas_versions');
     // Durable per-tool model-facing telemetry (migration 083).
     await clearRelationIfPresent(tx, 'brainstrike_tool_call_telemetry');
+    // Superseded native-tool projection overlays (migration 084).
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_projection_rewrites');
     await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
     await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
     await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');

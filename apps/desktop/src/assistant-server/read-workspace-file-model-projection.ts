@@ -14,7 +14,7 @@ import {
 
 export type ReadWorkspaceFileTextModelOutput = WorkspaceTextModelOutput;
 
-interface ReadWorkspaceFileProjectionResult {
+export interface ReadWorkspaceFileProjectionResult {
   ambiguousRootNames?: string[];
   content: string;
   endLine: number;
@@ -70,7 +70,12 @@ function unwrapLegacyJsonProjection(output: unknown): unknown {
   return output;
 }
 
-function resolveReadRootLabel(result: ReadWorkspaceFileProjectionResult): string | null {
+export function resolveReadWorkspaceFileRootLabel(
+  result: Pick<
+    ReadWorkspaceFileProjectionResult,
+    'ambiguousRootNames' | 'openRoots' | 'rootId' | 'rootName'
+  >
+): string | null {
   const openRoots = result.openRoots ?? 1;
   if (openRoots <= 1) {
     return null;
@@ -91,7 +96,7 @@ function resolveReadRootLabel(result: ReadWorkspaceFileProjectionResult): string
 export function buildReadWorkspaceFileProjectionText(
   result: ReadWorkspaceFileProjectionResult
 ): WorkspaceTextModelOutput {
-  const rootLabel = resolveReadRootLabel(result);
+  const rootLabel = resolveReadWorkspaceFileRootLabel(result);
   const escapedPath = escapeProjectionPathLineBreaks(result.path);
   const displayPath = rootLabel ? `${rootLabel}:${escapedPath}` : escapedPath;
   const header = `read ${displayPath} lines ${result.startLine}-${result.endLine}/${result.totalLines}${

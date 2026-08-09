@@ -1502,10 +1502,12 @@ provider-history compatibility → projection-aware token limiting. Initial,
 approval-resume, and suspend-resume
 calls all use the same per-runtime processors in the per-call input stack:
 SkillsProcessor → tool search → ProjectionSafeToolCallFilter →
-ProviderHistoryCompat → ProjectionAwareTokenLimiter. Token limiting remains
-last so it counts injected skills metadata, loaded definitions, filtered tool
-history, and normalized provider history. Public direct stream processor
-overrides stay rejected.
+ToolProjectionRewrite → ProviderHistoryCompat → OpenAI tool-search history
+compatibility → OpenAI duplicate-item compatibility →
+ProjectionAwareTokenLimiter. Token limiting remains last so it counts injected
+skills metadata, loaded definitions, filtered/rewritten tool history, and
+normalized provider history. Public direct stream processor overrides stay
+rejected.
 
 The full hosted desktop tool surface has two measured prompt budgets:
 `apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`

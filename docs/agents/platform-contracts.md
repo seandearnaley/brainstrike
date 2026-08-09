@@ -119,6 +119,10 @@ It also includes `brainstrike_tool_call_telemetry` (migration 083), the FK-less,
 counts/sizes/ids/booleans-only model-facing tool-cost ledger. All three
 table-enumerating reset paths clear it explicitly, and thread deletion derives
 its cleanup stage from `THREAD_DELETE_SIDECAR_TABLES`.
+It also includes `brainstrike_assistant_tool_projection_rewrites` (migration
+084), the FK-less stale-tool-history replay overlay. All three table-enumerating
+reset paths clear it explicitly, and thread deletion derives its cleanup stage
+from `THREAD_DELETE_SIDECAR_TABLES`.
 
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
@@ -136,7 +140,7 @@ Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
 
 **The SET those three lists clear is owned by the reset-table registry**
 (`packages/db/src/reset-table-registry.ts`, BST-992): all three clear the same
-32-relation set (17 `brainstrike_*` — including the `brainstrike_mind_ops`
+33-relation set (18 `brainstrike_*` — including the `brainstrike_mind_ops`
 op-log, whose tombstones must not outlive the mind they describe (BST-993) —
 + 9 core/indexing + the Mastra six), and
 the web factory reset (`purgeTablesTx`) additionally wipes the six seed-free

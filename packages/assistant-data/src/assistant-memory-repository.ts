@@ -9,6 +9,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
+  ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE,
   CANVAS_VERSIONS_TABLE,
   DEFAULT_THREAD_TITLE,
   MASTRA_MEMORY_SCHEMA_SQL,
@@ -804,6 +805,23 @@ CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_tool_time_idx
 -- retention sweep, which filters on occurred_at alone (no tool_id predicate).
 CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_occurred_at_idx
   ON ${TOOL_CALL_TELEMETRY_TABLE} (occurred_at);
+
+-- Superseded native-tool model-projection overlays (BST-1192). Bootstrapped
+-- here AND created by migration 084 — keep the shape byte-identical to 084.
+-- The thread-delete cascade references every sidecar unconditionally; only
+-- desktop main writes rows during normal operation.
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE} (
+  tool_call_id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  rewrite_id text NOT NULL,
+  superseded_by_tool_call_id text NOT NULL,
+  marker_text text NOT NULL,
+  original_chars integer NOT NULL CHECK (original_chars >= 0),
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_tool_projection_rewrites_thread_idx
+  ON ${ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE} (thread_id);
 
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_THREAD_RUNS_TABLE} (
   id text PRIMARY KEY,

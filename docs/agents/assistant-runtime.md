@@ -1180,13 +1180,17 @@ of that review; do not relitigate without re-reading it).
   resent, but the thread's knowledge is current; omitting this write corrupts
   the next write-staleness decision.
 - **Ephemeral, not factory-reset state — and now bounded (BST-1197).** The three
-  maps are process-local and `resetToolCallLoopGuards` is exported ONLY for test
-  isolation; this mirrors `packages/agent/src/tools/file-read-state.ts` and its
-  `resetFileReadState` and MUST NOT be wired into factory reset. Each per-thread
-  map holds at most the exported `MAX_KEYS_PER_THREAD_SCOPE` (256) keys, using
-  that module's insertion-order, delete-then-set LRU-on-write technique. One
-  shared activity tracker across all three mechanisms holds at most the
-  exported `MAX_TRACKED_THREAD_SCOPES` (256) thread scopes; overflow evicts the
+  maps are process-local. `resetToolCallLoopGuards` serves test isolation AND
+  one production caller: after BST-1192 commits a stale-read projection
+  rewrite batch, it resets that exact `readStateScope(runtimeData)` thread. A
+  dedup stub must never refer the model to an earlier result the newly
+  committed overlay will collapse on the next replay. This mirrors
+  `packages/agent/src/tools/file-read-state.ts` and its `resetFileReadState`
+  and MUST NOT be wired into factory reset. Each per-thread map holds at most
+  the exported `MAX_KEYS_PER_THREAD_SCOPE` (256) keys, using that module's
+  insertion-order, delete-then-set LRU-on-write technique. One shared activity
+  tracker across all three mechanisms holds at most the exported
+  `MAX_TRACKED_THREAD_SCOPES` (256) thread scopes; overflow evicts the
   least-recently-active scope from every store. The unchanged-read and
   edit-failure mechanisms are intentionally whole-thread, non-consecutive
   dedup: their designed behavior is for a key to survive arbitrary unrelated
