@@ -1,7 +1,7 @@
 /**
  * Human labels for a `GitScope` (BST-1114). Split out of
  * `changeset-source-picker.tsx` so that component file exports components
- * only (`react-doctor/only-export-components`) — shared by the picker itself
+ * only (`react-refresh/only-export-components`) — shared by the picker itself
  * and `changeset-header.tsx`'s provenance line.
  */
 import type { GitScope } from '@brainstrike/types';

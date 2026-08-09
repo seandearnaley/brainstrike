@@ -5,7 +5,7 @@ import { WorkspaceInstructionsSettingsSection } from './workspace-instructions-s
 /**
  * Factory for the Workspace Instructions settings category. Lives in its own
  * (non-component) module rather than `settings-page-content.tsx` so Fast Refresh
- * can preserve `SettingsPageContent`'s state (react-doctor
+ * can preserve `SettingsPageContent`'s state (react-refresh
  * `only-export-components`), mirroring `notification-settings-category.tsx`.
  */
 export function createWorkspaceInstructionsSettingsCategory(): SettingsCategory {

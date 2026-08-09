@@ -1,7 +1,7 @@
 /**
  * Pure display helpers for rediscovered pauses — split from
  * `rediscovered-pause-lines.tsx` so the component file exports only
- * components (react-doctor `only-export-components`; Fast Refresh cannot
+ * components (react-refresh `only-export-components`; Fast Refresh cannot
  * preserve state through mixed-export files).
  */
 

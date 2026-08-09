@@ -6,7 +6,7 @@ import { NotificationSettingsSection } from './notification-settings-section';
  * Factory for the Notifications settings category. It lives in its own
  * (non-component) module rather than `settings-page-content.tsx` so Fast
  * Refresh can preserve `SettingsPageContent`'s state — a component file that
- * also exports plain factories defeats it (react-doctor
+ * also exports plain factories defeats it (react-refresh
  * `only-export-components`).
  */
 export function createNotificationSettingsCategory(): SettingsCategory {
