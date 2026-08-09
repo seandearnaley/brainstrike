@@ -25,6 +25,12 @@ function collectE2eSpecs(relativeDirectory) {
   return specs;
 }
 
+function isWithinE2eRoot(relativePath, root) {
+  const normalizedPath = relativePath.replaceAll('\\', '/');
+  const normalizedRoot = root.replaceAll('\\', '/');
+  return normalizedPath.startsWith(`${normalizedRoot}/`);
+}
+
 const AI_TOOLS_SPECS = E2E_ROOTS.flatMap(collectE2eSpecs).filter((relativePath) => {
   const source = readFileSync(path.join(REPO_ROOT, relativePath), 'utf8');
   return source.includes('category-filter') && source.includes('brainstrike.readWorkspaceContext');
@@ -86,10 +92,14 @@ for (const hardcodedName of ["'Analysis'", '/Retrieval/']) {
 test('discovers a readWorkspaceContext category-filter spec in every E2E root', () => {
   for (const root of E2E_ROOTS) {
     assert.ok(
-      AI_TOOLS_SPECS.some((relativePath) => relativePath.startsWith(`${root}${path.sep}`)),
+      AI_TOOLS_SPECS.some((relativePath) => isWithinE2eRoot(relativePath, root)),
       `expected a readWorkspaceContext category-filter spec under ${root}`
     );
   }
+});
+
+test('MONEY TEST: Windows-style discovered paths remain attributable to E2E roots', () => {
+  assert.equal(isWithinE2eRoot('apps\\web\\e2e\\settings-tools.test.ts', 'apps/web/e2e'), true);
 });
 
 for (const relativePath of AI_TOOLS_SPECS) {
