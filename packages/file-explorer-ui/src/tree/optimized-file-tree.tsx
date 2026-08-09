@@ -1,4 +1,5 @@
 import { useExplorerColumnSizesStore } from '@brainstrike/app-state/stores/explorer-column-sizes-store';
+import { isExplorerSortField } from '@brainstrike/app-state/stores/explorer-sort-state-store';
 import { getForeignSelectionCount } from '@brainstrike/file-explorer';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
@@ -15,10 +16,21 @@ import {
   useContextMenuTarget,
   useIdeFileEditor,
 } from '@brainstrike/ui';
-import { type MouseEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type MouseEvent,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { fileNodeToTarget } from '../context-actions/file-entry-target';
 import { useWorkerFlattenedTree } from '../hooks/use-worker-flattened-tree';
+import { useOptionalFileRowMetadata } from '../indexing/file-row-metadata-context';
 import { useExplorerColumns } from '../shell/explorer-columns-context';
+import { useOptionalExplorerSort } from '../shell/explorer-sort-context';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -56,6 +68,8 @@ import {
   type FileTreeRowBuildSource,
   type FileTreeRowData,
   type FileTreeRowsBuildResult,
+  type FileTreeSortMetadata,
+  type FileTreeSortOptions,
   getNormalizedImmediateChildren,
   getSelectedDescendantPathsForDirectory,
   hasNormalizedUnloadedDirectoryChildren,
@@ -491,6 +505,67 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       );
     }, [filteredPathSet, normalizedTreeContext, normalizedTreeVersion]);
 
+    const explorerSort = useOptionalExplorerSort();
+    const sortState = explorerSort?.sortState ?? null;
+    const rowMetadata = useOptionalFileRowMetadata();
+    const tracksMetadataRevision = sortState?.field === 'size' || sortState?.field === 'tokens';
+    const subscribeToSortedMetadata = useCallback(
+      (listener: () => void): (() => void) => {
+        if (!(tracksMetadataRevision && rowMetadata && folderId)) {
+          return () => undefined;
+        }
+        return rowMetadata.store.subscribeFolder(folderId, listener);
+      },
+      [folderId, rowMetadata, tracksMetadataRevision]
+    );
+    const getSortedMetadataRevision = useCallback(
+      (): number =>
+        tracksMetadataRevision && rowMetadata && folderId
+          ? rowMetadata.store.getFolderRevision(folderId)
+          : 0,
+      [folderId, rowMetadata, tracksMetadataRevision]
+    );
+    const sortedMetadataRevision = useSyncExternalStore(
+      subscribeToSortedMetadata,
+      getSortedMetadataRevision,
+      getSortedMetadataRevision
+    );
+
+    const getSortMetadata = useCallback(
+      (node: IFileNode): FileTreeSortMetadata => {
+        if (!(rowMetadata && folderId)) {
+          throw new Error(
+            `Explorer sort field "${sortState?.field ?? 'unknown'}" requires the file-row metadata seam`
+          );
+        }
+        const compositeKey = encodeFileSelection(folderId, node.path);
+        if (node.type === 'directory') {
+          const rollup = rowMetadata.store.getDirectorySnapshot(compositeKey);
+          return {
+            size: rollup.status === 'complete' ? rollup.size : 'pending',
+            tokens: rollup.status === 'complete' ? rollup.tokens : 'pending',
+            type: '',
+          };
+        }
+        const metadata = rowMetadata.store.getSnapshot(compositeKey);
+        return {
+          size: metadata.size ?? 'pending',
+          tokens: metadata.tokens,
+          type: metadata.type,
+        };
+      },
+      [folderId, rowMetadata, sortState?.field]
+    );
+    const sortOptions = useMemo<FileTreeSortOptions | undefined>(() => {
+      if (!sortState) {
+        return;
+      }
+      // The per-root revision changes at most once per metadata invalidation
+      // batch, causing exactly one memoized row rebuild while size/tokens sort.
+      void sortedMetadataRevision;
+      return { getMetadata: getSortMetadata, state: sortState };
+    }, [getSortMetadata, sortState, sortedMetadataRevision]);
+
     // Keep row structure independent from selectedFilePaths so checkbox toggles
     // do not trigger full tree row reconstruction for large trees.
     // Structural-sharing cache across builds, created once via a useState lazy
@@ -503,6 +578,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           expandedDirectoryPaths,
           folderId,
           loadingFiles,
+          ...(sortOptions ? { sort: sortOptions } : {}),
           ...(loadingPaths ? { loadingPaths } : {}),
           ...(isLoadingForSelection === undefined ? {} : { isLoadingForSelection }),
           ...(loadingPathForSelection === undefined ? {} : { loadingPathForSelection }),
@@ -567,6 +643,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       normalizedTreeContext?.version,
       visibleAggregates,
       rowReuseCache,
+      sortOptions,
     ]);
     const treeRows = treeRowsBuild.rows;
 
@@ -1008,6 +1085,28 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         visibleMetadataColumnIds,
       });
     }, [handleNodeSelectionEvent, visibleMetadataColumnIds]);
+    const treeTableSortState = useMemo(
+      () =>
+        sortState
+          ? { columnId: sortState.field, direction: sortState.direction }
+          : { columnId: null, direction: null },
+      [sortState]
+    );
+    const handleSortChange = useEventCallback(
+      (columnId: string, direction: 'asc' | 'desc' | null): void => {
+        if (!explorerSort) {
+          return;
+        }
+        if (direction === null) {
+          explorerSort.setSortState(null);
+          return;
+        }
+        if (!isExplorerSortField(columnId)) {
+          throw new Error(`Unsupported Explorer sort column: ${columnId}`);
+        }
+        explorerSort.setSortState({ direction, field: columnId });
+      }
+    );
 
     // Widths come from the columns context (persisted, then shrunk to fit the
     // panel) so every section and the panel-level forest header render ONE
@@ -1141,7 +1240,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
                 // scroller, so N sticky headers would stack against the same
                 // scrollport; the panel renders one header above it instead.
                 showHeader={showColumnHeader}
+                sortState={treeTableSortState}
                 windowingStrategy="virtual"
+                {...(explorerSort ? { onSortChange: handleSortChange } : {})}
                 {...(scrollParentRef !== undefined && { scrollParentRef })}
               />
             </div>

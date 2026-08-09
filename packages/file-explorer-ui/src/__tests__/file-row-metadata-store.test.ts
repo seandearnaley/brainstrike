@@ -194,6 +194,24 @@ describe('createFileRowMetadataStore per-key notification', () => {
     expect(stableListener).not.toHaveBeenCalled();
   });
 
+  it('coalesces changed keys into one root revision for metadata-sorted trees', () => {
+    const tokens: Record<string, number> = {};
+    const store = createFileRowMetadataStore(sources({ tokens }));
+    const first = key('a.ts');
+    const second = key('b.ts');
+    const rootListener = vi.fn();
+    store.subscribeFolder(ROOT, rootListener);
+    store.getSnapshot(first);
+    store.getSnapshot(second);
+
+    tokens[first] = 1;
+    tokens[second] = 2;
+    store.invalidate([first, second]);
+
+    expect(rootListener).toHaveBeenCalledTimes(1);
+    expect(store.getFolderRevision(ROOT)).toBe(1);
+  });
+
   it('stops delivering after unsubscribe', () => {
     const tokens: Record<string, number> = {};
     const store = createFileRowMetadataStore(sources({ tokens }));

@@ -120,6 +120,8 @@ export interface FileRowMetadataStore {
    * reads `partial` (see `FileRowMetadataSources.getDirectorySubtree`).
    */
   getDirectorySnapshot: (compositeKey: string) => FileRowDirectoryRollup;
+  /** Monotonic per-root revision used only while that root is metadata-sorted. */
+  getFolderRevision: (folderId: string) => number;
   /**
    * Metadata for a file key. The returned object keeps a STABLE identity until
    * an `invalidate`/`invalidateAll` observes a real change — that is what lets
@@ -151,6 +153,11 @@ export interface FileRowMetadataStore {
    */
   invalidateAll: () => void;
   subscribe: (compositeKey: string, listener: () => void) => () => void;
+  /**
+   * One notification per invalidation batch when any observed value in this
+   * root changes. Explorer row sorting uses this instead of N per-row renders.
+   */
+  subscribeFolder: (folderId: string, listener: () => void) => () => void;
 }
 
 function metadataEquals(a: FileRowMetadata, b: FileRowMetadata): boolean {
@@ -224,6 +231,8 @@ const PARTIAL_PENDING_METADATA: FileRowDirectoryRollup = {
  */
 export function createFileRowMetadataStore(sources: FileRowMetadataSources): FileRowMetadataStore {
   const listenersByKey = new Map<string, Set<() => void>>();
+  const listenersByFolder = new Map<string, Set<() => void>>();
+  const revisionByFolder = new Map<string, number>();
   const fileSnapshots = new Map<string, FileRowMetadata>();
   const directoryRollups = new Map<string, FileRowDirectoryRollup>();
 
@@ -236,6 +245,23 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     // subscriber, mutating the Set mid-loop (Zustand/Redux-internals pattern).
     for (const listener of [...listeners]) {
       listener();
+    }
+  };
+
+  const notifyChangedFolders = (changedKeys: readonly string[]): void => {
+    const changedFolders = new Set<string>();
+    for (const compositeKey of changedKeys) {
+      changedFolders.add(decodeFileSelection(compositeKey).folderId);
+    }
+    for (const folderId of changedFolders) {
+      revisionByFolder.set(folderId, (revisionByFolder.get(folderId) ?? 0) + 1);
+      const listeners = listenersByFolder.get(folderId);
+      if (!listeners) {
+        continue;
+      }
+      for (const listener of [...listeners]) {
+        listener();
+      }
     }
   };
 
@@ -298,7 +324,8 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     if (!store.has(compositeKey)) {
       return false;
     }
-    if (!listenersByKey.has(compositeKey)) {
+    const { folderId } = decodeFileSelection(compositeKey);
+    if (!(listenersByKey.has(compositeKey) || listenersByFolder.has(folderId))) {
       store.delete(compositeKey);
       return false;
     }
@@ -340,6 +367,7 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     for (const compositeKey of changed) {
       notifyKey(compositeKey);
     }
+    notifyChangedFolders(changed);
   };
 
   return {
@@ -352,6 +380,7 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
       directoryRollups.set(compositeKey, computed);
       return computed;
     },
+    getFolderRevision: (folderId) => revisionByFolder.get(folderId) ?? 0,
     getSnapshot: readFileMetadata,
     invalidate: (compositeKeys) => {
       const fileKeys = new Set<string>();
@@ -381,6 +410,17 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
         listeners.delete(listener);
         if (listeners.size === 0) {
           listenersByKey.delete(compositeKey);
+        }
+      };
+    },
+    subscribeFolder: (folderId, listener) => {
+      const listeners = listenersByFolder.get(folderId) ?? new Set<() => void>();
+      listeners.add(listener);
+      listenersByFolder.set(folderId, listeners);
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) {
+          listenersByFolder.delete(folderId);
         }
       };
     },

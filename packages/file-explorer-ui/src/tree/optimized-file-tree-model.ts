@@ -1,3 +1,4 @@
+import type { ExplorerSortState } from '@brainstrike/app-state/stores/explorer-sort-state-store';
 import { resolveQuerySelection } from '@brainstrike/file-explorer';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
@@ -5,6 +6,7 @@ import type { FlattenedNode } from '@brainstrike/file-tree-worker';
 import { isDescendantPath } from '@brainstrike/file-tree-worker';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import type { TreeNode } from '@brainstrike/ui';
+import { fileNodeCollator } from '@brainstrike/utils/collator';
 import {
   hasNormalizedIncompleteDescendants,
   materializeNormalizedNodeStable,
@@ -52,12 +54,146 @@ export interface BuildFileTreeRowsOptions {
   loadingFiles: Set<string>;
   loadingPathForSelection?: string | null;
   loadingPaths?: Set<string>;
+  /** Present only for an explicit user sort; omitted for the loader's default order. */
+  sort?: FileTreeSortOptions;
+}
+
+export type FileTreeSortMetadataValue = number | 'excluded' | 'pending';
+
+export interface FileTreeSortMetadata {
+  size: FileTreeSortMetadataValue;
+  tokens: FileTreeSortMetadataValue;
+  type: string;
+}
+
+export interface FileTreeSortOptions {
+  getMetadata: (node: IFileNode) => FileTreeSortMetadata;
+  state: ExplorerSortState;
 }
 
 interface StackEntry {
   depth: number;
   node: IFileNode;
   parentId: string | null;
+}
+
+function compareDirectoryKind(a: IFileNode, b: IFileNode): number {
+  if (a.type === b.type) {
+    return 0;
+  }
+  if (a.type === 'directory') {
+    return -1;
+  }
+  if (b.type === 'directory') {
+    return 1;
+  }
+  return 0;
+}
+
+function compareNumericMetadata(
+  a: FileTreeSortMetadataValue,
+  b: FileTreeSortMetadataValue,
+  direction: ExplorerSortState['direction']
+): number {
+  const aIsResolved = typeof a === 'number';
+  const bIsResolved = typeof b === 'number';
+  // Pending and excluded are ABSENT, never zero. Resolved values always sort
+  // before absent values in BOTH directions; coercing absence to 0 would put
+  // unknown counts first in ascending order and misrepresent them as real.
+  if (aIsResolved !== bIsResolved) {
+    return aIsResolved ? -1 : 1;
+  }
+  if (!(aIsResolved && bIsResolved)) {
+    return 0;
+  }
+  const comparison = a - b;
+  return direction === 'desc' ? -comparison : comparison;
+}
+
+/**
+ * Compare one pair of siblings. Directories-first is invariant; direction
+ * applies only to the selected key, then locale-aware name order breaks ties.
+ */
+export function compareFileTreeSiblings(
+  a: IFileNode,
+  b: IFileNode,
+  sort: FileTreeSortOptions
+): number {
+  const directoryKind = compareDirectoryKind(a, b);
+  if (directoryKind !== 0) {
+    return directoryKind;
+  }
+
+  const { direction, field } = sort.state;
+  let primary = 0;
+  let directionIsApplied = false;
+  if (field === 'name') {
+    primary = fileNodeCollator.compare(a.name, b.name);
+  } else {
+    const aMetadata = sort.getMetadata(a);
+    const bMetadata = sort.getMetadata(b);
+    if (field === 'type') {
+      primary = fileNodeCollator.compare(aMetadata.type, bMetadata.type);
+    } else {
+      primary = compareNumericMetadata(aMetadata[field], bMetadata[field], direction);
+      directionIsApplied = true;
+    }
+  }
+
+  if (primary !== 0) {
+    return direction === 'desc' && !directionIsApplied ? -primary : primary;
+  }
+  return fileNodeCollator.compare(a.name, b.name);
+}
+
+/** Sort a pre-flattened DFS projection by siblings without moving descendants across parents. */
+function sortRowsPerDirectory(
+  rows: TreeNode<FileTreeRowData>[],
+  sort: FileTreeSortOptions | undefined
+): TreeNode<FileTreeRowData>[] {
+  if (!sort || rows.length < 2) {
+    return rows;
+  }
+
+  const childrenByParent = new Map<string | null, TreeNode<FileTreeRowData>[]>();
+  for (const row of rows) {
+    const siblings = childrenByParent.get(row.parentId);
+    if (siblings) {
+      siblings.push(row);
+    } else {
+      childrenByParent.set(row.parentId, [row]);
+    }
+  }
+
+  const sortSiblings = (siblings: TreeNode<FileTreeRowData>[]): TreeNode<FileTreeRowData>[] =>
+    [...siblings].sort((a, b) => compareFileTreeSiblings(a.data.fileNode, b.data.fileNode, sort));
+  const ordered: TreeNode<FileTreeRowData>[] = [];
+  const stack = sortSiblings(childrenByParent.get(null) ?? []).reverse();
+  while (stack.length > 0) {
+    const row = stack.pop();
+    if (!row) {
+      continue;
+    }
+    ordered.push(row);
+    const children = childrenByParent.get(row.id);
+    if (!children) {
+      continue;
+    }
+    const sortedChildren = sortSiblings(children);
+    for (let index = sortedChildren.length - 1; index >= 0; index -= 1) {
+      const child = sortedChildren[index];
+      if (child) {
+        stack.push(child);
+      }
+    }
+  }
+
+  if (ordered.length !== rows.length) {
+    throw new Error(
+      `Cannot sort Explorer rows: projected ${ordered.length} of ${rows.length}; parent structure is incomplete`
+    );
+  }
+  return ordered;
 }
 
 export interface NodeSelectionState {
@@ -992,7 +1128,7 @@ export function buildRowsFromWorkerNodes(
     parentStack[depth] = fileNode.path;
   }
 
-  return rows;
+  return sortRowsPerDirectory(rows, options.sort);
 }
 
 function shouldIncludeNormalizedChildren(
@@ -1130,7 +1266,7 @@ export function buildRowsFromNormalizedTree(
     pushNormalizedChildrenOntoStack(stack, normalizedTree, entry.node, entry.depth, allowedPaths);
   }
 
-  return rows;
+  return sortRowsPerDirectory(rows, options.sort);
 }
 
 function createNormalizedRowData(
@@ -1309,5 +1445,5 @@ export function buildFileTreeRows(
     addChildrenToStack(entry, stack, expandedDirectoryPaths);
   }
 
-  return rows;
+  return sortRowsPerDirectory(rows, options.sort);
 }
