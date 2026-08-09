@@ -167,19 +167,17 @@ describe('readApprovalActionChipProps (suspend marker — plan/askUser resumes)'
   });
 
   it('does not name the domains on the chip (the card above already states them)', () => {
-    // The resume payload deliberately carries ONLY the decision — the Gate B
-    // resume schema is strict and the tool's fail-safe requires exactly one key
-    // — so a domain-naming chip would have to invent or re-plumb them.
+    // The persisted action message deliberately carries only the decision, so a
+    // domain-naming chip would have to invent or re-plumb the card's domains.
     const props = readApprovalActionChipProps(networkMessage({ action: 'allow' }));
     expect(props?.label).not.toContain('example.com');
   });
 
-  it('refuses an allow payload carrying extra keys (matches the tool fail-safe)', () => {
-    // `readNetworkDecision` (run-python-tool.ts) treats any object without
-    // EXACTLY one own key as DENY, and the Gate B resume schema is .strict().
-    // A looser reader would chip "Allowed internet access" for a payload the run
-    // actually denied — asserting a grant that never happened, which is the one
-    // direction that matters for a security gate.
+  it('refuses a persisted network action carrying extra keys', () => {
+    // The UI reads the pre-transport action message, which contains only the
+    // verdict. The resume transport may later add `{approved: true}` before the
+    // tool reads it, but unrelated siblings in the persisted record must not
+    // become an asserted network grant.
     expect(readApprovalActionChipProps(networkMessage({ action: 'allow', extra: 1 }))).toBeNull();
     expect(readApprovalActionChipProps(networkMessage({ action: 'deny', extra: 1 }))).toBeNull();
   });
