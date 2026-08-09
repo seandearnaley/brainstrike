@@ -29,6 +29,10 @@ import React, { type ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectionActions } from '../context-actions';
 import { DatabaseDemoPanel as DatabaseDemoPanelImplementation } from '../database-demo-panel';
+import {
+  clearImportActivitySnapshot,
+  publishImportActivitySnapshot,
+} from '../import-activity-snapshot';
 import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
 
 // Helper to wrap renders with TooltipProvider and the context-action registry
@@ -699,13 +703,34 @@ describe('DatabaseDemoPanel', () => {
         expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__).toBeDefined();
       });
 
+      // The panel runs no imports of its own, so it reports idle until the
+      // surface that does (the explorer's selection bar) publishes.
       expect(window.__brainstrikeDatabaseDemoTestHooks__?.getImportSnapshot()).toEqual(
         expect.objectContaining({
           activeCollectionId: TEST_COLLECTION_ID,
           isImporting: false,
-          selectedFileCount: 1,
+          progress: null,
+          selectedFileCount: 0,
         })
       );
+
+      publishImportActivitySnapshot({
+        progress: {
+          completed: 2,
+          current: '/workspace/b.ts',
+          errors: [],
+          phase: 'importing',
+          total: 5,
+        },
+        selectedFileCount: 5,
+      });
+      expect(window.__brainstrikeDatabaseDemoTestHooks__?.getImportSnapshot()).toEqual(
+        expect.objectContaining({
+          progress: expect.objectContaining({ completed: 2, phase: 'importing', total: 5 }),
+          selectedFileCount: 5,
+        })
+      );
+      clearImportActivitySnapshot();
       expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__?.getSnapshot()).toEqual(
         expect.objectContaining({
           error: null,
@@ -892,7 +917,7 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('File Import', () => {
-    it('disables manual import when the active collection is managed by background indexing', async () => {
+    it('explains why manual import is unavailable when the active collection is background-indexed', async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
         hasHydrated: true,
@@ -907,7 +932,7 @@ describe('DatabaseDemoPanel', () => {
       });
     });
 
-    it('disables manual import when the loaded active collection is the managed collection', async () => {
+    it('explains why manual import is unavailable when the loaded active collection is the managed one', async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
         hasHydrated: true,
@@ -940,7 +965,7 @@ describe('DatabaseDemoPanel', () => {
       });
     });
 
-    it('clears an active workspace index and keeps manual import unavailable', async () => {
+    it('clears an active workspace index without showing the managed-collection notice', async () => {
       useVectorStatusUIStoreDirect.getState().setCachedCollections([
         {
           category: null,

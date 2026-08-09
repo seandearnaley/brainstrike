@@ -4,6 +4,7 @@ export {
   type CollectionSelectProps,
   type CollectionSelectSize,
   type CollectionWithDocCount,
+  fetchCollectionsSnapshot,
   formatCollectionLabel,
   useCollections,
 } from './collection-select.js';

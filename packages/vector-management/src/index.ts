@@ -12,6 +12,7 @@ export type {
 export {
   CollectionSelect,
   dispatchEmbeddingSetUpdated,
+  fetchCollectionsSnapshot,
   formatCollectionLabel,
   useCollections,
 } from './collection-select/index.js';

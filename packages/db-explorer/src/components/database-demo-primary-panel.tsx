@@ -18,10 +18,7 @@ import type { ComponentProps, ReactElement } from 'react';
 import type { useCollectionDialogs } from '../hooks/use-collection-dialogs';
 import type { useExportHandlers } from '../hooks/use-export-handlers';
 import type { useImportSettings } from '../hooks/use-import-settings';
-import type { EnhancedImportProgress } from '../types';
-import type { UseImportFlowResult } from '../use-import-flow';
 import { ExportDropdown } from './export-dropdown';
-import { ImportProgressBar } from './import-progress-bar';
 import { SearchCollectionSelector } from './search-collection-selector';
 import { SettingsPanel } from './settings-panel';
 
@@ -41,7 +38,6 @@ interface DatabaseDemoPrimaryPanelProps {
   readonly dbContext: ReturnType<typeof usePGliteDatabase>;
   readonly dropdownProps: ReturnType<typeof useEmbeddingControls>['dropdownProps'];
   readonly exportHandlers: ReturnType<typeof useExportHandlers>;
-  readonly importFlow: UseImportFlowResult;
   readonly importSettings: ReturnType<typeof useImportSettings>;
   readonly isManagedCollection: boolean;
   readonly onClearDatabase: () => Promise<void>;
@@ -65,7 +61,6 @@ export function DatabaseDemoPrimaryPanel({
   dbContext,
   dropdownProps,
   exportHandlers,
-  importFlow,
   importSettings,
   isManagedCollection,
   onClearDatabase,
@@ -204,15 +199,8 @@ export function DatabaseDemoPrimaryPanel({
         ) : null}
       </div>
 
-      {importFlow.showImportProgress && importFlow.progress && (
-        <ImportProgressBar
-          isCancelling={importFlow.isCancelling}
-          onCancel={importFlow.handleCancelImport}
-          onClose={() => importFlow.setShowImportProgress(false)}
-          progress={importFlow.progress as EnhancedImportProgress}
-        />
-      )}
-
+      {/* Import progress renders next to the trigger, in the explorer's
+          selection action bar (BST-1212). */}
       <div
         className="@container/database-actions flex-shrink-0 border-t bg-background"
         data-testid="database-panel-actions"

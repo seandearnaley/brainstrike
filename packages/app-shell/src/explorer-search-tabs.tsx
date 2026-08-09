@@ -10,7 +10,7 @@ import {
   TabsTrigger,
 } from '@brainstrike/ui';
 import { lazy, type ReactElement, Suspense, useCallback, useMemo, useState } from 'react';
-import { ExplorerImportAction } from './explorer-import-action';
+import { ExplorerImportActionLazy } from './explorer-import-action-lazy';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
 
 /**
@@ -90,7 +90,7 @@ export function ExplorerSearchTabs({
   // FileExplorerPanelInner is memoized; a fresh element identity here would
   // re-render the whole tree panel on every tab switch.
   const importAction = useMemo(
-    () => <ExplorerImportAction loadEmbeddingQueue={loadEmbeddingQueue} />,
+    () => <ExplorerImportActionLazy loadEmbeddingQueue={loadEmbeddingQueue} />,
     [loadEmbeddingQueue]
   );
 

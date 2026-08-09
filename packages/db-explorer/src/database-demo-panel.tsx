@@ -1,6 +1,6 @@
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
-import { type EmbeddingSet, refreshCollectionIndexingStats } from '@brainstrike/db';
+import type { EmbeddingSet } from '@brainstrike/db';
 import {
   useClearAllData,
   useDbProviderError,
@@ -14,7 +14,7 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { separatorClassName, useToast } from '@brainstrike/ui';
 import { useEmbeddingControls } from '@brainstrike/vector-management';
 import { Database } from 'lucide-react';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { ClearDatabaseDialog } from './components/clear-database-dialog';
 import { CollectionBrowserView } from './components/collection-browser-view';
@@ -31,15 +31,10 @@ import { useDatabaseErrorBoundary } from './hooks/use-database-error-boundary';
 import { useEmbeddingQueueRegistration } from './hooks/use-embedding-queue-registration';
 import { useExportHandlers } from './hooks/use-export-handlers';
 import { useImportActivitySync } from './hooks/use-import-activity-sync';
-import { createImportCompletionHandler } from './hooks/use-import-completion';
-import { useImportFlowSettings } from './hooks/use-import-flow-settings';
 import { useImportSettings } from './hooks/use-import-settings';
 import { useSemanticSearchExecutor } from './hooks/use-semantic-search-executor';
 import { useDatabaseDemoStore } from './stores/database-demo-store';
-import type { EnhancedImportResult } from './types';
 import { useDatabaseDemoData } from './use-database-demo-data';
-import type { UseImportFlowResult } from './use-import-flow';
-import { useImportFlow } from './use-import-flow';
 import { collectionCacheSnapshotFromEmbeddingSet } from './utils/collection-cache-snapshot';
 
 interface DatabaseDemoPanelProps {
@@ -239,9 +234,6 @@ export function DatabaseDemoPanel({
   const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
 
   const importSettings = useImportSettings();
-  const [chunkRepository, setChunkRepository] =
-    useState<UseImportFlowResult['chunkRepository']>(null);
-  const resolveActiveCollectionId = useCallback(() => activeCollectionId, [activeCollectionId]);
 
   // Read import state from Zustand store (shared with VectorStatus for query pausing)
   const isImportActive = useImportActivitySync();
@@ -249,7 +241,7 @@ export function DatabaseDemoPanel({
 
   const data = useDatabaseDemoData({
     activeCollectionId,
-    chunkRepository,
+    chunkRepository: dbChunkRepository,
     database: dbContext,
     isEmbeddingActive,
     isImporting: isImportActive,
@@ -296,46 +288,16 @@ export function DatabaseDemoPanel({
     toast,
   });
 
-  const importFlowSettings = useImportFlowSettings(importSettings);
-
-  const handleImportComplete = useCallback(
-    async (results: EnhancedImportResult[]) => {
-      const handler = createImportCompletionHandler(toast, loadRecords, loadChunks, async () => {
-        if (!dbContext) {
-          throw new Error('Import completion stats refresh requires an initialized database.');
-        }
-        if (!activeCollectionId) {
-          throw new Error('Import completion stats refresh requires an active collection.');
-        }
-        await refreshCollectionIndexingStats(dbContext, [activeCollectionId], {
-          label: 'import completion stats refresh',
-          priority: 'foreground',
-        });
-      });
-      await handler(results);
-    },
-    [activeCollectionId, dbContext, toast, loadRecords, loadChunks]
-  );
-
-  const importFlow = useImportFlow({
-    embeddingQueue,
-    importSettings: importFlowSettings,
-    onChunkRepositoryChange: setChunkRepository,
-    onImportComplete: handleImportComplete,
-    resolveActiveCollectionId,
-    toast,
-  });
-
   useEmbeddingQueueRegistration(embeddingQueue);
+  // Import progress comes from whichever surface is running the import (the
+  // explorer's selection bar), not from a duplicate service mounted here.
   useDatabaseDemoTestHook({
     activeCollectionId,
-    isImporting: importFlow.isImporting,
-    progress: importFlow.progress,
+    isImporting: isImportActive,
     recordCount: records.length,
     recordCurrentPage: recordPagination.currentPage,
     recordPageSize: recordPagination.pageSize,
     recordTotalRecords: recordPagination.totalRecords,
-    selectedFileCount: importFlow.selectedFileCount,
   });
 
   const handleClearDatabase = useDatabaseClearAction({
@@ -386,7 +348,6 @@ export function DatabaseDemoPanel({
             dbContext={dbContext}
             dropdownProps={dropdownProps}
             exportHandlers={exportHandlers}
-            importFlow={importFlow}
             importSettings={importSettings}
             isManagedCollection={isManagedCollection}
             onClearDatabase={handleClearDatabase}
