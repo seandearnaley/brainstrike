@@ -113,6 +113,16 @@ existing biome + knip setup. Do NOT hand-suppress every finding.
   61, `js-combine-iterations` 57, …) — fix clear wins; many are stylistic.
 - **PR 7 — Maintainability non-memo** (`only-export-components`, `no-giant-component`,
   `no-barrel-import`, …) — triage; expect a high FP/stylistic rate.
+  - **CORRECTION (2026-08-09, BST-1220, #2372): `only-export-components` is not a react-doctor
+    rule and cannot be burned down here.** The id exists only in the bundle's
+    oxlint→react-doctor alias tables with no implementation behind it, and react-doctor
+    accepts it in `doctor.config.ts` silently, so the 51 in the baseline above is not
+    reproducible against 0.9.3 — package scans, a full run, and `react-doctor@latest`
+    all report 0. The Fast Refresh boundary is now enforced for real by
+    `react-refresh/only-export-components` in `eslint.config.js` (155 warnings across 77
+    files, on the `--max-warnings` ratchet). Treat that as the PR-7 successor for this
+    rule only; the rest of PR 7 is unaffected. See the REACT DOCTOR section in
+    `docs/agents/ci-quality.md`.
 - **DONE — `react-compiler-no-manual-memoization` DISABLED (was 1211).** Team decision:
   manual memoization is intentional here (it guards non-React expensive work, external-store
   identity, and referential stability for consumers outside the compiled tree), so the rule

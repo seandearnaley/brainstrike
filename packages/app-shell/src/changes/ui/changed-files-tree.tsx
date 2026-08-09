@@ -5,7 +5,7 @@
  * `changed-files-tree-model.ts` for the grouping decision (flat under the
  * worktree) and the identity-stability mechanism. Cell renderers and column
  * definitions live in `changed-files-tree-columns.tsx` (kept out of this
- * file so it exports components only — `react-doctor/only-export-components`).
+ * file so it exports components only — `react-refresh/only-export-components`).
  *
  * CHECKBOX SEMANTICS: a file's checkbox is checked iff its
  * `changedFileKey` is IN `useChangesStore`'s `selectedFileKeys` (the literal

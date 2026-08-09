@@ -5,7 +5,7 @@ import { SkillsSettingsSection } from './skills-settings-section';
 /**
  * Factory for the Agent Skills settings category. Lives in its own
  * (non-component) module rather than `settings-page-content.tsx` so Fast
- * Refresh can preserve `SettingsPageContent`'s state (react-doctor
+ * Refresh can preserve `SettingsPageContent`'s state (react-refresh
  * `only-export-components`), mirroring `workspace-instructions-settings-category.tsx`.
  * Registered by the DESKTOP settings page only — web has no skills bridge.
  */
