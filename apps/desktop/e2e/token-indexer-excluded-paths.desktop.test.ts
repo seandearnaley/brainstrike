@@ -19,7 +19,7 @@
  * It asserts on structured log records rather than on the absence of a UI
  * state: the flood WAS the bug, so the records are the thing under test.
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { clickExplorerTreeAction } from './file-explorer-selection.shared';
@@ -82,7 +82,9 @@ test.describe('token indexer honours background-indexing path exclusions', () =>
         await storage.setItem('lastFolderPath', root);
         await storage.setItem(
           'rootsList',
-          JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId: 'excluded-paths-root' }])
+          JSON.stringify([
+            { addedAt: 1_800_000_000_000, path: root, rootId: 'excluded-paths-root' },
+          ])
         );
       },
       { root: ROOT_DIR }
