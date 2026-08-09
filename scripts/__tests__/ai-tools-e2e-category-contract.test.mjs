@@ -25,9 +25,10 @@ function collectE2eSpecs(relativeDirectory) {
   return specs;
 }
 
-const AI_TOOLS_SPECS = E2E_ROOTS.flatMap(collectE2eSpecs).filter((relativePath) =>
-  readFileSync(path.join(REPO_ROOT, relativePath), 'utf8').includes('category-filter')
-);
+const AI_TOOLS_SPECS = E2E_ROOTS.flatMap(collectE2eSpecs).filter((relativePath) => {
+  const source = readFileSync(path.join(REPO_ROOT, relativePath), 'utf8');
+  return source.includes('category-filter') && source.includes('brainstrike.readWorkspaceContext');
+});
 
 function categoryLabelViolations(source) {
   const violations = [];
@@ -80,8 +81,11 @@ test('MONEY TEST: one derived selector cannot hide a second hardcoded option lab
   assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
 });
 
-test('discovers both current AI Tools category-filter specs', () => {
-  assert.ok(AI_TOOLS_SPECS.length >= 2, 'expected at least the web and desktop AI Tools specs');
+test('discovers both current readWorkspaceContext category-filter specs', () => {
+  assert.ok(
+    AI_TOOLS_SPECS.length >= 2,
+    'expected at least the web and desktop readWorkspaceContext category-filter specs'
+  );
 });
 
 for (const relativePath of AI_TOOLS_SPECS) {
