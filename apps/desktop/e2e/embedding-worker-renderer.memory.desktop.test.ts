@@ -384,12 +384,18 @@ test.describe('Embedding Host Renderer - memory', () => {
     // Source pagination is the memory-bounding invariant, and it survived the
     // Collection Browser's retirement: the tab's live record query stays capped
     // at one page regardless of collection size, so selecting a 50k-file
-    // collection never pulls 50k rows into the visible renderer. It is now
-    // HEADLESS — the browser's pagination footer was the only control that could
-    // advance `recordPage`, so the old page-forward leg has no user-reachable
-    // trigger left and is not re-created here (poking the store directly would
-    // assert machinery no user can reach). The bound itself is still observable
-    // through the panel's existing test-hook snapshot.
+    // collection never pulls 50k rows into the visible renderer. It is asserted
+    // HEADLESS here, through the panel's existing test-hook snapshot.
+    //
+    // The old page-forward leg is deliberately not re-created. The only
+    // remaining control that advances `recordPage` is the Files pager inside
+    // the collection debug drawer (BST-1214), which is collapsed by default and
+    // lazily mounted — reaching it would mean opening that drawer and, with it,
+    // the retrieval executor, the model registry and a coverage live query.
+    // That is exactly the kind of extra renderer subtree this MEMORY lane
+    // exists to hold still, so driving it here would pollute the snapshots
+    // taken either side of this step. Assert the drawer's own pager in the
+    // drawer's own tests, not in a leak lane.
     const recordPageSize = 50;
     await expect
       .poll(
