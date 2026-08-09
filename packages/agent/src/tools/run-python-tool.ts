@@ -204,9 +204,10 @@ function splitStreamBudget(
 /**
  * How much of the budget JSON escaping will consume for this output. Measured
  * on the portion that would actually be kept, so plain ASCII pays nothing and
- * escape-heavy output pays what it really costs.
+ * escape-heavy output pays what it really costs. Shared with runSkillScript's
+ * output fit, which must uphold the same serialized self-bound contract.
  */
-function serializationOverhead(stdout: string, stderr: string, budget: number): number {
+export function serializationOverhead(stdout: string, stderr: string, budget: number): number {
   const sampleStdout = sliceTailCodePoints(stdout, budget);
   const sampleStderr = sliceTailCodePoints(stderr, budget);
   const raw = sampleStdout.length + sampleStderr.length;

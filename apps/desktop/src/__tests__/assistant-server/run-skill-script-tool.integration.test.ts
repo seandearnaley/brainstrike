@@ -1,10 +1,11 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type {
-  ResolvedSkillScriptExecution,
-  RuntimeData,
-  ScannedWorkspaceSkills,
+import {
+  NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  type ResolvedSkillScriptExecution,
+  type RuntimeData,
+  type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
@@ -22,6 +23,7 @@ async function createFixture(): Promise<{
   resolver: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'>;
   rootA: string;
   rootB: string;
+  scriptsDir: string;
 }> {
   const fixture = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-skill-run-'));
   cleanupPaths.push(fixture);
@@ -59,6 +61,7 @@ async function createFixture(): Promise<{
     },
     rootA,
     rootB,
+    scriptsDir,
   };
 }
 
@@ -120,6 +123,44 @@ describe('brainstrike.runSkillScript', () => {
       cwd: await fsPromises.realpath(path.join(fixture.rootA, 'site')),
     });
     await expect(fsPromises.access(path.join(fixture.rootA, 'should-not-run'))).rejects.toThrow();
+  });
+
+  it('fits escape-heavy output to the serialized native result budget', async () => {
+    // PR #2338 review: the previous raw-length fit let quote-heavy stdout (a
+    // script printing JSON) serialize past NATIVE_TOOL_RESULT_CHAR_BUDGET,
+    // violating the self-bound the model projection enforces.
+    const fixture = await createFixture();
+    const noisyPath = path.join(fixture.scriptsDir, 'noisy.mjs');
+    await fsPromises.writeFile(
+      noisyPath,
+      [
+        'const line = JSON.stringify({ event: "case-finished", level: "info", status: "passed" });',
+        'for (let index = 0; index < 400; index += 1) { console.log(line); }',
+      ].join('\n'),
+      'utf8'
+    );
+    const noisyResolver: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> = {
+      resolveScriptExecution: async (input) => ({
+        ...(await fixture.resolver.resolveScriptExecution(input)),
+        absolutePath: noisyPath,
+        scriptPath: 'scripts/noisy.mjs',
+      }),
+    };
+    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+      skillScriptResolver: noisyResolver,
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
+    const result = await executeTool({
+      cwd: '.',
+      root: 'root-a',
+      runtime: 'node',
+      scriptPath: 'scripts/noisy.mjs',
+      skillName: 'site-design',
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.truncated).toBe(true);
+    expect(result.stdout.length).toBeGreaterThan(0);
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
   });
 
   it('rejects a workspace-local skill when the requested mounted root differs', async () => {

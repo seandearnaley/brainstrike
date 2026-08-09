@@ -6,6 +6,8 @@ import {
   type RunSkillScriptInput,
   type RuntimeData,
   type ScannedWorkspaceSkills,
+  serializationOverhead,
+  sliceTailCodePoints,
 } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
@@ -140,14 +142,24 @@ function fitOutput(
   truncated: boolean;
 } {
   const budget = Math.max(0, NATIVE_TOOL_RESULT_CHAR_BUDGET - OUTPUT_ENVELOPE_CHARS);
-  const stdoutBudget = stderr.length > 0 ? Math.floor(budget * 0.6) : budget;
-  const stderrBudget = stdout.length > 0 ? budget - stdoutBudget : budget;
   const cleanStdout = stripAnsi(stdout);
   const cleanStderr = stripAnsi(stderr);
+  // Fit against the SERIALIZED size, not raw length (mirrors run_python): a
+  // script printing JSON nearly doubles under JSON.stringify, and a raw-length
+  // fit breaks the serialized self-bound the model projection enforces.
+  const serializedBudget = Math.max(
+    0,
+    budget - serializationOverhead(cleanStdout, cleanStderr, budget)
+  );
+  const stdoutBudget =
+    cleanStderr.length > 0 ? Math.floor(serializedBudget * 0.6) : serializedBudget;
+  const stderrBudget = cleanStdout.length > 0 ? serializedBudget - stdoutBudget : serializedBudget;
+  const keptStdout = sliceTailCodePoints(cleanStdout, stdoutBudget);
+  const keptStderr = sliceTailCodePoints(cleanStderr, stderrBudget);
   return {
-    stderr: cleanStderr.slice(-stderrBudget),
-    stdout: cleanStdout.slice(-stdoutBudget),
-    truncated: cleanStdout.length > stdoutBudget || cleanStderr.length > stderrBudget,
+    stderr: keptStderr,
+    stdout: keptStdout,
+    truncated: keptStdout.length < cleanStdout.length || keptStderr.length < cleanStderr.length,
   };
 }
 
