@@ -153,13 +153,17 @@ export async function runWriteWorkspaceFile(
   created: boolean;
   lsp?: EditDiagnosticsResult;
 }> {
-  assertNoReadWorkspaceFileGutters(input.content);
+  // Cheap bounded size check FIRST (PR #2352 review): an over-limit payload
+  // is rejected before it pays for the gutter guard's `split('\n')` pass —
+  // both are pure pre-lock validations, so the ordering only affects how
+  // much work an already-doomed oversized write does before failing.
   const buffer = Buffer.from(input.content, 'utf8');
   if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
     throw new Error(
       `Content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
     );
   }
+  assertNoReadWorkspaceFileGutters(input.content);
 
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const resolved = await resolveWorkspaceWritePath(root.path, input.path);
