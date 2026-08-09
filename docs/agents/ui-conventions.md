@@ -190,11 +190,25 @@ Windowing and performance:
     scrollbar gutter (0 with overlay scrollbars). Pinned by
     `__tests__/explorer-column-header.test.tsx`. Do NOT put sticky headers
     inside shared-scroller sections.
+  - **Per-directory sorting (BST-1209) is caller-owned.** TreeTable renders the
+    sortable header, `aria-sort`, and `onSortChange` cycle but NEVER reorders
+    nodes. The Explorer caller sorts siblings within EACH parent before passing
+    pre-flattened rows; descendants never move across parent boundaries.
+    Directories-first is invariant for every field and direction. Equal keys
+    fall back to the existing locale-aware name order. The persisted sort is
+    one panel-global state shared by every forest section; `null` preserves the
+    loader's directories-first/name-ascending default.
+  - Size/token ordering reads the same A1 metadata snapshots the cells render.
+    `pending`, `excluded`, and partial/unknown rollups are ABSENT — never zero —
+    and sort after every resolved number in BOTH directions. A metadata arrival
+    may legitimately reorder siblings while that field is active; the metadata
+    store coalesces each per-root invalidation batch into one row rebuild.
   - a11y for that header: it is `role="presentation"` with `aria-hidden`
-    LABELS, because one header cannot be ARIA-associated with N sibling
-    treegrids and every metadata cell already self-describes via sr-only text.
-    The resize handles stay in the accessibility tree — never bury focusable
-    controls under `aria-hidden`. Each forest section names its own root
+    STATIC labels when they are non-interactive, because one header cannot be
+    ARIA-associated with N sibling treegrids and every metadata cell already
+    self-describes via sr-only text. Sort buttons and resize handles stay in the
+    accessibility tree — never bury focusable controls under `aria-hidden`.
+    Each forest section names its own root
     (`aria-label="File tree: <root>"`); single-root stays `"File tree"`.
     TreeTable's own header cells carry `scope="col"`.
   - Below 300px of panel width every metadata column is suppressed
