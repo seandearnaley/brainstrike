@@ -3,10 +3,41 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const E2E_ROOTS = ['apps/web/e2e', 'apps/desktop/e2e'];
-const HARDCODED_OPTION_NAME = /getByRole\(\s*['"]option['"]\s*,\s*\{[^}]*name:\s*(?:['"`]|\/)/;
+const FORBIDDEN_CATEGORY_LABELS = new Set(['Analysis', 'Retrieval']);
+
+function hardcodedCategoryLabels(source) {
+  const sourceFile = ts.createSourceFile(
+    'category-filter.test.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    false,
+    ts.ScriptKind.TS
+  );
+  const labels = [];
+
+  function visit(node) {
+    if (
+      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+      FORBIDDEN_CATEGORY_LABELS.has(node.text)
+    ) {
+      labels.push(node.text);
+    } else if (ts.isRegularExpressionLiteral(node)) {
+      for (const label of FORBIDDEN_CATEGORY_LABELS) {
+        if (node.text.includes(label)) {
+          labels.push(label);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return labels;
+}
 
 function collectE2eSpecs(relativeDirectory) {
   const specs = [];
@@ -47,7 +78,7 @@ function categoryLabelViolations(source) {
     violations.push('does not import TOOL_CATEGORIES');
   }
   if (
-    !/\bconst\s+TOOL_CATEGORY_LABEL\s*=\s*TOOL_CATEGORIES\s*\[\s*NATIVE_TOOL_DEFAULTS\s*\[\s*NATIVE_TOOL_ID\s*\]\s*\.category\s*\]\s*\.label/.test(
+    !/\bconst\s+TOOL_CATEGORY_LABEL\s*=\s*TOOL_CATEGORIES\s*\[\s*NATIVE_TOOL_DEFAULTS\s*\[\s*NATIVE_TOOL_ID\s*\]\s*\.category\s*\]\s*\.label\s*;/.test(
       source
     )
   ) {
@@ -62,7 +93,7 @@ function categoryLabelViolations(source) {
       'does not select the category option through exact TOOL_CATEGORY_LABEL matching'
     );
   }
-  if (HARDCODED_OPTION_NAME.test(source)) {
+  if (hardcodedCategoryLabels(source).length > 0) {
     violations.push('hardcodes an option presentation label');
   }
 
@@ -131,6 +162,44 @@ test('MONEY TEST: an unused metadata expression cannot hide a hardcoded label in
 
   assert.deepEqual(categoryLabelViolations(source), [
     'does not derive the category label from the native-tool contract',
+    'hardcodes an option presentation label',
+  ]);
+});
+
+test('MONEY TEST: a hardcoded label alias cannot bypass the selector guard', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
+      NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    ].label;
+    const STALE_CATEGORY_LABEL = 'Analysis';
+    await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+    await page.getByRole('option', { exact: true, name: STALE_CATEGORY_LABEL }).click();
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
+});
+
+test('MONEY TEST: a hardcoded fallback cannot bypass the derived initializer guard', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
+      NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    ].label ?? 'Retrieval';
+    await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), [
+    'does not derive the category label from the native-tool contract',
+    'hardcodes an option presentation label',
   ]);
 });
 
