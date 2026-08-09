@@ -271,6 +271,42 @@ describe('collection debug drawer content', () => {
     });
   });
 
+  describe('with no active collection', () => {
+    function renderWithoutCollection() {
+      const { registry } = createTestActionRegistry({ actions: collectionActions });
+      render(
+        <ActionRegistryProvider registry={registry}>
+          <CollectionDebugDrawerContent
+            activeCollectionId={null}
+            activeCollectionSystemRole={null}
+            chunkRepository={null}
+            database={makeDatabase()}
+            fileRepository={null}
+            recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 0, totalRecords: 0 }}
+            records={[]}
+          />
+        </ActionRegistryProvider>
+      );
+    }
+
+    it('does not claim the collection is fully embedded when there is no collection', () => {
+      renderWithoutCollection();
+
+      const section = screen.getByTestId('collection-debug-failed');
+      // The "Not fully embedded" heading is expected; the false all-clear is not.
+      expect(section).not.toHaveTextContent(/Every file in this collection is fully embedded/i);
+      expect(section).toHaveTextContent(/select a collection/i);
+    });
+
+    it('asks for a collection instead of reporting an empty file page', () => {
+      renderWithoutCollection();
+
+      expect(screen.getByTestId('collection-debug-inspector')).toHaveTextContent(
+        /select a collection/i
+      );
+    });
+  });
+
   describe('chunk context actions', () => {
     it('copies chunk content from a chunk row', async () => {
       const user = userEvent.setup();

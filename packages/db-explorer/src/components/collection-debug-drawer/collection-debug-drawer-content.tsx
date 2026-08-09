@@ -64,6 +64,7 @@ export default function CollectionDebugDrawerContent({
         tabIndex={-1}
       >
         <ChunkInspectorSection
+          activeCollectionId={activeCollectionId}
           database={database}
           onClaimTarget={handleClaimTarget}
           recordPagination={recordPagination}

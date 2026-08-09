@@ -20,7 +20,10 @@ import { chunkRowToTarget, fileRowToTarget } from './drawer-targets';
 type ClaimTarget = (target: ContextTarget, element: HTMLElement) => void;
 
 interface ChunkInspectorSectionProps
-  extends Pick<CollectionDebugDrawerProps, 'database' | 'recordPagination' | 'records'> {
+  extends Pick<
+    CollectionDebugDrawerProps,
+    'activeCollectionId' | 'database' | 'recordPagination' | 'records'
+  > {
   readonly onClaimTarget: ClaimTarget;
 }
 
@@ -41,6 +44,7 @@ const ROW_IDLE = 'hover:bg-muted/60';
 const ROW_SELECTED = 'bg-primary/10 text-foreground';
 
 export function ChunkInspectorSection({
+  activeCollectionId,
   database,
   onClaimTarget,
   recordPagination,
@@ -194,7 +198,11 @@ export function ChunkInspectorSection({
           </div>
           <ul className="max-h-48 overflow-y-auto" data-testid="collection-debug-file-list">
             {files.length === 0 ? (
-              <li className="px-2 py-1 text-muted-foreground text-xs">No files in this page.</li>
+              <li className="px-2 py-1 text-muted-foreground text-xs">
+                {activeCollectionId
+                  ? 'No files in this page.'
+                  : 'Select a collection to list its files.'}
+              </li>
             ) : null}
             {files.map((file) => {
               const status = deriveFileEmbeddingStatus(file);
@@ -283,7 +291,10 @@ export function ChunkInspectorSection({
           </ul>
         </div>
 
-        <div className="min-h-[12rem]" data-testid="collection-debug-node-inspector">
+        {/* Fixed height rather than a stretched grid cell: the inspector's own
+            empty state fills its container, and an unbounded cell let it
+            dominate the drawer in the narrow single-column layout. */}
+        <div className="h-48 self-start" data-testid="collection-debug-node-inspector">
           <NodeInspector
             nodeData={inspected.data}
             nodeType={inspected.type}

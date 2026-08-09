@@ -121,7 +121,9 @@ export function FailedEmbeddingsSection({
 
       {!(loading || error) && files.length === 0 ? (
         <div className="px-2 py-1 text-muted-foreground text-xs">
-          Every file in this collection is fully embedded.
+          {activeCollectionId
+            ? 'Every file in this collection is fully embedded.'
+            : 'Select a collection to list files that need attention.'}
         </div>
       ) : null}
 
