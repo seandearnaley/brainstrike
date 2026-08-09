@@ -10,6 +10,58 @@ import { listPlaywrightTitleEntries } from '../e2e-playwright-title-tags.mjs';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const WEB_SPEC = 'apps/web/e2e/settings-tools-and-diagnostics.test.ts';
 const DESKTOP_SPEC = 'apps/desktop/e2e/tools-settings.desktop.test.ts';
+const WEB_SMOKE_COMMAND = [
+  'unset NO_COLOR;',
+  'pnpm exec playwright test',
+  '--project=functional',
+  '--grep "@web-smoke"',
+  '--workers=2',
+  '--max-failures=1',
+  '--global-timeout=600000',
+].join(' ');
+const DESKTOP_SMOKE_COMMAND = [
+  'node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn --',
+  'xvfb-maybe pnpm exec playwright test',
+  'e2e/add-root-ui.smoke.desktop.test.ts',
+  'e2e/agent-devtools.desktop.test.ts',
+  'e2e/app-launch.test.ts',
+  'e2e/assistant-panel.desktop.test.ts',
+  'e2e/background-indexing-pause.desktop.test.ts',
+  'e2e/file-system.test.ts',
+  'e2e/git-panel.desktop.test.ts',
+  'e2e/local-runtime-probe.desktop.test.ts',
+  'e2e/secrets-settings.test.ts',
+  'e2e/terminal-panel.desktop.test.ts',
+  'e2e/tools-settings.desktop.test.ts',
+  '--project=smoke',
+  '--workers=1',
+  '--retries=0',
+  '--max-failures=1',
+  '--global-timeout=300000',
+  '--grep="@smoke"',
+].join(' ');
+const DESKTOP_TOOLS_NIGHTLY_COMMAND = [
+  'node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn --',
+  'xvfb-maybe pnpm exec playwright test',
+  'e2e/tools-settings.desktop.test.ts',
+  '--project=smoke',
+  '--workers=1',
+  '--retries=0',
+  '--max-failures=1',
+  '--global-timeout=120000',
+  '--grep="@smoke"',
+].join(' ');
+const DESKTOP_FULL_REGRESSION_COMMAND = [
+  'node ../../scripts/run-env.mjs NO_COLOR= BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn --',
+  'xvfb-maybe pnpm exec playwright test',
+  '--project=regression',
+  '--workers=1',
+  '--retries=0',
+  '--max-failures=1',
+  '--global-timeout=1800000',
+  '--grep-invert="@desktop-embedding-"',
+  '&& pnpm run test:e2e:lane:tools-settings-nightly',
+].join(' ');
 const REQUIRED_PR_E2E_JOB_CONDITION = [
   'always() &&',
   '(',
@@ -34,13 +86,11 @@ function stepRunsExactCommand(step, expectedCommand) {
   return typeof step.run === 'string' && normalizeExpression(step.run) === expectedCommand;
 }
 
-function assertExecutingPlaywrightCommand(command, label) {
-  const normalizedCommand = normalizeExpression(command);
-  assert.match(normalizedCommand, /(?:^|\s)playwright test(?:\s|$)/, `${label} must execute tests`);
-  assert.doesNotMatch(
-    normalizedCommand,
-    /(?:^|\s)(?:--(?:help|list|version)|-(?:h|V))(?:=|\s|$)/,
-    `${label} must not use a diagnostic-only Playwright flag`
+function assertExactLaneCommand(command, expectedCommand, label) {
+  assert.equal(
+    normalizeExpression(command),
+    expectedCommand,
+    `${label} must retain the complete executable command`
   );
 }
 
@@ -82,11 +132,15 @@ test('MONEY TEST: the smoke matcher rejects disabled lanes and diagnostic suffix
   );
 });
 
-test('MONEY TEST: package smoke lanes cannot become diagnostic-only', () => {
-  for (const flag of ['--help', '-h', '--list', '--version', '-V']) {
+test('MONEY TEST: package smoke lanes reject no-op wrappers and failure swallowing', () => {
+  for (const mutation of [
+    `echo ${WEB_SMOKE_COMMAND}`,
+    `${WEB_SMOKE_COMMAND} || true`,
+    `${WEB_SMOKE_COMMAND} --list`,
+  ]) {
     assert.throws(
-      () => assertExecutingPlaywrightCommand(`pnpm exec playwright test ${flag}`, 'fixture'),
-      /diagnostic-only/
+      () => assertExactLaneCommand(mutation, WEB_SMOKE_COMMAND, 'fixture'),
+      /complete executable command/
     );
   }
 });
@@ -97,7 +151,7 @@ test('REAL REPO: every web AI Tools settings title is selected by Web E2E smoke'
 
   const webPackage = JSON.parse(read('apps/web/package.json'));
   const smokeCommand = webPackage.scripts['test:e2e:lane:smoke'];
-  assertExecutingPlaywrightCommand(smokeCommand, 'web smoke lane');
+  assertExactLaneCommand(smokeCommand, WEB_SMOKE_COMMAND, 'web smoke lane');
   assert.match(smokeCommand, /--grep ["']@web-smoke["']/);
 });
 
@@ -107,22 +161,48 @@ test('REAL REPO: every desktop AI Tools settings title is selected by Desktop E2
 
   const desktopPackage = JSON.parse(read('apps/desktop/package.json'));
   const smokeCommand = desktopPackage.scripts['test:e2e:lane:smoke'];
-  assertExecutingPlaywrightCommand(smokeCommand, 'desktop smoke lane');
+  assertExactLaneCommand(smokeCommand, DESKTOP_SMOKE_COMMAND, 'desktop smoke lane');
   assert.match(smokeCommand, /e2e\/tools-settings\.desktop\.test\.ts/);
   assert.match(smokeCommand, /--grep=["']@smoke["']/);
 });
 
 test('REAL REPO: desktop smoke tags remain selected by nightly regression', () => {
   const desktopPackage = JSON.parse(read('apps/desktop/package.json'));
-  assert.match(
+  assertExactLaneCommand(
     desktopPackage.scripts['test:e2e:lane:full-regression'],
-    /pnpm run test:e2e:lane:tools-settings-nightly/
+    DESKTOP_FULL_REGRESSION_COMMAND,
+    'desktop full-regression lane'
   );
   const nightlyCommand = desktopPackage.scripts['test:e2e:lane:tools-settings-nightly'];
-  assertExecutingPlaywrightCommand(nightlyCommand, 'desktop AI Tools nightly lane');
+  assertExactLaneCommand(
+    nightlyCommand,
+    DESKTOP_TOOLS_NIGHTLY_COMMAND,
+    'desktop AI Tools nightly lane'
+  );
   assert.match(nightlyCommand, /e2e\/tools-settings\.desktop\.test\.ts/);
   assert.match(nightlyCommand, /--project=smoke/);
   assert.match(nightlyCommand, /--grep=["']@smoke["']/);
+
+  const nightlyWorkflow = parseYaml(read('.github/workflows/desktop-e2e.yml'));
+  const fullRegressionJob = nightlyWorkflow.jobs['desktop-full-regression'];
+  const matchingSteps = fullRegressionJob.steps.filter((step) =>
+    stepRunsExactCommand(step, 'dbus-run-session -- pnpm run test:e2e:lane:full-regression')
+  );
+  assert.equal(
+    matchingSteps.length,
+    1,
+    'nightly workflow must execute full desktop regression once'
+  );
+  assert.equal(
+    matchingSteps[0].if,
+    undefined,
+    'nightly full-regression step must be unconditional'
+  );
+  assert.equal(
+    matchingSteps[0]['working-directory'],
+    'apps/desktop',
+    'nightly full-regression step must run from the desktop workspace'
+  );
 });
 
 test('REAL REPO: pull-request E2E jobs invoke both smoke lane scripts', () => {
