@@ -1016,10 +1016,19 @@ export function useDatabaseDemoData({
         includeTotalRecords: true,
       });
     });
+
+    // Records, totals and collection counts do not cover ALREADY-EXPANDED
+    // per-file chunk rows, and a re-import replaces a file's chunks outright —
+    // leaving those rows pointing at chunk ids that no longer exist. The
+    // Database panel's own import handler used to call this; since BST-1212 the
+    // import runs in the explorer, which cannot reach it, so the refresh that
+    // follows an import has to. `loadChunks` no-ops when nothing is expanded.
+    await loadChunks();
   }, [
     activeCollectionId,
     database,
     fetchSnapshot,
+    loadChunks,
     liveQueryEnabled,
     refreshCollectionCountsInBackground,
     refreshRecordsQuery,

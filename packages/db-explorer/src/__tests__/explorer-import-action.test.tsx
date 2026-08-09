@@ -351,6 +351,35 @@ describe('ExplorerImportAction', () => {
     expect(mockRefreshCollectionIndexingStats.mock.calls[0]?.[1]).toEqual(['docs']);
   });
 
+  it('folds the post-import counts back into the shared cache', async () => {
+    // The picker reads `cachedCollections` and only seeds it while it is empty,
+    // so with no Database tab mounted — nobody owning the live query — nothing
+    // else would ever replace the pre-import counts.
+    const user = userEvent.setup();
+    const picker = await openPicker();
+
+    await user.click(within(picker).getByRole('option', { name: /Collection docs/ }));
+    await waitFor(() => {
+      expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBe('docs');
+    });
+    await user.click(
+      within(picker).getByRole('button', { name: 'Import 2 files into the selected collection' })
+    );
+
+    // The rollup refresh has landed, so the next snapshot reports the new counts.
+    mockCollections.current = [collection({ chunkCount: 40, fileCount: 12, id: 'docs' })];
+
+    await act(async () => {
+      await mockImportServiceState.emitComplete?.([]);
+    });
+
+    const cached = useVectorStatusUIStore
+      .getState()
+      .cachedCollections.find((entry) => entry.id === 'docs');
+    expect(cached?.fileCount).toBe(12);
+    expect(cached?.chunkCount).toBe(40);
+  });
+
   it('still refreshes the run target after the active collection is deleted', async () => {
     // Deleting the active collection sets the active id to null. Reading it at
     // completion would throw out of the service's onComplete instead of

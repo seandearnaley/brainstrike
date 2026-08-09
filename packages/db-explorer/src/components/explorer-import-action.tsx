@@ -4,6 +4,7 @@ import { useEmbeddingSetsRepository, usePGliteDatabase } from '@brainstrike/db/r
 import { useSelectionActionBarPin } from '@brainstrike/file-explorer-ui/shell';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Button, Popover, PopoverContent, PopoverTrigger, useToast } from '@brainstrike/ui';
+import { fetchCollectionsSnapshot } from '@brainstrike/vector-management';
 import { FileText } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import { useCollectionCacheSync } from '../hooks/use-collection-cache-sync';
@@ -80,6 +81,7 @@ export function ExplorerImportAction({
   const activeCollectionId = useVectorStatusUIStore((state) => state.activeEmbeddingSetId);
   const setActiveCollectionId = useVectorStatusUIStore((state) => state.setActiveEmbeddingSetId);
   const upsertCachedCollection = useVectorStatusUIStore((state) => state.upsertCachedCollection);
+  const setCachedCollections = useVectorStatusUIStore((state) => state.setCachedCollections);
   const isManagedCollection = useIsManagedCollection();
 
   const collectionDialogs = useCollectionDialogs();
@@ -120,10 +122,21 @@ export function ExplorerImportAction({
           label: 'explorer import completion stats refresh',
           priority: 'foreground',
         });
+
+        // Refreshing the rollup updates the DATABASE; the picker reads the
+        // shared `cachedCollections` store and only seeds it while it is EMPTY,
+        // on the assumption that a populated cache is kept current by whoever
+        // owns the live query. When the Database tab has never mounted nobody
+        // owns it, so without this the popover would keep showing pre-import
+        // file/chunk/embedding counts indefinitely. Folding the new rollup back
+        // in here is safe with the live owner mounted too: its sync effect
+        // compares before writing, and that comparison actually works now that
+        // timestamps are normalized.
+        setCachedCollections(await fetchCollectionsSnapshot(dbContext));
       });
       await handler(results);
     },
-    [dbContext, toast]
+    [dbContext, setCachedCollections, toast]
   );
 
   const importFlow = useImportFlow({
