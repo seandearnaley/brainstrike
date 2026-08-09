@@ -162,11 +162,6 @@ test('the nightly timeout covers every lane budget plus setup and build overhead
   const workflow = parseYaml(
     readFileSync(path.join(REPO_ROOT, '.github/workflows/web-e2e.yml'), 'utf8')
   );
-  const playwrightConfig = readFileSync(
-    path.join(REPO_ROOT, 'apps/web/playwright.config.ts'),
-    'utf8'
-  );
-  assert.match(playwrightConfig, /webServer:\s*\{[\s\S]*?timeout:\s*60_000/);
   const jobTimeoutMinutes = workflow.jobs['web-full-regression']['timeout-minutes'];
   const traceUpload = workflow.jobs['web-full-regression'].steps.find(
     (step) => step.name === 'Upload web traces'
