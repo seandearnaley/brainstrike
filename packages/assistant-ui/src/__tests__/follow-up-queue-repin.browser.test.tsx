@@ -9,7 +9,7 @@ import {
 } from '@assistant-ui/react';
 import { useEffect } from 'react';
 import '@testing-library/jest-dom/vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { ThreadScrollRegion, ThreadScrollToBottom } from '../assistant-ui-panel';
 import { FollowUpQueueBridge, FollowUpQueueChips } from '../follow-up-queue';
@@ -249,6 +249,12 @@ const dispatchRunEvent = async (dispatch: () => void): Promise<void> => {
   });
 };
 
+const enqueueFollowUp = async (): Promise<void> => {
+  await act(async () => {
+    useFollowUpQueueStore.getState().enqueue(followUpQueueKey(THREAD_KEY), 'queued follow-up');
+  });
+};
+
 const waitForPinnedThread = async (): Promise<HTMLElement> => {
   await screen.findAllByTestId('thread-message');
   const viewport = getViewport();
@@ -260,6 +266,7 @@ const waitForPinnedThread = async (): Promise<HTMLElement> => {
 };
 
 afterEach(() => {
+  cleanup();
   resetFollowUpQueueStore();
   scrollToBottomRequests.length = 0;
   document.body.replaceChildren();
@@ -282,9 +289,7 @@ describe('follow-up queue dispatch keeps stick-to-bottom pinned (BST-1039)', () 
     // shrinking it. A streaming chunk lands right after — production runs
     // stream constantly, and the content-resize is what re-sticks the library
     // after the shrink. Pinned follow survives this direction.
-    act(() => {
-      useFollowUpQueueStore.getState().enqueue(followUpQueueKey(THREAD_KEY), 'queued follow-up');
-    });
+    await enqueueFollowUp();
     await screen.findByTestId('assistant-follow-up-chip');
     await dispatchRunEvent(pushChunk);
     await waitFor(() => {
@@ -340,9 +345,7 @@ describe('follow-up queue dispatch keeps stick-to-bottom pinned (BST-1039)', () 
       expect(screen.getAllByTestId('thread-message').length).toBeGreaterThan(MESSAGE_COUNT);
     });
     await dispatchRunEvent(pushChunk);
-    act(() => {
-      useFollowUpQueueStore.getState().enqueue(followUpQueueKey(THREAD_KEY), 'queued follow-up');
-    });
+    await enqueueFollowUp();
     await screen.findByTestId('assistant-follow-up-chip');
 
     // The reader scrolls up mid-run: follow disengages by design.

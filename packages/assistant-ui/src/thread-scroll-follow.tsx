@@ -26,8 +26,8 @@
  *   NO scroll behavior: `scrollTo`'s default `'auto'` routes through CSS
  *   `scroll-behavior`, so the global `prefers-reduced-motion` override in
  *   globals.css keeps applying.
- * - `pointerdown` cancels an in-flight follow so a user grabbing the
- *   scrollbar mid-scroll wins immediately.
+ * - Pointer, wheel, and touch intent cancel both an in-flight follow and any
+ *   scheduled post-layout measurement so user navigation wins immediately.
  */
 import {
   createContext,
@@ -67,7 +67,7 @@ export interface ThreadScrollFollow {
   readonly subscribe: (listener: () => void) => () => void;
 }
 
-export function createThreadScrollFollow(): ThreadScrollFollow {
+function createThreadScrollFollow(): ThreadScrollFollow {
   let element: HTMLElement | null = null;
   let isAtBottom = true;
   /** True while a follow/explicit scroll is in flight and may still settle. */
@@ -153,18 +153,40 @@ export function createThreadScrollFollow(): ThreadScrollFollow {
       lastScrollHeight = el.scrollHeight;
       lastObservedScrollHeight = el.scrollHeight;
       lastObservedClientHeight = el.clientHeight;
+      let measurementFrame: number | null = null;
+      const cancelScheduledMeasurement = (): void => {
+        if (measurementFrame === null) {
+          return;
+        }
+        cancelAnimationFrame(measurementFrame);
+        measurementFrame = null;
+      };
+      const scheduleMeasurement = (): void => {
+        if (measurementFrame !== null) {
+          return;
+        }
+        measurementFrame = requestAnimationFrame(() => {
+          measurementFrame = null;
+          measure(el);
+        });
+      };
       const onScroll = () => handleScroll(el);
-      const onPointerDown = () => {
+      const onUserIntent = () => {
         pendingFollow = false;
+        cancelScheduledMeasurement();
       };
       const resizeObserver = new ResizeObserver(() => measure(el));
       // The mutation observer is what sees CONTENT growth (scrollHeight is
       // invisible to a ResizeObserver on the scroller itself). Style-only
       // attribute mutations are ignored, matching the library: growth must
-      // arrive the way streaming text does.
+      // arrive the way streaming text does. Mutation delivery can precede
+      // final layout, so every immediate measurement is followed by one
+      // animation-frame verification. The frame also coalesces a burst of
+      // streamed character-data records into one post-layout read.
       const mutationObserver = new MutationObserver((mutations) => {
         if (mutations.some((m) => m.type !== 'attributes' || m.attributeName !== 'style')) {
           measure(el);
+          scheduleMeasurement();
         }
       });
       resizeObserver.observe(el);
@@ -175,12 +197,17 @@ export function createThreadScrollFollow(): ThreadScrollFollow {
         subtree: true,
       });
       el.addEventListener('scroll', onScroll);
-      el.addEventListener('pointerdown', onPointerDown);
+      el.addEventListener('pointerdown', onUserIntent);
+      el.addEventListener('touchstart', onUserIntent, { passive: true });
+      el.addEventListener('wheel', onUserIntent, { passive: true });
       return () => {
+        cancelScheduledMeasurement();
         resizeObserver.disconnect();
         mutationObserver.disconnect();
         el.removeEventListener('scroll', onScroll);
-        el.removeEventListener('pointerdown', onPointerDown);
+        el.removeEventListener('pointerdown', onUserIntent);
+        el.removeEventListener('touchstart', onUserIntent);
+        el.removeEventListener('wheel', onUserIntent);
         if (element === el) {
           element = null;
         }
