@@ -15,11 +15,20 @@ import type { Migration } from './migration-runner';
  * also exercised idempotently in tests and the renderer bootstrap may already
  * have created the final table shape. NO foreign keys: numbered migrations
  * still run without Mastra's lazy thread and message tables.
+ *
+ * `down` deletes every `kind = 'prune'` row before restoring the
+ * migration-084 `NOT NULL` on `superseded_by_tool_call_id` — those rows are
+ * a rebuildable transient overlay (recency pruning re-derives them
+ * deterministically from persisted history), so dropping them on rollback is
+ * correct, and without the delete the `SET NOT NULL` fails outright once any
+ * prune row exists.
  */
 export const migration087ToolProjectionRewriteKinds: Migration = {
   down: `
     ALTER TABLE IF EXISTS brainstrike_assistant_tool_projection_rewrites
       DROP CONSTRAINT IF EXISTS brainstrike_tool_projection_rewrite_kind_superseder_check;
+    DELETE FROM brainstrike_assistant_tool_projection_rewrites
+      WHERE superseded_by_tool_call_id IS NULL;
     ALTER TABLE IF EXISTS brainstrike_assistant_tool_projection_rewrites
       ALTER COLUMN superseded_by_tool_call_id SET NOT NULL;
     ALTER TABLE IF EXISTS brainstrike_assistant_tool_projection_rewrites

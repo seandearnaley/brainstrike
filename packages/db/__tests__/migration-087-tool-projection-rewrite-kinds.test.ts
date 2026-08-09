@@ -54,6 +54,42 @@ describe('migration 087: tool projection rewrite kinds (BST-1200)', () => {
     ]);
   });
 
+  it('down succeeds and drops prune rows after recency pruning has committed', async () => {
+    // BST-1200 review PRRT_kwDOONNKB86XkWG4 / PRRT_kwDOONNKB86XkXvI: a naive
+    // `SET NOT NULL` in `down` fails outright once any `kind = 'prune'` row
+    // exists (they all carry NULL by this migration's own CHECK). Prune
+    // overlays are a rebuildable transient — recency pruning re-derives them
+    // deterministically from persisted history — so deleting them on
+    // rollback is correct, and `down` must not error.
+    const migration = migrations.find((candidate) => candidate.version === 87)!;
+    await db.exec(migration.up);
+    await db.query(
+      `INSERT INTO ${TABLE}
+        (tool_call_id, thread_id, rewrite_id, superseded_by_tool_call_id, marker_text, original_chars)
+       VALUES ('call-old', 'thread-1', 'rewrite-1', 'call-new', 'superseded marker', 42)`
+    );
+    await db.query(
+      `INSERT INTO ${TABLE}
+        (tool_call_id, thread_id, rewrite_id, kind, superseded_by_tool_call_id, marker_text, original_chars)
+       VALUES ('call-pruned', 'thread-1', 'rewrite-2', 'prune', NULL, 'pruned marker', 84)`
+    );
+
+    await db.exec(migration.down);
+
+    const columns = await db.query<{ columnName: string }>(
+      `SELECT column_name AS "columnName" FROM information_schema.columns
+       WHERE table_name = $1 AND column_name = 'kind'`,
+      [TABLE]
+    );
+    expect(columns.rows).toEqual([]);
+    const rows = await db.query<{ supersededByToolCallId: string; toolCallId: string }>(
+      `SELECT tool_call_id AS "toolCallId",
+              superseded_by_tool_call_id AS "supersededByToolCallId"
+       FROM ${TABLE} ORDER BY tool_call_id`
+    );
+    expect(rows.rows).toEqual([{ supersededByToolCallId: 'call-new', toolCallId: 'call-old' }]);
+  });
+
   it('rejects rewrite-kind and superseder-nullability mismatches', async () => {
     const migration = migrations.find((candidate) => candidate.version === 87)!;
     await db.exec(migration.up);

@@ -636,11 +636,15 @@ describe('tool projection rewrite overlay', () => {
     ).toHaveLength(0);
   });
 
-  it('prunes only old non-skill projections without mutating raw history or reviving on rewind', async () => {
+  it('prunes only old read-only projections without mutating raw history or reviving on rewind', async () => {
+    // grepSearch is read-only-allowlisted and therefore eligible; runPython
+    // is a mutating/execute tool and stays exempt (BST-1200 review
+    // PRRT_kwDOONNKB86XkXqw) alongside the skill activation.
     const seeded = [
-      { id: 'old-python-a', size: 90_000, toolName: NATIVE_TOOL_ID.runPython },
-      { id: 'old-python-b', size: 90_000, toolName: NATIVE_TOOL_ID.runPython },
+      { id: 'old-grep-a', size: 90_000, toolName: NATIVE_TOOL_ID.grepSearch },
+      { id: 'old-grep-b', size: 90_000, toolName: NATIVE_TOOL_ID.grepSearch },
       { id: 'old-skill', size: 90_000, toolName: NATIVE_TOOL_ID.skill },
+      { id: 'old-python-exempt', size: 90_000, toolName: NATIVE_TOOL_ID.runPython },
     ] as const;
     for (const [index, item] of seeded.entries()) {
       await insertMessage(
@@ -703,8 +707,8 @@ describe('tool projection rewrite overlay', () => {
       `SELECT kind, tool_call_id AS "toolCallId" FROM brainstrike_assistant_tool_projection_rewrites ORDER BY tool_call_id`
     );
     expect(overlays.rows).toEqual([
-      { kind: 'prune', toolCallId: 'old-python-a' },
-      { kind: 'prune', toolCallId: 'old-python-b' },
+      { kind: 'prune', toolCallId: 'old-grep-a' },
+      { kind: 'prune', toolCallId: 'old-grep-b' },
     ]);
     expect(
       (
@@ -721,18 +725,20 @@ describe('tool projection rewrite overlay', () => {
     }));
     const lookup = createToolProjectionRewriteLookup(databaseProvider);
     const replay = JSON.stringify(await replayWithRewrites(lookup, calls));
-    expect(replay).toContain('tool=brainstrike.runPython');
+    expect(replay).toContain('tool=brainstrike.grepSearch');
     expect(replay).toContain('old-skill:original');
+    // runPython stays exempt as a mutating/execute tool even though old.
+    expect(replay).toContain('old-python-exempt:original');
     expect(replay).toContain('current-turn-old:original');
     expect(replay).toContain('unrelated-later-message:original');
-    expect(replay).not.toContain('old-python-a:original');
+    expect(replay).not.toContain('old-grep-a:original');
 
     await db.query(
       `INSERT INTO brainstrike_assistant_message_tombstones (message_id, thread_id, rewind_id)
        VALUES ('message-unrelated-later-message', 'thread-1', 'rewind-unrelated')`
     );
     expect(JSON.stringify(await replayWithRewrites(lookup, calls))).not.toContain(
-      'old-python-a:original'
+      'old-grep-a:original'
     );
     await recordSuccessfulToolProjection(
       {

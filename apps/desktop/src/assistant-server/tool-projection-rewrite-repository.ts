@@ -403,16 +403,24 @@ function collectCandidates(args: {
   return candidates;
 }
 
-function toRecencyPruneInvocation(
+/**
+ * `modelOutput === undefined` happens for native invocations persisted
+ * before `providerMetadata.mastra.modelOutput` existed. Every other consumer
+ * of this field (`projection-safe-tool-call-filter.ts`,
+ * `projection-aware-token-limiter.ts`) treats absence as normal and skips
+ * the part; skipping here (excluding the invocation from the size walk
+ * entirely) is strictly safer than throwing, which would abort recency
+ * pruning for the WHOLE thread on every later native-tool call (BST-1200
+ * review PRRT_kwDOONNKB86XkXki).
+ */
+export function toRecencyPruneInvocation(
   invocation: PersistedToolInvocation
 ): RecencyPruneInvocation | undefined {
   if (!isNativeToolId(invocation.toolName)) {
     return;
   }
   if (invocation.modelOutput === undefined) {
-    throw new TypeError(
-      `Native-tool history ${invocation.toolCallId} is missing its persisted model projection.`
-    );
+    return;
   }
   return {
     args: invocation.args,
@@ -464,12 +472,19 @@ export async function recordSuccessfulToolProjection(
     }
   }
 
+  const pruneEligibleInvocations: RecencyPruneInvocation[] = [];
+  for (const invocation of scan.invocations) {
+    if (supersessionCandidateIds.has(invocation.toolCallId)) {
+      continue;
+    }
+    const pruneInvocation = toRecencyPruneInvocation(invocation);
+    if (pruneInvocation) {
+      pruneEligibleInvocations.push(pruneInvocation);
+    }
+  }
   const pruneCandidates = selectRecencyPruneCandidates({
     currentTurnToolCallIds: scan.currentTurnToolCallIds,
-    invocations: scan.invocations
-      .filter((invocation) => !supersessionCandidateIds.has(invocation.toolCallId))
-      .map(toRecencyPruneInvocation)
-      .filter((invocation): invocation is RecencyPruneInvocation => invocation !== undefined),
+    invocations: pruneEligibleInvocations,
   });
   if (pruneCandidates.length === 0) {
     return;

@@ -37,6 +37,7 @@ import {
 import {
   applyToolProjectionRewriteRecording,
   recordSuccessfulToolProjection,
+  toRecencyPruneInvocation,
 } from '../../assistant-server/tool-projection-rewrite-repository';
 
 function persistedInvocation(args: {
@@ -280,11 +281,11 @@ describe('recency-window tool projection pruning selection', () => {
     ).toEqual(['at-floor']);
   });
 
-  it('never selects skill activation surfaces but still prunes runSkillScript output', () => {
-    const runArgs = { script: 'build-index' };
+  it('never selects skill/skill_read but selects skill_search like other read-only tools; runSkillScript is exempt as a mutator', () => {
+    const searchArgs = { pattern: 'compaction' };
     const oldProjectedChars = projectedCharsForSavings(
-      NATIVE_TOOL_ID.runSkillScript,
-      runArgs,
+      NATIVE_TOOL_ID.skillSearch,
+      searchArgs,
       minReclaimChars
     );
     const candidates = selectRecencyPruneCandidates({
@@ -301,12 +302,12 @@ describe('recency-window tool projection pruning selection', () => {
           toolName: NATIVE_TOOL_ID.skillRead,
         }),
         pruneFixture({
+          args: searchArgs,
           id: 'skill-search',
           projectedChars: oldProjectedChars,
           toolName: NATIVE_TOOL_ID.skillSearch,
         }),
         pruneFixture({
-          args: runArgs,
           id: 'run-skill-script',
           projectedChars: oldProjectedChars,
           toolName: NATIVE_TOOL_ID.runSkillScript,
@@ -315,7 +316,42 @@ describe('recency-window tool projection pruning selection', () => {
       ],
     });
 
-    expect(candidates.map((candidate) => candidate.toolCallId)).toEqual(['run-skill-script']);
+    expect(candidates.map((candidate) => candidate.toolCallId)).toEqual(['skill-search']);
+  });
+
+  it('exempts mutating and interactive tools even though their reclaim would clear the floor', () => {
+    const mutatorArgs = { path: 'src/mutated.ts' };
+    const oldProjectedChars = projectedCharsForSavings(
+      NATIVE_TOOL_ID.writeWorkspaceFile,
+      mutatorArgs,
+      minReclaimChars
+    );
+    const mutatingToolIds = [
+      NATIVE_TOOL_ID.writeWorkspaceFile,
+      NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
+      NATIVE_TOOL_ID.deleteWorkspaceFile,
+      NATIVE_TOOL_ID.executeCommand,
+      NATIVE_TOOL_ID.runPython,
+      NATIVE_TOOL_ID.askUser,
+      NATIVE_TOOL_ID.manageCanvas,
+      NATIVE_TOOL_ID.manageTaskList,
+    ] as const;
+    const candidates = selectRecencyPruneCandidates({
+      currentTurnToolCallIds: new Set(),
+      invocations: [
+        ...mutatingToolIds.map((toolName, index) =>
+          pruneFixture({
+            args: mutatorArgs,
+            id: `mutator-${index}`,
+            projectedChars: oldProjectedChars,
+            toolName,
+          })
+        ),
+        pruneFixture({ id: 'protected-tail', projectedChars: protectWindowChars }),
+      ],
+    });
+
+    expect(candidates).toEqual([]);
   });
 
   it('excludes current-turn invocations and earlier invocations referenced by the current turn', () => {
@@ -366,5 +402,106 @@ describe('recency-window tool projection pruning selection', () => {
         ],
       })
     ).toEqual([]);
+  });
+});
+
+describe('decodedPersistedModelOutputChars', () => {
+  const protectWindowChars = TOOL_PROJECTION_PRUNE_PROTECT_WINDOW_TOKENS * APPROX_CHARS_PER_TOKEN;
+  const minReclaimChars = TOOL_PROJECTION_PRUNE_MIN_RECLAIM_TOKENS * APPROX_CHARS_PER_TOKEN;
+
+  it('measures type:"json" model outputs via the serialized ruler instead of throwing', () => {
+    // readToolOutputArtifact's buildModelPage() and artifact settlement's
+    // createArtifactOutputs() both persist `{ type: 'json', value }` —
+    // precisely the largest, most pruning-worthy results (BST-1200 review
+    // PRRT_kwDOONNKB86XkXki). A json invocation must participate in the
+    // normal protect-window/floor selection like any other candidate.
+    const jsonValue = { page: 1, totalPages: 3, value: 'x'.repeat(200_000) };
+    const jsonArgs = { artifactId: 'artifact-1' };
+    const jsonInvocation = {
+      args: jsonArgs,
+      modelOutput: { type: 'json' as const, value: jsonValue },
+      toolCallId: 'artifact-json',
+      toolName: NATIVE_TOOL_ID.readToolOutputArtifact,
+    };
+
+    const candidates = selectRecencyPruneCandidates({
+      currentTurnToolCallIds: new Set(),
+      invocations: [
+        jsonInvocation,
+        {
+          args: { path: 'src/protected.ts' },
+          modelOutput: { type: 'text' as const, value: 'x'.repeat(protectWindowChars) },
+          toolCallId: 'protected-tail',
+          toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+        },
+      ],
+    });
+
+    expect(candidates.map((candidate) => candidate.toolCallId)).toEqual(['artifact-json']);
+    expect(candidates[0]?.reclaimableChars).toBeGreaterThanOrEqual(minReclaimChars);
+  });
+
+  it('still throws for a genuinely unknown model output shape', () => {
+    expect(() =>
+      selectRecencyPruneCandidates({
+        currentTurnToolCallIds: new Set(),
+        invocations: [
+          {
+            args: {},
+            modelOutput: { type: 'binary', value: 'unsupported' },
+            toolCallId: 'unknown-shape',
+            toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+          },
+        ],
+      })
+    ).toThrow(/text, content, or json shaped/);
+  });
+});
+
+describe('toRecencyPruneInvocation', () => {
+  it('skips a native invocation missing its persisted model projection instead of throwing', () => {
+    // Pre-existing threads may have native invocations persisted before
+    // `providerMetadata.mastra.modelOutput` existed. Every other consumer of
+    // this field treats absence as normal (BST-1200 review
+    // PRRT_kwDOONNKB86XkXki) — skipping the invocation must not abort the
+    // whole recency-pruning pass for the thread.
+    const result = toRecencyPruneInvocation({
+      args: { path: 'src/legacy.ts' },
+      modelOutput: undefined,
+      result: { path: 'src/legacy.ts' },
+      toolCallId: 'legacy-call',
+      toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  it('skips a non-native tool name', () => {
+    const result = toRecencyPruneInvocation({
+      args: {},
+      modelOutput: { type: 'text', value: 'mcp result' },
+      result: {},
+      toolCallId: 'mcp-call',
+      toolName: 'some_mcp_server.tool',
+    });
+
+    expect(result).toBeUndefined();
+  });
+
+  it('returns the invocation when the native tool has a persisted model projection', () => {
+    const result = toRecencyPruneInvocation({
+      args: { path: 'src/present.ts' },
+      modelOutput: { type: 'text', value: 'file contents' },
+      result: { path: 'src/present.ts' },
+      toolCallId: 'present-call',
+      toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+    });
+
+    expect(result).toEqual({
+      args: { path: 'src/present.ts' },
+      modelOutput: { type: 'text', value: 'file contents' },
+      toolCallId: 'present-call',
+      toolName: NATIVE_TOOL_ID.readWorkspaceFile,
+    });
   });
 });

@@ -3,6 +3,7 @@ import {
   APPROX_CHARS_PER_TOKEN,
   decodedTextModelOutputChars,
   type ToolProjectionRewriteEntry,
+  toJsonSafe,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, type NativeToolId } from '@brainstrike/assistant-contract';
 import { stableNormalizedArgsKey } from './tool-call-loop-guards';
@@ -19,10 +20,51 @@ const TOOL_PROJECTION_PRUNE_MIN_RECLAIM_CHARS =
   TOOL_PROJECTION_PRUNE_MIN_RECLAIM_TOKENS * APPROX_CHARS_PER_TOKEN;
 const ARGS_DIGEST_HEX_CHARS = 12;
 
-const SKILL_ACTIVATION_TOOL_IDS: ReadonlySet<NativeToolId> = new Set([
-  NATIVE_TOOL_ID.skill,
-  NATIVE_TOOL_ID.skillRead,
+/**
+ * Recency pruning previously treated every `NativeToolId` except the three
+ * skill activations as eligible, so its generic "re-run the tool to obtain
+ * it again" marker was also emitted for mutating/interactive tools —
+ * `writeWorkspaceFile`, `deleteWorkspaceFile`, `executeCommand`, `runPython`,
+ * `askUser`, `manageCanvas`, `manageTaskList`, `manageCommandSession`,
+ * `submitPlan`, `runSkillScript`, and more (BST-1200 review). Re-running one
+ * of those is either not idempotent (a mutation repeats), not free
+ * (persists more app state), or not what the marker implies (`askUser`/
+ * `submitPlan` suspend for a NEW answer, not a replay of the old one). Their
+ * projections are also tiny (a path, an exit code), so the reclaim from
+ * pruning them is near zero while the downside is a plausible repeated
+ * mutation.
+ *
+ * An explicit ALLOWLIST of genuinely read-only, cheap-to-re-run tools (never
+ * a denylist) keeps every new/future native tool exempt by default. This is
+ * a NARROWER, purpose-specific set than `tool-risk.ts`'s `'read'` risk
+ * bucket: `askUser`/`submitPlan`/`manageTaskList`/`manageCanvas` resolve to
+ * `'read'` there (no workspace/fs mutation requiring approval) but stay
+ * exempt here for the reasons above — do not conflate the two lists, and do
+ * not derive this set from `resolveToolRiskCategory`.
+ *
+ * `skill` and `skill_read` stay exempt (their output IS the working skill
+ * body a later turn may still need — never prune it). `skill_search`
+ * differs: like `grepSearch`, its output is a disposable search-result list,
+ * cheap and idempotent to reproduce, so it is listed here instead of being
+ * unconditionally exempt.
+ */
+const READ_ONLY_PRUNABLE_TOOL_IDS: ReadonlySet<NativeToolId> = new Set([
+  NATIVE_TOOL_ID.findWorkspaceSymbol,
+  NATIVE_TOOL_ID.globWorkspace,
+  NATIVE_TOOL_ID.grepSearch,
+  NATIVE_TOOL_ID.hybridSearch,
+  NATIVE_TOOL_ID.inspectCommandSessions,
+  NATIVE_TOOL_ID.listWorkspaceContext,
+  NATIVE_TOOL_ID.lspInspect,
+  NATIVE_TOOL_ID.queryDiagnostics,
+  NATIVE_TOOL_ID.queryEmbeddingSpace,
+  NATIVE_TOOL_ID.querySelf,
+  NATIVE_TOOL_ID.readToolOutputArtifact,
+  NATIVE_TOOL_ID.readWorkspaceDirectory,
+  NATIVE_TOOL_ID.readWorkspaceFile,
   NATIVE_TOOL_ID.skillSearch,
+  NATIVE_TOOL_ID.webExtract,
+  NATIVE_TOOL_ID.webSearch,
 ]);
 
 export interface RecencyPruneInvocation {
@@ -51,6 +93,24 @@ function decodedContentModelOutputChars(value: readonly unknown[]): number {
   return chars;
 }
 
+/**
+ * `type: 'json'` is a legitimate persisted projection shape, not malformed
+ * data: `tool-output-artifact-reader.ts`'s `buildModelPage()` (for
+ * `readToolOutputArtifact`) and `tool-output-artifact-settlement.ts`'s
+ * `createArtifactOutputs()` (for ANY tool whose output spilled to an
+ * artifact — precisely the largest, most pruning-worthy results) both
+ * produce it, and `tool-model-output.ts` normalizes/preserves it end to end.
+ * Measure it the same way that file's own `stringifyJsonSafe` does: through
+ * the shared `toJsonSafe` serializer, then the decoded-text ruler.
+ */
+function decodedJsonModelOutputChars(value: unknown): number {
+  const serialized = JSON.stringify(toJsonSafe(value));
+  if (serialized === undefined) {
+    throw new TypeError('Persisted native-tool json model output could not be serialized.');
+  }
+  return decodedTextModelOutputChars(serialized);
+}
+
 /** Measure the exact persisted model-facing text projection with the shared ruler. */
 export function decodedPersistedModelOutputChars(modelOutput: unknown): number {
   if (!isRecord(modelOutput)) {
@@ -62,7 +122,10 @@ export function decodedPersistedModelOutputChars(modelOutput: unknown): number {
   if (modelOutput['type'] === 'content' && Array.isArray(modelOutput['value'])) {
     return decodedContentModelOutputChars(modelOutput['value']);
   }
-  throw new TypeError('Persisted native-tool model output must be text or content shaped.');
+  if (modelOutput['type'] === 'json' && Object.hasOwn(modelOutput, 'value')) {
+    return decodedJsonModelOutputChars(modelOutput['value']);
+  }
+  throw new TypeError('Persisted native-tool model output must be text, content, or json shaped.');
 }
 
 function shortArgsDigest(args: Record<string, unknown>): string {
@@ -124,7 +187,7 @@ export function selectRecencyPruneCandidates(args: {
     if (
       protectedIndexes.has(index) ||
       args.currentTurnToolCallIds.has(invocation.toolCallId) ||
-      SKILL_ACTIVATION_TOOL_IDS.has(invocation.toolName)
+      !READ_ONLY_PRUNABLE_TOOL_IDS.has(invocation.toolName)
     ) {
       continue;
     }
