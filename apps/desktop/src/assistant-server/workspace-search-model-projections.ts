@@ -278,7 +278,7 @@ function buildGrepHeader(result: GrepToolResult, kept: number): string {
 
 /** Group key: two roots may share a relative path, so the root participates. */
 function fileGroupKey(item: RootLabelledItem & { path: string }): string {
-  return `${item.rootId ?? ''} ${item.path}`;
+  return `${item.rootId ?? ''}\0${item.path}`;
 }
 
 /**
