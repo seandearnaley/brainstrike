@@ -20,7 +20,7 @@ const FORBIDDEN_CATEGORY_LABELS = new Set(
 );
 assert.ok(FORBIDDEN_CATEGORY_LABELS.size > 0, 'must discover category presentation labels');
 
-function hardcodedCategoryLabels(source) {
+function hardcodedCategoryLabelsInOptionSelectors(source) {
   const sourceFile = ts.createSourceFile(
     'category-filter.test.ts',
     source,
@@ -28,9 +28,17 @@ function hardcodedCategoryLabels(source) {
     false,
     ts.ScriptKind.TS
   );
+  const variableInitializers = new Map();
   const labels = [];
 
-  function visit(node) {
+  function collectVariableInitializers(node) {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      variableInitializers.set(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, collectVariableInitializers);
+  }
+
+  function collectLabels(node, resolvingIdentifiers = new Set()) {
     if (
       (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
       FORBIDDEN_CATEGORY_LABELS.has(node.text)
@@ -42,11 +50,43 @@ function hardcodedCategoryLabels(source) {
           labels.push(label);
         }
       }
+    } else if (ts.isIdentifier(node)) {
+      const initializer = variableInitializers.get(node.text);
+      if (initializer && !resolvingIdentifiers.has(node.text)) {
+        const nextResolvingIdentifiers = new Set(resolvingIdentifiers);
+        nextResolvingIdentifiers.add(node.text);
+        collectLabels(initializer, nextResolvingIdentifiers);
+      }
+      return;
     }
-    ts.forEachChild(node, visit);
+    ts.forEachChild(node, (child) => collectLabels(child, resolvingIdentifiers));
   }
 
-  visit(sourceFile);
+  function inspectOptionSelectors(node) {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'getByRole' &&
+      ts.isStringLiteral(node.arguments[0]) &&
+      node.arguments[0].text === 'option' &&
+      node.arguments[1] &&
+      ts.isObjectLiteralExpression(node.arguments[1])
+    ) {
+      const nameProperty = node.arguments[1].properties.find(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          ((ts.isIdentifier(property.name) && property.name.text === 'name') ||
+            (ts.isStringLiteral(property.name) && property.name.text === 'name'))
+      );
+      if (nameProperty && ts.isPropertyAssignment(nameProperty)) {
+        collectLabels(nameProperty.initializer);
+      }
+    }
+    ts.forEachChild(node, inspectOptionSelectors);
+  }
+
+  collectVariableInitializers(sourceFile);
+  inspectOptionSelectors(sourceFile);
   return labels;
 }
 
@@ -104,7 +144,7 @@ function categoryLabelViolations(source) {
       'does not select the category option through exact TOOL_CATEGORY_LABEL matching'
     );
   }
-  if (hardcodedCategoryLabels(source).length > 0) {
+  if (hardcodedCategoryLabelsInOptionSelectors(source).length > 0) {
     violations.push('hardcodes an option presentation label');
   }
 
@@ -212,6 +252,24 @@ test('MONEY TEST: a hardcoded fallback cannot bypass the derived initializer gua
     'does not derive the category label from the native-tool contract',
     'hardcodes an option presentation label',
   ]);
+});
+
+test('MONEY TEST: unrelated category words do not trigger selector violations', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
+      NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    ].label;
+    test('Analysis remains available as unrelated fixture data', async () => {
+      await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+    });
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), []);
 });
 
 test('discovers a readWorkspaceContext category-filter spec in every E2E root', () => {
