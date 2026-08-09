@@ -958,7 +958,7 @@ describe.skipIf(hostSkipReason !== undefined)('FenceExecutor escape resistance',
           expect(Object.keys(fenceEnv)).not.toContain(key);
         }
         // 2. No canary VALUE survives under ANY name — a rename would not help.
-        expect(Object.values(fenceEnv).join(' ')).not.toContain(CANARY_VALUE);
+        expect(Object.values(fenceEnv).join('\0')).not.toContain(CANARY_VALUE);
         // 3. The structural claim, which is what actually makes this a
         //    regression guard rather than a list of names to keep extending:
         //    the only host variables that reach the sandbox with their host
