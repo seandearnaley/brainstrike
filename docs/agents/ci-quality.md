@@ -24,6 +24,17 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+The AI Tools settings specs are deliberately part of both required PR smoke
+lanes. Their tool category/loading-tier assertions follow the shared assistant
+contract and previously drifted while every PR check stayed green. Web selects
+`settings-tools-and-diagnostics.test.ts` through its suite-level `@web-smoke`
+tag; desktop requires both the suite-level `@smoke` tag and the explicit
+`tools-settings.desktop.test.ts` allowlist entry. The measured incremental
+local cost when this ruling was made was about 5 seconds for web and 28 seconds
+for desktop. `ai-tools-e2e-pr-gate-contract.test.mjs` verifies every title is
+tagged, the desktop file remains allowlisted, and `test.yml` still invokes both
+smoke scripts.
+
 ### The package-boundary gate runs first in Static (BST-967)
 
 The `Static` job runs `pnpm exec turbo boundaries` as its first substantive
