@@ -12,6 +12,7 @@ const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
 // A retrieval peer that sits in a *different* loading tier, so filtering by one
 // tier must hide the other. Used as the negative half of the tier assertion.
 const PEER_TOOL_ID = 'brainstrike.readWorkspaceFile';
+const NON_RETRIEVAL_TOOL_ID = 'brainstrike.runPython';
 
 // Derive the filter labels from the canonical contract rather than hardcoding
 // them: the tier partition is owned by tool-discovery-contract.test.ts, and a
@@ -43,6 +44,9 @@ test.describe('AI Tools and System Diagnostics settings (web)', () => {
     // Guard the premise of the tier assertions below: if both tools ever land in
     // the same tier the negative assertion would silently stop discriminating.
     expect(TOOL_TIER_LABEL).not.toBe(PEER_TIER_LABEL);
+    expect(NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category).not.toBe(
+      NATIVE_TOOL_DEFAULTS[NON_RETRIEVAL_TOOL_ID].category
+    );
 
     await openToolsSettings(page);
 
@@ -60,6 +64,7 @@ test.describe('AI Tools and System Diagnostics settings (web)', () => {
     await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
     await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
     await expect(page.getByTestId(`tool-row-${PEER_TOOL_ID}`)).toBeVisible();
+    await expect(page.getByTestId(`tool-row-${NON_RETRIEVAL_TOOL_ID}`)).toHaveCount(0);
 
     // Both rows survive the category filter, so narrowing to one tier must keep
     // this tool and drop its differently-tiered peer.
