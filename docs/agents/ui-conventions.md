@@ -12,6 +12,7 @@ Rules:
 - Keep UX parity between:
   - File explorer tree (left nav).
   - Context explorer grouped preview tree (main panel).
+- Pickers rendered in popovers must follow the `useCollections` single-owner ruling in `database.md`.
 - Preserve WAI-ARIA treegrid semantics (`role="treegrid"`, row/level metadata, keyboard traversal).
 - Roving row focus and selection are independent. Keep `data-focused`/`tabIndex`
   for keyboard ownership. Paint the row affordance from `:focus-visible` when the
