@@ -1,5 +1,5 @@
 import type { QueueAdapter } from '@brainstrike/queue';
-import { Button } from '@brainstrike/ui';
+import { Button, SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS } from '@brainstrike/ui';
 import { FileText } from 'lucide-react';
 import type { ComponentType, ReactElement } from 'react';
 import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
@@ -46,7 +46,7 @@ function ImportActionPlaceholder({ reason }: { readonly reason: string }): React
       variant="secondary"
     >
       <FileText aria-hidden="true" className="h-4 w-4" />
-      <span className="@[360px]/selection-actions:inline hidden">Import</span>
+      <span className={SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS}>Import</span>
     </Button>
   );
 }

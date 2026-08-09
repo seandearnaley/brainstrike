@@ -3,7 +3,14 @@ import { type EmbeddingSet, refreshCollectionIndexingStats } from '@brainstrike/
 import { useEmbeddingSetsRepository, usePGliteDatabase } from '@brainstrike/db/react';
 import { useSelectionActionBarPin } from '@brainstrike/file-explorer-ui/shell';
 import type { QueueAdapter } from '@brainstrike/queue';
-import { Button, Popover, PopoverContent, PopoverTrigger, useToast } from '@brainstrike/ui';
+import {
+  Button,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS,
+  useToast,
+} from '@brainstrike/ui';
 import { fetchCollectionsSnapshot } from '@brainstrike/vector-management';
 import { FileText } from 'lucide-react';
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
@@ -256,7 +263,7 @@ export function ExplorerImportAction({
             variant="secondary"
           >
             <FileText aria-hidden="true" className="h-4 w-4" />
-            <span className="@[360px]/selection-actions:inline hidden">Import</span>
+            <span className={SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS}>Import</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent
