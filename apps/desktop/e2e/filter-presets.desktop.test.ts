@@ -762,10 +762,20 @@ test.describe('Desktop filter presets', () => {
     // Root restoration after a relaunch is async, so give it a real chance
     // before re-attaching the mock root — a point-in-time probe would almost
     // always lose the race and quietly turn this into a fresh-root test.
+    //
+    // Only a timeout means "no root was restored". Anything else (a crashed
+    // renderer, a detached frame) is a real failure and must surface here
+    // rather than be laundered into the re-attach path, where it would
+    // resurface later as a confusing downstream assertion.
     const restoredRoot = await getViewFiltersContent(relaunchedWindow)
       .waitFor({ state: 'attached', timeout: VIEW_FILTERS_MOUNT_TIMEOUT_MS })
       .then(() => true)
-      .catch(() => false);
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === 'TimeoutError') {
+          return false;
+        }
+        throw error;
+      });
     if (!restoredRoot) {
       await selectMockRoot(relaunchedWindow);
     }
