@@ -38,6 +38,10 @@ import { RestoreAccessModal } from '../components/restore-access-modal';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { FilterStatus } from '../file-explorer-status-components';
 import { useExplorerScrollRestore } from '../hooks/use-explorer-scroll-restore';
+import {
+  FileRowMetadataProvider,
+  useExplorerRowMetadata,
+} from '../indexing/file-row-metadata-context';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
 import { collectVisibleFileSelectionKeys } from '../indexing/visible-file-selection-keys';
 import { RestorationStatus } from '../restoration-status';
@@ -454,6 +458,13 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     [quickFilteredTree]
   );
 
+  // Per-row metadata seam (BST-1207/1208). Owned here because `onTokenResolved`
+  // below is the PRECISE invalidation path: every count the indexer resolves
+  // repaints exactly that row's cell. Without this wiring the tree grid still
+  // fills in — through the 250ms bulk reconcile — which is why dropping it is
+  // silent, and why the panel test pins it.
+  const rowMetadata = useExplorerRowMetadata();
+
   // This hook automatically indexes selected AND visible files when a
   // TokenCacheProvider is present. Only pass `webFileHandleResolver` when the
   // active adapter advertises it so we don't trip `exactOptionalPropertyTypes`
@@ -461,6 +472,7 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   useBackgroundTokenIndexerIntegration({
     electronFileReader,
     fileTree: stableFileTree,
+    onTokenResolved: rowMetadata.onTokenResolved,
     selectedFiles: selectedFilePaths,
     visibleFiles: visibleFileSelectionKeys,
     ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
@@ -1005,29 +1017,31 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
             ref={explorerScrollRootRef}
           >
             <Suspense fallback={<LoadingFallback />}>
-              <FileExplorerSidebar
-                cancelChildLoading={cancelChildLoading}
-                currentFolderId={currentFolderId}
-                filterError={filterErrorAsError}
-                isDisplayTreeFiltered={quickFilteredTree !== unfilteredFileTree}
-                isInitialLoad={isInitialLoad}
-                isLoading={isLoading}
-                isLoadingForSelectAll={isLoadingForSelectAll}
-                isLoadingForSelection={isLoadingForSelection}
-                loadingFiles={loadingFiles}
-                loadingPathForSelection={loadingPathForSelection}
-                loadingPaths={loadingPaths}
-                mainRootId={mainRootId}
-                onLoadChildren={loadChildren}
-                onRemoveRoot={removeRootDirectory}
-                onSelectFolderRecursively={handleSelectFolderRecursively}
-                quickFilteredTree={quickFilteredTree}
-                rootDirectoryHandle={rootDirectoryHandle}
-                rootDirectoryHandles={rootDirectoryHandles}
-                rootIdByPath={rootIdByPath}
-                setFocusedRoot={setFocusedRoot}
-                treeError={error}
-              />
+              <FileRowMetadataProvider value={rowMetadata.contextValue}>
+                <FileExplorerSidebar
+                  cancelChildLoading={cancelChildLoading}
+                  currentFolderId={currentFolderId}
+                  filterError={filterErrorAsError}
+                  isDisplayTreeFiltered={quickFilteredTree !== unfilteredFileTree}
+                  isInitialLoad={isInitialLoad}
+                  isLoading={isLoading}
+                  isLoadingForSelectAll={isLoadingForSelectAll}
+                  isLoadingForSelection={isLoadingForSelection}
+                  loadingFiles={loadingFiles}
+                  loadingPathForSelection={loadingPathForSelection}
+                  loadingPaths={loadingPaths}
+                  mainRootId={mainRootId}
+                  onLoadChildren={loadChildren}
+                  onRemoveRoot={removeRootDirectory}
+                  onSelectFolderRecursively={handleSelectFolderRecursively}
+                  quickFilteredTree={quickFilteredTree}
+                  rootDirectoryHandle={rootDirectoryHandle}
+                  rootDirectoryHandles={rootDirectoryHandles}
+                  rootIdByPath={rootIdByPath}
+                  setFocusedRoot={setFocusedRoot}
+                  treeError={error}
+                />
+              </FileRowMetadataProvider>
             </Suspense>
           </div>
           {/* Ephemeral selection actions. Same overlay contract as the

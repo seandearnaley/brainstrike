@@ -5,7 +5,11 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { act, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
+import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { useOptionalFileRowMetadata } from '../indexing/file-row-metadata-context';
+import type { FileRowMetadataStore } from '../indexing/file-row-metadata-store';
+import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
 import { FileExplorerPanel } from '../shell/file-explorer-panel';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import {
@@ -371,6 +375,48 @@ describe('FileExplorerPanel', () => {
       'hidden',
       '@[72px]:block'
     );
+  });
+
+  /**
+   * CARRIED from the BST-1207 review: the A1 seam's precise invalidation path
+   * only exists if `onTokenResolved` reaches the background indexer. Nothing
+   * breaks visibly when the wiring is dropped — the tree grid still fills in
+   * via the 250ms bulk reconcile — so this is the only thing standing between
+   * a per-cell repaint and a whole-tree re-scan per count.
+   */
+  it('wires the metadata seam onTokenResolved into the background token indexer', async () => {
+    const capture: { store: FileRowMetadataStore | null } = { store: null };
+    const Probe = () => {
+      const metadata = useOptionalFileRowMetadata();
+      const store = metadata?.store ?? null;
+      useEffect(() => {
+        capture.store = store;
+      }, [store]);
+      return <div data-testid="sidebar">Sidebar</div>;
+    };
+    FileExplorerSidebarMock?.mockImplementation(() => <Probe />);
+
+    try {
+      renderWithProviders(<FileExplorerPanel />);
+      await screen.findByTestId('sidebar');
+
+      const indexerProps = vi.mocked(useBackgroundTokenIndexerIntegration).mock.calls.at(-1)?.[0];
+      const onTokenResolved = indexerProps?.onTokenResolved;
+      expect(onTokenResolved).toBeTypeOf('function');
+      expect(capture.store).not.toBeNull();
+
+      const store = capture.store;
+      if (!(store && onTokenResolved)) {
+        throw new Error('expected the panel to own a metadata store and forward onTokenResolved');
+      }
+      // The PRECISE path: one resolved count invalidates exactly that key, not
+      // every rendered row.
+      const invalidateSpy = vi.spyOn(store, 'invalidate');
+      onTokenResolved('root-id|@|src/a.ts', 42);
+      expect(invalidateSpy).toHaveBeenCalledWith(['root-id|@|src/a.ts']);
+    } finally {
+      FileExplorerSidebarMock?.mockImplementation(() => <div data-testid="sidebar">Sidebar</div>);
+    }
   });
 
   it('surfaces when automatic folder restoration is bounded', async () => {
