@@ -17,6 +17,25 @@ export function getTreeTableAriaSortValue(
   return 'none';
 }
 
+/**
+ * Accessible label for a sort control, announcing the current state and the
+ * action a press performs. Shared by TreeTable's built-in header and external
+ * panel-level headers (the Explorer forest header) so both surfaces announce
+ * the same contract.
+ */
+export function getTreeTableSortButtonLabel(
+  label: string,
+  columnId: string,
+  sortState?: SortState
+): string {
+  if (!sortState || sortState.columnId !== columnId || sortState.direction === null) {
+    return `${label}: sort ascending`;
+  }
+  return sortState.direction === 'asc'
+    ? `${label}: sorted ascending; sort descending`
+    : `${label}: sorted descending; restore default order`;
+}
+
 /** TreeTable's canonical asc -> desc -> default cycle. */
 export function getNextTreeTableSortDirection(current: SortDirection): SortDirection {
   if (current === 'asc') {

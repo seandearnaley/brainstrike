@@ -36,6 +36,7 @@ import {
   cn,
   getNextTreeTableSortDirection,
   getTreeTableAriaSortValue,
+  getTreeTableSortButtonLabel,
   useResizeObserver,
 } from '@brainstrike/ui';
 import { type RefObject, useCallback, useState } from 'react';
@@ -83,19 +84,6 @@ export interface ExplorerColumnHeaderProps {
   /** The forest sections scroller whose gutter this header must clear. */
   scrollerRef: RefObject<HTMLElement | null>;
   visibleMetadataColumnIds: readonly ExplorerMetadataColumnId[];
-}
-
-function sortButtonLabel(
-  label: string,
-  columnId: string,
-  sortState: { columnId: string | null; direction: 'asc' | 'desc' | null }
-): string {
-  if (sortState.columnId !== columnId || sortState.direction === null) {
-    return `${label}: sort ascending`;
-  }
-  return sortState.direction === 'asc'
-    ? `${label}: sorted ascending; sort descending`
-    : `${label}: sorted descending; restore default order`;
 }
 
 export function ExplorerColumnHeader({
@@ -192,7 +180,7 @@ export function ExplorerColumnHeader({
               data-column-id="name"
             >
               <button
-                aria-label={sortButtonLabel('Name', 'name', treeTableSortState)}
+                aria-label={getTreeTableSortButtonLabel('Name', 'name', treeTableSortState)}
                 className="flex h-full w-full cursor-pointer items-center gap-1 text-left"
                 onClick={() => handleSort('name')}
                 type="button"
@@ -222,7 +210,11 @@ export function ExplorerColumnHeader({
                 >
                   {canSortByMetadata ? (
                     <button
-                      aria-label={sortButtonLabel(config.label, config.id, treeTableSortState)}
+                      aria-label={getTreeTableSortButtonLabel(
+                        config.label,
+                        config.id,
+                        treeTableSortState
+                      )}
                       className={cn(
                         'flex h-full w-full cursor-pointer items-center gap-1',
                         config.align === 'right' && 'justify-end'
