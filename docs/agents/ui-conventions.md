@@ -262,6 +262,23 @@ Windowing and performance:
     is deliberately the same width at which the toolbar can host the Columns
     control — see the narrow-toolbar geometry in
     `docs/agents/explorer-search-tapestry.md`; keep the two in step.
+- **A header inside the scrollport offsets PAINTED coordinates, not modelled
+  ones.** TreeTable's sticky `<thead>` is IN FLOW inside its own scrollport, so
+  it contributes to `scrollHeight` and shifts every row's content offset by its
+  height — while the virtualizer models tbody rows alone
+  (`paddingTop = index * rowHeight`; `scrollMargin` is non-zero ONLY in
+  shared-scroller mode, where it carries the table's offset within the shared
+  parent). Anything comparing painted geometry to the model must convert by
+  subtracting the header height; `apps/web/e2e/file-explorer.test.ts`
+  ("paints tree rows at exactly the pitch its virtualizer models") does.
+  This is also why reveal is correct WITHOUT a header offset: a start-aligned
+  `scrollToIndex` sets `scrollTop = index * rowHeight`, the row's real content
+  offset is `headerHeight + index * rowHeight`, and the two cancel so the row
+  lands flush at the header's bottom edge. **Do not "fix" this by adding a
+  header-sized `scrollMargin`** — that would double-count and push revealed rows
+  a header's height too low; and taking the header out of flow would park them
+  underneath it. Both directions are pinned by the reveal assertions in that
+  same spec.
 - Row render stability is a pinned contract (`tree-table-render-stability.test.tsx`):
   row-facing handlers are identity-stable (`useEventCallback`), the keyboard
   `actions` object and the virtualizer measure adapter are memoized, and the
