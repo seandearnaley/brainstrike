@@ -209,6 +209,7 @@ function applyRuntimeToolHooks(params: {
 }
 
 function settleRuntimeToolOutputs(params: {
+  getDelegationToolNames: (() => readonly string[]) | undefined;
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
   store: ToolOutputArtifactSettlementStore | undefined;
   toolNameMap: ReadonlyMap<string, string>;
@@ -218,6 +219,9 @@ function settleRuntimeToolOutputs(params: {
     return params.tools;
   }
   return applyToolOutputArtifactSettlement(params.tools, {
+    ...(params.getDelegationToolNames
+      ? { getDelegationToolNames: params.getDelegationToolNames }
+      : {}),
     ...(params.inlineMaxSerializedCharsByToolName
       ? { inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName }
       : {}),
@@ -364,6 +368,7 @@ export function createToolHistoryFilter(
 
 export interface RuntimeToolMapParams {
   apiKey: string | undefined;
+  getDelegationToolNames: (() => readonly string[]) | undefined;
   hasStorage: boolean;
   hookRunner: AgentHookRunner | undefined;
   inlineMaxSerializedCharsByToolName: ReadonlyMap<string, number> | undefined;
@@ -484,6 +489,7 @@ export async function composeRuntimeToolMap(
     tools: gatedTools,
   });
   const artifactSettledTools = settleRuntimeToolOutputs({
+    getDelegationToolNames: params.getDelegationToolNames,
     inlineMaxSerializedCharsByToolName: params.inlineMaxSerializedCharsByToolName,
     store: params.toolOutputArtifactStore,
     toolNameMap,

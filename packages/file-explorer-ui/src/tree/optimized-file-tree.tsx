@@ -88,8 +88,22 @@ import {
   type FileTreeSelectionStore,
 } from './optimized-file-tree-selection-store';
 
-/** Pixel height of one virtualized tree row. */
-const ROW_HEIGHT = 32;
+/**
+ * Painted pitch of one virtualized tree row, in px: a 28px content line (the
+ * 24px `h-6` disclosure/checkbox control plus its `my-0.5` margins) and the 1px
+ * collapsed `border-b` between rows.
+ *
+ * This is a MEASURED value, not a design target, and TreeTable takes it
+ * literally: a numeric `rowHeight` disables per-row measurement, so the
+ * virtualizer's spacer/offset math is only correct while this constant equals
+ * what the browser paints. It read 32 for a long time while rows painted 29,
+ * which left the scrollport ~110px shorter than the model and put the wrong row
+ * under every computed scroll offset. Note that a single row's
+ * `getBoundingClientRect().height` reports 28.5 — border collapsing splits the
+ * 1px rule across neighbours — so verify changes against the top-to-top pitch,
+ * as `file-explorer.test.ts` does.
+ */
+const ROW_HEIGHT = 29;
 // Stable empty fallbacks for foreign (non-focused) trees whose folderState
 // does not exist yet — fresh objects per render would defeat memoization.
 const EMPTY_SELECTION_SET = new Set<string>();

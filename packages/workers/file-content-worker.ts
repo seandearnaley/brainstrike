@@ -7,7 +7,12 @@ import {
 } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
-import { fileContent, isBinaryExtension, isTextExtension } from '@brainstrike/utils';
+import {
+  fileContent,
+  getKnownFileSize,
+  isBinaryExtension,
+  isTextExtension,
+} from '@brainstrike/utils';
 import { getFileExtension } from '@brainstrike/utils/file-utils';
 
 export interface FileReadRequest {
@@ -22,6 +27,10 @@ export interface ProgressEvent {
   loaded: number;
   total: number;
 }
+
+export type FileContentReadResult =
+  | { content: string; status: 'accessible' }
+  | { message: string; status: 'inaccessible' };
 
 export interface FileContentWorkerOptions {
   concurrency?: number;
@@ -47,14 +56,6 @@ function normalizeAbortError(error: unknown): Error {
 
 const logger = createLogger('FileContentWorker');
 
-function getKnownFileSize(request: FileReadRequest): number | null {
-  const size = request.handle?.size;
-  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
-    return null;
-  }
-  return size;
-}
-
 function normalizeMaxFileSize(maxFileSize: unknown): number {
   if (typeof maxFileSize !== 'number' || !Number.isFinite(maxFileSize) || maxFileSize <= 0) {
     return DEFAULT_MAX_FILE_SIZE;
@@ -79,15 +80,15 @@ export function createFileContentWorker({
     onProgress?: (e: ProgressEvent) => void,
     abortSignal?: AbortSignal
   ) {
-    const results: Record<string, string> = {};
+    const results: Record<string, FileContentReadResult> = {};
     let index = 0;
     let active = 0;
     let completed = 0;
     const total = queue.length;
 
-    return new Promise<Record<string, string>>((resolve, reject) => {
+    return new Promise<Record<string, FileContentReadResult>>((resolve, reject) => {
       let settled = false;
-      const finishResolve = (value: Record<string, string>): void => {
+      const finishResolve = (value: Record<string, FileContentReadResult>): void => {
         if (settled) {
           return;
         }
@@ -132,7 +133,7 @@ export function createFileContentWorker({
         if (settled) {
           return;
         }
-        results[key] = content;
+        results[key] = { content, status: 'accessible' };
         finalizeRequest(request);
       };
       const handleRequestFailure = (request: FileReadRequest, error: unknown): void => {
@@ -140,7 +141,7 @@ export function createFileContentWorker({
           return;
         }
         const message = error instanceof FileContentError ? error.message : 'Error accessing file';
-        results[request.compositeKey] = message;
+        results[request.compositeKey] = { message, status: 'inaccessible' };
         finalizeRequest(request);
       };
       const scheduleRequest = async (request: FileReadRequest): Promise<void> => {
@@ -187,7 +188,7 @@ export function createFileContentWorker({
 
   async function processRequest(req: FileReadRequest): Promise<{ key: string; content: string }> {
     const effectiveMaxFileSize = getEffectiveMaxFileSize();
-    const knownFileSize = getKnownFileSize(req);
+    const knownFileSize = getKnownFileSize(req.handle?.size);
     if (knownFileSize !== null && knownFileSize > effectiveMaxFileSize) {
       throw new FileContentError(
         `File too large: ${formatFileSize(knownFileSize)} (max: ${formatFileSize(effectiveMaxFileSize)})`,
@@ -244,7 +245,7 @@ export function createFileContentWorker({
     options?: {
       abortSignal?: AbortSignal;
     }
-  ): Promise<Record<string, string>> {
+  ): Promise<Record<string, FileContentReadResult>> {
     return runQueue(requests, onProgress, options?.abortSignal);
   };
 }
