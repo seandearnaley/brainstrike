@@ -94,6 +94,11 @@ function assertExactLaneCommand(command, expectedCommand, label) {
   );
 }
 
+function assertBlockingStep(step, label) {
+  assert.equal(step.if, undefined, `${label} must be unconditional`);
+  assert.notEqual(step['continue-on-error'], true, `${label} must fail its job when tests fail`);
+}
+
 function untaggedTitles(source, fileName, tag) {
   const testEntries = listPlaywrightTitleEntries(source, fileName).filter(
     (entry) => entry.kind === 'test'
@@ -145,6 +150,13 @@ test('MONEY TEST: package smoke lanes reject no-op wrappers and failure swallowi
   }
 });
 
+test('MONEY TEST: guarded workflow steps cannot swallow test failures', () => {
+  assert.throws(
+    () => assertBlockingStep({ 'continue-on-error': true }, 'fixture'),
+    /must fail its job/
+  );
+});
+
 test('REAL REPO: every web AI Tools settings title is selected by Web E2E smoke', () => {
   const source = read(WEB_SPEC);
   assert.deepEqual(untaggedTitles(source, WEB_SPEC, '@web-smoke'), []);
@@ -193,11 +205,7 @@ test('REAL REPO: desktop smoke tags remain selected by nightly regression', () =
     1,
     'nightly workflow must execute full desktop regression once'
   );
-  assert.equal(
-    matchingSteps[0].if,
-    undefined,
-    'nightly full-regression step must be unconditional'
-  );
+  assertBlockingStep(matchingSteps[0], 'nightly full-regression step');
   assert.equal(
     matchingSteps[0]['working-directory'],
     'apps/desktop',
@@ -223,7 +231,7 @@ test('REAL REPO: pull-request E2E jobs invoke both smoke lane scripts', () => {
     );
     const matchingSteps = job.steps.filter((step) => stepRunsExactCommand(step, expectedCommand));
     assert.equal(matchingSteps.length, 1, `${jobId} must have one exact smoke invocation`);
-    assert.equal(matchingSteps[0].if, undefined, `${jobId} smoke step must be unconditional`);
+    assertBlockingStep(matchingSteps[0], `${jobId} smoke step`);
     assert.equal(
       matchingSteps[0]['working-directory'],
       expectedWorkingDirectory,
