@@ -22,26 +22,27 @@ const EXPECTED_LANES = [
 ];
 
 test('MONEY TEST: one failed lane does not prevent every later lane from running', () => {
+  const lanes = ['test:e2e:lane:broad', 'test:e2e:lane:middle', 'test:e2e:lane:tail'];
   const calls = [];
   const errors = [];
   const logs = [];
-  const status = runE2eLaneSequence(['broad', 'middle', 'tail'], {
+  const status = runE2eLaneSequence(lanes, {
     log: (message) => logs.push(message),
     logError: (message) => errors.push(message),
     runLane: (lane) => {
       calls.push(lane);
-      return { status: lane === 'broad' ? 7 : 0 };
+      return { status: lane.endsWith(':broad') ? 7 : 0 };
     },
   });
 
   assert.equal(status, 1);
-  assert.deepEqual(calls, ['broad', 'middle', 'tail']);
+  assert.deepEqual(calls, lanes);
   assert.match(errors.join('\n'), /broad.*status 7/);
   assert.match(logs.join('\n'), /tail.*PASS/);
 });
 
 test('all successful lanes produce a zero aggregate status', () => {
-  const status = runE2eLaneSequence(['first', 'second'], {
+  const status = runE2eLaneSequence(['test:e2e:lane:first', 'test:e2e:lane:second'], {
     log: () => {},
     logError: () => {},
     runLane: () => ({ status: 0 }),
@@ -51,19 +52,20 @@ test('all successful lanes produce a zero aggregate status', () => {
 });
 
 test('a spawn error is reported and later lanes still run', () => {
+  const lanes = ['test:e2e:lane:broken', 'test:e2e:lane:later'];
   const calls = [];
   const errors = [];
-  const status = runE2eLaneSequence(['broken', 'later'], {
+  const status = runE2eLaneSequence(lanes, {
     log: () => {},
     logError: (message) => errors.push(message),
     runLane: (lane) => {
       calls.push(lane);
-      return lane === 'broken' ? { error: new Error('spawn failed') } : { status: 0 };
+      return lane.endsWith(':broken') ? { error: new Error('spawn failed') } : { status: 0 };
     },
   });
 
   assert.equal(status, 1);
-  assert.deepEqual(calls, ['broken', 'later']);
+  assert.deepEqual(calls, lanes);
   assert.match(errors.join('\n'), /broken.*spawn failed/);
 });
 
@@ -80,5 +82,5 @@ test('the real web full-regression script delegates every lane to the aggregate 
 
 test('the nightly timeout covers every lane budget plus setup and build overhead', () => {
   const workflow = readFileSync(path.join(REPO_ROOT, '.github/workflows/web-e2e.yml'), 'utf8');
-  assert.match(workflow, /timeout-minutes: 150/);
+  assert.match(workflow, /timeout-minutes: 165/);
 });
