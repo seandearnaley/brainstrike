@@ -11,6 +11,11 @@ const IDLE: ImportActivitySnapshot = { progress: null, selectedFileCount: 0 };
 
 let current: ImportActivitySnapshot = IDLE;
 
+/** Test-only reset helper for the module-scoped import activity slot. */
+export function __resetImportActivitySnapshotForTests(): void {
+  current = IDLE;
+}
+
 /**
  * One-slot publication of the active import's progress.
  *

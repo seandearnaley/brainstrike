@@ -30,7 +30,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectionActions } from '../context-actions';
 import { DatabaseDemoPanel as DatabaseDemoPanelImplementation } from '../database-demo-panel';
 import {
-  clearImportActivitySnapshot,
+  __resetImportActivitySnapshotForTests,
   publishImportActivitySnapshot,
 } from '../import-activity-snapshot';
 import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
@@ -487,6 +487,7 @@ vi.mock('react-resizable-panels', () => {
 
 describe('DatabaseDemoPanel', () => {
   beforeEach(() => {
+    __resetImportActivitySnapshotForTests();
     __resetDatabaseDemoStoreForTests();
     __resetModelRegistryStoreForTests();
     __resetBackgroundIndexingPreferencesStoreForTests();
@@ -745,7 +746,7 @@ describe('DatabaseDemoPanel', () => {
           selectedFileCount: 5,
         })
       );
-      clearImportActivitySnapshot();
+      __resetImportActivitySnapshotForTests();
       expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__?.getSnapshot()).toEqual(
         expect.objectContaining({
           error: null,

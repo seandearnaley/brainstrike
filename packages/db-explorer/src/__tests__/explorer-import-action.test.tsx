@@ -16,7 +16,7 @@ import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExplorerImportAction } from '../components/explorer-import-action';
 import {
-  clearImportActivitySnapshot,
+  __resetImportActivitySnapshotForTests,
   readImportActivitySnapshot,
 } from '../import-activity-snapshot';
 
@@ -229,7 +229,7 @@ async function reopenPicker(): Promise<HTMLElement> {
 }
 
 beforeEach(() => {
-  clearImportActivitySnapshot();
+  __resetImportActivitySnapshotForTests();
   mockCollectionsFetchError.current = null;
   __resetVectorStatusUIStoreForTests();
   __resetBackgroundIndexingPreferencesStoreForTests();

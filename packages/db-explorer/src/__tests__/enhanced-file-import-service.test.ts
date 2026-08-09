@@ -3,7 +3,10 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { QUEUE_PROGRESS_EVENT } from '@brainstrike/utils/browser-events';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useEnhancedFileImportService } from '../enhanced-file-import-service';
+import {
+  __resetQueueProgressSubscriberCountForTests,
+  useEnhancedFileImportService,
+} from '../enhanced-file-import-service';
 
 const {
   ensureStartedMock,
@@ -172,6 +175,7 @@ function createDeferred<T>(): {
 
 describe('useEnhancedFileImportService', () => {
   beforeEach(() => {
+    __resetQueueProgressSubscriberCountForTests();
     vi.clearAllMocks();
     runEnhancedImportMock.mockReset();
     createBulkOperationContextMock.mockClear();
