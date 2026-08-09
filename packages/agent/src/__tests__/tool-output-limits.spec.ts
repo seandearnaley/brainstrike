@@ -1,12 +1,180 @@
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import {
   boundToolOutputForModel,
   fitItemsToCharBudget,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
+  resolveToolResultBudgetForModel,
   TOOL_RESULT_TOO_LARGE_CODE,
 } from '../stream/tool-output-limits';
 
+function collectFallbackWarnLog(run: () => void): LogRecord[] {
+  const records: LogRecord[] = [];
+  const unsubscribe = addLogListener((record) => records.push(record));
+  try {
+    run();
+  } finally {
+    unsubscribe();
+  }
+  return records.filter(
+    (record) =>
+      record.level === LogLevel.WARN &&
+      record.args.some(
+        (arg) =>
+          typeof arg === 'object' &&
+          arg !== null &&
+          'code' in arg &&
+          arg.code === 'tool_result_budget_unknown_model_fallback'
+      )
+  );
+}
+
+describe('resolveScaledToolResultBudget', () => {
+  it.each([
+    {
+      contextWindow: 8192,
+      expected: {
+        contextWindow: 8192,
+        domainModelResultCharBudget: 2000,
+        domainModelResultTokens: 500,
+        transportResultCharBudget: 4000,
+        transportResultTokens: 1000,
+      },
+      tier: 'floor',
+    },
+    {
+      contextWindow: 131_072,
+      expected: {
+        contextWindow: 131_072,
+        domainModelResultCharBudget: 6000,
+        domainModelResultTokens: 1500,
+        transportResultCharBudget: 12_000,
+        transportResultTokens: 3000,
+      },
+      tier: '128k anchor',
+    },
+    {
+      contextWindow: 200_000,
+      expected: {
+        contextWindow: 200_000,
+        domainModelResultCharBudget: 9156,
+        domainModelResultTokens: 2289,
+        transportResultCharBudget: 18_312,
+        transportResultTokens: 4578,
+      },
+      tier: 'mid-range',
+    },
+    {
+      contextWindow: 1_050_000,
+      expected: {
+        contextWindow: 1_050_000,
+        domainModelResultCharBudget: 12_000,
+        domainModelResultTokens: 3000,
+        transportResultCharBudget: 24_000,
+        transportResultTokens: 6000,
+      },
+      tier: 'ceiling',
+    },
+  ])('resolves the $tier tier exactly', ({ contextWindow, expected }) => {
+    expect(resolveScaledToolResultBudget(contextWindow)).toEqual(expected);
+  });
+
+  it('uses the shared conservative context window for a dynamic Ollama model', () => {
+    let result: ReturnType<typeof resolveToolResultBudgetForModel> | undefined;
+    const fallbackLogs = collectFallbackWarnLog(() => {
+      result = resolveToolResultBudgetForModel('ollama', 'runtime-only-model');
+    });
+    expect(result).toEqual(resolveScaledToolResultBudget(32_768));
+    // A dynamic Ollama/LM Studio fallback is the documented, always-expected
+    // path for runtime-discovered ids — it does not warn (unlike the
+    // catalog-absent case below, which is the genuinely unexpected one).
+    expect(fallbackLogs).toHaveLength(0);
+  });
+
+  it('resolves an unknown OpenRouter (or any other) model id to the ANCHOR tier, visibly logged, instead of throwing', () => {
+    // OpenRouter's metadata-only / auto-profile models (app-shell's
+    // mergeOpenRouterAutoProfileModel) and stale persisted preferences from a
+    // retired catalog entry are never in the static registry. Budget
+    // resolution must never gate run startup on that lookup succeeding — it
+    // falls back to the pre-BST-1206 fixed anchor budget instead, visibly.
+    let result: ReturnType<typeof resolveToolResultBudgetForModel> | undefined;
+    const fallbackLogs = collectFallbackWarnLog(() => {
+      result = resolveToolResultBudgetForModel('openrouter', 'some-vendor/unregistered-model');
+    });
+    expect(result).toEqual(resolveScaledToolResultBudget(131_072));
+    expect(fallbackLogs).toHaveLength(1);
+    const context = fallbackLogs[0]?.args.find(
+      (arg): arg is Record<string, unknown> => typeof arg === 'object' && arg !== null
+    );
+    expect(context).toMatchObject({
+      code: 'tool_result_budget_unknown_model_fallback',
+      fallbackContextWindow: 131_072,
+      modelId: 'some-vendor/unregistered-model',
+      providerId: 'openrouter',
+    });
+  });
+
+  it('resolves a KNOWN catalog model to its declared window, unaffected by the fallback path', () => {
+    const fallbackLogs = collectFallbackWarnLog(() => {
+      const result = resolveToolResultBudgetForModel('anthropic', 'claude-haiku-4-5');
+      // claude-haiku-4-5 is a real, registered anthropic model — never the
+      // anchor-fallback value unless its own contextWindow happens to equal
+      // 131,072, which it does not.
+      expect(result).not.toEqual(resolveScaledToolResultBudget(131_072));
+    });
+    expect(fallbackLogs).toHaveLength(0);
+  });
+});
+
 describe('boundToolOutputForModel structural degradation', () => {
+  it('uses the scaled transport default, and scales the per-tool override DOWN proportionally, below explicit overrides', () => {
+    const generic = boundToolOutputForModel('remote.generic', 'x'.repeat(30_000), undefined, 1000)
+      .output as { maxTokens?: number };
+    // skill's fixed override is 6000 tokens; at scaledDefaultTokens=1000
+    // (sub-anchor, e.g. Gemma's floor tier), it must scale down with it —
+    // round(6000 * 1000/3000) = 2000 — never stay fixed at 6000 (which on
+    // Gemma's 8192-token window would be ~73% of the entire context for one
+    // skill activation).
+    const skill = boundToolOutputForModel('skill', 'x'.repeat(30_000), undefined, 1000).output as {
+      maxTokens?: number;
+    };
+    const explicit = boundToolOutputForModel('remote.generic', 'x'.repeat(30_000), 2000, 1000)
+      .output as { maxTokens?: number };
+
+    expect(generic.maxTokens).toBe(1000);
+    expect(skill.maxTokens).toBe(2000);
+    expect(explicit.maxTokens).toBe(2000);
+  });
+
+  it('scales the per-tool override to the Gemma (8192-window) tier by the exact resolved transport budget', () => {
+    const gemmaTransportTokens = resolveScaledToolResultBudget(8192).transportResultTokens;
+    expect(gemmaTransportTokens).toBe(1000); // floor tier
+    const skill = boundToolOutputForModel(
+      'skill',
+      'x'.repeat(30_000),
+      undefined,
+      gemmaTransportTokens
+    ).output as { maxTokens?: number };
+    expect(skill.maxTokens).toBe(2000);
+  });
+
+  it('never scales a per-tool override UP for an at-or-above-anchor resolved budget (overrides are authored ceilings)', () => {
+    const anchorSkill = boundToolOutputForModel('skill', 'x'.repeat(30_000), undefined, 3000)
+      .output as { maxTokens?: number };
+    const largeWindowSkill = boundToolOutputForModel('skill', 'x'.repeat(30_000), undefined, 6000)
+      .output as { maxTokens?: number };
+    expect(anchorSkill.maxTokens).toBe(6000);
+    expect(largeWindowSkill.maxTokens).toBe(6000);
+  });
+
+  it('leaves a per-tool override fixed when no per-run budget is threaded at all (backward compatible)', () => {
+    const skill = boundToolOutputForModel('skill', 'x'.repeat(30_000)).output as {
+      maxTokens?: number;
+    };
+    expect(skill.maxTokens).toBe(6000);
+  });
+
   it('returns small outputs unchanged', () => {
     const output = { matches: [{ path: 'a.ts' }], totalMatches: 1 };
     const bounded = boundToolOutputForModel('brainstrike.grepSearch', output);

@@ -1,5 +1,17 @@
-import { createLogger } from '@brainstrike/logging';
-import type { IFileNode } from '@brainstrike/types';
+/**
+ * Explorer panel toolbar COMPONENTS.
+ *
+ * Every export here must be a component: Vite's React Fast Refresh plugin keeps
+ * a module as a refresh boundary only while each export either looks like a
+ * component or keeps its identity across the edit — and re-evaluating the
+ * module always gives an exported function a fresh identity, so one plain
+ * function or hook export costs the whole panel a full reload on every edit.
+ * Pure logic belongs in file-explorer-panel-toolbar-logic.ts, hooks in their
+ * own `use-*.ts` module. Exception: the check only walks a module's EXPORTS, so
+ * private logic (resolveExpandAllScanningSource) may stay here rather than be
+ * widened to a public export with no second consumer.
+ */
+
 import {
   Button,
   cn,
@@ -13,20 +25,12 @@ import {
 } from '@brainstrike/ui';
 import { Eye, EyeOff, MoreHorizontal, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import * as React from 'react';
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { FloatingTreeActions } from '../components/floating-tree-actions';
 import { TreeActionButtons } from '../components/tree-action-buttons';
 import { computeScanningStatusProps } from '../utils/scanning-status-props';
-import type { useFileExplorerStoreContext } from './file-explorer-provider';
-import {
-  type ExpandAllProgress,
-  type ForestTreeActionsValue,
-  useForestExpandAllProgress,
-  type useOptionalForestTreeActions,
-} from './forest-tree-actions-context';
-
-// Same scope as file-explorer-panel.tsx on purpose: createLogger caches by scope, so both modules share one logger instance.
-const logger = createLogger('FileExplorerPanel');
+import type { CompactToolbarActionsState } from './file-explorer-panel-toolbar-logic';
+import { type ExpandAllProgress, useForestExpandAllProgress } from './forest-tree-actions-context';
 
 /** Eye toggle for the filter-chips row (from #1192), extracted for the complexity cap. */
 export function FilterChipsToggleButton({
@@ -106,110 +110,6 @@ export function ViewFiltersToggleButton({
   );
 }
 
-type CompactRefreshState = 'disabled' | 'ready' | 'refreshing';
-type CompactViewFiltersState = 'collapsed' | 'expanded';
-type CompactToolbarActionsState =
-  | { availability: 'unavailable' }
-  | { availability: 'yielded-to-cancel' }
-  | {
-      availability: 'available';
-      filters: CompactViewFiltersState;
-      refresh: CompactRefreshState;
-    };
-
-/**
- * True while the toolbar's scanning indicator — and therefore its cancel — is
- * on screen. This is the signal that makes the compact menu yield the narrow
- * track, so it must be EXACTLY the indicator's own visibility rule: a state
- * where this returns true but no cancel renders would leave the 180px track
- * holding Select All and nothing else — a worse version of the bug BST-657
- * fixed.
- *
- * The `isForestExpandingAll && forestCancelExpandAll` pairing is deliberate,
- * not redundant: resolveExpandAllScanningSource falls through to the focused
- * provider when the forest cancel is null, and that provider is idle during a
- * forest sweep, so computeScanningStatusProps would return null. Threading the
- * cancel through keeps the two rules identical by construction rather than by
- * the two forest contexts happening to ship from the same provider.
- *
- * Run-boundary only: it flips once per operation, never per progress frame, so
- * reading it in the panel does not defeat the PanelTreeActionButtons leaf.
- */
-export function isCancellableOperationRunning(args: {
-  forestCancelExpandAll: (() => void) | null;
-  isExpandingAll: boolean;
-  isForestExpandingAll: boolean;
-  loadingProgress: { isInitialLoading?: boolean } | null | undefined;
-}): boolean {
-  return (
-    Boolean(args.loadingProgress?.isInitialLoading) ||
-    args.isExpandingAll ||
-    (args.isForestExpandingAll && args.forestCancelExpandAll !== null)
-  );
-}
-
-interface CompactToolbarActionsInput {
-  hasRoot: boolean;
-  isFiltersExpanded: boolean;
-  isLoading: boolean;
-  /**
-   * True while a cancellable operation is running. The 76px narrow track fits
-   * two 24px controls beside the 12px gutter, and during an operation the
-   * second one must be the scanning indicator's cancel — the compact menu's
-   * Refresh item is disabled anyway, and the cancel has no other route.
-   *
-   * Read the cost honestly: this is NOT only "the few seconds a sweep takes".
-   * `isInitialLoading` is `isLoading && loadingPaths.size === 0`, so it holds
-   * for a whole first workspace scan and for the whole body of handleRefresh —
-   * below 236px the compact menu is the only route to View Filters, so that
-   * toggle is unreachable for the length of a cold scan and blinks out on
-   * every refresh. Scoping the yield to expand-all only would not fix it: at
-   * 180px an initial load would then paint cancel + menu + Select All = 80px
-   * into a 76px track and clip, which is precisely the overlap BST-657 fixed.
-   * Losing a filter toggle while an operation runs beats an unclickable
-   * control, so the yield stays broad.
-   *
-   * Note refresh is covered INCIDENTALLY, via isInitialLoading — neither this
-   * flag nor isCancellableOperationRunning reads `isRefreshing`.
-   */
-  isOperationInProgress: boolean;
-  isRefreshing: boolean;
-}
-
-export function resolveCompactToolbarActionsState({
-  hasRoot,
-  isFiltersExpanded,
-  isLoading,
-  isOperationInProgress,
-  isRefreshing,
-}: CompactToolbarActionsInput): CompactToolbarActionsState {
-  if (!hasRoot) {
-    return { availability: 'unavailable' };
-  }
-  if (isOperationInProgress) {
-    return { availability: 'yielded-to-cancel' };
-  }
-  if (isRefreshing) {
-    return {
-      availability: 'available',
-      filters: isFiltersExpanded ? 'expanded' : 'collapsed',
-      refresh: 'refreshing',
-    };
-  }
-  if (isLoading) {
-    return {
-      availability: 'available',
-      filters: isFiltersExpanded ? 'expanded' : 'collapsed',
-      refresh: 'disabled',
-    };
-  }
-  return {
-    availability: 'available',
-    filters: isFiltersExpanded ? 'expanded' : 'collapsed',
-    refresh: 'ready',
-  };
-}
-
 export function CompactToolbarActions({
   onRefresh,
   setFiltersExpanded,
@@ -247,11 +147,6 @@ export function CompactToolbarActions({
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-/** Forest mode = more than one active root (sections render per root). */
-export function isForestModeActive(rootDirectoryHandles: readonly unknown[] | undefined): boolean {
-  return (rootDirectoryHandles?.length ?? 0) > 1;
 }
 
 /**
@@ -414,142 +309,3 @@ export const PanelFloatingTreeActions = ({
     />
   );
 };
-
-/**
- * Staged forest expand-all: sweeping every root's full subtree is I/O-heavy
- * and easy to trigger by accident, so the toolbar click only opens a confirm
- * dialog; the sweep starts on confirm. Single-root expand stays immediate.
- */
-export function useForestExpandConfirm(forestActions: ForestTreeActionsValue | null): {
-  confirm: () => void;
-  dismiss: () => void;
-  isOpen: boolean;
-  stage: () => void;
-} {
-  const [isOpen, setIsOpen] = useState(false);
-  const stage = useCallback(() => setIsOpen(true), []);
-  const dismiss = useCallback(() => setIsOpen(false), []);
-  const confirm = useCallback(() => {
-    setIsOpen(false);
-    void forestActions?.runExpandAll();
-  }, [forestActions]);
-  // Memoized: this object feeds the toolbar's memoized expand-all callback.
-  return useMemo(() => ({ confirm, dismiss, isOpen, stage }), [confirm, dismiss, isOpen, stage]);
-}
-
-/**
- * Aggregate user feedback for a forest-wide select-all sweep (sections run
- * quiet — per-root toasts would fire once per section). Null = success with
- * room to spare, no toast needed.
- */
-function buildForestSelectAllFeedback(
-  summary: { limitReached: boolean; selected: number },
-  maxCount: number
-): { title: string; description: string } | null {
-  if (summary.selected === 0) {
-    return {
-      description: summary.limitReached
-        ? `The selection limit (${maxCount}) is already used by existing selections.`
-        : 'Everything is hidden by the current view filters. Adjust the workspace filters to select files.',
-      title: 'No selectable files in any folder',
-    };
-  }
-  if (summary.limitReached) {
-    return {
-      description: `Selected ${summary.selected} files before hitting the limit. Raise the limit to select more.`,
-      title: `Selection limit reached (${maxCount})`,
-    };
-  }
-  return null;
-}
-
-/**
- * FOREST MODE toolbar Select All: sweep EVERY root section through its own
- * tree context — the panel provider's tree is the invisible legacy one and
- * is empty/stale for non-focused roots ("No selectable files in view" on
- * roots whose sections clearly show files). The forest-union budget composes
- * per pass inside selectAllRecursively; this owns the ONE aggregate toast.
- */
-export async function runForestSelectAllSweep(args: {
-  forestActions: ReturnType<typeof useOptionalForestTreeActions>;
-  maxCount: number;
-  showToast: (toast: { title: string; description: string }) => void;
-}): Promise<{
-  success: boolean;
-  filePaths: string[];
-  totalAvailable?: number;
-  limitReached?: boolean;
-  error?: string;
-}> {
-  if (!args.forestActions) {
-    return { error: 'Forest registry unavailable', filePaths: [], success: false };
-  }
-  const summary = await args.forestActions.runSelectAll();
-  const feedback = buildForestSelectAllFeedback(summary, args.maxCount);
-  if (feedback) {
-    args.showToast(feedback);
-  }
-  return {
-    filePaths: [],
-    limitReached: summary.limitReached,
-    success: true,
-    totalAvailable: summary.selected,
-  };
-}
-
-/**
- * Toolbar Select All wiring: forest mode swaps in the registry sweep, the
- * forest-wide quick-filter override, and treats the tree as non-empty
- * (sections own their trees — the focused panel tree is the invisible
- * legacy one).
- */
-export function resolveSelectAllWiring<T>(args: {
-  fileTreeLength: number;
-  forestActions: ReturnType<typeof useOptionalForestTreeActions>;
-  forestQuickFilterSelectAll: () => void;
-  forestSelectAll: T;
-  isForestMode: boolean;
-  selectAllRecursively: T;
-}): {
-  hasFilesInTree: boolean;
-  quickFilterSelectAllOverride: (() => void) | undefined;
-  selectAll: T;
-} {
-  if (args.isForestMode && args.forestActions) {
-    return {
-      hasFilesInTree: true,
-      quickFilterSelectAllOverride: args.forestQuickFilterSelectAll,
-      selectAll: args.forestSelectAll,
-    };
-  }
-  return {
-    hasFilesInTree: args.fileTreeLength > 0,
-    quickFilterSelectAllOverride: undefined,
-    selectAll: args.selectAllRecursively,
-  };
-}
-
-/** Single-root path: progressive expand-all over the focused provider's tree. */
-export function runFocusedTreeExpandAll(
-  store: ReturnType<typeof useFileExplorerStoreContext>,
-  expandAllProgressively: (
-    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
-    currentExpandedPaths: Set<string>
-  ) => unknown,
-  fileTree: IFileNode[] | undefined
-): void {
-  if (!(fileTree && fileTree.length > 0)) {
-    logger.warn('expandAll: no file tree or empty tree');
-    return;
-  }
-  logger.info('expandAll: calling expandAllProgressively');
-  const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
-    const currentPaths = store.getState().expandedDirectoryPaths;
-    const newPaths = updater(currentPaths);
-    if (newPaths === currentPaths) {
-      return;
-    }
-    store.getState().setExpandedPaths(newPaths);
-  };
-  void expandAllProgressively(setExpandedPaths, store.getState().expandedDirectoryPaths);
-}

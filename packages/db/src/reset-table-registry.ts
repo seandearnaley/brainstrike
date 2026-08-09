@@ -73,6 +73,9 @@ const BRAINSTRIKE_RESET_TABLES = [
   // Durable counts/sizes-only per-tool telemetry (migration 083, BST-1190).
   // Baselines must survive restart, but never a true fresh start.
   'brainstrike_tool_call_telemetry',
+  // Durable estimator/provider token-count pairs (migration 086, BST-1205).
+  // Calibration evidence survives restart, but never a true fresh start.
+  'brainstrike_token_estimate_calibration',
   'brainstrike_diagnostic_events',
   // Sync-the-mind op-log seam (migration 079, BST-993). Clearing the mind
   // clears its op-log: pre-sync there is no peer the ops could replay to,

@@ -119,6 +119,10 @@ It also includes `brainstrike_tool_call_telemetry` (migration 083), the FK-less,
 counts/sizes/ids/booleans-only model-facing tool-cost ledger. All three
 table-enumerating reset paths clear it explicitly, and thread deletion derives
 its cleanup stage from `THREAD_DELETE_SIDECAR_TABLES`.
+It also includes `brainstrike_token_estimate_calibration` (migration 086), the
+FK-less numbers/ids/model/provider-only prompt-token reconciliation ledger. All
+three table-enumerating reset paths clear it explicitly, and thread deletion
+derives its cleanup stage from `THREAD_DELETE_SIDECAR_TABLES`.
 It also includes `brainstrike_assistant_tool_projection_rewrites` (migration
 084), the FK-less stale-tool-history replay overlay. All three table-enumerating
 reset paths clear it explicitly, and thread deletion derives its cleanup stage
@@ -140,7 +144,7 @@ Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
 
 **The SET those three lists clear is owned by the reset-table registry**
 (`packages/db/src/reset-table-registry.ts`, BST-992): all three clear the same
-33-relation set (18 `brainstrike_*` — including the `brainstrike_mind_ops`
+34-relation set (19 `brainstrike_*` — including the `brainstrike_mind_ops`
 op-log, whose tombstones must not outlive the mind they describe (BST-993) —
 + 9 core/indexing + the Mastra six), and
 the web factory reset (`purgeTablesTx`) additionally wipes the six seed-free
@@ -915,8 +919,11 @@ size: bundles run up to the 200 KB budget below, past what a chat box or issue
 comment accepts.
 Filename + save live in `packages/assistant-ui/src/debug-bundle-download.ts`
 (`formatDebugBundleFilename` / `downloadDebugBundleFile`) rather than in the
-component module, which is component-only by react-doctor's
-`only-export-components` contract. The filename is
+component module, which is component-only by the Fast Refresh module-boundary
+contract (`react-refresh/only-export-components` in `eslint.config.js`; the
+split predates that gate and was originally attributed to react-doctor, whose
+rule id turned out to be alias-only — see the REACT DOCTOR section in
+`docs/agents/ci-quality.md`). The filename is
 `brainstrike-debug-bundle-<UTC ISO, colons→hyphens, no millis>[-run-<first 8
 chars>].md` — timestamp first so a Downloads folder sorts chronologically,
 and colon-free because Windows rejects `:` (an unmangled `toISOString()` in

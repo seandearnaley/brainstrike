@@ -11,6 +11,7 @@
  * - Abort signal handling
  */
 
+import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
 import { describe, expect, it } from 'vitest';
 import {
   type ChunkOutput,
@@ -258,7 +259,7 @@ describe('createEmbeddingStage', () => {
   // =============================================================================
 
   describe('dedupe keys', () => {
-    it('generates correct dedupe key format', async () => {
+    it('generates the canonical dedupe key shared with the db enqueue path', async () => {
       const jobQueue = createMockJobQueue();
       const stage = createEmbeddingStage({
         defaultModelKey: 'openai::text-embedding-3-small',
@@ -268,13 +269,11 @@ describe('createEmbeddingStage', () => {
       const input = createSampleInput(1);
       const result = await stage.enqueueChunks(input);
 
-      const dedupeKey = jobQueue.enqueueCalls[0]?.dedupeKey;
-      expect(dedupeKey).toBeDefined();
-      // Format: embed:{chunkId}:{embeddingSetId}:{modelKey}
-      expect(dedupeKey).toContain('embed:');
-      expect(dedupeKey).toContain(result.chunkIds[0]);
-      expect(dedupeKey).toContain(input.embeddingSetId);
-      expect(dedupeKey).toContain('openai::text-embedding-3-small');
+      const chunkId = result.chunkIds[0];
+      const contentHash = input.chunks[0]?.contentHash ?? '';
+      expect(jobQueue.enqueueCalls[0]?.dedupeKey).toBe(
+        buildEmbedJobDedupeKey(chunkId ?? '', input.embeddingSetId, contentHash)
+      );
     });
 
     it('generates unique dedupe keys for different chunks', async () => {

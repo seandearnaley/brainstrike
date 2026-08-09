@@ -18,7 +18,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  *
  * Not exported: only used within this module (by `CopyDebugBundleButton`
  * below); tests exercise it indirectly through the component's rendered
- * behavior. Keeping this module component-only satisfies react-doctor's
+ * behavior. Keeping this module component-only satisfies react-refresh's
  * `only-export-components` (Fast Refresh boundary).
  */
 function selectFailedRunId(parts: readonly unknown[]): string | null {

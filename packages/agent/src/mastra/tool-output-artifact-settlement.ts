@@ -71,6 +71,8 @@ export interface ToolOutputArtifactSettlementStore {
 }
 
 export interface ApplyToolOutputArtifactSettlementOptions {
+  /** Delegation tools actually registered for this run, resolved after persona assembly. */
+  readonly getDelegationToolNames?: () => readonly string[];
   /**
    * Optional stricter inline ceilings for tools whose complete model projection
    * must fit a smaller character budget than the generic transport envelope.
@@ -189,11 +191,21 @@ function fitArtifactPreview(content: string): {
   return best;
 }
 
+function buildArtifactDelegationHint(delegationToolNames: readonly string[] | undefined): string {
+  if (!delegationToolNames || delegationToolNames.length === 0) {
+    return '';
+  }
+  return ` For open-ended whole-result analysis, delegate the cursor to ${delegationToolNames.join(
+    ' / '
+  )}.`;
+}
+
 function createArtifactOutputs(
   toolName: string,
   reference: ToolOutputArtifactReference,
   content: string,
-  completeDisplayOutput: unknown
+  completeDisplayOutput: unknown,
+  getDelegationToolNames: (() => readonly string[]) | undefined
 ): Pick<SettledToolOutput, 'displayOutput' | 'modelOutput'> {
   const preview = fitArtifactPreview(content);
   if (preview.endByte >= reference.byteLength) {
@@ -209,11 +221,12 @@ function createArtifactOutputs(
     };
   }
   const nextCursor = encodeToolOutputArtifactCursor(reference, preview.endByte);
+  const delegationHint = buildArtifactDelegationHint(getDelegationToolNames?.());
   const displayOutput: ToolOutputArtifactEnvelope = {
     artifactRef: reference,
     code: TOOL_OUTPUT_ARTIFACT_CODE,
     ...(preview.contentEncoding ? { contentEncoding: preview.contentEncoding } : {}),
-    hint: `The complete ${toolName} result is durable. Continue with brainstrike.readToolOutputArtifact using {"cursor":nextCursor}.`,
+    hint: `The complete ${toolName} result is durable. Search with pattern or continue paging via brainstrike.readToolOutputArtifact using {"cursor":nextCursor}.${delegationHint}`,
     nextCursor,
     preview: preview.preview,
     truncated: true,
@@ -380,7 +393,13 @@ async function settleOutput(
     );
   }
   return createSettlementCarrier({
-    ...createArtifactOutputs(toolName, reference, serialized.content, domainOutput),
+    ...createArtifactOutputs(
+      toolName,
+      reference,
+      serialized.content,
+      domainOutput,
+      options.getDelegationToolNames
+    ),
     projectionSource: output,
   });
 }

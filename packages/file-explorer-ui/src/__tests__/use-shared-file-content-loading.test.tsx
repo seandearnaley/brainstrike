@@ -12,7 +12,10 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { fileContent } from '@brainstrike/utils';
-import type { FileReadRequest } from '@brainstrike/workers/file-content-worker';
+import type {
+  FileContentReadResult,
+  FileReadRequest,
+} from '@brainstrike/workers/file-content-worker';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../shell/file-explorer-provider';
@@ -92,16 +95,19 @@ describe('useSharedFileContentLoading - caching', () => {
           requests: FileReadRequest[],
           progressCallback?: (event: { key: string }) => void
         ) => {
-          const results: Record<string, string> = {};
+          const results: Record<string, FileContentReadResult> = {};
           for (const req of requests) {
             try {
               const content = req.handle ? await adapter.readFile(req.handle) : 'No handle';
-              results[req.compositeKey] = content;
+              results[req.compositeKey] = { content, status: 'accessible' };
               if (progressCallback) {
                 progressCallback({ key: req.compositeKey });
               }
             } catch {
-              results[req.compositeKey] = 'Error accessing file';
+              results[req.compositeKey] = {
+                message: 'Error accessing file',
+                status: 'inaccessible',
+              };
             }
           }
           return results;
@@ -161,16 +167,19 @@ describe('useSharedFileContentLoading - caching', () => {
           requests: FileReadRequest[],
           progressCallback?: (event: { key: string }) => void
         ) => {
-          const results: Record<string, string> = {};
+          const results: Record<string, FileContentReadResult> = {};
           for (const req of requests) {
             try {
               const content = req.handle ? await adapter.readFile(req.handle) : 'No handle';
-              results[req.compositeKey] = content;
+              results[req.compositeKey] = { content, status: 'accessible' };
               if (progressCallback) {
                 progressCallback({ key: req.compositeKey });
               }
             } catch {
-              results[req.compositeKey] = 'Error accessing file';
+              results[req.compositeKey] = {
+                message: 'Error accessing file',
+                status: 'inaccessible',
+              };
             }
           }
           return results;
@@ -234,7 +243,9 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     // Setup worker mock to simulate error handling
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
     vi.mocked(createFileContentWorker).mockReturnValue(
-      vi.fn().mockResolvedValue({ [compositeKey]: 'Error accessing file' })
+      vi.fn().mockResolvedValue({
+        [compositeKey]: { message: 'Error accessing file', status: 'inaccessible' },
+      })
     );
 
     const wrapper = createWrapper(adapter);
@@ -260,7 +271,12 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     // Setup worker mock to simulate binary file handling
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
     vi.mocked(createFileContentWorker).mockReturnValue(
-      vi.fn().mockResolvedValue({ [compositeKey]: 'Binary file - preview not available' })
+      vi.fn().mockResolvedValue({
+        [compositeKey]: {
+          message: 'Binary file - preview not available',
+          status: 'inaccessible',
+        },
+      })
     );
 
     const wrapper = createWrapper(adapter);
@@ -297,12 +313,12 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
         if (progressCallback) {
           progressCallback({ key: req.compositeKey });
         }
-        return content;
+        return { content, status: 'accessible' as const };
       } catch {
         if (progressCallback) {
           progressCallback({ key: req.compositeKey });
         }
-        return 'Error accessing file';
+        return { message: 'Error accessing file', status: 'inaccessible' as const };
       }
     };
 
@@ -313,7 +329,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
           requests: FileReadRequest[],
           progressCallback?: (event: { key: string }) => void
         ) => {
-          const results: Record<string, string> = {};
+          const results: Record<string, FileContentReadResult> = {};
 
           // Process each request and wait for its resolver
           for (const req of requests) {
@@ -430,7 +446,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const compositeKey = encodeFileSelection('root1', '/within-configured-limit.txt');
 
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
-    const mockWorker = vi.fn().mockResolvedValue({ [compositeKey]: 'loaded' });
+    const mockWorker = vi.fn().mockResolvedValue({
+      [compositeKey]: { content: 'loaded', status: 'accessible' },
+    });
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
@@ -456,7 +474,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const compositeKey = encodeFileSelection('root1', '/nan-size.txt');
 
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
-    const mockWorker = vi.fn().mockResolvedValue({ [compositeKey]: 'loaded' });
+    const mockWorker = vi.fn().mockResolvedValue({
+      [compositeKey]: { content: 'loaded', status: 'accessible' },
+    });
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
@@ -487,7 +507,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     // Setup worker mock
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
     vi.mocked(createFileContentWorker).mockReturnValue(
-      vi.fn().mockResolvedValue({ [compositeKey]: 'retry' })
+      vi.fn().mockResolvedValue({
+        [compositeKey]: { content: 'retry', status: 'accessible' },
+      })
     );
 
     vi.useFakeTimers();
@@ -526,7 +548,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const compositeKey = encodeFileSelection('root1', '/cached.txt');
 
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
-    const mockWorker = vi.fn().mockResolvedValue({ [compositeKey]: 'cached-content' });
+    const mockWorker = vi.fn().mockResolvedValue({
+      [compositeKey]: { content: 'cached-content', status: 'accessible' },
+    });
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
@@ -665,14 +689,14 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const total = MaxConcurrentLoads + 5;
     const nodes: IFileNode[] = [];
     const keys: string[] = [];
-    const results: Record<string, string> = {};
+    const results: Record<string, FileContentReadResult> = {};
 
     for (let i = 0; i < total; i++) {
       const node = createFileNode({ path: `/file${i}.txt`, rootFolderId: 'root1' });
       nodes.push(node);
       const key = encodeFileSelection('root1', node.path);
       keys.push(key);
-      results[key] = `content-${i}`;
+      results[key] = { content: `content-${i}`, status: 'accessible' };
     }
 
     // Setup worker mock to handle all files
@@ -741,7 +765,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     const fileNode = createFileNode({ path: '/deferred.txt', rootFolderId: 'root1' });
 
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
-    const mockWorker = vi.fn().mockResolvedValue({ [compositeKey]: 'deferred-content' });
+    const mockWorker = vi.fn().mockResolvedValue({
+      [compositeKey]: { content: 'deferred-content', status: 'accessible' },
+    });
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
@@ -793,7 +819,9 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
       if (requests.length === 0) {
         return {};
       }
-      return { [compositeKey]: 'restored-content' };
+      return {
+        [compositeKey]: { content: 'restored-content', status: 'accessible' as const },
+      };
     });
     vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
@@ -851,11 +879,14 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
           requests: FileReadRequest[],
           progressCallback?: (event: { key: string }) => void
         ) => {
-          const results: Record<string, string> = {};
+          const results: Record<string, FileContentReadResult> = {};
           for (const request of requests) {
-            results[request.compositeKey] = request.handle
-              ? await adapter.readFile(request.handle)
-              : await readFileByPathSpy(request.path);
+            results[request.compositeKey] = {
+              content: request.handle
+                ? await adapter.readFile(request.handle)
+                : await readFileByPathSpy(request.path),
+              status: 'accessible',
+            };
             progressCallback?.({ key: request.compositeKey });
           }
           return results;
@@ -916,9 +947,12 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
           requests: FileReadRequest[],
           progressCallback?: (event: { key: string }) => void
         ) => {
-          const results: Record<string, string> = {};
+          const results: Record<string, FileContentReadResult> = {};
           for (const request of requests) {
-            results[request.compositeKey] = await readFileByPathSpy(request.path);
+            results[request.compositeKey] = {
+              content: await readFileByPathSpy(request.path),
+              status: 'accessible',
+            };
             progressCallback?.({ key: request.compositeKey });
           }
           return results;
@@ -1062,11 +1096,12 @@ describe('useSharedFileContentLoading - cross-root import (Phase 6)', () => {
           requests: FileReadRequest[],
           progressCallback?: (event: { key: string }) => void
         ) => {
-          const results: Record<string, string> = {};
+          const results: Record<string, FileContentReadResult> = {};
           for (const req of requests) {
-            results[req.compositeKey] = req.handle
-              ? await adapter.readFile(req.handle)
-              : 'No handle';
+            results[req.compositeKey] = {
+              content: req.handle ? await adapter.readFile(req.handle) : 'No handle',
+              status: 'accessible',
+            };
             progressCallback?.({ key: req.compositeKey });
           }
           return results;

@@ -1,4 +1,9 @@
-import { decodedTextModelOutputChars, PROJECTION_ENVELOPE_RESERVE_CHARS } from '@brainstrike/agent';
+import {
+  clipGrepProjectionLine,
+  decodedTextModelOutputChars,
+  normalizeGrepProjectionLine,
+  PROJECTION_ENVELOPE_RESERVE_CHARS,
+} from '@brainstrike/agent';
 
 export { PROJECTION_ENVELOPE_RESERVE_CHARS };
 
@@ -19,9 +24,11 @@ export function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
-export function projectionSingleLine(value: string): string {
-  return value.replace(/\s+/gu, ' ').trim();
-}
+// Delegates to `@brainstrike/agent`'s grep-model-format so this desktop-side
+// line normalization/clipping and the durable artifact-search projector
+// (packages/agent/src/mastra/tool-output-artifact-reader.ts) share one
+// implementation instead of independent copies that could silently drift.
+export const projectionSingleLine = normalizeGrepProjectionLine;
 
 export function escapeProjectionPathLineBreaks(value: string): string {
   return value
@@ -32,14 +39,7 @@ export function escapeProjectionPathLineBreaks(value: string): string {
 }
 
 export function clipProjectionEnd(value: string, maxChars: number, label: string): string {
-  const normalized = projectionSingleLine(value);
-  const codePoints = Array.from(normalized);
-  if (codePoints.length <= maxChars) {
-    return normalized;
-  }
-  return `${codePoints.slice(0, maxChars).join('')}…[${
-    codePoints.length - maxChars
-  } ${label} chars omitted]`;
+  return clipGrepProjectionLine(value, maxChars, label);
 }
 
 export function clipProjectionMiddle(value: string, maxChars: number, label: string): string {

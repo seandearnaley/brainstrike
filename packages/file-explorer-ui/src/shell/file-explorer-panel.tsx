@@ -50,17 +50,18 @@ import { applyQuickFilterToTree, collectVisibleFiles } from '../utils/quick-filt
 import {
   CompactToolbarActions,
   FilterChipsToggleButton,
-  isCancellableOperationRunning,
-  isForestModeActive,
   PanelFloatingTreeActions,
   PanelTreeActionButtons,
+  ViewFiltersToggleButton,
+} from './file-explorer-panel-toolbar-helpers';
+import {
+  isCancellableOperationRunning,
+  isForestModeActive,
   resolveCompactToolbarActionsState,
   resolveSelectAllWiring,
   runFocusedTreeExpandAll,
   runForestSelectAllSweep,
-  useForestExpandConfirm,
-  ViewFiltersToggleButton,
-} from './file-explorer-panel-toolbar-helpers';
+} from './file-explorer-panel-toolbar-logic';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -75,6 +76,7 @@ import {
   useOptionalForestTreeActions,
 } from './forest-tree-actions-context';
 import { useFileExplorer } from './use-file-explorer-context';
+import { useForestExpandConfirm } from './use-forest-expand-confirm';
 import { useSelectionManager } from './use-selection-manager-context';
 
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];

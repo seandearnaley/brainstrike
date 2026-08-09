@@ -461,7 +461,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   changesPageContent,
   contextExplorerPanelContent,
   contextExplorerPageContent,
-  databaseTabChunkingMode,
   loadEmbeddingQueue,
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
@@ -471,7 +470,6 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly changesPageContent?: ReactNode;
   readonly contextExplorerPanelContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
-  readonly databaseTabChunkingMode: 'host-proxy' | 'local';
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
@@ -485,12 +483,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
         }
         sidebarContent={
           <AgentSidebarPanel
-            databaseContent={
-              <DatabasePanel
-                chunkingMode={databaseTabChunkingMode}
-                loadEmbeddingQueue={loadEmbeddingQueue}
-              />
-            }
+            databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
             preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
             promptsContent={(isActive) => (
               <Suspense
@@ -682,7 +675,6 @@ export function RootLayoutContent({
                         changesPageContent={changesPageContent}
                         contextExplorerPageContent={contextExplorerPageContent}
                         contextExplorerPanelContent={contextExplorerPanelContent}
-                        databaseTabChunkingMode={databaseTabChunkingMode}
                         loadEmbeddingQueue={loadEmbeddingQueue}
                         {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                         preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}

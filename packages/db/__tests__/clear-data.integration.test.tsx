@@ -115,6 +115,12 @@ const SENTINEL_INSERTS = [
      (id, thread_id, run_id, tool_id, model_facing_chars)
      VALUES ('sentinel-tool-telemetry', 'sentinel-thread', 'sentinel-run',
       'brainstrike.grepSearch', 42)`,
+  // BST-1205: durable estimator/provider prompt-token calibration evidence.
+  `INSERT INTO brainstrike_token_estimate_calibration
+     (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
+      final_step_prompt_tokens)
+     VALUES ('sentinel-calibration', 'sentinel-thread', 'sentinel-run',
+      'model', 'provider', 42, 50)`,
   // BST-992 convergence: factory-reset-only sentinel (representative of the
   // six seed-free caches) — wiped by the purge, kept by Clear Database.
   `INSERT INTO job_queue_metrics (queue, succeeded_total)
@@ -174,6 +180,7 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_message_tombstones')).toBe(0);
     expect(await countRows('brainstrike_canvas_versions')).toBe(0);
     expect(await countRows('brainstrike_tool_call_telemetry')).toBe(0);
+    expect(await countRows('brainstrike_token_estimate_calibration')).toBe(0);
     expect(await countRows('brainstrike_workspace_snapshots')).toBe(0);
   }
 

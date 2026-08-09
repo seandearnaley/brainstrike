@@ -1,7 +1,7 @@
 /**
  * `ChangedFilesTree`'s `TreeTable` column definitions and cell renderers
  * (BST-1114, W4 Task B), split out of `changed-files-tree.tsx` so that file
- * exports components only (`react-doctor/only-export-components`) — this
+ * exports components only (`react-refresh/only-export-components`) — this
  * module exports the non-component `CHANGED_FILES_TREE_COLUMNS` array and
  * the `lastPathSegment` helper the main component also needs for its group
  * labels, and keeps every cell renderer file-local since nothing outside

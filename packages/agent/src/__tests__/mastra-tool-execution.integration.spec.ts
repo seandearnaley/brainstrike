@@ -64,7 +64,13 @@ vi.mock('../providers/provider-factory', async (importActual) => {
       }
       return modelHolder.current;
     },
-    getDefaultModel: () => 'fake-model',
+    getDefaultModel: (provider: string) =>
+      ({
+        anthropic: 'claude-sonnet-5',
+        google: 'gemini-3.5-flash',
+        local: 'onnx-community/gemma-4-E2B-it-ONNX',
+        openrouter: 'openai/gpt-5.6-terra',
+      })[provider] ?? 'gpt-5.6-terra',
   };
 });
 

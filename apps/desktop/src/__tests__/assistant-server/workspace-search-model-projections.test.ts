@@ -2,6 +2,7 @@ import {
   applyToolModelOutputProjections,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
 } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
 import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
@@ -888,7 +889,9 @@ describe('grep projection through the runtime dispatcher (fail-soft round trip)'
           toModelOutput: projectGrepSearchModelOutput,
         } as never,
       },
-      new Map([['grepSearch', 'brainstrike.grepSearch']])
+      new Map([['grepSearch', 'brainstrike.grepSearch']]),
+      undefined,
+      resolveScaledToolResultBudget(131_072)
     );
     const projected = tools['grepSearch'] as {
       toModelOutput?: (value: unknown) => unknown;

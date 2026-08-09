@@ -3,6 +3,7 @@ import {
   type AnthropicProviderOptions,
   DESKTOP_NATIVE_TOOL_IDS,
   type DesktopNativeToolId,
+  DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
   deriveEffectiveInputBudget,
   type GoogleProviderOptions,
   getLlmModelDefinition,
@@ -876,7 +877,7 @@ export function toRuntimeProviderModels(
     // For small models (e.g. a 4k-context quantized GGUF) it over-estimates: the agent may
     // compose prompts larger than the model holds. Accepted tradeoff — the local server's
     // own context cap is the real enforcement on that path.
-    contextWindow: 32_768,
+    contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
     default: index === 0,
     id: model.modelId,
     label: model.displayName,

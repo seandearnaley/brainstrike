@@ -28,13 +28,20 @@ import {
   attachToolCallTelemetryMetadata,
   readToolCallTelemetryMetadata,
 } from '../mastra/tool-call-telemetry';
-import { applyToolModelOutputProjections } from '../mastra/tool-model-output';
+import {
+  applyToolModelOutputProjections as applyToolModelOutputProjectionsWithBudget,
+  assertDomainProjectionWithinBudget,
+  buildDefaultModelProjectionBudget,
+} from '../mastra/tool-model-output';
 import { ToolProjectionInputRejectedError } from '../mastra/tool-projection-input-rejected';
 import {
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
   NATIVE_SELF_BOUND_MODEL_RESULT_CHAR_BUDGET,
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
   SKILL_ACTIVATION_RESULT_TOKEN_BUDGET,
   TOOL_RESULT_TRUNCATED_CODE,
 } from '../stream/tool-output-limits';
@@ -51,6 +58,21 @@ type TestTool = ToolsInput[string] & {
   toModelOutput?: (output: unknown) => unknown;
   transform?: ToolPayloadTransform;
 };
+
+const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);
+
+function applyToolModelOutputProjections(
+  tools: ToolsInput,
+  toolNameMap: ReadonlyMap<string, string>,
+  observer?: (toolName: string, output: unknown) => void
+): ToolsInput {
+  return applyToolModelOutputProjectionsWithBudget(
+    tools,
+    toolNameMap,
+    observer,
+    ANCHOR_TOOL_RESULT_BUDGET
+  );
+}
 
 function asTool(value: Record<string, unknown>): TestTool {
   return value as unknown as TestTool;
@@ -75,6 +97,68 @@ async function transformOutput(
 }
 
 describe('applyToolModelOutputProjections', () => {
+  it('accepts a ceiling-sized stored text projection under a floor-tier run budget', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192);
+    expect(floorBudget.domainModelResultCharBudget).toBe(2000);
+    const replayOutput = {
+      type: 'text',
+      value: 'x'.repeat(CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget - 26),
+    };
+
+    expect(() =>
+      assertDomainProjectionWithinBudget(
+        'remote.replayed-tool',
+        replayOutput,
+        buildDefaultModelProjectionBudget(CEILING_SCALED_TOOL_RESULT_BUDGET)
+      )
+    ).not.toThrow();
+    expect(decodedTextModelOutputChars(replayOutput.value)).toBe(12_000);
+  });
+
+  it.each([
+    { contextWindow: 8192, label: 'local (Gemma)' },
+    { contextWindow: 32_768, label: 'ollama / lmstudio' },
+  ])('BST-1219: floors a FRESH domain projection at the anchor for a sub-anchor resolved budget — $label', ({
+    contextWindow,
+  }) => {
+    // Desktop's purpose-built TEXT projectors are not yet threaded with the
+    // per-run resolved budget (BST-1219) — they still self-fit to the fixed
+    // anchor domain budget regardless of the active model. A sub-anchor
+    // resolved budget must not reject an ordinary anchor-sized (or smaller,
+    // but still >2000-char) projection a producer is still allowed to emit.
+    const subAnchorBudget = resolveScaledToolResultBudget(contextWindow);
+    // Both tiers clamp to the SAME 500-token / 2000-char floor — the exact
+    // "2001-6000-char fresh projection under a 2000-char resolved budget"
+    // scenario the review raised.
+    expect(subAnchorBudget.domainModelResultCharBudget).toBe(2000);
+    const freshDefaultBudget = buildDefaultModelProjectionBudget(subAnchorBudget);
+    expect(freshDefaultBudget.domainSerializedChars).toBe(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET);
+
+    // Squarely inside 2001-6000 chars (not just the 6000-char boundary) —
+    // the ordinary case the review's "any workspace-tool result between
+    // 2001 and 6000 decoded chars" scenario describes.
+    const midRangeOutput = {
+      type: 'text',
+      value: 'x'.repeat(4000 - 26),
+    };
+    expect(decodedTextModelOutputChars(midRangeOutput.value)).toBe(4000);
+    expect(() =>
+      assertDomainProjectionWithinBudget('local.ollama-tool', midRangeOutput, freshDefaultBudget)
+    ).not.toThrow();
+
+    // The exact anchor boundary (6000 chars) — must also not throw.
+    const anchorSizedOutput = {
+      type: 'text',
+      value: 'x'.repeat(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET - 26),
+    };
+    expect(decodedTextModelOutputChars(anchorSizedOutput.value)).toBe(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+    expect(() =>
+      assertDomainProjectionWithinBudget('local.ollama-tool', anchorSizedOutput, freshDefaultBudget)
+    ).not.toThrow();
+  });
+
   it('keeps raw execution untouched and gives the model a bounded text projection', async () => {
     const rawOnlyTail = 'raw-only-tail';
     const rawOutput = {

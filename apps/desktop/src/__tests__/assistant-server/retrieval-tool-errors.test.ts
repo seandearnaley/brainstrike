@@ -158,14 +158,18 @@ vi.mock('@brainstrike/embeddings/provider-core', () => ({
   },
 }));
 
-vi.mock('@brainstrike/logging', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    error: loggerError,
-    info: vi.fn(),
-    warn: loggerWarn,
-  }),
-}));
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      error: loggerError,
+      info: vi.fn(),
+      warn: loggerWarn,
+    }),
+  };
+});
 
 vi.mock('@brainstrike/tokenization', () => ({
   countTokensHeuristic: (value: string) => value.length,
