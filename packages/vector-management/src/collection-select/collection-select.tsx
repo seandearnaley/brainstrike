@@ -369,10 +369,15 @@ function areCollectionsEqual(
  * depth"). Exactly one `useCollections` may be mounted at a time.
  */
 export async function fetchCollectionsSnapshot(
-  db: ReturnType<typeof usePGliteDatabase> | null | undefined
+  db: ReturnType<typeof usePGliteDatabase>
 ): Promise<CollectionWithDocCount[]> {
+  // NO SILENT FALLBACKS: an empty array here is indistinguishable from "this
+  // workspace has no collections", which reads to the user as an invitation to
+  // create a duplicate. An unusable handle is a programming error - throw.
   if (!(db && typeof (db as { query?: unknown }).query === 'function')) {
-    return [];
+    throw new Error(
+      'fetchCollectionsSnapshot requires an initialized database handle exposing query().'
+    );
   }
   const result = await (
     db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
@@ -380,6 +385,25 @@ export async function fetchCollectionsSnapshot(
   return normalizeCollectionRows(result.rows);
 }
 
+/**
+ * Live collections projection, backed by a PGlite live query.
+ *
+ * ⚠️ MOUNT AT MOST ONE INSTANCE AT A TIME (settled BST-1212 — do not
+ * relitigate). This hook does not just READ the shared
+ * `vectorStatusUIStore.cachedCollections` cache, it WRITES it, after applying
+ * its own instance-local `pendingMutationsRef`. Two mounted instances whose
+ * pending mutations differ compute different "next" caches from each other's
+ * writes and never converge: A writes X, B recomputes Y and writes it, A
+ * recomputes X... The render loop ends with React's "maximum update depth"
+ * (#185), which in practice killed the whole surrounding panel.
+ *
+ * A second surface that only needs to DISPLAY collections must read
+ * `cachedCollections` and, if it may be the first surface up, seed it with the
+ * one-shot `fetchCollectionsSnapshot` — see
+ * `packages/db-explorer/src/components/explorer-collection-picker.tsx`. Keeping
+ * the shared cache current across create/rename/delete is the
+ * `onEmbeddingSetUpdated` contract, not a reason to mount a second live query.
+ */
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);

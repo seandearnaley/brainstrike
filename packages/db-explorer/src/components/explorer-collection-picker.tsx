@@ -6,6 +6,7 @@ import {
   type CollectionPickerCollection,
   ErrorBoundary,
   getCollectionPickerProtection,
+  useToast,
 } from '@brainstrike/ui';
 import { fetchCollectionsSnapshot } from '@brainstrike/vector-management';
 import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react';
@@ -40,9 +41,11 @@ export function ExplorerCollectionPicker({
   onDeleteCollection,
   onEditCollection,
 }: ExplorerCollectionPickerProps): ReactElement {
+  const { toast } = useToast();
   const cachedCollections = useVectorStatusUIStore((state) => state.cachedCollections);
   const setCachedCollections = useVectorStatusUIStore((state) => state.setCachedCollections);
   const [isSeeding, setIsSeeding] = useState(false);
+  const [loadError, setLoadError] = useState<Error | null>(null);
 
   // One-shot seed. Only when nothing is cached — a populated cache is already
   // being kept current by whichever surface owns the live query.
@@ -58,12 +61,28 @@ export function ExplorerCollectionPicker({
         if (cancelled) {
           return;
         }
+        setLoadError(null);
         if (collections.length > 0) {
           setCachedCollections(collections);
         }
       })
       .catch((error: unknown) => {
-        logger.error('Failed to load collections for the explorer import picker', { error });
+        if (cancelled) {
+          return;
+        }
+        // NO SILENT FALLBACKS: an empty cache after a failed query is
+        // indistinguishable from "no collections exist", and the empty state
+        // invites the user to create a duplicate. Say what happened instead.
+        const failure = error instanceof Error ? error : new Error(String(error));
+        logger.error('Failed to load collections for the explorer import picker', {
+          error: failure,
+        });
+        setLoadError(failure);
+        toast({
+          description: failure.message,
+          title: 'Failed to Load Collections',
+          variant: 'destructive',
+        });
       })
       .finally(() => {
         if (!cancelled) {
@@ -74,7 +93,7 @@ export function ExplorerCollectionPicker({
     return () => {
       cancelled = true;
     };
-  }, [cachedCollections.length, db, setCachedCollections]);
+  }, [cachedCollections.length, db, setCachedCollections, toast]);
 
   // Same rule as SearchCollectionSelector: workspace-index sets are never a
   // manual import target and must not appear as one.
@@ -126,6 +145,19 @@ export function ExplorerCollectionPicker({
     },
     [cachedCollections, onCollectionChange]
   );
+
+  if (loadError) {
+    return (
+      <div
+        className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-xs"
+        data-testid="explorer-import-picker-error"
+        role="alert"
+      >
+        <p className="font-medium">Couldn't load collections</p>
+        <p className="mt-1 break-words">{loadError.message}</p>
+      </div>
+    );
+  }
 
   return (
     <ErrorBoundary>

@@ -1,24 +1,33 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   FileExplorerSelectionActions,
   useSelectionActionBarPin,
 } from '../file-explorer-selection-actions';
 
-/** Mirrors how FileExplorerPanel hosts the bar. */
+/**
+ * Mirrors how FileExplorerPanel hosts the bar: the pin latch lives above it so
+ * the scroll owner's padding can track the bar's real visibility.
+ */
 function BarHost({
   onClear = vi.fn(),
+  onBarVisibleChange,
   selectedCount,
   trailingContent,
 }: {
+  onBarVisibleChange?: (visible: boolean) => void;
   onClear?: () => void;
   selectedCount: number;
   trailingContent?: ReactNode;
 }) {
+  const [pinned, setPinned] = useState(false);
+  onBarVisibleChange?.(selectedCount > 0 || pinned);
   return (
     <FileExplorerSelectionActions
       onClear={onClear}
+      onPinnedChange={setPinned}
+      pinned={pinned}
       selectedCount={selectedCount}
       trailingContent={trailingContent}
     />
@@ -125,6 +134,39 @@ describe('FileExplorerSelectionActions', () => {
     expect(screen.getByTestId('explorer-selection-actions')).toBeInTheDocument();
     expect(screen.getByTestId('pinning-action')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('0 files selected');
+  });
+
+  it('reports the pinned-at-zero-selection state to its host so padding can follow', () => {
+    const visibility: boolean[] = [];
+    const onBarVisibleChange = (visible: boolean) => visibility.push(visible);
+
+    const { rerender } = render(
+      <BarHost
+        onBarVisibleChange={onBarVisibleChange}
+        selectedCount={2}
+        trailingContent={<PinningAction busy />}
+      />
+    );
+    rerender(
+      <BarHost
+        onBarVisibleChange={onBarVisibleChange}
+        selectedCount={0}
+        trailingContent={<PinningAction busy />}
+      />
+    );
+
+    // The host must still see the bar as visible at zero selection, otherwise
+    // the scroll owner drops its padding and the bar covers the last rows.
+    expect(visibility.at(-1)).toBe(true);
+  });
+
+  it('throws when an action tries to pin outside the bar', () => {
+    function OrphanAction() {
+      useSelectionActionBarPin(true);
+      return null;
+    }
+
+    expect(() => render(<OrphanAction />)).toThrow(/must be used within/);
   });
 
   it('releases the bar once the pinned action finishes at zero selection', () => {

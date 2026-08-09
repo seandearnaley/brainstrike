@@ -1,6 +1,11 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
 /**
+ * TWIN FILE — keep in sync with `apps/desktop/e2e/utils/explorer-import.ts`.
+ * The two Playwright projects live in separate apps with separate tsconfigs and
+ * no shared e2e package, so this helper is duplicated rather than imported
+ * across the app boundary. Any change here belongs in both copies.
+ *
  * Drives the collection-import flow from the file explorer's selection action
  * bar (BST-1212). The Database tab no longer has an Import button — the
  * trigger lives where the selection lives, and choosing the target collection
@@ -21,10 +26,6 @@ export function explorerImportTrigger(page: Page): Locator {
 
 export function explorerImportPicker(page: Page): Locator {
   return page.getByTestId('explorer-import-picker');
-}
-
-export function explorerImportProgress(page: Page): Locator {
-  return page.getByTestId('explorer-import-progress');
 }
 
 /**
