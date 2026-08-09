@@ -3,8 +3,13 @@
  *
  * The Explorer tree is lazily enumerated, so "in the tree" already means
  * "visible or under an expanded directory" — unexpanded directories carry no
- * children to walk. Hidden (filtered-out) nodes are skipped using the same
- * `isVisible !== false` rule as `collectVisibleFiles`.
+ * children to walk.
+ *
+ * `isVisible === false` prunes DIRECTORIES as well as files, which is stricter
+ * than `collectVisibleFiles` (that one gates files only, so it still descends
+ * into a hidden directory). Stricter is what indexing wants: a filtered-out
+ * directory is not on screen, so counting its contents is work nobody asked
+ * for. Selection still uses `collectVisibleFiles` and is unaffected.
  *
  * Keys are built from `node.rootFolderId`, matching how the background
  * indexer's handle map keys its entries, so a forest with several roots

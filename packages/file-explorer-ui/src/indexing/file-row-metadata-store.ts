@@ -8,7 +8,10 @@
  * invalidation, no tree-wide notify. Modeled on the per-node selection store
  * (`../tree/optimized-file-tree-selection-store.ts`); the difference is that
  * subscription itself is per key here, because metadata arrives one file at a
- * time instead of in whole-selection sweeps.
+ * time instead of in whole-selection sweeps. For the same reason there are two
+ * invalidation entry points: `invalidate(keys)` for the common case where the
+ * changed key is known (a token arrival), and `invalidateAll()` only for the
+ * bulk events where it is not.
  *
  * Keys are the file-explorer composite keys (`rootId|@|path`, see
  * `@brainstrike/file-explorer/selection`), so paths stay unique to their
@@ -87,12 +90,25 @@ export interface FileRowMetadataStore {
   getSnapshot: (compositeKey: string) => FileRowMetadata;
   /**
    * Re-read the named keys (plus their cached ancestor directories) and notify
-   * ONLY the keys whose value changed. Call from an effect, never during render.
+   * ONLY the keys whose value changed. This is the PRECISE path and the one a
+   * token arrival must use: its cost is O(keys + affected rollups), not
+   * O(rendered rows). Call from an effect or a callback, never during render.
+   *
+   * Takes an array, not an `Iterable`, on purpose: a bare `string` is itself an
+   * iterable of characters, and `invalidate(key)` would silently iterate
+   * letters instead of failing.
    */
-  invalidate: (compositeKeys: Iterable<string>) => void;
+  invalidate: (compositeKeys: readonly string[]) => void;
   /**
-   * Re-read every cached key. Entries nobody subscribes to are evicted instead
-   * of recomputed, which is what bounds the cache to the rows in play.
+   * Re-read every cached key — the RECONCILIATION path, for when the store
+   * cannot know which keys moved (a bulk cache warm, a disk refresh). Costs
+   * O(rendered rows + cached subtrees), so prefer `invalidate` whenever the
+   * changed key is known.
+   *
+   * Entries nobody subscribes to are evicted rather than recomputed: that is
+   * what bounds the caches to the rows in play, and it is also what keeps a
+   * directory rollup honest, since the rollup recomputes its descendants from
+   * source on the next read instead of summing stale snapshots.
    */
   invalidateAll: () => void;
   subscribe: (compositeKey: string, listener: () => void) => () => void;

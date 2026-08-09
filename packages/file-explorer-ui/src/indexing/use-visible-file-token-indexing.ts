@@ -10,24 +10,29 @@
  *
  * Two properties keep it subordinate to the selection path:
  *
- * - **Cached-first.** Each involved folder's persistent cache is warmed once,
- *   then every key the cache can already answer is dropped (and marked indexed,
- *   so later passes skip the probe). Only genuine misses cost any work.
- * - **Throttled.** The debounce floor is `VISIBLE_FILE_INDEXING_DEBOUNCE_MS`,
- *   never faster than the selection trigger's adaptive debounce — the user is
- *   waiting on their selection, not on rows they scrolled past.
+ * - **Cached-first.** Each involved folder's persistent cache is warmed, then
+ *   every key the cache can already answer is dropped (and marked indexed, so
+ *   later passes skip the probe). Only genuine misses cost any work. A warm is
+ *   memoized ONLY once persistence is up: while the DB is still booting
+ *   `preloadFolder` is a no-op, and remembering that no-op would strand every
+ *   visible file on a full re-count for the rest of the session.
+ * - **Throttled.** The `VISIBLE_FILE_INDEXING_DEBOUNCE_MS` floor is 2× the
+ *   selection trigger's longest adaptive delay, so visible work sits behind
+ *   selection work for every batch size except the degenerate case where a huge
+ *   selection and a tiny visible set land in the same window. The two debounces
+ *   are independent — this is a strong bias, not an ordering guarantee.
  *
- * State (`indexedFilesRef`, `inFlightRef`) is SHARED with the selection trigger
- * by design: whichever trigger reaches a file first, the other must not queue
- * it again.
+ * State (`indexedFilesRef`, `inFlightRef`, `preloadedFoldersRef`) is SHARED
+ * with the selection trigger by design: whichever trigger reaches a file first,
+ * the other must not queue it again, and the parent owns the single reset point
+ * for all of it (root change, tree clear, `clearIndexedCache`).
  */
 
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 import { getAdaptiveDebounceMs, VISIBLE_FILE_INDEXING_DEBOUNCE_MS } from '../constants';
-import { normalizeSelectionPathForTokenCache } from './background-token-indexer-dispatch-helpers';
 import type { HandleInfo } from './background-token-indexer-handles';
 import type { TokenCacheContextValue } from './token-cache-context';
 
@@ -49,6 +54,10 @@ export interface UseVisibleFileTokenIndexingParams {
   /** Shared with the selection trigger: keys currently being counted. */
   inFlightRef: MutableRefObject<Set<string>>;
   isTokenCacheOperational: boolean;
+  /** Re-arms the effect when the DB comes up, so a no-op warm gets retried. */
+  isTokenCachePersisted: boolean;
+  /** Parent-owned memo of folders already warmed for THIS trigger. */
+  preloadedFoldersRef: MutableRefObject<Set<string>>;
   tokenCacheRef: MutableRefObject<TokenCacheContextValue | null>;
   /** The selection trigger's dispatch path, reused verbatim. */
   triggerIndexing: (compositeKeys: string[]) => Promise<void>;
@@ -64,16 +73,12 @@ export function useVisibleFileTokenIndexing({
   indexVersion,
   inFlightRef,
   isTokenCacheOperational,
+  isTokenCachePersisted,
+  preloadedFoldersRef,
   tokenCacheRef,
   triggerIndexing,
   visibleFiles,
 }: UseVisibleFileTokenIndexingParams): void {
-  // Folder warms are memoized for this hook's lifetime. `folderId` is a durable
-  // RootId, so a root switch cannot produce a stale hit, and the warm itself is
-  // idempotent — anything written after it came from an index we dispatched,
-  // which already wrote the hot cache.
-  const [preloadedFolders] = useState<Set<string>>(() => new Set());
-
   const indexVisibleFiles = useCallback(
     async (compositeKeys: readonly string[]): Promise<void> => {
       const cache = tokenCacheRef.current;
@@ -87,12 +92,17 @@ export function useVisibleFileTokenIndexing({
       }
       const warmups: Promise<void>[] = [];
       for (const folderId of folderIds) {
-        if (preloadedFolders.has(folderId)) {
+        if (preloadedFoldersRef.current.has(folderId)) {
           continue;
         }
         warmups.push(
           cache.preloadFolder(folderId).then(() => {
-            preloadedFolders.add(folderId);
+            // Only remember a warm that could actually have read the DB. Before
+            // persistence is up `preloadFolder` reads nothing, and memoizing
+            // that would defeat cached-first for the whole session.
+            if (tokenCacheRef.current?.isPersisted) {
+              preloadedFoldersRef.current.add(folderId);
+            }
           })
         );
       }
@@ -101,16 +111,10 @@ export function useVisibleFileTokenIndexing({
       const uncachedKeys: string[] = [];
       for (const compositeKey of compositeKeys) {
         const { folderId, path } = decodeFileSelection(compositeKey);
-        let normalizedFilePath: string;
-        try {
-          normalizedFilePath = normalizeSelectionPathForTokenCache(folderId, path);
-        } catch {
-          // Hand it to the dispatch planner, which classifies and logs the
-          // unsafe path, rather than dropping it silently here.
-          uncachedKeys.push(compositeKey);
-          continue;
-        }
-        if (cache.getTokenCount(folderId, normalizedFilePath) === null) {
+        // `getTokenCount` normalizes the path itself (non-throwing: an unsafe
+        // path reads as a miss), so unsafe paths fall through to the dispatch
+        // planner, which classifies and logs them.
+        if (cache.getTokenCount(folderId, path) === null) {
           uncachedKeys.push(compositeKey);
           continue;
         }
@@ -127,7 +131,7 @@ export function useVisibleFileTokenIndexing({
         await triggerIndexing(uncachedKeys);
       }
     },
-    [indexedFilesRef, preloadedFolders, tokenCacheRef, triggerIndexing]
+    [indexedFilesRef, preloadedFoldersRef, tokenCacheRef, triggerIndexing]
   );
 
   useEffect(() => {
@@ -165,6 +169,7 @@ export function useVisibleFileTokenIndexing({
     inFlightRef,
     tokenCacheRef,
     isTokenCacheOperational,
+    isTokenCachePersisted,
     fileHandleMapSize,
     indexVersion,
   ]);

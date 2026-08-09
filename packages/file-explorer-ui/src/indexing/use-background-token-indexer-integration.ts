@@ -327,6 +327,9 @@ export function useBackgroundTokenIndexerIntegration({
   // match the current selection. This prevents shallow initial selections from suppressing later
   // hydration when the same folder expands to include additional files.
   const preloadedFoldersRef = useRef<Map<string, PreloadedFolderSnapshot>>(new Map());
+  // The VISIBLE trigger's own folder-warm memo. Separate from the map above
+  // (which tracks selection-path coverage) but reset in the same places.
+  const preloadedVisibleFoldersRef = useRef<Set<string>>(new Set());
   // Track previous persistence state to clear preload memo when persistence changes
   const previousPersistedStateRef = useRef<boolean | undefined>(undefined);
   const selectionSkipReasonRef = useRef<string | null>(null);
@@ -385,6 +388,7 @@ export function useBackgroundTokenIndexerIntegration({
       inFlightRef.current.clear();
       pendingNoHandleRef.current.clear();
       preloadedFoldersRef.current.clear();
+      preloadedVisibleFoldersRef.current.clear();
       bumpInFlightPulse((v) => v + 1);
       logger.debug('Cleared caches due to root folder change', {
         nextRootIds: rootFingerprint,
@@ -1162,9 +1166,8 @@ export function useBackgroundTokenIndexerIntegration({
     // Exit early if no files selected or no file handles available yet.
     // During startup, selection may be restored from storage before file tree has handles.
     // When FileTreeIndex is available, skip the local map size check since we use index lookups.
-    const hasHandleSource = indexGetHandleRef.current || fileHandleMapRef.current.size > 0;
     const skipReason = getSelectionSkipState({
-      hasHandleSource: Boolean(hasHandleSource),
+      hasHandleSource: Boolean(indexGetHandleRef.current) || fileHandleMapRef.current.size > 0,
       selectedCount: selectedFiles.size,
     });
     if (skipReason) {
@@ -1214,6 +1217,8 @@ export function useBackgroundTokenIndexerIntegration({
     indexVersion,
     inFlightRef,
     isTokenCacheOperational: tokenCacheIsOperational,
+    isTokenCachePersisted: tokenCacheIsPersisted,
+    preloadedFoldersRef: preloadedVisibleFoldersRef,
     tokenCacheRef,
     triggerIndexing,
     visibleFiles,
@@ -1226,6 +1231,7 @@ export function useBackgroundTokenIndexerIntegration({
     if (fileTree.length === 0) {
       indexedFilesRef.current.clear();
       pendingNoHandleRef.current.clear();
+      preloadedVisibleFoldersRef.current.clear();
       if (inFlightRef.current.size > 0) {
         inFlightRef.current.clear();
         bumpInFlightPulse((value) => value + 1);
@@ -1468,8 +1474,9 @@ export function useBackgroundTokenIndexerIntegration({
     indexedFilesRef.current.clear();
     inFlightRef.current.clear();
     pendingNoHandleRef.current.clear();
-    // P0 optimization: Also clear preload memo to force re-preload
+    // P0 optimization: Also clear preload memos to force re-preload
     preloadedFoldersRef.current.clear();
+    preloadedVisibleFoldersRef.current.clear();
     bumpInFlightPulse((v) => v + 1);
     logger.debug('Manually cleared indexed cache', { previousSize });
   }, []);

@@ -58,6 +58,11 @@ const tokenCacheContext = {
   updateHotCache: vi.fn(),
 } as unknown as TokenCacheContextValue;
 
+/** Mutable view for the startup tests that flip persistence mid-run. */
+const mutableTokenCacheContext = tokenCacheContext as unknown as {
+  isPersisted: boolean;
+};
+
 vi.mock('../indexing/token-cache-context', () => ({
   useOptionalTokenCacheContext: () => tokenCacheContext,
 }));
@@ -123,11 +128,25 @@ function renderIntegration(props: {
   );
 }
 
+/** Render with a re-renderable visible set (for the persistence-transition tests). */
+function renderVisibleFiles(initialProps: ReadonlySet<string>) {
+  return renderHook(
+    (visibleFiles: ReadonlySet<string>) =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree,
+        selectedFiles: EMPTY_SELECTION,
+        visibleFiles,
+      }),
+    { initialProps }
+  );
+}
+
 describe('useBackgroundTokenIndexerIntegration visible-file trigger', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     getTokenCountMock.mockReturnValue(null);
+    mutableTokenCacheContext.isPersisted = true;
   });
 
   it('indexes visible files that were never selected', async () => {
@@ -179,6 +198,34 @@ describe('useBackgroundTokenIndexerIntegration visible-file trigger', () => {
     await flushTimers();
 
     expect(indexedPaths()).toEqual(['a.txt']);
+  });
+
+  it('does not memoize a warm that ran before the DB was up', async () => {
+    // Startup order: the token worker is operational before PGlite is. A warm
+    // in that window reads nothing, so remembering it would make every later
+    // visible file skip the cache and get a full re-count for the rest of the
+    // session.
+    mutableTokenCacheContext.isPersisted = false;
+    const { rerender } = renderVisibleFiles(new Set([VISIBLE_A]));
+    await flushTimers();
+    expect(preloadFolderMock).toHaveBeenCalledTimes(1);
+
+    mutableTokenCacheContext.isPersisted = true;
+    rerender(new Set([VISIBLE_A, VISIBLE_B]));
+    await flushTimers();
+
+    expect(preloadFolderMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('warms a folder only once while persistence is already up', async () => {
+    const { rerender } = renderVisibleFiles(new Set([VISIBLE_A]));
+    await flushTimers();
+    expect(preloadFolderMock).toHaveBeenCalledTimes(1);
+
+    rerender(new Set([VISIBLE_A, VISIBLE_B]));
+    await flushTimers();
+
+    expect(preloadFolderMock).toHaveBeenCalledTimes(1);
   });
 
   it('does not re-dispatch a file the selection trigger already queued', async () => {

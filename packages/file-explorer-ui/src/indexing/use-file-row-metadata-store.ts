@@ -10,17 +10,29 @@
  * - The preferred size and the directory subtree enumeration come from the
  *   caller (the tree), so the store stays free of tree traversal.
  *
- * Invalidation has exactly two triggers, both existing channels:
- * the token cache's `cacheVersion` (a count landed) and
- * `FILE_EXPLORER_REFRESH_EVENT` (the on-disk tree changed). No polling, no new
- * event channel — see docs/agents/explorer-search-tapestry.md "EXPLORER TREE
- * LIVE REFRESH". Both trigger `invalidateAll`, which diffs per key and notifies
- * only the keys whose value actually moved, so a single count landing cannot
- * re-render an unrelated row.
+ * INVALIDATION rides existing channels only — no polling, no new event channel
+ * (docs/agents/explorer-search-tapestry.md "EXPLORER TREE LIVE REFRESH"). There
+ * are two paths, and the split is the whole point:
+ *
+ * 1. **Precise (the hot path).** The returned `onTokenResolved` must be passed
+ *    to `useBackgroundTokenIndexerIntegration`. Every count the indexer resolves
+ *    names its own composite key, so the store re-reads THAT key and the cached
+ *    ancestor rollups only — O(affected keys) per arrival, whatever the tree
+ *    size.
+ * 2. **Reconciliation (the safety net).** Bulk hot-cache writes that name no
+ *    key — `preloadFolder`, the warm-cache `updateHotCache` hydration, size
+ *    backfills — only surface as a `cacheVersion` bump. Dropping that trigger
+ *    would strand a reopened workspace's already-cached counts on `pending`
+ *    forever, so it stays; but because `cacheVersion` is debounced at 50ms and
+ *    therefore bumps ~20×/s during an index run (once per batch, alongside the
+ *    precise calls above), the full pass is COALESCED behind a trailing timer.
+ *    An operational transition and FILE_EXPLORER_REFRESH_EVENT reconcile
+ *    immediately — both are one-shot and user-visible.
  */
 
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RECONCILE_METADATA_DEBOUNCE_MS } from '../constants';
 import { FILE_EXPLORER_REFRESH_EVENT } from '../shell/file-explorer-refresh-event';
 import {
   createFileRowMetadataStore,
@@ -40,9 +52,19 @@ export interface UseFileRowMetadataStoreParams {
   getNodeSize: (compositeKey: string) => number | undefined;
 }
 
+export interface UseFileRowMetadataStoreResult {
+  /**
+   * Pass this straight to `useBackgroundTokenIndexerIntegration`'s
+   * `onTokenResolved`. It is the precise invalidation path; without it every
+   * count arrival degrades into a full re-scan of every rendered row.
+   */
+  onTokenResolved: (compositeKey: string) => void;
+  store: FileRowMetadataStore;
+}
+
 export function useFileRowMetadataStore(
   params: UseFileRowMetadataStoreParams
-): FileRowMetadataStore {
+): UseFileRowMetadataStoreResult {
   const tokenCache = useOptionalTokenCacheContext();
 
   // Latest-value refs: the store's source closures are created once, so they
@@ -84,24 +106,61 @@ export function useFileRowMetadataStore(
     tokenCacheRef.current = tokenCache;
   });
 
-  // A count landing bumps cacheVersion; the cache also goes from unusable to
-  // usable without a version change, which turns every `pending` into a real
-  // value. Both re-read every cached key and notify only the ones that moved.
+  // Precise path. `handleFileIndexed` writes the hot cache before invoking this,
+  // so the fresh count is already readable.
+  const onTokenResolved = useCallback(
+    (compositeKey: string) => {
+      store.invalidate([compositeKey]);
+    },
+    [store]
+  );
+
+  const reconcileTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleReconcile = useMemo(() => {
+    const cancel = (): void => {
+      if (reconcileTimeoutRef.current !== null) {
+        clearTimeout(reconcileTimeoutRef.current);
+        reconcileTimeoutRef.current = null;
+      }
+    };
+    return {
+      cancel,
+      /** Trailing-coalesced: a burst of version bumps costs ONE full pass. */
+      schedule: (): void => {
+        cancel();
+        reconcileTimeoutRef.current = setTimeout(() => {
+          reconcileTimeoutRef.current = null;
+          store.invalidateAll();
+        }, RECONCILE_METADATA_DEBOUNCE_MS);
+      },
+    };
+  }, [store]);
+
   const cacheVersion = tokenCache?.cacheVersion ?? 0;
+  useEffect(() => {
+    scheduleReconcile.schedule();
+    return scheduleReconcile.cancel;
+  }, [cacheVersion, scheduleReconcile]);
+
+  // The cache going from unusable to usable turns every `pending` into a real
+  // value at once, and can happen without a version bump. One-shot, so it does
+  // not need coalescing — and a pending trailing pass would be redundant after.
   const isCacheOperational = tokenCache?.isOperational ?? false;
   useEffect(() => {
+    scheduleReconcile.cancel();
     store.invalidateAll();
-  }, [cacheVersion, isCacheOperational, store]);
+  }, [isCacheOperational, scheduleReconcile, store]);
 
   useEffect(() => {
     const handleRefreshEvent = (): void => {
+      scheduleReconcile.cancel();
       store.invalidateAll();
     };
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefreshEvent);
     return () => {
       window.removeEventListener(FILE_EXPLORER_REFRESH_EVENT, handleRefreshEvent);
     };
-  }, [store]);
+  }, [scheduleReconcile, store]);
 
-  return store;
+  return useMemo(() => ({ onTokenResolved, store }), [onTokenResolved, store]);
 }

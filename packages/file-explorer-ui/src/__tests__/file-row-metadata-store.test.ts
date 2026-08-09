@@ -185,6 +185,39 @@ describe('createFileRowMetadataStore per-key notification', () => {
     expect(second).toHaveBeenCalledTimes(1);
   });
 
+  it('recomputes only the invalidated key, where invalidateAll recomputes them all', () => {
+    // The cost contract: a token arrival names its key, so the work must be
+    // O(affected keys). `getTokenCount` is the compute path's entry point, so
+    // counting its calls measures exactly how many rows were recomputed.
+    const tokens: Record<string, number> = {};
+    const getTokenCount = vi.fn((compositeKey: string) => tokens[compositeKey]);
+    const store = createFileRowMetadataStore({
+      getCachedSize: () => undefined,
+      getDirectorySubtree: () => null,
+      getNodeSize: () => 1,
+      getTokenCount,
+    });
+    const rows = ['a', 'b', 'c', 'd'].map((name) => key(`src/${name}.ts`));
+    for (const row of rows) {
+      store.subscribe(row, () => undefined);
+      store.getSnapshot(row);
+    }
+    const [resolved] = rows;
+    if (resolved === undefined) {
+      throw new Error('fixture must provide rows');
+    }
+
+    getTokenCount.mockClear();
+    tokens[resolved] = 5;
+    store.invalidate([resolved]);
+    expect(getTokenCount.mock.calls.map(([compositeKey]) => compositeKey)).toEqual([resolved]);
+
+    // Contrast pins the difference the precise path exists to avoid.
+    getTokenCount.mockClear();
+    store.invalidateAll();
+    expect(getTokenCount).toHaveBeenCalledTimes(rows.length);
+  });
+
   it('drops cache entries for keys nobody subscribes to (bounded growth)', () => {
     const getTokenCount = vi.fn(() => undefined);
     const store = createFileRowMetadataStore({

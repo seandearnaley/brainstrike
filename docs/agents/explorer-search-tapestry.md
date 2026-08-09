@@ -257,16 +257,23 @@ binary/size exclusions and the indexed/in-flight de-duplication are shared:
 2. **Visible/expanded rows** (`visibleFiles` prop, implemented in
    `packages/file-explorer-ui/src/indexing/use-visible-file-token-indexing.ts`).
    Feeds the tree grid's token column for rows the user only expanded. It is
-   **cached-first** — each folder's persistent cache is warmed once via
+   **cached-first** — each folder's persistent cache is warmed via
    `preloadFolder`, then every key the hot cache can already answer is dropped
-   and marked indexed — and **throttled** behind the selection trigger with a
-   `VISIBLE_FILE_INDEXING_DEBOUNCE_MS` floor. Because the Explorer tree is
-   lazily enumerated, "in the tree" already means "visible or under an expanded
-   directory"; `collectVisibleFileSelectionKeys` walks the quick-filtered tree
-   and keys by `node.rootFolderId` so forest roots stay distinct.
+   and marked indexed. A warm is memoized only once `isPersisted` is true: the
+   worker goes operational before PGlite does, and remembering that no-op warm
+   would strand every later visible file on a full re-count. The memo is the
+   parent-owned `preloadedVisibleFoldersRef`, reset with the other indexer memos
+   on root change, tree clear, and `clearIndexedCache`.
+   It is **throttled** by a `VISIBLE_FILE_INDEXING_DEBOUNCE_MS` floor set to 2×
+   the selection trigger's longest adaptive delay. The two debounces are
+   independent, so this is a strong bias toward selection-first, NOT a
+   guarantee — do not write code or docs that depend on strict ordering.
+   Because the Explorer tree is lazily enumerated, "in the tree" already means
+   "visible or under an expanded directory"; `collectVisibleFileSelectionKeys`
+   walks the quick-filtered tree and keys by `node.rootFolderId` so forest roots
+   stay distinct.
 
-Do not add a third trigger, and do not let the visible trigger outrun the
-selection trigger — the selection is what the user is blocked on.
+Do not add a third trigger.
 
 Per-row metadata for the tree grid (tokens/size/type + directory rollups) is
 read through `FileRowMetadataStore`
@@ -275,9 +282,22 @@ per-composite-key external store. Rules that must hold: an uncounted file reads
 `pending` and a binary reads `excluded` (never a silent zero); a directory
 rollup is only `complete` when the subtree is fully enumerated AND every
 descendant's metadata has landed, otherwise it is an explicit `partial` marker;
-and a count landing for one key must not re-render any other row. Invalidation
-rides the token cache's `cacheVersion` and the `FILE_EXPLORER_REFRESH_EVENT`
-below — no third channel, no polling. Paired tests:
+and a count landing for one key must not re-render any other row.
+
+Invalidation has two paths and the split is load-bearing. `useFileRowMetadataStore`
+returns an `onTokenResolved` that MUST be passed to
+`useBackgroundTokenIndexerIntegration`: every resolved count names its own
+composite key, so the store re-reads that key plus its cached ancestor rollups —
+O(affected keys), whatever the tree size. The full `invalidateAll` reconciliation
+exists only for bulk writes that name no key (`preloadFolder`, warm-cache
+hydration), which surface solely as a `cacheVersion` bump; since that bump is
+debounced at 50ms and therefore fires ~20×/s during an index run, the
+version-driven pass is coalesced behind a trailing
+`RECONCILE_METADATA_DEBOUNCE_MS` timer. Operational transitions and
+`FILE_EXPLORER_REFRESH_EVENT` reconcile immediately. Do not drop the
+reconciliation path (a reopened workspace's already-cached counts would sit on
+`pending` forever) and do not make it the per-count path. No third channel, no
+polling. Paired tests:
 `packages/file-explorer-ui/src/__tests__/file-row-metadata-store.test.ts`,
 `packages/file-explorer-ui/src/__tests__/file-row-metadata-render-stability.test.tsx`,
 `packages/file-explorer-ui/src/__tests__/use-file-row-metadata-store.test.tsx`,
