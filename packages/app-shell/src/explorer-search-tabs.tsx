@@ -9,7 +9,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { lazy, type ReactElement, Suspense, useCallback, useState } from 'react';
+import { lazy, type ReactElement, Suspense, useCallback, useMemo, useState } from 'react';
 import { ExplorerImportAction } from './explorer-import-action';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
 
@@ -87,6 +87,13 @@ export function ExplorerSearchTabs({
     [setExplorerActiveTab]
   );
 
+  // FileExplorerPanelInner is memoized; a fresh element identity here would
+  // re-render the whole tree panel on every tab switch.
+  const importAction = useMemo(
+    () => <ExplorerImportAction loadEmbeddingQueue={loadEmbeddingQueue} />,
+    [loadEmbeddingQueue]
+  );
+
   const searchTabMountProps = searchEverActivated
     ? ({
         forceMount: true,
@@ -131,9 +138,7 @@ export function ExplorerSearchTabs({
         hidden={activeTab !== 'explorer'}
         value="explorer"
       >
-        <FileExplorerPanel
-          selectionActions={<ExplorerImportAction loadEmbeddingQueue={loadEmbeddingQueue} />}
-        />
+        <FileExplorerPanel selectionActions={importAction} />
       </TabsContent>
 
       <TabsContent
