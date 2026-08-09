@@ -2,6 +2,7 @@ import {
   decodeToolOutputArtifactContent,
   decodeToolOutputArtifactCursor,
   encodeToolOutputArtifactCursor,
+  TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
 import { describe, expect, it, vi } from 'vitest';
@@ -12,7 +13,10 @@ import {
   readToolOutputArtifactPage,
   type ScopedToolOutputArtifactReader,
 } from '../mastra/tool-output-artifact-reader';
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '../stream/tool-output-limits';
+import {
+  decodedTextModelOutputChars,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+} from '../stream/tool-output-limits';
 
 const TEXT_ENCODER = new TextEncoder();
 const NOW = new Date('2026-07-20T12:00:00.000Z');
@@ -502,7 +506,7 @@ describe('tool output artifact reader', () => {
     ).toBe('head-needle-m');
   });
 
-  it('rejects a catastrophic-backtracking regex pattern before compiling it (no silent literal fallback)', async () => {
+  it('rejects a catastrophic-backtracking regex pattern before compiling it, with a pattern-specific reason and message (no silent literal fallback, never confusable with a bad cursor)', async () => {
     const content =
       'safe content with no pathological input, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!';
     const artifactRef = referenceFor(content);
@@ -517,7 +521,47 @@ describe('tool output artifact reader', () => {
         },
         { now: () => NOW, reader: readerFor(content, artifactRef) }
       )
-    ).rejects.toMatchObject({ reason: 'invalid_input' });
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('catastrophic backtracking'),
+      reason: 'invalid_search_pattern',
+    });
+  });
+
+  it('rejects a syntactically invalid regex pattern at parse time (fail-fast, mirrors GrepSearchInputSchema)', async () => {
+    const content = 'irrelevant';
+    const artifactRef = referenceFor(content);
+
+    const parsed = ReadToolOutputArtifactInputSchema.safeParse({
+      cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+      isRegex: true,
+      mode: 'cursor',
+      pattern: '(unterminated[',
+    });
+    expect(parsed.success).toBe(false);
+    if (parsed.success) {
+      throw new TypeError('Expected schema parse to fail.');
+    }
+    expect(parsed.error.issues).toContainEqual(
+      expect.objectContaining({
+        message: 'pattern is not a valid JavaScript regular expression (isRegex is true)',
+        path: ['pattern'],
+      })
+    );
+
+    await expect(
+      readToolOutputArtifact(
+        {
+          cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+          isRegex: true,
+          mode: 'cursor',
+          pattern: '(unterminated[',
+        },
+        { now: () => NOW, reader: readerFor(content, artifactRef) }
+      )
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('pattern is not a valid JavaScript regular expression'),
+      reason: 'invalid_search_pattern',
+    });
   });
 
   it('still matches with a safe regex pattern once the ReDoS guard is applied', async () => {
@@ -650,5 +694,107 @@ describe('tool output artifact reader', () => {
         { now: () => NOW, reader: readerFor(content, artifactRef) }
       )
     ).rejects.toMatchObject({ reason: 'invalid_input' });
+  });
+
+  it('does not hand a phantom empty final line to the matcher when a scanned slice ends exactly at a line break, while a genuine blank line mid-content still matches', async () => {
+    const trailingBreakContent = 'foo\nbar\n';
+    const trailingBreakRef = referenceFor(trailingBreakContent);
+    const trailingBreakResult = await readToolOutputArtifact(
+      {
+        cursor: encodeToolOutputArtifactCursor(trailingBreakRef, 0),
+        isRegex: true,
+        mode: 'cursor',
+        pattern: '^$',
+      },
+      { now: () => NOW, reader: readerFor(trailingBreakContent, trailingBreakRef) }
+    );
+    if (!('matches' in trailingBreakResult)) {
+      throw new TypeError('Expected a search result.');
+    }
+    expect(trailingBreakResult.matches).toHaveLength(0);
+
+    const midBlankLineContent = 'foo\n\nbar';
+    const midBlankLineRef = referenceFor(midBlankLineContent);
+    const midBlankLineResult = await readToolOutputArtifact(
+      {
+        cursor: encodeToolOutputArtifactCursor(midBlankLineRef, 0),
+        isRegex: true,
+        mode: 'cursor',
+        pattern: '^$',
+      },
+      { now: () => NOW, reader: readerFor(midBlankLineContent, midBlankLineRef) }
+    );
+    if (!('matches' in midBlankLineResult)) {
+      throw new TypeError('Expected a search result.');
+    }
+    expect(midBlankLineResult.matches).toHaveLength(1);
+    expect(midBlankLineResult.matches[0]?.line).toBe(2);
+    expect(midBlankLineResult.matches[0]?.lineText).toBe('');
+  });
+
+  it('scans a multi-page-sized artifact in ONE call and finds a deep match, decoupled from the page/projection byte budget', async () => {
+    const filler = Array.from(
+      { length: 300 },
+      (_, index) => `line-${index}-${'x'.repeat(50)}`
+    ).join('\n');
+    const content = `${filler}\nDEEPMATCH-here\n${filler}`;
+    const artifactRef = referenceFor(content);
+    expect(artifactRef.byteLength).toBeGreaterThan(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES);
+    const reader = readerFor(content, artifactRef);
+    const readRange = vi.spyOn(reader, 'readRange');
+
+    const result = await readToolOutputArtifact(
+      {
+        cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+        mode: 'cursor',
+        pattern: 'DEEPMATCH',
+      },
+      { now: () => NOW, reader }
+    );
+    if (!('matches' in result)) {
+      throw new TypeError('Expected a search result.');
+    }
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]?.lineText).toBe('DEEPMATCH-here');
+    expect(result.searchLimited).toBe(false);
+
+    const requestedLimitBytes = readRange.mock.calls[0]?.[0]?.limitBytes;
+    expect(requestedLimitBytes).toBeGreaterThan(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES);
+  });
+
+  it('still bounds rendered matches to the projection budget with continuation when a large scan overflows it', async () => {
+    const line = (index: number) => `match-${index}-${'y'.repeat(620)}`;
+    const content = Array.from({ length: 20 }, (_, index) => line(index)).join('\n');
+    const artifactRef = referenceFor(content);
+    const reader = readerFor(content, artifactRef);
+    const readRange = vi.spyOn(reader, 'readRange');
+
+    const result = await readToolOutputArtifact(
+      {
+        cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+        mode: 'cursor',
+        pattern: 'match-',
+      },
+      { now: () => NOW, reader }
+    );
+    if (!('matches' in result)) {
+      throw new TypeError('Expected a search result.');
+    }
+    // The whole artifact was scanned in one call (decoupled scan window)...
+    expect(result.matches.length).toBe(20);
+    expect(result.searchLimited).toBe(false);
+    const requestedLimitBytes = readRange.mock.calls[0]?.[0]?.limitBytes;
+    expect(requestedLimitBytes).toBeGreaterThan(TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES);
+
+    // ...but the PROJECTION still fits the domain budget and hints a
+    // continuation for the matches it could not render, exactly like a
+    // budget-limited page.
+    const projection = projectToolOutputArtifactPage(result);
+    expect(projection.value).toContain(
+      'continue: reuse the prior brainstrike.readToolOutputArtifact search input with cursor='
+    );
+    expect(decodedTextModelOutputChars(projection.value)).toBeLessThanOrEqual(
+      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
   });
 });

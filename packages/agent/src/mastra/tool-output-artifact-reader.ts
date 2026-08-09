@@ -19,7 +19,12 @@ import {
   decodedTextModelOutputChars,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
 } from '../stream/tool-output-limits';
-import { formatGrepContentHeader, formatGrepContentRow } from './grep-model-format';
+import {
+  clipGrepProjectionLine,
+  formatGrepContentHeader,
+  formatGrepContentRow,
+  GREP_MATCH_LINE_MAX_CHARS,
+} from './grep-model-format';
 
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const TEXT_ENCODER = new TextEncoder();
@@ -49,7 +54,7 @@ const ArtifactCursorSchema = z
   .min(1)
   .max(2048)
   .refine(isToolOutputArtifactCursor, 'Malformed tool output artifact cursor')
-  .describe('Prior cursor; copy exactly.');
+  .describe('Prior cursor; copy byte-for-byte, never edit or recreate it.');
 
 const ArtifactSearchPatternSchema = z.string().min(1).max(2000);
 
@@ -61,17 +66,35 @@ function requireSearchPatternForFlags(
   },
   context: z.RefinementCtx
 ): void {
-  if (input.pattern !== undefined) {
+  if (input.pattern === undefined) {
+    for (const field of ['caseSensitive', 'isRegex'] as const) {
+      if (input[field] !== undefined) {
+        context.addIssue({
+          code: 'custom',
+          message: `${field} requires pattern.`,
+          path: [field],
+        });
+      }
+    }
     return;
   }
-  for (const field of ['caseSensitive', 'isRegex'] as const) {
-    if (input[field] !== undefined) {
-      context.addIssue({
-        code: 'custom',
-        message: `${field} requires pattern.`,
-        path: [field],
-      });
-    }
+  if (input.isRegex !== true) {
+    return;
+  }
+  // Fail-fast: mirrors GrepSearchInputSchema's regex refine
+  // (schemas-search.ts) — reject an invalid pattern at parse rather than
+  // deferring the failure to execution (no silent fallback). ReDoS-shape
+  // safety is a separate, execution-time check (assertSafeRegexSource in
+  // createSearchMatcher, matching the shared guard grepSearch's own matcher
+  // uses) since it is about the pattern's SHAPE, not its syntax.
+  try {
+    new RegExp(input.pattern);
+  } catch {
+    context.addIssue({
+      code: 'custom',
+      message: 'pattern is not a valid JavaScript regular expression (isRegex is true)',
+      path: ['pattern'],
+    });
   }
 }
 
@@ -178,6 +201,7 @@ export type ToolOutputArtifactReadFailureReason =
   | 'artifact_incoherent'
   | 'artifact_not_found'
   | 'invalid_input'
+  | 'invalid_search_pattern'
   | 'malformed_cursor'
   | 'non_progress'
   | 'storage_failed';
@@ -192,6 +216,8 @@ function messageForReadFailure(reason: ToolOutputArtifactReadFailureReason): str
       return 'The tool output artifact is unavailable in this thread.';
     case 'invalid_input':
       return 'The tool output artifact read input is invalid.';
+    case 'invalid_search_pattern':
+      return 'The tool output artifact search pattern is invalid.';
     case 'malformed_cursor':
       return 'The tool output artifact continuation cursor is malformed.';
     case 'non_progress':
@@ -204,9 +230,18 @@ function messageForReadFailure(reason: ToolOutputArtifactReadFailureReason): str
 export class ToolOutputArtifactReadError extends Error {
   constructor(
     readonly reason: ToolOutputArtifactReadFailureReason,
-    cause?: unknown
+    cause?: unknown,
+    /**
+     * Overrides the reason's generic message with a dynamic, specific one
+     * (e.g. echoing which field/pattern was the problem) so this failure is
+     * never indistinguishable from an unrelated `invalid_input`/`malformed_cursor`
+     * case sharing the same reason code.
+     */
+    message?: string
   ) {
-    super(messageForReadFailure(reason), { ...(cause === undefined ? {} : { cause }) });
+    super(message ?? messageForReadFailure(reason), {
+      ...(cause === undefined ? {} : { cause }),
+    });
     this.name = 'ToolOutputArtifactReadError';
   }
 }
@@ -217,6 +252,25 @@ export interface ReadToolOutputArtifactPageOptions {
 }
 
 const TOOL_OUTPUT_ARTIFACT_READER_TOOL_ID = NATIVE_TOOL_ID.readToolOutputArtifact;
+
+/**
+ * Search's SCAN window, decoupled from the page/projection byte budget
+ * (`maxBytes`, capped at TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES = 8000). A
+ * search call that only scanned one page-sized slice per call would need the
+ * same number of round-trips as plain paging to find a deep match, defeating
+ * the whole motivation for search over paging. 16x the max page bytes
+ * (128,000 bytes / ~125KB) meaningfully reduces round-trips for a
+ * multi-hundred-KB artifact while staying a bounded, predictable per-call
+ * read cost — far short of reading an entire (up to 16MB,
+ * TOOL_OUTPUT_ARTIFACT_SETTLEMENT_MAX_BYTES) artifact in one call. The
+ * RENDERED matches stay bounded by the unchanged domain projection budget
+ * (MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) via the standard
+ * fit-with-continuation loop in projectToolOutputArtifactSearchResult: a
+ * caller may still request a smaller scan explicitly via `maxBytes` (bounded
+ * as before), but omitting it now defaults to this larger scan rather than
+ * the small page default.
+ */
+const TOOL_OUTPUT_ARTIFACT_SEARCH_SCAN_BYTES = TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES * 16;
 
 interface ToolOutputArtifactModelPage {
   readonly complete?: true;
@@ -413,22 +467,6 @@ function isToolOutputArtifactSearchResult(value: unknown): value is ToolOutputAr
   );
 }
 
-function projectionSingleLine(value: string): string {
-  return value.replace(/\s+/gu, ' ').trim();
-}
-
-function clipSearchLine(value: string): string {
-  const normalized = projectionSingleLine(value);
-  const codePoints = Array.from(normalized);
-  const maximumChars = 600;
-  if (codePoints.length <= maximumChars) {
-    return normalized;
-  }
-  return `${codePoints.slice(0, maximumChars).join('')}…[${
-    codePoints.length - maximumChars
-  } line chars omitted]`;
-}
-
 function searchContinuation(result: ToolOutputArtifactSearchResult, kept: number): string | null {
   let cursor: string | undefined;
   if (kept < result.matches.length) {
@@ -458,7 +496,10 @@ function projectToolOutputArtifactSearchResult(
   let kept = 0;
   for (const match of result.matches) {
     const candidateKept = kept + 1;
-    const row = formatGrepContentRow(match.line, clipSearchLine(match.lineText));
+    const row = formatGrepContentRow(
+      match.line,
+      clipGrepProjectionLine(match.lineText, GREP_MATCH_LINE_MAX_CHARS, 'line')
+    );
     const continuation = searchContinuation(result, candidateKept);
     const candidateLines = [
       formatGrepContentHeader({
@@ -509,21 +550,6 @@ export function projectToolOutputArtifactPage(
 ): ToolOutputArtifactSearchProjection;
 export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifactModelOutput;
 export function projectToolOutputArtifactPage(output: unknown): ToolOutputArtifactModelOutput {
-  if (
-    isRecord(output) &&
-    Object.keys(output).length === 2 &&
-    output['type'] === 'text' &&
-    typeof output['value'] === 'string' &&
-    output['value'].startsWith('grep content ') &&
-    output['value'].includes('\nartifact bytes ')
-  ) {
-    if (decodedTextModelOutputChars(output['value']) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
-      throw new RangeError(
-        `Stored tool output artifact search projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
-      );
-    }
-    return { type: 'text', value: output['value'] };
-  }
   if (isToolOutputArtifactSearchResult(output)) {
     return projectToolOutputArtifactSearchResult(output);
   }
@@ -573,10 +599,16 @@ interface DecodedArtifactSlice {
 
 async function readDecodedArtifactSlice(
   input: ReadToolOutputArtifactInput,
-  options: ReadToolOutputArtifactPageOptions
+  options: ReadToolOutputArtifactPageOptions,
+  defaultMaxBytes: number = TOOL_OUTPUT_ARTIFACT_DEFAULT_PAGE_BYTES
 ): Promise<DecodedArtifactSlice> {
   const { artifactRef, offsetByte } = resolveReadPosition(input);
-  const maxBytes = input.maxBytes ?? TOOL_OUTPUT_ARTIFACT_DEFAULT_PAGE_BYTES;
+  // An explicit caller maxBytes (bounded by ArtifactPageSizeSchema, max
+  // TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES) always wins; otherwise fall back to
+  // the caller-supplied default, which differs by call site: plain paging
+  // defaults to the small page/projection size, search defaults to the much
+  // larger TOOL_OUTPUT_ARTIFACT_SEARCH_SCAN_BYTES (see readToolOutputArtifactSearch).
+  const maxBytes = input.maxBytes ?? defaultMaxBytes;
   const remainingBytes = artifactRef.byteLength - offsetByte;
   const readLimit = Math.max(1, Math.min(remainingBytes, maxBytes));
   const result = requireAvailableRange(
@@ -616,7 +648,15 @@ function createSearchMatcher(
       assertSafeRegexSource(pattern);
       regex = new RegExp(pattern, caseSensitive ? '' : 'i');
     } catch (cause) {
-      throw new ToolOutputArtifactReadError('invalid_input', cause);
+      // Reason AND message are both pattern-specific here (never the generic
+      // invalid_input text) so the model can tell its pattern was the
+      // problem instead of retrying blindly against an unrelated field.
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      throw new ToolOutputArtifactReadError(
+        'invalid_search_pattern',
+        cause,
+        `The tool output artifact search pattern is invalid: ${detail}`
+      );
     }
     return (line) => regex.test(line);
   }
@@ -644,8 +684,15 @@ function findSearchMatches(
     lineStartCodeUnit = lineBreaks.lastIndex;
     line += 1;
   }
+  // A slice ending exactly at a line break (or an empty slice) leaves no
+  // trailing partial line: `decoded.slice(lineStartCodeUnit)` is '' with
+  // nothing real behind it. Handing that '' to the matcher would emit a
+  // phantom row for a line that does not exist whenever the pattern can
+  // match an empty string (`^$`, `.*`, `\d*`). A GENUINE blank line in the
+  // middle of the content is unaffected: it is matched inside the loop
+  // above, against the real '' between two consecutive line breaks.
   const lineText = decoded.slice(lineStartCodeUnit);
-  if (matchesLine(lineText)) {
+  if (lineText.length > 0 && matchesLine(lineText)) {
     matches.push({ line, lineText, offsetByte: lineStartByte });
   }
   return matches;
@@ -720,7 +767,11 @@ async function readToolOutputArtifactSearch(
   input: ReadToolOutputArtifactInput & { readonly pattern: string },
   options: ReadToolOutputArtifactPageOptions
 ): Promise<ToolOutputArtifactSearchResult> {
-  const slice = await readDecodedArtifactSlice(input, options);
+  const slice = await readDecodedArtifactSlice(
+    input,
+    options,
+    TOOL_OUTPUT_ARTIFACT_SEARCH_SCAN_BYTES
+  );
   const aligned = alignSearchSliceToLineBoundary(slice);
   const matches = findSearchMatches(
     aligned.decoded,
@@ -792,12 +843,22 @@ function parseReadInput(unsafeInput: unknown): ReadToolOutputArtifactInput {
     unsafeInput && typeof unsafeInput === 'object'
       ? (unsafeInput as { cursor?: unknown; mode?: unknown })
       : undefined;
-  throw new ToolOutputArtifactReadError(
-    cursorInput?.mode === 'cursor' && !isToolOutputArtifactCursor(cursorInput.cursor)
-      ? 'malformed_cursor'
-      : 'invalid_input',
-    parsed.error
-  );
+  if (cursorInput?.mode === 'cursor' && !isToolOutputArtifactCursor(cursorInput.cursor)) {
+    throw new ToolOutputArtifactReadError('malformed_cursor', parsed.error);
+  }
+  // Fail-fast regex validity (requireSearchPatternForFlags) surfaces here as
+  // a zod issue on the `pattern` path; name the pattern as the problem in
+  // the thrown message too, not just the generic invalid-input text, so it
+  // is never indistinguishable from a bad cursor/other field.
+  const patternIssue = parsed.error.issues.find((issue) => issue.path[0] === 'pattern');
+  if (patternIssue) {
+    throw new ToolOutputArtifactReadError(
+      'invalid_search_pattern',
+      parsed.error,
+      `The tool output artifact search pattern is invalid: ${patternIssue.message}`
+    );
+  }
+  throw new ToolOutputArtifactReadError('invalid_input', parsed.error);
 }
 
 function resolveReadPosition(input: ReadToolOutputArtifactInput): {

@@ -186,9 +186,12 @@ export {
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
 export {
+  clipGrepProjectionLine,
   formatGrepContentHeader,
   formatGrepContentRow,
   formatGrepProjectionPageRange,
+  GREP_MATCH_LINE_MAX_CHARS,
+  normalizeGrepProjectionLine,
 } from './mastra/grep-model-format';
 export {
   createMastraAgentError,
