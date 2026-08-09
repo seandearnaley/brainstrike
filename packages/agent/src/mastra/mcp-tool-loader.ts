@@ -25,7 +25,7 @@ export interface CollectCombinedToolsOptions {
   mcpClient: McpRuntimeClient | undefined;
   mcpConfig: McpConfig | undefined;
   sanitizedLocalTools: ToolsInput | undefined;
-  scaledDefaultTokens?: number;
+  scaledDefaultTokens: number;
   timeoutOverrideMs: number | undefined;
   toolNameMap: Map<string, string>;
 }

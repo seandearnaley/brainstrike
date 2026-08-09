@@ -172,10 +172,17 @@ function resolvePersonaModel(
  * resolved budget (they run on the parent's model). A pinned persona resolves
  * its OWN budget from `persona.model`'s provider/window — reusing the
  * parent's would size every tool result for the wrong model's context
- * window, exactly the bug this fixes. Mirrors `resolvePersonaModel`'s
- * skip-with-warn contract: an unresolvable budget for a pin that already
- * resolved a live model instance is a config error (e.g. an unregistered
- * modelId), never a silent fallback to the parent's budget.
+ * window, exactly the bug this fixes.
+ *
+ * `resolveToolResultBudgetForModel` itself no longer throws for an unknown
+ * provider/model id (BST-1206 follow-up review): it falls back to the anchor
+ * (or the shared Ollama/LM Studio declaration) with a visible log, so a pin
+ * to a model absent from the static catalog still gets a sensible budget
+ * instead of losing the persona entirely. This try/catch now only guards a
+ * genuine registry misconfiguration (e.g. a registered entry with an invalid
+ * `contextWindow`, which `resolveScaledToolResultBudget` itself rejects) —
+ * mirroring `resolvePersonaModel`'s skip-with-warn contract for that
+ * narrower case, never a silent fallback to the parent's budget.
  */
 function resolvePersonaToolResultBudget(
   persona: AssistantPersonaDefinition,

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { McpRuntimeClient } from '../mastra/mcp-runtime-client';
 import { collectCombinedTools } from '../mastra/mcp-tool-loader';
 import { toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
+import { MAX_TOOL_RESULT_TOKENS } from '../stream/tool-output-limits';
 
 interface MockMcpClient {
   listTools: ReturnType<typeof vi.fn>;
@@ -36,6 +37,7 @@ describe('mcp-tool-loader', () => {
         mcpClient: undefined,
         mcpConfig: undefined,
         sanitizedLocalTools: localTools,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -52,6 +54,7 @@ describe('mcp-tool-loader', () => {
         mcpClient: {} as McpRuntimeClient,
         mcpConfig: undefined,
         sanitizedLocalTools: localTools,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -64,6 +67,7 @@ describe('mcp-tool-loader', () => {
         mcpClient: undefined,
         mcpConfig: undefined,
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -84,6 +88,7 @@ describe('mcp-tool-loader', () => {
         mcpClient: mockMcpClient as unknown as McpRuntimeClient,
         mcpConfig: { servers: [] },
         sanitizedLocalTools: localTools,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -118,6 +123,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap,
       });
@@ -160,6 +166,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -195,6 +202,7 @@ describe('mcp-tool-loader', () => {
             ],
           },
           sanitizedLocalTools: undefined,
+          scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
           timeoutOverrideMs: undefined,
           toolNameMap: new Map(),
         });
@@ -249,6 +257,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -289,6 +298,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -329,6 +339,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -360,6 +371,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: localTools,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -403,6 +415,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap,
       });
@@ -448,6 +461,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap,
       });
@@ -488,6 +502,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap,
       });
@@ -529,6 +544,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap,
       });
@@ -571,6 +587,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -629,6 +646,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap,
       });
@@ -687,6 +705,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -736,6 +755,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap,
       });
@@ -771,6 +791,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: localTools,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: 100, // Short timeout
         toolNameMap: new Map(),
       });
@@ -801,6 +822,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: localTools,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -831,6 +853,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -860,6 +883,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -888,6 +912,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -917,6 +942,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -949,6 +975,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: 10, // Very short timeout
         toolNameMap: new Map(),
       }).finally(() => {
@@ -982,6 +1009,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: -1, // Invalid timeout
         toolNameMap: new Map(),
       });
@@ -1010,6 +1038,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1036,6 +1065,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1070,6 +1100,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1107,6 +1138,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1136,6 +1168,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1165,6 +1198,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1239,6 +1273,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1277,6 +1312,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1320,6 +1356,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1358,6 +1395,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1394,6 +1432,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });
@@ -1434,6 +1473,7 @@ describe('mcp-tool-loader', () => {
           ],
         },
         sanitizedLocalTools: undefined,
+        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
         timeoutOverrideMs: undefined,
         toolNameMap: new Map(),
       });

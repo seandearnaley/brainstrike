@@ -1,12 +1,15 @@
 import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
 import {
-  getLlmModelDefinition,
+  findLlmModelDefinition,
   type ProviderId,
 } from '@brainstrike/assistant-contract/provider-registry';
+import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 
 import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET } from '../tools/hook-runner';
 import { toJsonSafe } from './json';
+
+const logger = createLogger('ToolOutputLimits');
 
 export const TOOL_RESULT_TOO_LARGE_CODE = 'tool_result_too_large';
 export const TOOL_RESULT_TRUNCATED_CODE = 'tool_result_truncated';
@@ -96,22 +99,47 @@ export const CEILING_SCALED_TOOL_RESULT_BUDGET: ScaledToolResultBudget = Object.
 });
 
 /**
- * Resolve a catalog model's budget, using the shared conservative declaration
- * only for runtime-discovered Ollama/LM Studio model ids. Unknown catalog-backed
- * models continue to throw instead of silently guessing a context window.
+ * Resolve a run's tool-result budget from its provider/model. `getLlmModelDefinition`
+ * is NOT a hard precondition for starting a run: a budget default is a
+ * best-effort convenience, not a capability the run actually needs, so an
+ * unknown provider/model id must never kill a run over it.
+ *
+ * - Runtime-discovered Ollama/LM Studio model ids are NEVER in the static
+ *   catalog by design (they're discovered live from a local server), so
+ *   falling back to the existing conservative `DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW`
+ *   declaration is expected, routine behavior for those two providers —
+ *   not logged, the same way it was not logged before this function existed.
+ * - Any OTHER unknown id — notably an OpenRouter metadata-only / auto-profile
+ *   model (`mergeOpenRouterAutoProfileModel`, no catalog entry by design) or a
+ *   persisted preference from a retired catalog entry — is a genuinely
+ *   unexpected miss for a provider whose models are normally catalog-backed,
+ *   so it falls back to the 128k ANCHOR (the exact pre-BST-1206 fixed-budget
+ *   behavior) WITH a visible log: not a silent fallback, the documented
+ *   default, logged so it stays visible.
+ *
+ * Uses the non-throwing `findLlmModelDefinition` rather than try/catch, so a
+ * genuine registry misconfiguration (e.g. a registered entry with a bad
+ * `contextWindow`) still throws through `resolveScaledToolResultBudget`
+ * instead of being silently swallowed as "unknown model".
  */
 export function resolveToolResultBudgetForModel(
   providerId: ProviderId,
   modelId: string
 ): ScaledToolResultBudget {
-  try {
-    return resolveScaledToolResultBudget(getLlmModelDefinition(providerId, modelId).contextWindow);
-  } catch (error) {
-    if (providerId !== 'ollama' && providerId !== 'lmstudio') {
-      throw error;
-    }
+  const definition = findLlmModelDefinition(providerId, modelId);
+  if (definition) {
+    return resolveScaledToolResultBudget(definition.contextWindow);
+  }
+  if (providerId === 'ollama' || providerId === 'lmstudio') {
     return resolveScaledToolResultBudget(DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW);
   }
+  logger.warn('Unknown model id for tool-result budget resolution; using fallback window', {
+    code: 'tool_result_budget_unknown_model_fallback',
+    fallbackContextWindow: TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
+    modelId,
+    providerId,
+  });
+  return resolveScaledToolResultBudget(TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW);
 }
 
 /**
@@ -541,17 +569,36 @@ function createBoundedPreviewOutput(params: {
   });
 }
 
+/**
+ * Resolve a per-tool transport override for the active run. Overrides are
+ * ceilings authored deliberately against the (implicit) anchor window, so a
+ * resolved budget AT OR ABOVE the anchor never scales them up. A resolved
+ * budget BELOW the anchor (e.g. local Ollama/Gemma) scales the override down
+ * by the same factor, floored at {@link TRANSPORT_TOOL_RESULT_TOKEN_FLOOR} —
+ * otherwise a per-tool override like `skill`'s 6000 tokens stays fixed
+ * regardless of the model, which on an 8192-token window is ~73% of the
+ * entire context for one activation.
+ */
+function resolveOverrideTokens(override: number, scaledDefaultTokens: number | undefined): number {
+  if (scaledDefaultTokens === undefined || scaledDefaultTokens >= MAX_TOOL_RESULT_TOKENS) {
+    return override;
+  }
+  const scaleFactor = scaledDefaultTokens / MAX_TOOL_RESULT_TOKENS;
+  return Math.max(TRANSPORT_TOOL_RESULT_TOKEN_FLOOR, Math.round(override * scaleFactor));
+}
+
 export function boundToolOutputForModel(
   toolName: string,
   output: unknown,
   maxTokensOverride?: number,
   scaledDefaultTokens?: number
 ): BoundedToolOutput {
+  const override = TOOL_RESULT_TOKEN_BUDGET_OVERRIDES[toolName];
   const maxTokens =
     maxTokensOverride ??
-    TOOL_RESULT_TOKEN_BUDGET_OVERRIDES[toolName] ??
-    scaledDefaultTokens ??
-    MAX_TOOL_RESULT_TOKENS;
+    (override === undefined
+      ? (scaledDefaultTokens ?? MAX_TOOL_RESULT_TOKENS)
+      : resolveOverrideTokens(override, scaledDefaultTokens));
   const maxSerializedChars = maxTokens * APPROX_CHARS_PER_TOKEN;
   const jsonSafeOutput = toJsonSafe(output);
   const serialized = stringifyJsonSafe(jsonSafeOutput);

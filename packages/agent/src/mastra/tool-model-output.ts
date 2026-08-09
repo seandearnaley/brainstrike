@@ -173,16 +173,12 @@ function stringifyJsonSafe(value: unknown): string {
 function serializeBoundedOutput(
   toolName: string,
   output: unknown,
-  modelTokenBudgetOverride?: number,
-  defaultBudget?: ModelProjectionBudget
+  modelTokenBudgetOverride: number | undefined,
+  defaultBudget: ModelProjectionBudget
 ): string {
-  let modelTokenBudget = modelTokenBudgetOverride;
-  if (modelTokenBudget === undefined) {
-    if (!defaultBudget) {
-      throw new TypeError(`Missing default model projection budget for ${toolName}`);
-    }
-    modelTokenBudget = resolveModelProjectionBudget(toolName, defaultBudget).rawOutputTokens;
-  }
+  const modelTokenBudget =
+    modelTokenBudgetOverride ??
+    resolveModelProjectionBudget(toolName, defaultBudget).rawOutputTokens;
   const bounded = boundToolOutputForModel(toolName, output, modelTokenBudget).output;
   if (typeof bounded === 'string') {
     return bounded;
@@ -266,7 +262,13 @@ function createDefaultModelOutput(
   const serializedCharBudget = domainBudget
     ? budget.domainSerializedChars
     : budget.totalSerializedChars;
-  return boundProjectedModelOutput(toolName, projected, tokenBudget, serializedCharBudget);
+  return boundProjectedModelOutput(
+    toolName,
+    projected,
+    tokenBudget,
+    serializedCharBudget,
+    defaultBudget
+  );
 }
 
 function isModelContentOutput(output: unknown): output is ModelContentOutput {
@@ -367,7 +369,8 @@ function boundContentModelOutput(
   toolName: string,
   output: ModelContentOutput,
   modelTokenBudget: number,
-  maxSerializedChars: number
+  maxSerializedChars: number,
+  defaultBudget: ModelProjectionBudget
 ): Record<string, unknown> {
   if (stringifyJsonSafe(maskMediaDataForMeasurement(output)).length <= maxSerializedChars) {
     return output as unknown as Record<string, unknown>;
@@ -375,7 +378,12 @@ function boundContentModelOutput(
 
   const preservedParts = output.value.filter(isModelPreservedContentPart);
   const textAndUnknownParts = output.value.filter((part) => !isModelPreservedContentPart(part));
-  const boundedText = serializeBoundedOutput(toolName, textAndUnknownParts, modelTokenBudget);
+  const boundedText = serializeBoundedOutput(
+    toolName,
+    textAndUnknownParts,
+    modelTokenBudget,
+    defaultBudget
+  );
   return fitContentTextToModelBudget(toolName, boundedText, preservedParts, maxSerializedChars);
 }
 
@@ -383,13 +391,14 @@ function fitTextModelOutput(
   toolName: string,
   text: string,
   modelTokenBudget: number,
-  maxSerializedChars: number
+  maxSerializedChars: number,
+  defaultBudget: ModelProjectionBudget
 ): Record<string, unknown> {
   const build = (value: string): Record<string, unknown> => ({ type: 'text', value });
   if (stringifyJsonSafe(build(text)).length <= maxSerializedChars) {
     return build(text);
   }
-  const boundedText = serializeBoundedOutput(toolName, text, modelTokenBudget);
+  const boundedText = serializeBoundedOutput(toolName, text, modelTokenBudget, defaultBudget);
   if (stringifyJsonSafe(build(boundedText)).length <= maxSerializedChars) {
     return build(boundedText);
   }
@@ -410,14 +419,27 @@ function fitTextModelOutput(
 function boundProjectedModelOutput(
   toolName: string,
   output: unknown,
-  modelTokenBudget: number = MAX_MODEL_TOOL_RESULT_TOKENS,
-  maxSerializedChars: number = MAX_MODEL_TOOL_RESULT_CHAR_BUDGET
+  modelTokenBudget: number,
+  maxSerializedChars: number,
+  defaultBudget: ModelProjectionBudget
 ): Record<string, unknown> {
   if (isModelContentOutput(output)) {
-    return boundContentModelOutput(toolName, output, modelTokenBudget, maxSerializedChars);
+    return boundContentModelOutput(
+      toolName,
+      output,
+      modelTokenBudget,
+      maxSerializedChars,
+      defaultBudget
+    );
   }
   if (isRecord(output) && output['type'] === 'text' && typeof output['value'] === 'string') {
-    return fitTextModelOutput(toolName, output['value'], modelTokenBudget, maxSerializedChars);
+    return fitTextModelOutput(
+      toolName,
+      output['value'],
+      modelTokenBudget,
+      maxSerializedChars,
+      defaultBudget
+    );
   }
   if (isRecord(output) && output['type'] === 'json') {
     const projected = {
@@ -431,14 +453,16 @@ function boundProjectedModelOutput(
       toolName,
       stringifyJsonSafe(projected['value']),
       modelTokenBudget,
-      maxSerializedChars
+      maxSerializedChars,
+      defaultBudget
     );
   }
   return fitTextModelOutput(
     toolName,
-    serializeBoundedOutput(toolName, output, modelTokenBudget),
+    serializeBoundedOutput(toolName, output, modelTokenBudget, defaultBudget),
     modelTokenBudget,
-    maxSerializedChars
+    maxSerializedChars,
+    defaultBudget
   );
 }
 
