@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   FileExplorerSelectionActions,
@@ -22,7 +22,13 @@ function BarHost({
   trailingContent?: ReactNode;
 }) {
   const [pinned, setPinned] = useState(false);
-  onBarVisibleChange?.(selectedCount > 0 || pinned);
+  // Reported from an effect, not during render: React may replay or discard
+  // render work, so a prop callback fired there can run for UI that never
+  // commits (react-doctor/no-prop-callback-in-render). The host observing bar
+  // visibility is exactly the external-synchronization case effects exist for.
+  useEffect(() => {
+    onBarVisibleChange?.(selectedCount > 0 || pinned);
+  }, [onBarVisibleChange, pinned, selectedCount]);
   return (
     <FileExplorerSelectionActions
       onClear={onClear}

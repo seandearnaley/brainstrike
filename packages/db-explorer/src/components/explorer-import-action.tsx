@@ -1,4 +1,3 @@
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { type EmbeddingSet, refreshCollectionIndexingStats } from '@brainstrike/db';
 import { useEmbeddingSetsRepository, usePGliteDatabase } from '@brainstrike/db/react';
@@ -6,17 +5,18 @@ import { useSelectionActionBarPin } from '@brainstrike/file-explorer-ui/shell';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Button, Popover, PopoverContent, PopoverTrigger, useToast } from '@brainstrike/ui';
 import { FileText } from 'lucide-react';
-import { type ReactElement, useCallback, useEffect, useState } from 'react';
+import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react';
 import { useCollectionCacheSync } from '../hooks/use-collection-cache-sync';
 import { useCollectionDialogs } from '../hooks/use-collection-dialogs';
 import { createImportCompletionHandler } from '../hooks/use-import-completion';
 import { useImportFlowSettings } from '../hooks/use-import-flow-settings';
 import { useImportSettings } from '../hooks/use-import-settings';
+import { useIsManagedCollection } from '../hooks/use-is-managed-collection';
 import {
   clearImportActivitySnapshot,
   publishImportActivitySnapshot,
 } from '../import-activity-snapshot';
-import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
+import type { EnhancedImportResult } from '../types';
 import { useImportFlow } from '../use-import-flow';
 import { collectionCacheSnapshotFromEmbeddingSet } from '../utils/collection-cache-snapshot';
 import { CreateCollectionDialog } from './create-collection-dialog';
@@ -80,19 +80,7 @@ export function ExplorerImportAction({
   const activeCollectionId = useVectorStatusUIStore((state) => state.activeEmbeddingSetId);
   const setActiveCollectionId = useVectorStatusUIStore((state) => state.setActiveEmbeddingSetId);
   const upsertCachedCollection = useVectorStatusUIStore((state) => state.upsertCachedCollection);
-  const activeCollectionSystemRole = useVectorStatusUIStore(
-    (state) =>
-      state.cachedCollections.find((candidate) => candidate.id === state.activeEmbeddingSetId)
-        ?.systemRole ?? null
-  );
-  const managedCollectionId = useBackgroundIndexingPreferencesStore(
-    (state) => state.managedCollectionId
-  );
-  const isManagedCollection = Boolean(
-    activeCollectionId &&
-      (activeCollectionSystemRole === 'workspace-index' ||
-        activeCollectionId === managedCollectionId)
-  );
+  const isManagedCollection = useIsManagedCollection();
 
   const collectionDialogs = useCollectionDialogs();
   // This surface hosts the create/rename/delete dialogs, and it outlives the
@@ -102,6 +90,18 @@ export function ExplorerImportAction({
   const importFlowSettings = useImportFlowSettings(importSettings);
   const resolveActiveCollectionId = useCallback(() => activeCollectionId, [activeCollectionId]);
 
+  /**
+   * The collection the in-flight run is importing into.
+   *
+   * The service pins its own target once at start (`activeSetIdRef` in
+   * `enhanced-file-import-service`), and completion has to describe the same
+   * run. Reading the live active id instead would refresh whichever collection
+   * the picker happens to be pointed at when the run lands — and the picker,
+   * including its per-row Delete, is one click behind a trigger that stays
+   * enabled for the whole import.
+   */
+  const importRunTargetRef = useRef<string | null>(null);
+
   const handleImportComplete = useCallback(
     async (results: EnhancedImportResult[]) => {
       // The explorer owns no record/chunk grid, so only the collection stats
@@ -110,17 +110,20 @@ export function ExplorerImportAction({
         if (!dbContext) {
           throw new Error('Import completion stats refresh requires an initialized database.');
         }
-        if (!activeCollectionId) {
-          throw new Error('Import completion stats refresh requires an active collection.');
+        const importedCollectionId = importRunTargetRef.current;
+        if (!importedCollectionId) {
+          throw new Error(
+            'Import completion stats refresh requires the collection the run targeted.'
+          );
         }
-        await refreshCollectionIndexingStats(dbContext, [activeCollectionId], {
+        await refreshCollectionIndexingStats(dbContext, [importedCollectionId], {
           label: 'explorer import completion stats refresh',
           priority: 'foreground',
         });
       });
       await handler(results);
     },
-    [activeCollectionId, dbContext, toast]
+    [dbContext, toast]
   );
 
   const importFlow = useImportFlow({
@@ -151,16 +154,28 @@ export function ExplorerImportAction({
   }, [setActiveCollectionId]);
 
   const handleImport = useCallback(() => {
+    // Pin the target before handing off, so completion refreshes the collection
+    // this run imported into rather than whatever is active when it lands.
+    importRunTargetRef.current = activeCollectionId;
     setPickerOpen(false);
     importFlow.handleImportClick();
-  }, [importFlow.handleImportClick]);
+  }, [activeCollectionId, importFlow.handleImportClick]);
+
+  // A clean finish needs no acknowledgement. `showImportProgress` latches true
+  // on the first progress event and is only cleared by the progress card's
+  // Close button, so pinning on it alone would hold the bar — and the bottom
+  // padding it forces on the tree — open forever once the selection is cleared.
+  // A run that reported errors still waits for the user to read them.
+  const importFailed = (importFlow.progress?.errors.length ?? 0) > 0;
+  const awaitingImportAcknowledgement =
+    importFlow.showImportProgress && (importFlow.progress?.phase !== 'complete' || importFailed);
 
   // The import service lives in this component, and this component is a child
   // of the selection bar. Without the pin, clearing the selection mid-import
   // would unmount the service: its cleanup clears the app-wide
   // embedding-queue-active flag and its progress state goes with it. Pinning
   // holds the bar (and this subtree) open until the run is acknowledged.
-  useSelectionActionBarPin(importFlow.isImporting || importFlow.showImportProgress);
+  useSelectionActionBarPin(importFlow.isImporting || awaitingImportAcknowledgement);
 
   // This is the only surface that runs imports, so it is also the only one that
   // can report their progress. The Database panel's observability hook reads
@@ -172,6 +187,10 @@ export function ExplorerImportAction({
     });
     return clearImportActivitySnapshot;
   }, [importFlow.progress, importFlow.selectedFileCount]);
+
+  const confirmLabel = `Import ${importFlow.selectedFileCount.toLocaleString()} ${
+    importFlow.selectedFileCount === 1 ? 'file' : 'files'
+  }`;
 
   const blockReason = resolveImportBlockReason({
     activeCollectionId,
@@ -194,7 +213,7 @@ export function ExplorerImportAction({
             isCancelling={importFlow.isCancelling}
             onCancel={importFlow.handleCancelImport}
             onClose={() => importFlow.setShowImportProgress(false)}
-            progress={importFlow.progress as EnhancedImportProgress}
+            progress={importFlow.progress}
           />
         </div>
       ) : null}
@@ -237,7 +256,11 @@ export function ExplorerImportAction({
             ) : null}
 
             <Button
-              aria-label="Import selected files into collection"
+              // WCAG 2.5.3 (Label in Name): the accessible name must START with
+              // the visible text, or speech input cannot activate the button by
+              // reading it. Both are built from `confirmLabel` so they cannot
+              // drift apart.
+              aria-label={`${confirmLabel} into the selected collection`}
               className="w-full"
               data-testid="explorer-import-confirm"
               disabled={blockReason !== null}
@@ -246,8 +269,7 @@ export function ExplorerImportAction({
               title={blockReason ?? 'Import the selected files into this collection'}
               type="button"
             >
-              Import {importFlow.selectedFileCount.toLocaleString()}{' '}
-              {importFlow.selectedFileCount === 1 ? 'file' : 'files'}
+              {confirmLabel}
             </Button>
           </div>
         </PopoverContent>

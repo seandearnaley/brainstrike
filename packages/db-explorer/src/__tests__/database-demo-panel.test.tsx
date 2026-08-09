@@ -685,6 +685,21 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.queryByTestId('mock-embedding-status-bar')).not.toBeInTheDocument();
     });
 
+    it('offers no import trigger of its own', async () => {
+      // BST-1212 gave importing exactly one entry point: the explorer's
+      // selection action bar, which is where the selection being imported
+      // lives. A second trigger here would be a second source of truth for the
+      // target collection, so guard the ruling where the panel is rendered
+      // rather than from an e2e assertion that a removed button is absent.
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: /^Import\s*\(/ })).not.toBeInTheDocument();
+    });
+
     it('renders the collection browser view', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 

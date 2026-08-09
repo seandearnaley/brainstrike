@@ -1,4 +1,3 @@
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import type { EmbeddingSet } from '@brainstrike/db';
 import {
@@ -32,6 +31,7 @@ import { useEmbeddingQueueRegistration } from './hooks/use-embedding-queue-regis
 import { useExportHandlers } from './hooks/use-export-handlers';
 import { useImportActivitySync } from './hooks/use-import-activity-sync';
 import { useImportSettings } from './hooks/use-import-settings';
+import { useIsManagedCollection } from './hooks/use-is-managed-collection';
 import { useSemanticSearchExecutor } from './hooks/use-semantic-search-executor';
 import { useDatabaseDemoStore } from './stores/database-demo-store';
 import { useDatabaseDemoData } from './use-database-demo-data';
@@ -208,6 +208,8 @@ export function DatabaseDemoPanel({
     );
     return collection?.name ?? collection?.modelKey ?? undefined;
   });
+  // Still needed as a prop for the collection browser; the managed-collection
+  // rule itself lives in useIsManagedCollection.
   const activeCollectionSystemRole = useVectorStatusUIStore((state) => {
     const collection = state.cachedCollections.find(
       (candidate) => candidate.id === activeCollectionId
@@ -216,12 +218,7 @@ export function DatabaseDemoPanel({
   });
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const upsertCachedCollection = useVectorStatusUIStore((s) => s.upsertCachedCollection);
-  const managedCollectionId = useBackgroundIndexingPreferencesStore((s) => s.managedCollectionId);
-  const isManagedCollection = Boolean(
-    activeCollectionId &&
-      (activeCollectionSystemRole === 'workspace-index' ||
-        activeCollectionId === managedCollectionId)
-  );
+  const isManagedCollection = useIsManagedCollection();
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
