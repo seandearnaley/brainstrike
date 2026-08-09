@@ -153,12 +153,21 @@ export function ExplorerColumnHeader({
         a11y: role="presentation" strips the TABLE semantics, because this
         header belongs to N sibling treegrids and ARIA has no way to associate
         one header with several grids — announcing a stray one-row table is
-        worse than announcing nothing. The column labels are aria-hidden since
-        every metadata cell already self-describes (its sr-only text carries the
-        column's meaning, e.g. "1,234 tokens"). The resize handles deliberately
-        stay in the accessibility tree: they are real controls with their own
-        names. Sort buttons and resize handles deliberately stay in the
-        accessibility tree; one global header controls every sibling grid.
+        worse than announcing nothing.
+
+        Consequence, and the reason `aria-sort` below is markup only: on a
+        presentational `th` `aria-sort` is INERT — nothing announces it. The
+        sort state reaches assistive tech through each sort button's
+        `aria-label` ("Tokens: sorted descending; restore default order"),
+        which is a real control in a real accessibility tree. The attribute
+        stays because the tests assert the markup contract shared with
+        TreeTable's own header, where it is NOT inert.
+
+        NON-interactive labels are aria-hidden: they are decoration next to
+        cells that already self-describe (each metadata cell's sr-only text
+        carries the column's meaning, e.g. "1,234 tokens"). Sort buttons and
+        resize handles deliberately stay in the accessibility tree — never bury
+        a focusable control under aria-hidden.
       */}
       <table className="w-full table-fixed caption-bottom text-sm" role="presentation">
         <colgroup>
@@ -230,6 +239,9 @@ export function ExplorerColumnHeader({
                     </button>
                   ) : (
                     <span
+                      // Non-interactive: decoration beside cells that already
+                      // self-describe. See the a11y note above.
+                      aria-hidden="true"
                       className={cn(
                         'flex h-full w-full items-center gap-1',
                         config.align === 'right' && 'justify-end'

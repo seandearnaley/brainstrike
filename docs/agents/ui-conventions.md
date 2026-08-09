@@ -203,6 +203,20 @@ Windowing and performance:
     and sort after every resolved number in BOTH directions. A metadata arrival
     may legitimately reorder siblings while that field is active; the metadata
     store coalesces each per-root invalidation batch into one row rebuild.
+  - **A structural change costs TWO full projection rebuild+sorts, and that is
+    the floor today.** MEASURED on a 10,100-row projection with a tokens sort
+    active (`__tests__/explorer-sort-structural-cost.integration.test.tsx`): an
+    expand or collapse rebuilds and re-sorts the WHOLE projection twice — the
+    structural rebuild itself, plus the seam's `invalidateAll` reconciliation,
+    whose per-root revision bump cannot honestly be narrowed to observed
+    changes (the comparator reads file values the store deliberately does not
+    cache — see `subscribeFolder`). It used to be THREE: the deferred rollup
+    flush bumped the same revision unconditionally even though a collapse
+    re-resolves the same totals. That flush now goes through
+    `invalidateDirectories`, which notifies only where a rollup actually moved —
+    honest for DIRECTORY keys specifically, because `getDirectorySnapshot`
+    caches every rollup it is asked for, so the cache IS the projection there.
+    Do not point the flush back at `invalidate`.
   - **A reorder is NOT a structural change.** The metadata seam's rollup
     reconciliation keys off `FileTreeRowReuseCache.getStructureRevision()`, never
     off the rows ARRAY identity: sorting mints a new array, reconciling clears
@@ -229,14 +243,24 @@ Windowing and performance:
     ARIA-associated with N sibling treegrids and every metadata cell already
     self-describes via sr-only text. Sort buttons and resize handles stay in the
     accessibility tree — never bury focusable controls under `aria-hidden`.
+    `aria-sort` on those presentational `th`s is therefore **inert** — nothing
+    announces it; the sort state reaches AT through each sort button's
+    `aria-label` ("Tokens: sorted descending; restore default order"). The
+    attribute stays because the tests assert the markup contract shared with
+    TreeTable's own header, where it is a real `columnheader` and NOT inert.
     Each forest section names its own root
     (`aria-label="File tree: <root>"`); single-root stays `"File tree"`.
     TreeTable's own header cells carry `scope="col"`.
   - Below 300px of panel width every metadata COLUMN is suppressed, leaving the
-    name column alone. The header itself still renders: it carries the Name sort
-    affordance, which is not a metadata capability and must stay reachable at
-    every width. That threshold is deliberately the same width at which the
-    toolbar can host the Columns control — see the narrow-toolbar geometry in
+    name column alone. The header itself still renders — in BOTH layouts: forest
+    renders it unconditionally, and single-root passes `showColumnHeader`
+    whenever the Explorer sort context is mounted, never off the visible-column
+    count. It carries the Name sort affordance and its `aria-sort`, which are
+    not metadata capabilities and must stay reachable at every width; gating it
+    on metadata columns left a sorted tree with no way to change or clear the
+    sort. Pinned by `__tests__/explorer-column-header.test.tsx`. That threshold
+    is deliberately the same width at which the toolbar can host the Columns
+    control — see the narrow-toolbar geometry in
     `docs/agents/explorer-search-tapestry.md`; keep the two in step.
 - Row render stability is a pinned contract (`tree-table-render-stability.test.tsx`):
   row-facing handlers are identity-stable (`useEventCallback`), the keyboard

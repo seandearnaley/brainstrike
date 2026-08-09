@@ -157,6 +157,23 @@ export interface FileRowMetadataStore {
    */
   invalidateAll: () => void;
   /**
+   * Re-read named DIRECTORY keys and notify — including the per-root sort
+   * revision — ONLY where a rollup actually moved. For the deferred rollup
+   * flush, which re-resolves subtrees it queued and usually lands on the same
+   * totals.
+   *
+   * Why this can be honest where `invalidate` cannot (whole-branch review F4):
+   * `invalidate`'s unconditional per-root bump exists because a sorted tree
+   * reads FILE values the cache does not hold — the comparator goes through the
+   * non-caching `peekSnapshot`. Directory rollups are the opposite:
+   * `getDirectorySnapshot` populates the cache on every read, so every
+   * directory in the projection IS cached, and "no cached rollup moved" really
+   * does mean "the order cannot have moved". MEASURED
+   * (`__tests__/explorer-sort-structural-cost.integration.test.tsx`): this
+   * removes one of THREE full 10k-row rebuild+sorts per expand/collapse.
+   */
+  invalidateDirectories: (compositeKeys: readonly string[]) => void;
+  /**
    * Metadata for a file key WITHOUT caching it. For readers that sweep the
    * whole projection instead of one row — the sort comparator — where caching
    * would grow the store past the subscribed rows and disable eviction. The
@@ -254,6 +271,19 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
   const revisionByFolder = new Map<string, number>();
   const fileSnapshots = new Map<string, FileRowMetadata>();
   const directoryRollups = new Map<string, FileRowDirectoryRollup>();
+  /**
+   * Directory keys an OUTSIDE caller has read since the last sweep — the
+   * liveness mark for folder-pinned rollups (whole-branch review F3).
+   *
+   * A folder (sort) listener pins every directory rollup for its root, and the
+   * sort comparator reads `getDirectorySnapshot` for every directory row in the
+   * PROJECTION, so both caches filled to the projection's high-water mark and
+   * collapsing never shrank them again: every later expand, collapse and
+   * quick-filter keystroke then recomputed every rollup the session had ever
+   * shown. Only EXTERNAL reads mark — `refreshCachedKey`'s own recompute must
+   * not, or a rollup would keep itself alive forever.
+   */
+  const directoriesReadSinceSweep = new Set<string>();
 
   const notifyKey = (compositeKey: string): void => {
     const listeners = listenersByKey.get(compositeKey);
@@ -398,6 +428,31 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
   };
 
   /**
+   * Drop folder-pinned rollups for directories nothing has read since the last
+   * sweep — they are no longer in the projection, so nothing is serving them.
+   *
+   * Runs at the START of `invalidateAll`, before any recompute, so a rollup
+   * cannot mark itself live. Keys with their OWN listener (a rendered cell) are
+   * never swept; they are bounded by the subscribed rows already.
+   *
+   * A sweep with no external reads at all in between is skipped: an empty mark
+   * set is "no evidence" — two reconciliations back to back, with no render
+   * between them, would otherwise evict the whole live projection.
+   */
+  const sweepUnreadFolderPinnedRollups = (): void => {
+    if (directoriesReadSinceSweep.size === 0) {
+      return;
+    }
+    for (const compositeKey of [...directoryRollups.keys()]) {
+      if (directoriesReadSinceSweep.has(compositeKey) || listenersByKey.has(compositeKey)) {
+        continue;
+      }
+      directoryRollups.delete(compositeKey);
+    }
+    directoriesReadSinceSweep.clear();
+  };
+
+  /**
    * Files first, then directories: a directory rollup reads its descendants'
    * snapshots, so refreshing files up front keeps the rollup from summing a
    * value it is about to be told is stale.
@@ -432,6 +487,8 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
 
   return {
     getDirectorySnapshot: (compositeKey) => {
+      // Liveness mark: this key is in something's projection right now.
+      directoriesReadSinceSweep.add(compositeKey);
       const cached = directoryRollups.get(compositeKey);
       if (cached) {
         return cached;
@@ -464,12 +521,31 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
       refreshKeys(fileKeys, directoryKeys, touchedFolderIds);
     },
     invalidateAll: () => {
+      // Let go of the projection's leftovers BEFORE recomputing, so a
+      // reconciliation costs the rows in play rather than the high-water mark.
+      sweepUnreadFolderPinnedRollups();
       // Everything may have moved, so every ordered root is told so.
       refreshKeys(
         [...fileSnapshots.keys()],
         [...directoryRollups.keys()],
         listenersByFolder.keys()
       );
+    },
+    invalidateDirectories: (compositeKeys) => {
+      const directoryKeys = new Set<string>();
+      for (const compositeKey of compositeKeys) {
+        // A key the store does not cache is a key nothing has read, so nothing
+        // is rendering or ordering by it.
+        if (directoryRollups.has(compositeKey)) {
+          directoryKeys.add(compositeKey);
+        }
+      }
+      if (directoryKeys.size === 0) {
+        return;
+      }
+      // NO `touchedFolderIds`: the bump is derived from real changes only. See
+      // the interface comment for why that is honest for directory keys.
+      refreshKeys([], directoryKeys, []);
     },
     peekSnapshot: peekFileMetadata,
     subscribe: (compositeKey, listener) => {

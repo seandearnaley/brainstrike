@@ -19,6 +19,7 @@ import { getSelectionCount } from '../utils/selection-projection';
 import { useActiveWorkspaceFilters } from '../utils/workspace-filter-selectors';
 import { ExplorerColumnHeader } from './explorer-column-header';
 import { useExplorerColumns } from './explorer-columns-context';
+import { useOptionalExplorerSort } from './explorer-sort-context';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -826,6 +827,10 @@ const FileExplorerSidebar = memo(
     // mode is a render-time branch below.
     const forestScrollRef = useRef<HTMLDivElement | null>(null);
     const { columnWidths, visibleMetadataColumnIds } = useExplorerColumns();
+    // Capability, not layout: where the Explorer's sort state is mounted the
+    // header is the only place the Name sort can be reached, so it renders at
+    // every width. Surfaces without the provider keep the headerless tree.
+    const hasExplorerSort = useOptionalExplorerSort() !== null;
 
     const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
 
@@ -933,7 +938,16 @@ const FileExplorerSidebar = memo(
                 onSelectFolderRecursively={onSelectFolderRecursively}
                 // Single-root owns its own viewport, so TreeTable's sticky
                 // header sticks to the scrollport it belongs to.
-                showColumnHeader={visibleMetadataColumnIds.length > 0}
+                //
+                // Rendered whenever the Explorer's sort context is mounted,
+                // NOT only when metadata columns are visible (whole-branch
+                // review F1). Forest already renders its header at every
+                // width, and the header is what carries the NAME sort
+                // affordance and its `aria-sort` — gating it on metadata
+                // columns meant that dragging the panel under 300px (or
+                // hiding every metadata column) left the rows sorted with no
+                // way to change or clear the sort and nothing announcing it.
+                showColumnHeader={hasExplorerSort || visibleMetadataColumnIds.length > 0}
               />
             ) : (
               <EmptyStateComponent

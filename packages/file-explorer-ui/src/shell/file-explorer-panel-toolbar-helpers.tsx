@@ -23,11 +23,9 @@ import {
 import * as React from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { TreeActionButtons } from '../components/tree-action-buttons';
-import {
-  resolveTreeExpansionDisabledState,
-  TreeExpansionButtons,
-} from '../components/tree-expansion-buttons';
+import { TreeExpansionButtons } from '../components/tree-expansion-buttons';
 import { computeScanningStatusProps } from '../utils/scanning-status-props';
+import { resolveTreeExpansionDisabledState } from '../utils/tree-expansion-disabled-state';
 import type { useFileExplorerStoreContext } from './file-explorer-provider';
 import {
   type ExpandAllProgress,

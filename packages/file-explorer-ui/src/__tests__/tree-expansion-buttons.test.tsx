@@ -17,10 +17,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  resolveTreeExpansionDisabledState,
-  TreeExpansionButtons,
-} from '../components/tree-expansion-buttons';
+import { TreeExpansionButtons } from '../components/tree-expansion-buttons';
+import { resolveTreeExpansionDisabledState } from '../utils/tree-expansion-disabled-state';
 
 const renderWithTooltips = (ui: ReactElement) =>
   render(ui, { wrapper: ({ children }) => <TooltipProvider>{children}</TooltipProvider> });

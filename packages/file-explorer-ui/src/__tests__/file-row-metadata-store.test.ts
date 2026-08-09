@@ -484,3 +484,118 @@ describe('createFileRowMetadataStore directory rollups', () => {
     });
   });
 });
+
+/**
+ * A folder (sort) listener pins DIRECTORY rollups against eviction, because
+ * recomputing one walks an enumerated subtree. Whole-branch review F3: that
+ * pin had no release. The sort comparator reads `getDirectorySnapshot` for
+ * every directory row in the PROJECTION — not just the visible rows — so the
+ * cache filled to the projection's high-water mark and collapsing never shrank
+ * it again. Every later expand/collapse/keystroke then recomputed every rollup
+ * the session had ever shown.
+ *
+ * The release is liveness: a reconciliation drops folder-pinned rollups that
+ * nothing has read since the previous one.
+ */
+describe('createFileRowMetadataStore folder-pin bound', () => {
+  function buildLargeProjection(directoryCount: number) {
+    const subtrees: Record<string, FileRowDirectorySubtree> = {};
+    const nodeSizes: Record<string, number> = {};
+    const tokens: Record<string, number> = {};
+    const directoryKeys: string[] = [];
+    for (let index = 0; index < directoryCount; index += 1) {
+      const directoryKey = key(`dir-${index}`);
+      const fileKey = key(`dir-${index}/file.ts`);
+      directoryKeys.push(directoryKey);
+      subtrees[directoryKey] = { fileKeys: [fileKey], isComplete: true };
+      nodeSizes[fileKey] = 10;
+      tokens[fileKey] = 1;
+    }
+    const subtreeReads: string[] = [];
+    const store = createFileRowMetadataStore({
+      ...sources({ nodeSizes, subtrees, tokens }),
+      getDirectorySubtree: (compositeKey) => {
+        subtreeReads.push(compositeKey);
+        return subtrees[compositeKey] ?? UNKNOWN_SUBTREE;
+      },
+    });
+    return { directoryKeys, store, subtreeReads };
+  }
+
+  it('lets go of rollups the projection no longer reads', () => {
+    const { directoryKeys, store, subtreeReads } = buildLargeProjection(50);
+    // A Tokens/Size sort: one folder listener, no per-row subscriptions.
+    store.subscribeFolder(ROOT, () => undefined);
+
+    // Expanded: the comparator sweeps the whole projection.
+    for (const directoryKey of directoryKeys) {
+      store.getDirectorySnapshot(directoryKey);
+    }
+    store.invalidateAll();
+
+    // Collapsed: only three directory rows are projected now.
+    const stillProjected = directoryKeys.slice(0, 3);
+    for (const directoryKey of stillProjected) {
+      store.getDirectorySnapshot(directoryKey);
+    }
+    store.invalidateAll();
+
+    // A reconciliation must now cost THREE rollups, not fifty.
+    subtreeReads.length = 0;
+    store.invalidateAll();
+    expect(new Set(subtreeReads)).toEqual(new Set(stillProjected));
+  });
+
+  it('keeps serving a dropped rollup — it recomputes, it does not go wrong', () => {
+    const { directoryKeys, store } = buildLargeProjection(4);
+    store.subscribeFolder(ROOT, () => undefined);
+    for (const directoryKey of directoryKeys) {
+      store.getDirectorySnapshot(directoryKey);
+    }
+    store.invalidateAll();
+    store.getDirectorySnapshot(directoryKeys[0] as string);
+    store.invalidateAll();
+
+    // Evicted, then read again: same value, recomputed from source.
+    expect(store.getDirectorySnapshot(directoryKeys[3] as string)).toEqual({
+      size: 10,
+      status: 'complete',
+      tokens: 1,
+    });
+  });
+
+  it('never sweeps a rollup a rendered CELL subscribes to', () => {
+    const { directoryKeys, store, subtreeReads } = buildLargeProjection(3);
+    store.subscribeFolder(ROOT, () => undefined);
+    const subscribed = directoryKeys[2] as string;
+    store.subscribe(subscribed, () => undefined);
+    for (const directoryKey of directoryKeys) {
+      store.getDirectorySnapshot(directoryKey);
+    }
+    store.invalidateAll();
+
+    // Only the first row stays in the sorted projection; the third is
+    // off-projection but still has its own cell listener.
+    store.getDirectorySnapshot(directoryKeys[0] as string);
+    store.invalidateAll();
+
+    subtreeReads.length = 0;
+    store.invalidateAll();
+    expect(new Set(subtreeReads)).toEqual(new Set([directoryKeys[0], subscribed]));
+  });
+
+  it('treats a read-free reconciliation as no evidence, not as an empty projection', () => {
+    const { directoryKeys, store, subtreeReads } = buildLargeProjection(3);
+    store.subscribeFolder(ROOT, () => undefined);
+    for (const directoryKey of directoryKeys) {
+      store.getDirectorySnapshot(directoryKey);
+    }
+
+    // Two reconciliations back to back, nothing rendered in between.
+    store.invalidateAll();
+    subtreeReads.length = 0;
+    store.invalidateAll();
+
+    expect(new Set(subtreeReads)).toEqual(new Set(directoryKeys));
+  });
+});

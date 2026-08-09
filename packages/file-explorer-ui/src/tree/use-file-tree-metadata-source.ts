@@ -280,10 +280,12 @@ export function createDeferredRollupController({
         invalidatedKeys.push(encodeFileSelection(folderId, path));
       }
     }
-    // The store re-reads these keys and notifies ONLY the ones whose rollup
-    // value actually changed, so a refresh that resolves to the same totals is
-    // silent all the way to the cells.
-    storeRef.current?.invalidate(invalidatedKeys);
+    // DIRECTORY entry point: the store re-reads these rollups and notifies —
+    // including the per-root sort revision — only where a value actually moved.
+    // `invalidate` would bump every named key's root unconditionally, which
+    // made an expand/collapse cost a THIRD full projection rebuild+sort for a
+    // flush that resolved the same totals (whole-branch review F4).
+    storeRef.current?.invalidateDirectories(invalidatedKeys);
   };
 
   const schedule = (): void => {
