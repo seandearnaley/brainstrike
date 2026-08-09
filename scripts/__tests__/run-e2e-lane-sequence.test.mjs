@@ -7,7 +7,11 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
-import { laneCommandArguments, runE2eLaneSequence } from '../run-e2e-lane-sequence.mjs';
+import {
+  laneCommandArguments,
+  laneSpawnInvocation,
+  runE2eLaneSequence,
+} from '../run-e2e-lane-sequence.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const EXPECTED_LANES = [
@@ -99,10 +103,11 @@ test('MONEY TEST: pnpm forwards the output flag without a literal delimiter', ()
       path.join(tempDirectory, 'capture.mjs'),
       'console.log(JSON.stringify(process.argv.slice(2)));\n'
     );
-    const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-    const result = spawnSync(pnpmCommand, laneCommandArguments('test:e2e:lane:capture'), {
+    const invocation = laneSpawnInvocation('test:e2e:lane:capture');
+    const result = spawnSync(invocation.command, invocation.args, {
       cwd: tempDirectory,
       encoding: 'utf8',
+      shell: invocation.shell,
     });
 
     assert.equal(result.status, 0, result.stderr);
@@ -110,6 +115,14 @@ test('MONEY TEST: pnpm forwards the output flag without a literal delimiter', ()
   } finally {
     rmSync(tempDirectory, { force: true, recursive: true });
   }
+});
+
+test('Windows launches the trusted pnpm shim through the shared shell adapter', () => {
+  assert.deepEqual(laneSpawnInvocation('test:e2e:lane:assistant-state', 'win32'), {
+    args: [],
+    command: 'pnpm run test:e2e:lane:assistant-state --output=test-results/assistant-state',
+    shell: true,
+  });
 });
 
 test('MONEY TEST: invoking the runner through a symlink fails loud instead of doing nothing', () => {

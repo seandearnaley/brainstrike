@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import { createSpawnInvocation } from './spawn-command.mjs';
+
 const LANE_PREFIX = 'test:e2e:lane:';
 const LANE_NAME_PATTERN = /^test:e2e:lane:[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -19,10 +21,15 @@ export function laneCommandArguments(lane) {
   return ['run', lane, `--output=${outputDirectory}`];
 }
 
+export function laneSpawnInvocation(lane, platform = process.platform) {
+  return createSpawnInvocation('pnpm', laneCommandArguments(lane), platform);
+}
+
 function defaultRunLane(lane) {
-  const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-  return spawnSync(pnpmCommand, laneCommandArguments(lane), {
+  const invocation = laneSpawnInvocation(lane);
+  return spawnSync(invocation.command, invocation.args, {
     env: process.env,
+    shell: invocation.shell,
     stdio: 'inherit',
   });
 }
