@@ -10,9 +10,24 @@ import { listPlaywrightTitleEntries } from '../e2e-playwright-title-tags.mjs';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const WEB_SPEC = 'apps/web/e2e/settings-tools-and-diagnostics.test.ts';
 const DESKTOP_SPEC = 'apps/desktop/e2e/tools-settings.desktop.test.ts';
+const REQUIRED_PR_E2E_JOB_CONDITION = [
+  'always() &&',
+  '(',
+  "needs.admission.result != 'success' ||",
+  '(',
+  "github.event_name != 'workflow_dispatch' &&",
+  "needs.admission.outputs.admitted == 'true' &&",
+  "needs.build.result == 'success'",
+  ')',
+  ')',
+].join(' ');
 
 function read(relativePath) {
   return readFileSync(path.join(REPO_ROOT, relativePath), 'utf8');
+}
+
+function normalizeExpression(expression) {
+  return String(expression).replace(/\s+/g, ' ').trim();
 }
 
 function untaggedTitles(source, fileName, tag) {
@@ -76,7 +91,11 @@ test('REAL REPO: pull-request E2E jobs invoke both smoke lane scripts', () => {
 
   const assertRequiredSmokeStep = (jobId, commandPattern) => {
     const job = workflow.jobs[jobId];
-    assert.doesNotMatch(String(job.if ?? ''), /pull_request/);
+    assert.equal(
+      normalizeExpression(job.if),
+      REQUIRED_PR_E2E_JOB_CONDITION,
+      `${jobId} must retain the PR-admitting job condition`
+    );
     const matchingSteps = job.steps.filter(
       (step) => typeof step.run === 'string' && commandPattern.test(step.run)
     );
