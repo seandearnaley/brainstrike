@@ -1,10 +1,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  FileExplorerSelectionActions,
-  useSelectionActionBarPin,
-} from '../file-explorer-selection-actions';
+import { FileExplorerSelectionActions } from '../file-explorer-selection-actions';
+import { useSelectionActionBarPin } from '../use-selection-action-bar-pin';
 
 /**
  * Mirrors how FileExplorerPanel hosts the bar: the pin latch lives above it so

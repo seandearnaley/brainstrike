@@ -1610,6 +1610,59 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   referential stability for consumers outside the compiled tree). The rule fired 1211× (54%
   of the original backlog) demanding removal — disabled per team decision.
   `react-hooks-js/preserve-manual-memoization` stays ON (it protects memo the compiler needs).
+- **An unimplemented rule id is accepted SILENTLY — 0 findings means "gone" OR "clean".**
+  `doctor.config.ts` emits no "unknown rule" error, so a config that believes it enabled
+  (or disabled) a rule is indistinguishable from one that did not, and that rule's zero
+  findings read as a passing gate. Proved on `react-doctor/only-export-components`
+  (2026-08-09, pinned 0.9.3): the id appears in the bundle ONLY as a *value* in the
+  oxlint→react-doctor alias tables (`react-refresh/only-export-components` and
+  `react/only-export-components` both map to it) with no rule implementation behind it,
+  and adding `rules: { 'react-doctor/only-export-components': 'warn' }` left counts
+  byte-identical (149 → 149 on `packages/file-explorer-ui`). **Before citing a
+  react-doctor rule id as a contract, prove it fires on a known violation** — a
+  package-scoped scan returning 0 is not evidence.
+  `scripts/__tests__/lint-rule-liveness-contract.test.mjs` mechanizes that proof — **for
+  ESLint rules only.** It drives `new ESLint({ cwd: repoRoot })` against `eslint.config.js`,
+  so it exercises **zero react-doctor rules** and confers no coverage on any
+  `react-doctor/*`, `react-hooks-js/*`, or `deslop/*` id. Do not read a green
+  `test:scripts` as evidence that a react-doctor id is live; that engine remains
+  unmechanized, and it is the one with the silent-acceptance defect.
+- **Two other cited react-doctor ids are also absent from the 0.9.3 bundle** (2026-08-09,
+  #2372). `react-hooks-js/preserve-manual-memoization` — asserted above to "stay ON" — and
+  `react-doctor/async-parallel`, the rule in `doctor.config.ts`'s lone `ignore.overrides`
+  entry, each appear **0 times** across `node_modules/react-doctor/dist/`, while real ids
+  appear literally (`only-export-components` 12, `react-compiler-no-manual-memoization`
+  10). Neither has been *empirically* confirmed dead: a local `npx react-doctor packages/db`
+  emits no findings summary at all, which is BST-1142 (react-doctor local runs returning
+  zero analyzed files). **Nothing was changed on grep evidence alone** — the override stays
+  until BST-1142 unblocks a real before/after. Note the manual-memoization protection does
+  still exist, just not via the engine the bullet above names: eslint-plugin-react-hooks'
+  own `react-hooks/preserve-manual-memoization` is live, reporting 2 warnings, and is now
+  tracked in `eslint-warning-baseline.json`.
+- **The Fast Refresh module-boundary contract is NOT react-doctor's — it is
+  `react-refresh/only-export-components` in `eslint.config.js`** (BST-1220, #2372, plugin
+  `eslint-plugin-react-refresh`), riding the same `--max-warnings` ratchet as the
+  compiler diagnostics. It landed at 155 warnings across 77 files; burn it down and lower
+  its baseline entry, exactly as for the compiler wave.
+  **That ratchet is now PER RULE.** `eslint-warning-baseline.json` holds one budget per
+  rule id and `scripts/verify-eslint-warning-baselines.mjs` enforces it as `lint:eslint`.
+  A rule OVER its entry fails; a rule UNDER its entry also fails until the entry is
+  lowered, so every burn-down is banked instead of leaving headroom behind; a rule with
+  findings and no entry fails; error-severity findings never get a budget. This replaced a
+  single `--max-warnings=N` scalar, which could not tell the two warning families apart —
+  burning Fast Refresh warnings silently granted the same headroom to compiler
+  diagnostics. The scalar had already failed that way: #2372 found 186 actual warnings
+  under an unchanged 194 ceiling. Re-baseline with
+  `pnpm run lint:eslint --write-baseline`, and read the diff — an unexplained drop is a
+  rule going dark, not a win. Biome's `useComponentExportOnlyModules`
+  was evaluated and rejected for this job despite already being installed and already
+  blocking: measured against this repo it also flags unexported components (63 sites —
+  not a defect, since `@vitejs/plugin-react`'s `validateRefreshBoundaryAndEnqueueUpdate`
+  walks `moduleExports` only, so a private component never breaks the boundary) and
+  misreads `export default <Component>` aliases (29 false positives, e.g.
+  `logging-settings.tsx`, whose only exports are one component named and defaulted).
+  The eslint plugin matches the Vite runtime semantics; do not swap in Biome's rule
+  without re-measuring both.
 
 Local: `pnpm run react-doctor` (full scan, telemetry off via config) ·
 `npx react-doctor . --scope changed --verbose` (only new issues) ·

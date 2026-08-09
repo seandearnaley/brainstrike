@@ -3,7 +3,8 @@ import {
   SelectionActionBar,
   SelectionActionBarOverlay,
 } from '@brainstrike/ui';
-import { createContext, type ReactElement, type ReactNode, useContext, useEffect } from 'react';
+import type { ReactElement, ReactNode } from 'react';
+import { SelectionActionBarPinContext } from './use-selection-action-bar-pin';
 
 /**
  * The explorer bar is composition-only: every concrete action is injected by
@@ -11,41 +12,6 @@ import { createContext, type ReactElement, type ReactNode, useContext, useEffect
  * declarative action list is always empty and can be a module constant.
  */
 const NO_DECLARATIVE_ACTIONS: SelectionAction[] = [];
-
-const SelectionActionBarPinContext = createContext<((pinned: boolean) => void) | null>(null);
-
-/**
- * Holds the selection bar open while an injected action has work in flight,
- * even after the selection itself drops to zero.
- *
- * This is a LIFETIME contract, not a cosmetic one. Injected actions are
- * children of the bar, so hiding the bar unmounts them — and an action that
- * owns a long-running service (the collection import) would tear that service
- * down mid-run, taking its progress UI and its share of app-wide activity
- * state with it. Pinning keeps the subtree mounted until the work is done.
- *
- * Single-consumer by design: the explorer bar hosts exactly one injected
- * action. A second consumer would race this boolean.
- */
-export function useSelectionActionBarPin(shouldPin: boolean): void {
-  const setPinned = useContext(SelectionActionBarPinContext);
-
-  if (!setPinned) {
-    throw new Error(
-      'useSelectionActionBarPin must be used within FileExplorerSelectionActions. ' +
-        'A silent no-op here would let a long-running action be unmounted mid-flight.'
-    );
-  }
-
-  useEffect(() => {
-    if (!shouldPin) {
-      return;
-    }
-
-    setPinned(true);
-    return () => setPinned(false);
-  }, [setPinned, shouldPin]);
-}
 
 export interface FileExplorerSelectionActionsProps {
   /** Drops the whole selection. */

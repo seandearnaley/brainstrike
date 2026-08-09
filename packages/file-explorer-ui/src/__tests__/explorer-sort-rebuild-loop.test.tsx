@@ -23,13 +23,11 @@ import { useExplorerSortStateStore } from '@brainstrike/app-state/stores/explore
 import type { IFileNode } from '@brainstrike/types';
 import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  FileRowMetadataProvider,
-  useExplorerRowMetadata,
-} from '../indexing/file-row-metadata-context';
+import { useExplorerRowMetadata } from '../indexing/file-row-metadata-context';
+import { FileRowMetadataProvider } from '../indexing/file-row-metadata-provider';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
-import { ExplorerColumnsProvider } from '../shell/explorer-columns-context';
-import { ExplorerSortProvider } from '../shell/explorer-sort-context';
+import { ExplorerColumnsProvider } from '../shell/explorer-columns-provider';
+import { ExplorerSortProvider } from '../shell/explorer-sort-provider';
 import OptimizedFileTree, { fileTreeTelemetry } from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 

@@ -545,7 +545,7 @@ fallback.
   `apps/desktop/src/__tests__/renderer/adapters.test.ts` (watchDirectory),
   `packages/file-explorer-hooks/src/__tests__/use-file-system-watcher.test.ts`
   (per-root lifecycle + signal threading),
-  `packages/file-explorer-ui/src/__tests__/file-explorer-panel-toolbar-helpers.test.tsx`
+  `packages/file-explorer-ui/src/__tests__/file-explorer-panel-toolbar-logic.test.ts`
   (compact menu yields to cancel),
   `packages/file-explorer-ui/src/__tests__/file-explorer-toolbar.test.tsx` +
   `tree-action-buttons.test.tsx` (cancel is never width-gated),

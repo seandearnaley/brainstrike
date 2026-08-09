@@ -19,14 +19,17 @@
  * column instead of inventing metadata.
  */
 
-import {
-  createContext,
-  type ReactNode,
-  useContext,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+/**
+ * Boundary note (BST-1220): the Provider component lives in
+ * `file-row-metadata-provider.tsx`. `react-refresh/only-export-components`
+ * fires on a module exporting a component ALONGSIDE hooks, and this module is
+ * three hooks. The rule does not scan `.ts`, which is why the non-component
+ * half keeps that extension. The context object moves with the hooks rather
+ * than staying beside the Provider: an exported `createContext` binding is
+ * itself a non-component export.
+ */
+
+import { createContext, useContext, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   createFileRowMetadataSourceRegistry,
   type FileRowMetadataSource,
@@ -46,7 +49,7 @@ export interface FileRowMetadataContextValue {
   store: FileRowMetadataStore;
 }
 
-const FileRowMetadataContext = createContext<FileRowMetadataContextValue | null>(null);
+export const FileRowMetadataContext = createContext<FileRowMetadataContextValue | null>(null);
 
 export function useOptionalFileRowMetadata(): FileRowMetadataContextValue | null {
   return useContext(FileRowMetadataContext);
@@ -63,18 +66,6 @@ export function useFileRowMetadata(): FileRowMetadataContextValue {
     throw new Error('useFileRowMetadata must be used within FileRowMetadataProvider');
   }
   return context;
-}
-
-export function FileRowMetadataProvider({
-  children,
-  value,
-}: {
-  children: ReactNode;
-  value: FileRowMetadataContextValue;
-}) {
-  return (
-    <FileRowMetadataContext.Provider value={value}>{children}</FileRowMetadataContext.Provider>
-  );
 }
 
 export interface ExplorerRowMetadata {

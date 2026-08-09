@@ -19,12 +19,12 @@ import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ExplorerRowMetadata,
-  FileRowMetadataProvider,
   useExplorerRowMetadata,
 } from '../indexing/file-row-metadata-context';
+import { FileRowMetadataProvider } from '../indexing/file-row-metadata-provider';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
-import { ExplorerColumnsProvider } from '../shell/explorer-columns-context';
-import { ExplorerSortProvider } from '../shell/explorer-sort-context';
+import { ExplorerColumnsProvider } from '../shell/explorer-columns-provider';
+import { ExplorerSortProvider } from '../shell/explorer-sort-provider';
 import { EXCLUDED_TOKENS_TITLE } from '../tree/file-tree-metadata-cells';
 import OptimizedFileTree, { fileTreeTelemetry } from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';

@@ -21,9 +21,9 @@ import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ExplorerRowMetadata,
-  FileRowMetadataProvider,
   useExplorerRowMetadata,
 } from '../indexing/file-row-metadata-context';
+import { FileRowMetadataProvider } from '../indexing/file-row-metadata-provider';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import { useFileTreeMetadataSource } from '../tree/use-file-tree-metadata-source';
 import { FileExplorerTestWrapper } from './test-helpers';

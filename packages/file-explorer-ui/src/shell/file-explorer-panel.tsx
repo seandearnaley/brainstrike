@@ -38,10 +38,8 @@ import { RestoreAccessModal } from '../components/restore-access-modal';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { FilterStatus } from '../file-explorer-status-components';
 import { useExplorerScrollRestore } from '../hooks/use-explorer-scroll-restore';
-import {
-  FileRowMetadataProvider,
-  useExplorerRowMetadata,
-} from '../indexing/file-row-metadata-context';
+import { useExplorerRowMetadata } from '../indexing/file-row-metadata-context';
+import { FileRowMetadataProvider } from '../indexing/file-row-metadata-provider';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
 import { RestorationStatus } from '../restoration-status';
 import { formatCompactSelectionCount } from '../selection-count-format';
@@ -52,8 +50,9 @@ import { getRootFolderId } from '../utils/get-root-folder-id';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { applyQuickFilterToTree, collectVisibleFiles } from '../utils/quick-filter-tree';
 import { ExplorerColumnVisibilityControls } from './explorer-column-visibility-controls';
-import { ExplorerColumnsProvider, useExplorerColumnsValue } from './explorer-columns-context';
-import { ExplorerSortProvider } from './explorer-sort-context';
+import { useExplorerColumnsValue } from './explorer-columns-context';
+import { ExplorerColumnsProvider } from './explorer-columns-provider';
+import { ExplorerSortProvider } from './explorer-sort-provider';
 import {
   CompactToolbarActions,
   FilterChipsToggleButton,

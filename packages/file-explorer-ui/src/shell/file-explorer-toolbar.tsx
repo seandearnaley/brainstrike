@@ -9,7 +9,7 @@ interface FileExplorerToolbarProps {
    * Tree-grid column visibility. Revealed only at 300px, where the right track
    * first fits a FOURTH 28px control without breaking the documented
    * narrow-toolbar geometry — the same width below which the grid drops its
-   * metadata columns entirely (see explorer-columns-context.tsx).
+   * metadata columns entirely (see explorer-columns-context.ts).
    */
   columnsControl?: React.ReactNode;
   /**

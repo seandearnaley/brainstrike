@@ -26,20 +26,18 @@ import type { ReactNode, RefObject } from 'react';
 import { useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as containerWidthModule from '../hooks/use-container-width';
-import {
-  FileRowMetadataProvider,
-  useExplorerRowMetadata,
-} from '../indexing/file-row-metadata-context';
+import { useExplorerRowMetadata } from '../indexing/file-row-metadata-context';
+import { FileRowMetadataProvider } from '../indexing/file-row-metadata-provider';
 import { ExplorerColumnHeader } from '../shell/explorer-column-header';
 import {
   type ExplorerColumnsContextValue,
-  ExplorerColumnsProvider,
   METADATA_COLUMNS_MIN_WIDTH,
   resolveExplorerColumnWidths,
   resolveVisibleMetadataColumnIds,
   useExplorerColumnsValue,
 } from '../shell/explorer-columns-context';
-import { ExplorerSortProvider } from '../shell/explorer-sort-context';
+import { ExplorerColumnsProvider } from '../shell/explorer-columns-provider';
+import { ExplorerSortProvider } from '../shell/explorer-sort-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';

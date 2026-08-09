@@ -27,6 +27,17 @@
  * mount this provider and shows the Name column alone there.
  */
 
+/**
+ * Boundary note (BST-1220): the Provider component lives in
+ * `explorer-columns-provider.tsx`. `react-refresh/only-export-components` fires
+ * on any module exporting a component ALONGSIDE hooks or plain functions, and
+ * this module is mostly the latter. The rule does not scan `.ts` at all, which
+ * is why the non-component half keeps that extension — the same shape
+ * `file-explorer-panel-toolbar-logic.ts` uses. The context object moves with
+ * the hooks rather than staying beside the Provider: an exported
+ * `createContext` binding is itself a non-component export.
+ */
+
 import {
   EXPLORER_COLUMN_BOUNDS,
   type TreeTableColumnSizesStoreState,
@@ -36,7 +47,7 @@ import {
   type ExplorerMetadataColumnId,
   useExplorerColumnVisibilityStore,
 } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
-import { createContext, type ReactNode, type RefObject, useContext, useMemo } from 'react';
+import { createContext, type RefObject, useContext, useMemo } from 'react';
 import { useContainerWidth } from '../hooks/use-container-width';
 import { EXPLORER_METADATA_COLUMN_CONFIGS } from '../tree/file-tree-columns';
 
@@ -81,7 +92,7 @@ const NAME_ONLY_COLUMNS: ExplorerColumnsContextValue = {
  */
 const NAME_COLUMN_MIN_WIDTH = 120;
 
-const ExplorerColumnsContext = createContext<ExplorerColumnsContextValue | null>(null);
+export const ExplorerColumnsContext = createContext<ExplorerColumnsContextValue | null>(null);
 
 /** Name-only when no provider is mounted — capability gating, not a fallback value. */
 export function useExplorerColumns(): ExplorerColumnsContextValue {
@@ -252,17 +263,5 @@ export function useExplorerColumnsValue(
   return useMemo(
     () => ({ areMetadataColumnsSuppressed, columnWidths, visibleMetadataColumnIds }),
     [areMetadataColumnsSuppressed, columnWidths, visibleMetadataColumnIds]
-  );
-}
-
-export function ExplorerColumnsProvider({
-  children,
-  value,
-}: {
-  children: ReactNode;
-  value: ExplorerColumnsContextValue;
-}) {
-  return (
-    <ExplorerColumnsContext.Provider value={value}>{children}</ExplorerColumnsContext.Provider>
   );
 }

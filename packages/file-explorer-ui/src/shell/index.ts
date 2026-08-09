@@ -10,6 +10,7 @@ export * from './file-system-provider';
 export * from './root-data-deletion-context';
 export * from './use-file-explorer-context';
 export * from './use-file-system-context';
+export { useSelectionActionBarPin } from './use-selection-action-bar-pin';
 export * from './use-selection-manager-context';
 export * from './workspace-app';
 export * from './workspace-tab-host';

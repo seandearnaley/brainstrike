@@ -21,10 +21,8 @@ import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  FileRowMetadataProvider,
-  useExplorerRowMetadata,
-} from '../indexing/file-row-metadata-context';
+import { useExplorerRowMetadata } from '../indexing/file-row-metadata-context';
+import { FileRowMetadataProvider } from '../indexing/file-row-metadata-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-context';
 import { FileExplorerTestWrapper } from './test-helpers';

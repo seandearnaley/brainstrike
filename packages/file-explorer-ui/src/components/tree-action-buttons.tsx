@@ -44,9 +44,9 @@ export interface ScanningStatusInfo {
 
 interface TreeActionButtonsProps {
   /**
-   * True while an expand-all sweep runs. The buttons live in the floating
-   * cluster now, but the indicator still suppresses its own spinner while
-   * the floating expand button spins (one spinning circle per operation).
+   * True while an expand-all sweep runs. The buttons live in the toolbar's
+   * LEFT track now, but the indicator still suppresses its own spinner while
+   * the expand button spins (one spinning circle per operation).
    */
   isExpandingAll: boolean;
   isLoading: boolean;
@@ -170,7 +170,7 @@ export const TreeActionButtons = React.memo(
             cluster's flexible column absorbs its width, keeping the button
             from shifting. Hide ONLY the indicator's spinner when another
             control is already spinning (Refresh while isRefreshing, the
-            floating expand-all button while isExpandingAll) -- two spinning
+            toolbar's expand-all button while isExpandingAll) -- two spinning
             circles for one operation is the redundancy this removes. We never
             hide the whole indicator: the count is the progress signal during
             expand, and the cancel X is the user's only way to abort a
