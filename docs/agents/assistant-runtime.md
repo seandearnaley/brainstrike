@@ -1219,6 +1219,27 @@ Paired proofs live in `tool-call-loop-guards.test.ts`,
 `string-replace-workspace-file-live-loop.test.ts`. When changing this flow,
 update this section and those tests.
 
+## GUTTER-PREFIX WRITE GUARD (BST-1202)
+
+`readWorkspaceFile` renders model-visible pages in
+`read-workspace-file-tool.ts` (`renderReadWorkspaceFilePage`) with an unpadded
+`${line}: ` prefix. `gutter-prefix-guard.ts` conservatively identifies that
+display form before it can be pasted back onto disk: at least 80% of non-empty
+lines must match the exact `^\d+: ` shape, at least three lines must match, and
+all captured numbers must form one strict `+1` sequence. False positives cost
+more than false negatives here because real numbered content must remain
+writable; do not broaden the prefix shape or relax the sequential requirement.
+
+The guard applies only to `writeWorkspaceFile.content` and
+`stringReplaceWorkspaceFile.newStr`. It deliberately does not inspect
+`stringReplaceWorkspaceFile.oldStr` (quoted from real file content), and delete
+and rename have no content argument. This is a fourth, independent, STATELESS
+mechanism: it has no thread scope or Map and does not participate in
+`MAX_KEYS_PER_THREAD_SCOPE`/`MAX_TRACKED_THREAD_SCOPES`. A match throws
+`ToolInputError` before locks, disk I/O, or the "Repeated string-replace
+failures" path above can reach `recordEditFailure`; a gutter refusal consumes
+zero edit-failure streak slots.
+
 ---
 
 ## PERMISSION ENGINE (TOOL APPROVAL)

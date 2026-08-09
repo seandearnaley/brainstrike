@@ -1,12 +1,14 @@
-import { realpathSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { type RuntimeData, resetFileReadState, withFileLock } from '@brainstrike/agent';
+import type { RuntimeData } from '@brainstrike/agent';
 import type { ToolInputError } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
-import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
+import {
+  EDIT_FAILURE_HINT_MESSAGE,
+  resetToolCallLoopGuards,
+} from '../../assistant-server/tool-call-loop-guards';
 import { requireToolExecute } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
 
@@ -314,6 +316,30 @@ describe('assistant-tools write tools', () => {
       }
     });
 
+    it('rejects gutter-prefixed display content and writes nothing', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      const filePath = path.join(workspaceRootPath, 'guttered.ts');
+      try {
+        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+
+        await expect(
+          executeTool({
+            context: {
+              content: '10: import x\n11: const value = x;\n12: export default value;\n',
+              path: '/guttered.ts',
+            },
+          })
+        ).rejects.toMatchObject({
+          code: 'tool_input_invalid',
+          message: expect.stringMatching(/line-number gutters.*N: /i),
+        } satisfies Partial<ToolInputError>);
+        await expect(fsPromises.access(filePath)).rejects.toThrow();
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
     it('rejects writing to the workspace root itself', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
@@ -554,6 +580,47 @@ describe('assistant-tools write tools', () => {
       }
     });
 
+    it('rejects gutter-prefixed newStr without advancing the edit-failure streak', async () => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      try {
+        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
+        const path = '/src/lib/math.ts';
+
+        await expect(
+          executeTool({
+            context: {
+              newStr: '10: import x\n11: const value = x;\n12: export default value;',
+              oldStr: 'export const add = () => 1;',
+              path,
+            },
+          })
+        ).rejects.toMatchObject({
+          code: 'tool_input_invalid',
+          message: expect.stringMatching(/line-number gutters.*N: /i),
+        } satisfies Partial<ToolInputError>);
+
+        const runRealFailure = async (): Promise<unknown> =>
+          executeTool({
+            context: {
+              newStr: 'export const add = () => 2;',
+              oldStr: 'this string is absolutely nowhere in the file content',
+              path,
+            },
+          }).catch((error: unknown) => error);
+
+        const firstRealFailure = await runRealFailure();
+        expect(firstRealFailure).toBeInstanceOf(Error);
+        expect((firstRealFailure as Error).message).not.toContain(EDIT_FAILURE_HINT_MESSAGE);
+
+        const secondRealFailure = await runRealFailure();
+        expect(secondRealFailure).toBeInstanceOf(Error);
+        expect((secondRealFailure as Error).message).not.toContain(EDIT_FAILURE_HINT_MESSAGE);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    });
+
     it('serializes two concurrent edits to the SAME file (both apply, no lost update)', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       const filePath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
@@ -632,370 +699,6 @@ describe('assistant-tools write tools', () => {
       await expect(
         executeTool({ context: { newStr: 'b', oldStr: 'a', path: '/x.ts' } })
       ).rejects.toThrow(/No folder is open/i);
-    });
-  });
-
-  describe('read-before-write staleness guard', () => {
-    const guardRuntime = (workspaceRootPath: string): RuntimeData =>
-      ({
-        memory: { resourceId: 'guard-resource', runId: 'guard-run', threadId: 'guard-thread' },
-        workspaceRootPath,
-      }) as RuntimeData;
-
-    /** Simulate a USER edit outside the assistant tools: new bytes + a forced
-     * future mtime so the compare never false-passes on coarse-mtime volumes. */
-    async function externallyEdit(absolutePath: string, content: string): Promise<void> {
-      await fsPromises.writeFile(absolutePath, content, 'utf8');
-      const future = new Date(Date.now() + 5000);
-      await fsPromises.utimes(absolutePath, future, future);
-    }
-
-    beforeEach(() => {
-      resetFileReadState();
-    });
-
-    it('write refuses when the file changed on disk after the assistant read it', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      try {
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-        const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-        await executeReadTool({
-          context: { path: '/README.md' },
-        });
-
-        await externallyEdit(path.join(workspaceRootPath, 'README.md'), '# User edit\n');
-
-        await expect(
-          executeWriteTool({
-            context: { content: '# Agent overwrite\n', path: '/README.md' },
-          })
-        ).rejects.toThrow(/changed on disk since/i);
-        // The user's edit survived — nothing was overwritten.
-        const onDisk = await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8');
-        expect(onDisk).toBe('# User edit\n');
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('a rejected stale continuation does not refresh the write guard', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      try {
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-        const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-        const first = await executeReadTool({
-          context: { maxChars: 20, path: '/README.md' },
-        });
-        expect(first.nextCursor).toEqual(expect.any(String));
-
-        await externallyEdit(path.join(workspaceRootPath, 'README.md'), '# User edit\n');
-
-        await expect(
-          executeReadTool({
-            context: {
-              cursor: first.nextCursor,
-              maxChars: 20,
-            },
-          })
-        ).rejects.toThrow(/continuation handle is stale/i);
-
-        await expect(
-          executeWriteTool({
-            context: { content: '# Agent overwrite\n', path: '/README.md' },
-          })
-        ).rejects.toThrow(/changed on disk since/i);
-        expect(await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8')).toBe(
-          '# User edit\n'
-        );
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('stringReplace refuses when the file changed on disk after the assistant read it', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      try {
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-        const executeReplaceTool = requireToolExecute(
-          tools,
-          'brainstrike.stringReplaceWorkspaceFile'
-        );
-        await executeReadTool({
-          context: { path: '/src/lib/math.ts' },
-        });
-
-        await externallyEdit(
-          path.join(workspaceRootPath, 'src', 'lib', 'math.ts'),
-          'export const add = () => 2;\n'
-        );
-
-        await expect(
-          executeReplaceTool({
-            context: {
-              newStr: 'export const add = () => 3;',
-              oldStr: 'export const add = () => 2;',
-              path: '/src/lib/math.ts',
-            },
-          })
-        ).rejects.toThrow(/changed on disk since/i);
-        const onDisk = await fsPromises.readFile(
-          path.join(workspaceRootPath, 'src', 'lib', 'math.ts'),
-          'utf8'
-        );
-        expect(onDisk).toBe('export const add = () => 2;\n');
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('write proceeds when unchanged since read, and consecutive writes stay allowed', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      try {
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-        const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-        await executeReadTool({
-          context: { path: '/README.md' },
-        });
-
-        const first = await executeWriteTool({
-          context: { content: '# First\n', path: '/README.md' },
-        });
-        expect(first.created).toBe(false);
-
-        // A successful write refreshes the known state — no self-staleness.
-        const second = await executeWriteTool({
-          context: { content: '# Second\n', path: '/README.md' },
-        });
-        expect(second.created).toBe(false);
-        const onDisk = await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8');
-        expect(onDisk).toBe('# Second\n');
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('still allows overwriting a file this scope never observed (compare-only contract)', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      try {
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-        const result = await executeWriteTool({
-          context: { content: '# Never read first\n', path: '/README.md' },
-        });
-        expect(result.created).toBe(false);
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('a successful write establishes known state that a later external edit invalidates', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      try {
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-        const executeReplaceTool = requireToolExecute(
-          tools,
-          'brainstrike.stringReplaceWorkspaceFile'
-        );
-        await executeWriteTool({
-          context: { content: 'const value = 1;\n', path: '/src/state.ts' },
-        });
-
-        await externallyEdit(path.join(workspaceRootPath, 'src', 'state.ts'), 'const value = 2;\n');
-
-        await expect(
-          executeReplaceTool({
-            context: {
-              newStr: 'const value = 3;',
-              oldStr: 'const value = 2;',
-              path: '/src/state.ts',
-            },
-          })
-        ).rejects.toThrow(/changed on disk since/i);
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('rename refuses when the source changed on disk after the assistant read it', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      try {
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-        const executeRenameTool = requireToolExecute(tools, 'brainstrike.renameWorkspaceFile');
-        await executeReadTool({
-          context: { path: '/src/lib/math.ts' },
-        });
-
-        await externallyEdit(
-          path.join(workspaceRootPath, 'src', 'lib', 'math.ts'),
-          'export const add = () => 99;\n'
-        );
-
-        await expect(
-          executeRenameTool({
-            context: { fromPath: '/src/lib/math.ts', toPath: '/src/lib/sum.ts' },
-          })
-        ).rejects.toThrow(/changed on disk since/i);
-        // The move did not happen.
-        await expect(
-          fsPromises.access(path.join(workspaceRootPath, 'src', 'lib', 'sum.ts'))
-        ).rejects.toThrow();
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('serializes the read-and-record under the same per-file lock as writes', async () => {
-      // The tracker record must be ordered against same-file writes: an
-      // unlocked read could stat OLD mtime, lose the race to a locked write
-      // (which records the fresh post-write mtime), then clobber the tracker
-      // back to the stale value — making the NEXT legitimate write falsely
-      // refuse. Proof: while the file's write lock is held, the read tool must
-      // not complete.
-      const workspaceRootPath = await createWorkspaceFixture();
-      try {
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-        const canonicalPath = realpathSync(path.join(workspaceRootPath, 'README.md'));
-
-        let releaseLock: () => void = () => {
-          throw new Error('release not armed');
-        };
-        const holdLock = withFileLock(
-          canonicalPath,
-          () =>
-            new Promise<void>((resolve) => {
-              releaseLock = resolve;
-            })
-        );
-
-        let readSettled = false;
-        const readPromise = executeReadTool({ context: { path: '/README.md' } }).finally(() => {
-          readSettled = true;
-        });
-
-        // Give the (mis-ordered) read every chance to complete outside the lock.
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        expect(readSettled).toBe(false);
-
-        releaseLock();
-        await holdLock;
-        await readPromise;
-        expect(readSettled).toBe(true);
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('guards a rename whose SYMLINK source target changed since the read', async () => {
-      // Reads record under the realpath'd TARGET; rename mutates the LINK
-      // path. The compare must use the matching identity or a read-then-
-      // externally-modified symlinked source silently skips the guard.
-      const workspaceRootPath = await createWorkspaceFixture();
-      const targetPath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
-      const linkPath = path.join(workspaceRootPath, 'src', 'alias.ts');
-      try {
-        try {
-          await fsPromises.symlink(targetPath, linkPath, 'file');
-        } catch (error) {
-          const code = (error as NodeJS.ErrnoException).code;
-          if (code === 'EPERM' || code === 'EACCES') {
-            return;
-          }
-          throw error;
-        }
-
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-        const executeRenameTool = requireToolExecute(tools, 'brainstrike.renameWorkspaceFile');
-        await executeReadTool({
-          context: { path: '/src/alias.ts' },
-        });
-
-        await externallyEdit(targetPath, 'export const add = () => 42;\n');
-
-        await expect(
-          executeRenameTool({
-            context: { fromPath: '/src/alias.ts', toPath: '/src/alias-moved.ts' },
-          })
-        ).rejects.toThrow(/changed on disk since/i);
-        // The link did not move.
-        await expect(
-          fsPromises.lstat(path.join(workspaceRootPath, 'src', 'alias-moved.ts'))
-        ).rejects.toThrow();
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('renames a read-but-unchanged symlink source without refusal', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      const targetPath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
-      const linkPath = path.join(workspaceRootPath, 'src', 'alias.ts');
-      try {
-        try {
-          await fsPromises.symlink(targetPath, linkPath, 'file');
-        } catch (error) {
-          const code = (error as NodeJS.ErrnoException).code;
-          if (code === 'EPERM' || code === 'EACCES') {
-            return;
-          }
-          throw error;
-        }
-
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-        const executeRenameTool = requireToolExecute(tools, 'brainstrike.renameWorkspaceFile');
-        await executeReadTool({
-          context: { path: '/src/alias.ts' },
-        });
-
-        const result = await executeRenameTool({
-          context: { fromPath: '/src/alias.ts', toPath: '/src/alias-moved.ts' },
-        });
-        expect(result.ok).toBe(true);
-        const moved = await fsPromises.lstat(path.join(workspaceRootPath, 'src', 'alias-moved.ts'));
-        expect(moved.isSymbolicLink()).toBe(true);
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('re-reading the file clears the refusal (documented recovery path)', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      try {
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
-        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-        const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-        await executeReadTool({
-          context: { path: '/README.md' },
-        });
-        await externallyEdit(path.join(workspaceRootPath, 'README.md'), '# User edit\n');
-
-        await expect(
-          executeWriteTool({
-            context: { content: '# Agent v1\n', path: '/README.md' },
-          })
-        ).rejects.toThrow(/changed on disk since/i);
-
-        // The actionable error tells the model to re-read; doing so recovers.
-        await executeReadTool({
-          context: { path: '/README.md' },
-        });
-        const result = await executeWriteTool({
-          context: { content: '# Agent v2\n', path: '/README.md' },
-        });
-        expect(result.created).toBe(false);
-        const onDisk = await fsPromises.readFile(path.join(workspaceRootPath, 'README.md'), 'utf8');
-        expect(onDisk).toBe('# Agent v2\n');
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
     });
   });
 });

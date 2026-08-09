@@ -39,6 +39,7 @@ import {
   recordEditCheckpointForTool,
 } from './edit-checkpoint-capture';
 import { sha256Hex } from './edit-checkpoint-journal';
+import { looksLikeReadWorkspaceFileGutterOutput } from './gutter-prefix-guard';
 import { type EditDiagnosticsResult, getEditDiagnostics } from './lsp-diagnostics';
 import {
   triggerEditedFileReindex,
@@ -66,6 +67,15 @@ import { readWorkspaceTextFile } from './workspace-text-file-reader';
 const logger = createLogger('DesktopAssistantTools');
 
 export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
+
+const GUTTER_PREFIX_REFUSAL_MESSAGE =
+  'This looks like readWorkspaceFile display output (line-number gutters). Strip the `N: ` prefixes or reconstruct the intended file content before writing.';
+
+function assertNoReadWorkspaceFileGutters(candidate: string): void {
+  if (looksLikeReadWorkspaceFileGutterOutput(candidate)) {
+    throw new ToolInputError(GUTTER_PREFIX_REFUSAL_MESSAGE);
+  }
+}
 
 function applyStringReplaceWithLoopGuard(args: {
   readonly fileContent: string;
@@ -143,6 +153,7 @@ export async function runWriteWorkspaceFile(
   created: boolean;
   lsp?: EditDiagnosticsResult;
 }> {
+  assertNoReadWorkspaceFileGutters(input.content);
   const buffer = Buffer.from(input.content, 'utf8');
   if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
     throw new Error(
@@ -244,6 +255,7 @@ export async function runStringReplaceWorkspaceFile(
   replaced: true;
   lsp?: EditDiagnosticsResult;
 }> {
+  assertNoReadWorkspaceFileGutters(input.newStr);
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   // Resolve the write path up front so we can lock on the canonical absolute
   // path. resolveWorkspaceWritePath clamps ".." and contains symlinked
