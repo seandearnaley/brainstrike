@@ -1,4 +1,5 @@
 import { TOOL_APPROVAL_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-approval';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -22,7 +23,11 @@ function approvalMessage(action: 'approve' | 'decline', toolName?: string): unkn
   };
 }
 
-function suspendMessage(resumeData: unknown, text = 'Approved the plan.'): unknown {
+function suspendMessage(
+  resumeData: unknown,
+  text = 'Approved the plan.',
+  toolName: string | undefined = NATIVE_TOOL_ID.submitPlan
+): unknown {
   return {
     content: [{ text, type: 'text' }],
     id: 'suspend-user-1',
@@ -32,12 +37,17 @@ function suspendMessage(resumeData: unknown, text = 'Approved the plan.'): unkno
           resumeData,
           runId: 'run-plan-1',
           toolCallId: 'call-plan-1',
-          toolName: 'brainstrike.submitPlan',
+          ...(toolName === undefined ? {} : { toolName }),
         },
       },
     },
     role: 'user',
   };
+}
+
+/** A Gate B network resume, as the run_python notice actually produces it. */
+function networkMessage(resumeData: unknown, text = 'You allowed example.com.'): unknown {
+  return suspendMessage(resumeData, text, NATIVE_TOOL_ID.runPython);
 }
 
 describe('readApprovalActionChipProps (approval marker)', () => {
@@ -137,6 +147,56 @@ describe('readApprovalActionChipProps (suspend marker — plan/askUser resumes)'
     expect(props?.label.length).toBeLessThan(100);
   });
 
+  it('reads a run_python network allow into an approve-tone chip', () => {
+    // BST-1070 Gate B. Without this the decision was the ONLY resume shape that
+    // fell through to a full prompt bubble, so the thread read
+    // "You allowed example.com." as if the user had typed it — directly above a
+    // card already naming the same domains. The chip is the consistent surface.
+    expect(readApprovalActionChipProps(networkMessage({ action: 'allow' }))).toEqual({
+      label: 'Allowed internet access',
+      tone: 'approve',
+    });
+  });
+
+  it('reads a run_python network denial into a decline-tone chip', () => {
+    expect(
+      readApprovalActionChipProps(
+        networkMessage({ action: 'deny' }, "You didn't allow internet access.")
+      )
+    ).toEqual({ label: "Didn't allow internet access", tone: 'decline' });
+  });
+
+  it('does not name the domains on the chip (the card above already states them)', () => {
+    // The persisted action message deliberately carries only the decision, so a
+    // domain-naming chip would have to invent or re-plumb the card's domains.
+    const props = readApprovalActionChipProps(networkMessage({ action: 'allow' }));
+    expect(props?.label).not.toContain('example.com');
+  });
+
+  it('refuses a persisted network action carrying extra keys', () => {
+    // The UI reads the pre-transport action message, which contains only the
+    // verdict. The resume transport may later add `{approved: true}` before the
+    // tool reads it, but unrelated siblings in the persisted record must not
+    // become an asserted network grant.
+    expect(readApprovalActionChipProps(networkMessage({ action: 'allow', extra: 1 }))).toBeNull();
+    expect(readApprovalActionChipProps(networkMessage({ action: 'deny', extra: 1 }))).toBeNull();
+  });
+
+  it('only reads the network vocabulary for a run_python resume', () => {
+    // `{action: 'allow'}` is meaningful only for run_python's Gate B. The suspend
+    // contract narrows suspendPayload BY TOOL NAME, and the notice dispatches the
+    // same way — so a future suspending tool reusing this vocabulary must not
+    // silently inherit the network label.
+    expect(
+      readApprovalActionChipProps(
+        suspendMessage({ action: 'allow' }, 'Allowed something else.', 'brainstrike.someOtherTool')
+      )
+    ).toBeNull();
+    expect(
+      readApprovalActionChipProps(suspendMessage({ action: 'allow' }, 'No tool name.', undefined))
+    ).toBeNull();
+  });
+
   it('falls through to the bubble (null) for malformed resumeData — never chips on a guess', () => {
     // A record with neither a recognized plan action nor a valid {answer}
     // envelope, and a non-string/array scalar: neither may hide the
@@ -191,6 +251,18 @@ describe('ApprovalActionChip', () => {
 
     expect(screen.getByTestId('approval-action-chip').textContent?.trim()).toBe(
       'Approved tool call'
+    );
+  });
+
+  it('renders a network-outcome chip end to end, replacing the prompt bubble', () => {
+    const props = readApprovalActionChipProps(networkMessage({ action: 'allow' }));
+    if (!props) {
+      throw new Error('expected network chip props');
+    }
+    render(<ApprovalActionChip {...props} />);
+
+    expect(screen.getByTestId('approval-action-chip').textContent?.trim()).toBe(
+      'Allowed internet access'
     );
   });
 

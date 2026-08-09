@@ -16,6 +16,7 @@ import {
   isAssistantToolApprovalAction,
   TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import {
   isAssistantToolResumeAction,
   TOOL_SUSPEND_RUN_CONFIG_KEY,
@@ -76,6 +77,35 @@ function readPlanDecisionChip(resumeData: Record<string, unknown>): ApprovalActi
   return { label: `Rejected the plan${feedbackNote}`, tone: 'decline' };
 }
 
+/**
+ * `run_python`'s Gate B network decision (BST-1070). Deliberately does NOT name
+ * the domains: the persisted action message carries only the user's verdict,
+ * while the card directly above already lists the domains. Repeating them here
+ * is the redundancy this chip exists to remove.
+ *
+ * The one-key check validates that persisted, pre-transport notice payload. The
+ * resume transport may subsequently add the framework-required
+ * `{approved: true}` rider before `run-python-tool.ts` reads the decision; that
+ * enriched execution payload is a different boundary. Keeping this recognizer
+ * strict prevents malformed or unrelated action records from claiming that
+ * internet access was allowed.
+ */
+function readNetworkDecisionChip(
+  resumeData: Record<string, unknown>
+): ApprovalActionChipProps | null {
+  if (Reflect.ownKeys(resumeData).length !== 1) {
+    return null;
+  }
+  const decision = resumeData['action'];
+  if (decision === 'allow') {
+    return { label: 'Allowed internet access', tone: 'approve' };
+  }
+  if (decision === 'deny') {
+    return { label: "Didn't allow internet access", tone: 'decline' };
+  }
+  return null;
+}
+
 function readAnswerText(resumeData: unknown): string | null {
   if (typeof resumeData === 'string') {
     const trimmed = resumeData.trim();
@@ -109,12 +139,29 @@ function readSuspendChip(marker: unknown): ApprovalActionChipProps | null {
     return null;
   }
   // The suspend notice produces exactly these resumeData shapes: a submitPlan
-  // decision record, or an askUser `{answer}` envelope (AskUserResumeData).
-  // The bare string/string[] arm below is the LEGACY pre-envelope askUser
-  // answer, kept so persisted pre-migration action messages still chip.
-  // Anything else is unrecognized — fall through to the bubble.
+  // decision record, a run_python network decision record, or an askUser
+  // `{answer}` envelope (AskUserResumeData). The bare string/string[] arm below
+  // is the LEGACY pre-envelope askUser answer, kept so persisted pre-migration
+  // action messages still chip. Anything else is unrecognized — fall through to
+  // the bubble.
+  //
+  // The network arm is keyed by TOOL NAME, because `{action: 'allow'}` is
+  // meaningful only as run_python's Gate B verdict. The suspend contract states
+  // the convention ("the UI narrows it by `toolName`", tool-suspend.ts) and the
+  // notice dispatches the same way, so a future suspending tool reusing this
+  // vocabulary cannot inherit the network label. `toolName` is optional in the
+  // contract; absent means unattributable, which falls through to the bubble
+  // rather than guessing. run_python never produces an askUser envelope, so its
+  // records deliberately do NOT fall on to the answer arm.
   if (isRecord(marker.resumeData)) {
-    return readPlanDecisionChip(marker.resumeData) ?? readAnswerChip(marker.resumeData['answer']);
+    const planChip = readPlanDecisionChip(marker.resumeData);
+    if (planChip) {
+      return planChip;
+    }
+    if (marker.toolName === NATIVE_TOOL_ID.runPython) {
+      return readNetworkDecisionChip(marker.resumeData);
+    }
+    return readAnswerChip(marker.resumeData['answer']);
   }
   return readAnswerChip(marker.resumeData);
 }
