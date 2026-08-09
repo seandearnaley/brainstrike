@@ -7,8 +7,12 @@ import {
 } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
-import { fileContent, isBinaryExtension, isTextExtension } from '@brainstrike/utils';
-import { getKnownFileSize } from '@brainstrike/utils/file-content';
+import {
+  fileContent,
+  getKnownFileSize,
+  isBinaryExtension,
+  isTextExtension,
+} from '@brainstrike/utils';
 import { getFileExtension } from '@brainstrike/utils/file-utils';
 
 export interface FileReadRequest {

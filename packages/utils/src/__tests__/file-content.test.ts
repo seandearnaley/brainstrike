@@ -22,6 +22,16 @@ describe('getKnownFileSize', () => {
   it.each([-1, -42.5])('returns null for the negative size %s', (size) => {
     expect(getKnownFileSize(size)).toBeNull();
   });
+
+  it.each([
+    undefined,
+    null,
+    '42',
+    {},
+    42n,
+  ])('returns null for the absent or non-number size %s', (size) => {
+    expect(getKnownFileSize(size)).toBeNull();
+  });
 });
 
 describe('fileContent', () => {
