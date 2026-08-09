@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -10,7 +10,6 @@ import {
   findRawNulByteViolations,
   GUARDED_EXTENSIONS,
   MIN_SCANNED_FILES,
-  PATHSPECS,
 } from '../verify-no-raw-nul-bytes.mjs';
 
 // A raw 0x00 written as a two-character escape, so THIS file stays clean under
@@ -59,20 +58,26 @@ test('real tree: no tracked source file contains a raw 0x00 byte', () => {
 // ---------------------------------------------------------------------------
 // Discovery sentinels.
 //
-// A bare total floor only catches TOTAL enumeration failure. Dropping 'scripts'
-// from PATHSPECS still returns ~4050 of 4172 files and sails past any global
-// threshold, leaving the guard permanently blind to the directory it lives in —
-// which is exactly how verify-no-source-cycles.mjs kept its NUL. So the floors
-// are per-slice, and each expectation map is asserted EXHAUSTIVE against the
-// guard's own constants: adding an extension or pathspec forces whoever adds it
-// to state what they expect to find, instead of the map quietly falling behind.
+// A bare total floor only catches TOTAL enumeration failure. Re-introducing a
+// directory restriction that drops 'scripts' would still return ~4070 of 4192
+// files and sail past any global threshold, leaving the guard permanently blind
+// to the directory it lives in — which is exactly how verify-no-source-cycles.mjs
+// kept its NUL. So the floors are per-slice.
 //
 // Numbers are set at roughly half of today's counts — loose enough that ordinary
 // churn never trips them, tight enough that a dropped slice cannot hide.
 // ---------------------------------------------------------------------------
 
-// apps 831 / packages 3221 / scripts 120 as of 2026-08-09.
-const MIN_FILES_PER_PATHSPEC = { apps: 400, packages: 1500, scripts: 60 };
+// Top-level areas, '' meaning repo-root files. These are NOT derived from a
+// guard constant, because the guard deliberately has no directory list any more
+// (PR #2379 review): it enumerates every tracked file and filters by extension.
+// So this map pins the stronger property — that the scan really is repo-wide,
+// reaching root config and non-workspace trees, not just the three workspace
+// directories an earlier revision hard-coded.
+// root 5 / apps 831 / packages 3221 / scripts 122 / spikes 15 as of 2026-08-09.
+const MIN_FILES_PER_AREA = { '': 4, apps: 400, packages: 1500, scripts: 60, spikes: 8 };
+
+const areaOf = (filePath) => (filePath.includes('/') ? filePath.split('/')[0] : '');
 
 // .ts 3107 / .tsx 833 / .mjs 140 / .mts 63 / .js 18 / .cjs 11 as of 2026-08-09.
 // `.cts` is deliberately 0: no tracked file uses it today, but it stays guarded
@@ -99,33 +104,45 @@ test('discovery floor: the scanned source set is not silently empty', () => {
   );
 });
 
-test('sentinel: every pathspec contributes files, so none can be silently dropped', () => {
+test('sentinel: the scan is repo-wide, reaching root config and non-workspace trees', () => {
   const { scannedFiles } = findRawNulByteViolations();
 
-  assert.deepEqual(
-    Object.keys(MIN_FILES_PER_PATHSPEC).sort(),
-    [...PATHSPECS].sort(),
-    "MIN_FILES_PER_PATHSPEC has drifted from the guard's PATHSPECS. Add the new pathspec here " +
-      'with an expected floor rather than deleting this assertion.'
-  );
-
-  const counts = Object.fromEntries(
-    Object.keys(MIN_FILES_PER_PATHSPEC).map((pathspec) => [
-      pathspec,
-      scannedFiles.filter((filePath) => filePath.startsWith(`${pathspec}/`)).length,
-    ])
-  );
-  const starved = Object.entries(counts).filter(
-    ([pathspec, count]) => count < MIN_FILES_PER_PATHSPEC[pathspec]
-  );
+  const starved = Object.entries(MIN_FILES_PER_AREA)
+    .map(([area, minimum]) => ({
+      area: area || '<repo root>',
+      count: scannedFiles.filter((filePath) => areaOf(filePath) === area).length,
+      minimum,
+    }))
+    .filter(({ count, minimum }) => count < minimum);
 
   assert.deepEqual(
     starved,
     [],
-    'These pathspecs returned far fewer files than expected, so the guard is blind to them:\n' +
-      starved
-        .map(([p, c]) => `  - ${p}: scanned ${c}, expected at least ${MIN_FILES_PER_PATHSPEC[p]}`)
-        .join('\n')
+    'These areas returned far fewer files than expected, so the guard is blind to them. A ' +
+      'directory allowlist was most likely re-introduced into the enumeration:\n' +
+      starved.map((s) => `  - ${s.area}: scanned ${s.count}, expected ${s.minimum}`).join('\n')
+  );
+});
+
+// Named files, because the counts above would still pass if root config were
+// swept in by accident while these specific live configs were missed. These are
+// the exact paths the PR #2379 review called out as escaping the old pathspecs.
+test('sentinel: live root config and spikes sources are in scope', () => {
+  const { scannedFiles } = findRawNulByteViolations();
+
+  const missing = [
+    'commitlint.config.ts',
+    'eslint.config.js',
+    'vitest.config.mts',
+    'spikes/quickjs-sandbox/src/quickjs-sandbox.ts',
+  ].filter((filePath) => !scannedFiles.includes(filePath));
+
+  assert.deepEqual(
+    missing,
+    [],
+    'These tracked sources are not being scanned. A raw NUL in any of them would pass the ' +
+      'guard while causing the same search/tooling breakage:\n' +
+      missing.map((f) => `  - ${f}`).join('\n')
   );
 });
 
@@ -227,6 +244,31 @@ test('control: tracked binary assets are out of scope', () => {
   const { violations } = findRawNulByteViolations({ root });
 
   assert.deepEqual(violations, []);
+});
+
+// CONTROL: `git ls-files` reports cached entries, so a tracked file deleted from
+// the working tree without staging the deletion — an ordinary mid-edit state —
+// stays in the enumeration with nothing on disk to read. Before PR #2379 review
+// that aborted the whole lint run with ENOENT. There is no content to scan, so
+// it is excluded; any OTHER read failure still throws rather than degrading.
+test('control: a tracked file deleted from the working tree is skipped, not fatal', () => {
+  const root = writeFixture({
+    'packages/example/src/gone.ts': 'const bye = 1;\n',
+    'packages/example/src/kept.ts': 'const ok = 1;\n',
+  });
+  rmSync(path.join(root, 'packages/example/src/gone.ts'));
+
+  const { scannedFiles, violations } = findRawNulByteViolations({ root });
+
+  assert.deepEqual(violations, []);
+  assert.ok(
+    scannedFiles.includes('packages/example/src/kept.ts'),
+    'the surviving file must still be scanned'
+  );
+  assert.ok(
+    !scannedFiles.includes('packages/example/src/gone.ts'),
+    'a tracked file missing from the working tree has no content to scan and must be excluded'
+  );
 });
 
 // CONTROL: untracked files are not the guard's business — a scratch file in the

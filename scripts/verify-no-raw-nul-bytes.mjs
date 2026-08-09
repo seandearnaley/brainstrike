@@ -39,13 +39,21 @@ import { createSpawnInvocation } from './spawn-command.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// Exported so the paired test can assert its per-extension / per-pathspec
-// expectation maps stay EXHAUSTIVE against these. Widening either one without
-// stating what you expect to find there fails the test rather than silently
-// extending the guard's reach on paper only.
+// Exported so the paired test can assert its per-extension expectation map stays
+// EXHAUSTIVE against this. Widening it without stating what you expect to find
+// fails the test rather than silently extending the guard's reach on paper only.
 export const GUARDED_EXTENSIONS = new Set(['.cjs', '.cts', '.js', '.mjs', '.mts', '.ts', '.tsx']);
 
-export const PATHSPECS = ['apps', 'packages', 'scripts'];
+// Deliberately NO directory allowlist: `git ls-files` is called with no pathspec
+// so every tracked file is enumerated and only the extension filter narrows it.
+// An earlier revision restricted this to apps/packages/scripts (copied from
+// typescript-compiler-wiring.test.mjs, where that scoping is meaningful) and the
+// PR #2379 review caught the mismatch: the invariant claimed "no tracked JS/TS
+// source", but 20 tracked files escaped it — live root config (commitlint.config.ts,
+// eslint.config.js, vitest.config.mts, doctor.config.ts, playwright-merge.config.js)
+// and all of spikes/**. A NUL in any of those causes identical breakage. Scanning
+// everything also means a new top-level directory is covered the day it lands,
+// which a hard-coded list would not do.
 
 // There is deliberately NO allowlist. Every other guard in scripts/ has one
 // because its rule has legitimate exceptions; this one does not. `\0` and a raw
@@ -57,8 +65,8 @@ export const PATHSPECS = ['apps', 'packages', 'scripts'];
 // serve to re-admit the invisibility this guard exists to remove.
 
 // Anti-vacuous-green floor, in the style of MIN_VERIFY_SCRIPTS in
-// verify-script-entrypoints.test.mjs. If the pathspec or the extension filter
-// ever breaks, enumeration returns nothing and this guard reports a clean tree
+// verify-script-entrypoints.test.mjs. If the enumeration or the extension filter
+// ever breaks, it returns nothing and this guard reports a clean tree
 // while checking zero files. The tree holds ~4.2k guarded sources today; this
 // floor only has to be low enough never to false-positive and high enough that
 // a broken scan cannot slip past.
@@ -67,8 +75,8 @@ export const MIN_SCANNED_FILES = 1000;
 const NUL_BYTE = 0x00;
 const LINE_FEED = 0x0a;
 
-function trackedSourceFiles(root) {
-  const invocation = createSpawnInvocation('git', ['ls-files', '-z', '--', ...PATHSPECS]);
+function runGitLsFiles(root, extraArgs) {
+  const invocation = createSpawnInvocation('git', ['ls-files', '-z', ...extraArgs]);
   const result = spawnSync(invocation.command, invocation.args, {
     cwd: root,
     encoding: 'utf8',
@@ -85,10 +93,24 @@ function trackedSourceFiles(root) {
     );
   }
 
-  return result.stdout
-    .split('\0')
-    .filter(Boolean)
-    .filter((filePath) => GUARDED_EXTENSIONS.has(path.extname(filePath)))
+  return result.stdout.split('\0').filter(Boolean);
+}
+
+function trackedSourceFiles(root) {
+  const isGuarded = (filePath) => GUARDED_EXTENSIONS.has(path.extname(filePath));
+
+  // `git ls-files` reports the INDEX, so a tracked file deleted from the working
+  // tree without staging the deletion — an ordinary mid-edit state — is still
+  // listed with nothing on disk to read, and the run died on ENOENT (PR #2379
+  // review). Subtracting --deleted models the real scan set, "tracked AND
+  // present". Done here rather than by catching ENOENT at the read, because that
+  // catch would also swallow permission errors and other genuine read failures:
+  // a file that exists but cannot be read must still fail loudly.
+  const deleted = new Set(runGitLsFiles(root, ['--deleted']).filter(isGuarded));
+
+  return runGitLsFiles(root, [])
+    .filter(isGuarded)
+    .filter((filePath) => !deleted.has(filePath))
     .sort();
 }
 
