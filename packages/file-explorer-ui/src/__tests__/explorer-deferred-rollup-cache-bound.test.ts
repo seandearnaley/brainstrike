@@ -27,14 +27,14 @@ const FOLDER = 'root';
 interface Harness {
   controller: DeferredRollupController;
   /** Composite keys handed to the store by the last flush. */
-  invalidate: ReturnType<typeof vi.fn>;
+  invalidateDirectories: ReturnType<typeof vi.fn>;
   /** Directory paths the flush actually re-resolved. */
   resolvedPaths: () => string[];
 }
 
 function createHarness(): Harness {
-  const invalidate = vi.fn();
-  const store = { invalidate } as unknown as FileRowMetadataStore;
+  const invalidateDirectories = vi.fn();
+  const store = { invalidateDirectories } as unknown as FileRowMetadataStore;
   const controller = createDeferredRollupController({
     resolvedRef: {
       current: {
@@ -44,7 +44,7 @@ function createHarness(): Harness {
           filteredPathSet: null,
           folderId: FOLDER,
           normalizedTreeContext: null,
-          treeRows: [],
+          rowStructureRevision: 1,
           visibleAggregates: null,
         },
       },
@@ -53,10 +53,10 @@ function createHarness(): Harness {
   });
   return {
     controller,
-    invalidate,
+    invalidateDirectories,
     resolvedPaths: () => {
       const keys: string[] = [];
-      for (const call of invalidate.mock.calls) {
+      for (const call of invalidateDirectories.mock.calls) {
         for (const key of call[0] as readonly string[]) {
           keys.push(key);
         }
@@ -78,7 +78,7 @@ async function macrotask(): Promise<void> {
 
 describe('deferred rollup cache bound', () => {
   it('drops entries nothing has read since the previous refresh', async () => {
-    const { controller, invalidate, resolvedPaths } = createHarness();
+    const { controller, invalidateDirectories, resolvedPaths } = createHarness();
     const expanded = directoryPaths(50);
 
     // Expand-all: every directory is read once and resolves a macrotask later.
@@ -93,7 +93,7 @@ describe('deferred rollup cache bound', () => {
     for (const path of expanded) {
       controller.read(path);
     }
-    invalidate.mockClear();
+    invalidateDirectories.mockClear();
     controller.refreshAll();
     await macrotask();
     expect(resolvedPaths()).toHaveLength(50);
@@ -104,7 +104,7 @@ describe('deferred rollup cache bound', () => {
     for (const path of stillProjected) {
       controller.read(path);
     }
-    invalidate.mockClear();
+    invalidateDirectories.mockClear();
     controller.refreshAll();
     await macrotask();
 
@@ -117,18 +117,18 @@ describe('deferred rollup cache bound', () => {
     for (const path of stillProjected) {
       controller.read(path);
     }
-    invalidate.mockClear();
+    invalidateDirectories.mockClear();
     controller.refreshAll();
     await macrotask();
     expect(resolvedPaths()).toHaveLength(3);
   });
 
   it('keeps re-resolving the paths that are still read', async () => {
-    const { controller, invalidate, resolvedPaths } = createHarness();
+    const { controller, invalidateDirectories, resolvedPaths } = createHarness();
     controller.read('/kept');
     await macrotask();
     controller.read('/kept');
-    invalidate.mockClear();
+    invalidateDirectories.mockClear();
 
     controller.refreshAll();
     await macrotask();
@@ -137,7 +137,7 @@ describe('deferred rollup cache bound', () => {
   });
 
   it('keeps everything when nothing was read between two refreshes', async () => {
-    const { controller, invalidate, resolvedPaths } = createHarness();
+    const { controller, invalidateDirectories, resolvedPaths } = createHarness();
     controller.read('/a');
     controller.read('/b');
     await macrotask();
@@ -147,7 +147,7 @@ describe('deferred rollup cache bound', () => {
     // Two structural changes in one macrotask, before anything painted: an
     // empty mark set is "no evidence", not "nothing is live".
     controller.refreshAll();
-    invalidate.mockClear();
+    invalidateDirectories.mockClear();
     controller.refreshAll();
     await macrotask();
 

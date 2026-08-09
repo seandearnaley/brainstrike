@@ -328,6 +328,13 @@ test.describe('File Explorer', () => {
         if (!(viewport && body)) {
           throw new Error('Expected the file tree to own a tree-table viewport');
         }
+        // The sticky header lives INSIDE this scrollport and is IN FLOW, so it
+        // occupies the first `headerHeight` px of the scroll content. The
+        // virtualizer models tbody rows only (`paddingTop = index * rowHeight`,
+        // scrollMargin 0 in own-scrollport mode), so every comparison below has
+        // to convert scrollport coordinates into the row model's own space by
+        // subtracting it. Measured, not assumed — a headerless surface reads 0.
+        const headerHeight = treegrid.querySelector('thead')?.getBoundingClientRect().height ?? 0;
 
         const readWindowStart = (): number => {
           const first = [...body.children].find(
@@ -400,12 +407,55 @@ test.describe('File Explorer', () => {
           (row) => row.getBoundingClientRect().bottom > viewportTop + 0.5
         );
 
+        // Snapshot every scroll-dependent measurement BEFORE the reveal probe
+        // below moves scrollTop — reading them afterwards would silently mix
+        // two different scroll positions.
+        const contentHeight = viewport.scrollHeight - headerHeight;
+        const modelledTopIndex = Math.floor((viewport.scrollTop - headerHeight) / declaredPitch);
+        const paintedTopIndex = topmostVisible ? Number(topmostVisible.dataset['index']) : -1;
+
+        // Reveal check: keyboard/scroll-to-row must never park a row UNDER the
+        // sticky header. It works because the header is in flow — the
+        // virtualizer's `scrollTop = index * rowHeight` (scrollMargin 0) and the
+        // row's real content offset of `headerHeight + index * rowHeight`
+        // cancel, landing the row flush at the header's bottom edge. Adding a
+        // header-sized scrollMargin, or taking the header out of flow, would
+        // break that; this is what would catch it.
+        //
+        // Runs LAST because it scrolls.
+        //
+        // `index * declaredPitch` is the virtualizer's OWN offset for a
+        // start-aligned reveal (scrollMargin 0, model coordinates) — not the
+        // row's content offset. Using the content offset here would scroll
+        // `headerHeight` too far and park the row under the header, which is
+        // precisely the bug this asserts cannot happen.
+        const targetIndex = 120;
+        viewport.scrollTop = targetIndex * declaredPitch;
+        let revealSettleFrames = 0;
+        while (revealSettleFrames < 3) {
+          await new Promise((resolve) => {
+            requestAnimationFrame(() => resolve(undefined));
+          });
+          revealSettleFrames += 1;
+        }
+        const revealedRow = [...body.children].find(
+          (candidate): candidate is HTMLElement =>
+            candidate instanceof HTMLElement && candidate.dataset['index'] === String(targetIndex)
+        );
+        const revealHeaderBottom = viewport.getBoundingClientRect().top + headerHeight;
+        const revealedBox = revealedRow?.getBoundingClientRect();
+
         return {
-          contentHeight: viewport.scrollHeight,
+          contentHeight,
           declaredPitch,
-          modelledTopIndex: Math.floor(viewport.scrollTop / declaredPitch),
+          headerHeight,
+          modelledTopIndex,
           paintedPitch,
-          paintedTopIndex: topmostVisible ? Number(topmostVisible.dataset['index']) : -1,
+          paintedTopIndex,
+          revealHeaderBottomGap: revealedBox ? revealedBox.top - revealHeaderBottom : Number.NaN,
+          revealOccludedPx: revealedBox
+            ? Math.max(0, Math.min(revealedBox.bottom, revealHeaderBottom) - revealedBox.top)
+            : Number.NaN,
         };
       }, scrollTarget);
 
@@ -414,10 +464,21 @@ test.describe('File Explorer', () => {
       // …so the scrollport is as tall as the model claims, and the row sitting at
       // the top edge is the row the model believes is there. The 1px tolerance is
       // TableBody's `[&_tr:last-child]:border-0` dropping the final row's rule.
+      //
+      // Both are measured in the ROW MODEL's coordinate space: the sticky header
+      // is in flow inside this scrollport, so it contributes to scrollHeight and
+      // shifts scrollTop, while the virtualizer models tbody rows alone. That is
+      // a coordinate conversion, not a slackening — the tolerances are unchanged
+      // and the index comparison is still exact.
       expect(
         Math.abs(geometry.contentHeight - rowCount * geometry.declaredPitch)
       ).toBeLessThanOrEqual(1);
       expect(geometry.paintedTopIndex).toBe(geometry.modelledTopIndex);
+
+      // A revealed row lands flush BELOW the sticky header, never under it.
+      expect(geometry.headerHeight).toBeGreaterThan(0);
+      expect(geometry.revealOccludedPx).toBeLessThanOrEqual(1);
+      expect(Math.abs(geometry.revealHeaderBottomGap)).toBeLessThanOrEqual(1);
     });
 
     test('uses one bottom-anchored scrollport with sticky table headers', async ({ page }) => {

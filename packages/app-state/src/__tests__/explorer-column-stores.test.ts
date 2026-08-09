@@ -18,6 +18,10 @@ import {
   sanitizeExplorerColumnVisibility,
   useExplorerColumnVisibilityStore,
 } from '../stores/explorer-column-visibility-store';
+import {
+  sanitizeExplorerSortState,
+  useExplorerSortStateStore,
+} from '../stores/explorer-sort-state-store';
 
 describe('explorer column sizes store', () => {
   it('carries bounds for the metadata columns only — name is the pinned tree column', () => {
@@ -78,5 +82,27 @@ describe('explorer column visibility store', () => {
       type: true,
     });
     expect(sanitizeExplorerColumnVisibility(null)).toEqual(getDefaultExplorerColumnVisibility());
+  });
+});
+
+describe('explorer sort state store', () => {
+  it('defaults to the loader order and persists one global field and direction', () => {
+    expect(useExplorerSortStateStore.getState().sortState).toBeNull();
+    useExplorerSortStateStore.getState().setSortState({ direction: 'desc', field: 'tokens' });
+    expect(useExplorerSortStateStore.getState().sortState).toEqual({
+      direction: 'desc',
+      field: 'tokens',
+    });
+    useExplorerSortStateStore.getState().reset();
+    expect(useExplorerSortStateStore.getState().sortState).toBeNull();
+  });
+
+  it('surfaces malformed persisted state instead of coercing it', () => {
+    expect(() =>
+      sanitizeExplorerSortState({ sortState: { direction: 'sideways', field: 'tokens' } })
+    ).toThrow('Malformed Explorer sort direction: sideways');
+    expect(() =>
+      sanitizeExplorerSortState({ sortState: { direction: 'asc', field: 'nope' } })
+    ).toThrow('Malformed Explorer sort field: nope');
   });
 });

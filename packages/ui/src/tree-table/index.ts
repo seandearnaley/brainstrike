@@ -36,6 +36,7 @@
 // sibling section tables sharing one scroller — reuses the exact resize
 // affordance and clamping the built-in header uses, instead of forking them.
 export { ColumnResizeHandle, type ColumnResizeHandleProps } from './column-resize-handle';
+export { getNextTreeTableSortDirection, getTreeTableAriaSortValue } from './sort';
 // Main component
 export { default, TreeTable } from './tree-table';
 

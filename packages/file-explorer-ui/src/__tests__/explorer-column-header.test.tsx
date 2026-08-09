@@ -18,9 +18,11 @@ import {
   type ExplorerMetadataColumnId,
   useExplorerColumnVisibilityStore,
 } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
+import { useExplorerSortStateStore } from '@brainstrike/app-state/stores/explorer-sort-state-store';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
-import { act, render, renderHook } from '@testing-library/react';
-import type { RefObject } from 'react';
+import { act, fireEvent, render, renderHook } from '@testing-library/react';
+import type { ReactNode, RefObject } from 'react';
 import { useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as containerWidthModule from '../hooks/use-container-width';
@@ -30,12 +32,15 @@ import {
 } from '../indexing/file-row-metadata-context';
 import { ExplorerColumnHeader } from '../shell/explorer-column-header';
 import {
+  type ExplorerColumnsContextValue,
   ExplorerColumnsProvider,
   METADATA_COLUMNS_MIN_WIDTH,
   resolveExplorerColumnWidths,
   resolveVisibleMetadataColumnIds,
   useExplorerColumnsValue,
 } from '../shell/explorer-columns-context';
+import { ExplorerSortProvider } from '../shell/explorer-sort-context';
+import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import OptimizedFileTree from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
@@ -80,7 +85,45 @@ function ForestHarness({
     visibleMetadataColumnIds: columnIds,
   });
   return (
-    <FileRowMetadataProvider value={rowMetadata.contextValue}>
+    <ExplorerSortProvider>
+      <FileRowMetadataProvider value={rowMetadata.contextValue}>
+        <ExplorerColumnsProvider
+          value={{
+            areMetadataColumnsSuppressed: false,
+            columnWidths,
+            visibleMetadataColumnIds: columnIds,
+          }}
+        >
+          <ExplorerColumnHeader
+            columnWidths={columnWidths}
+            scrollerRef={scrollerRef}
+            visibleMetadataColumnIds={columnIds}
+          />
+          <div data-testid="forest-sections-scroll" ref={scrollerRef}>
+            <OptimizedFileTree
+              fileTree={SECTION_TREE}
+              folderId={ROOT}
+              loadingFiles={new Set()}
+              scrollParentRef={scrollerRef}
+            />
+          </div>
+        </ExplorerColumnsProvider>
+      </FileRowMetadataProvider>
+    </ExplorerSortProvider>
+  );
+}
+
+/** The same header with NO `FileRowMetadataProvider` above it. */
+function SeamlessHeaderHarness() {
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const columnIds: readonly ExplorerMetadataColumnId[] = ['tokens'];
+  const columnWidths = resolveExplorerColumnWidths({
+    availableWidth: 0,
+    sizes: {},
+    visibleMetadataColumnIds: columnIds,
+  });
+  return (
+    <ExplorerSortProvider>
       <ExplorerColumnsProvider
         value={{
           areMetadataColumnsSuppressed: false,
@@ -93,16 +136,8 @@ function ForestHarness({
           scrollerRef={scrollerRef}
           visibleMetadataColumnIds={columnIds}
         />
-        <div data-testid="forest-sections-scroll" ref={scrollerRef}>
-          <OptimizedFileTree
-            fileTree={SECTION_TREE}
-            folderId={ROOT}
-            loadingFiles={new Set()}
-            scrollParentRef={scrollerRef}
-          />
-        </div>
       </ExplorerColumnsProvider>
-    </FileRowMetadataProvider>
+    </ExplorerSortProvider>
   );
 }
 
@@ -124,6 +159,7 @@ async function renderForest(
 describe('forest column header', () => {
   beforeEach(() => {
     useExplorerColumnSizesStore.getState().reset();
+    useExplorerSortStateStore.getState().reset();
   });
 
   it('lays out the same columns, in the same order, at the same widths as the section table', async () => {
@@ -167,9 +203,74 @@ describe('forest column header', () => {
     expect(headers).toEqual(['Name', 'Tokens']);
   });
 
-  it('renders nothing at all when the grid is name-only', async () => {
+  it('keeps the sortable Name header when the grid is name-only', async () => {
     const container = await renderForest([]);
-    expect(container.querySelector('[data-testid="explorer-column-header"]')).toBeNull();
+    const header = container.querySelector('[data-testid="explorer-column-header"]');
+    expect(header).not.toBeNull();
+    expect(Array.from(header?.querySelectorAll('th') ?? [], (cell) => cell.textContent)).toEqual([
+      'Name',
+    ]);
+  });
+
+  /**
+   * BST-1209 review, minor 1: the metadata seam is optional by design, so a
+   * surface without it must not OFFER a sort it cannot serve. Name still can —
+   * it orders from the tree node alone.
+   */
+  it('offers no metadata sort affordance when the metadata seam is absent', async () => {
+    const result = await act(async () =>
+      render(
+        <FileExplorerTestWrapper>
+          <SeamlessHeaderHarness />
+        </FileExplorerTestWrapper>
+      )
+    );
+    const header = result.container.querySelector('[data-testid="explorer-column-header"]');
+    const tokensHeader = header?.querySelector<HTMLTableCellElement>('[data-column-id="tokens"]');
+    if (!tokensHeader) {
+      throw new Error('expected a Tokens header cell');
+    }
+
+    expect(tokensHeader.textContent).toBe('Tokens');
+    expect(tokensHeader.querySelector('button')).toBeNull();
+    expect(tokensHeader).not.toHaveAttribute('aria-sort');
+    // Non-interactive label => aria-hidden (whole-branch review F7): it is
+    // decoration beside cells whose sr-only text already carries the meaning,
+    // and this header is `role="presentation"` so nothing announces the cell.
+    expect(tokensHeader.querySelector('span')).toHaveAttribute('aria-hidden', 'true');
+    // The seamless surface is not sort-less: Name is still offered.
+    expect(
+      header?.querySelector('[data-column-id="name"]')?.querySelector('button')
+    ).not.toBeNull();
+  });
+
+  it('uses the shared asc -> desc -> default cycle and exposes aria-sort', async () => {
+    const container = await renderForest(['tokens']);
+    const nameHeader = container.querySelector<HTMLTableCellElement>(
+      '[data-testid="explorer-column-header"] [data-column-id="name"]'
+    );
+    const nameButton = nameHeader?.querySelector('button');
+    if (!(nameHeader && nameButton)) {
+      throw new Error('expected sortable Name header');
+    }
+
+    fireEvent.click(nameButton);
+    expect(useExplorerSortStateStore.getState().sortState).toEqual({
+      direction: 'asc',
+      field: 'name',
+    });
+    expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+
+    fireEvent.click(nameButton);
+    expect(useExplorerSortStateStore.getState().sortState).toEqual({
+      direction: 'desc',
+      field: 'name',
+    });
+    expect(nameHeader).toHaveAttribute('aria-sort', 'descending');
+
+    fireEvent.click(nameButton);
+    expect(useExplorerSortStateStore.getState().sortState).toBeNull();
+    expect(nameHeader).not.toHaveAttribute('aria-sort');
   });
 
   /**
@@ -218,6 +319,38 @@ describe('forest column header', () => {
       'tree-table-resize-handle-tokens',
       'tree-table-resize-handle-size',
     ]);
+  });
+});
+
+/**
+ * BST-1209 review, minor 1: a persisted metadata sort that reaches a surface
+ * without the seam must degrade VISIBLY — default order plus a warn — never by
+ * throwing mid-render and never by quietly doing nothing.
+ */
+describe('metadata sort on a surface without the seam', () => {
+  beforeEach(() => {
+    useExplorerSortStateStore.getState().reset();
+  });
+
+  it('restores the default order and says so', async () => {
+    const warn = vi
+      .spyOn(createLogger('OptimizedFileTree'), 'warn')
+      .mockImplementation(() => undefined);
+    useExplorerSortStateStore.getState().setSortState({ direction: 'asc', field: 'tokens' });
+
+    await act(async () =>
+      render(
+        <FileExplorerTestWrapper>
+          <ExplorerSortProvider>
+            <OptimizedFileTree fileTree={SECTION_TREE} folderId={ROOT} loadingFiles={new Set()} />
+          </ExplorerSortProvider>
+        </FileExplorerTestWrapper>
+      )
+    );
+
+    expect(useExplorerSortStateStore.getState().sortState).toBeNull();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 
@@ -406,5 +539,104 @@ describe('column id identity stability', () => {
     rerender({ width: 800 });
     expect(result.current.areMetadataColumnsSuppressed).toBe(false);
     expect(result.current.visibleMetadataColumnIds.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The header must render at EVERY width, in BOTH layouts (whole-branch review
+ * F1).
+ *
+ * Forest already did. Single-root gated `showColumnHeader` on the visible
+ * metadata-column count, so sorting by Name and then dragging the panel under
+ * 300px (or hiding every metadata column) left the rows sorted with the header
+ * gone: no way to change the sort, no way to clear it, and no `aria-sort`
+ * anywhere. The header is not a metadata capability — it carries the Name sort.
+ */
+function SeamProvider({ children }: { children: ReactNode }) {
+  const rowMetadata = useExplorerRowMetadata();
+  return (
+    <FileRowMetadataProvider value={rowMetadata.contextValue}>{children}</FileRowMetadataProvider>
+  );
+}
+
+describe('single-root header presence', () => {
+  const NARROW_NAME_ONLY: ExplorerColumnsContextValue = {
+    areMetadataColumnsSuppressed: true,
+    columnWidths: {},
+    visibleMetadataColumnIds: [],
+  };
+
+  beforeEach(() => {
+    useExplorerSortStateStore.getState().reset();
+  });
+
+  function renderSingleRoot(columns: ExplorerColumnsContextValue) {
+    return act(async () =>
+      render(
+        <FileExplorerTestWrapper>
+          <ExplorerSortProvider>
+            <SeamProvider>
+              <ExplorerColumnsProvider value={columns}>
+                <FileExplorerSidebar
+                  currentFolderId={ROOT}
+                  filterError={null}
+                  isInitialLoad={false}
+                  isLoading={false}
+                  loadingFiles={new Set()}
+                  quickFilteredTree={SECTION_TREE}
+                  rootDirectoryHandle={{
+                    _internal: {} as FileSystemDirectoryHandle,
+                    kind: 'directory',
+                    name: 'root',
+                    path: '/',
+                    platform: 'web',
+                  }}
+                  treeError={null}
+                />
+              </ExplorerColumnsProvider>
+            </SeamProvider>
+          </ExplorerSortProvider>
+        </FileExplorerTestWrapper>
+      )
+    );
+  }
+
+  it('keeps the Name sort reachable with every metadata column suppressed', async () => {
+    const { container } = await renderSingleRoot(NARROW_NAME_ONLY);
+
+    const headerCells = container.querySelectorAll<HTMLTableCellElement>('thead th');
+    // Name-only: exactly ONE header cell, and it is the sort affordance.
+    expect(headerCells).toHaveLength(1);
+    const nameHeader = headerCells[0];
+    if (!nameHeader) {
+      throw new Error('expected a Name header cell at name-only width');
+    }
+
+    fireEvent.click(nameHeader);
+    expect(useExplorerSortStateStore.getState().sortState).toEqual({
+      direction: 'asc',
+      field: 'name',
+    });
+    expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+
+    // …and the sort stays CLEARABLE, which is the half the missing header
+    // really cost: rows stayed ordered with no control to undo it.
+    fireEvent.click(nameHeader);
+    fireEvent.click(nameHeader);
+    expect(useExplorerSortStateStore.getState().sortState).toBeNull();
+  });
+
+  it('still renders the header when metadata columns ARE visible', async () => {
+    const { container } = await renderSingleRoot({
+      areMetadataColumnsSuppressed: false,
+      columnWidths: { tokens: 76 },
+      visibleMetadataColumnIds: ['tokens'],
+    });
+
+    const headerCells = Array.from(
+      container.querySelectorAll<HTMLTableCellElement>('thead th'),
+      (cell) => cell.textContent
+    );
+    expect(headerCells).toEqual(['Name', 'Tokens']);
   });
 });

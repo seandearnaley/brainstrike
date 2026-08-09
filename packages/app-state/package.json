@@ -115,6 +115,10 @@
       "types": "./dist/stores/explorer-column-visibility-store.d.ts",
       "import": "./dist/stores/explorer-column-visibility-store.js"
     },
+    "./stores/explorer-sort-state-store": {
+      "types": "./dist/stores/explorer-sort-state-store.d.ts",
+      "import": "./dist/stores/explorer-sort-state-store.js"
+    },
     "./stores/hook-trust-store": {
       "types": "./dist/stores/hook-trust-store.d.ts",
       "import": "./dist/stores/hook-trust-store.js"

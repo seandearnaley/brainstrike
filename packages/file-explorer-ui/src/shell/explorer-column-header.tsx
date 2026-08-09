@@ -27,14 +27,26 @@ import {
   useExplorerColumnSizesStore,
 } from '@brainstrike/app-state/stores/explorer-column-sizes-store';
 import type { ExplorerMetadataColumnId } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
-import { ColumnResizeHandle, cn, useResizeObserver } from '@brainstrike/ui';
+import {
+  isExplorerMetadataSortField,
+  isExplorerSortField,
+} from '@brainstrike/app-state/stores/explorer-sort-state-store';
+import {
+  ColumnResizeHandle,
+  cn,
+  getNextTreeTableSortDirection,
+  getTreeTableAriaSortValue,
+  useResizeObserver,
+} from '@brainstrike/ui';
 import { type RefObject, useCallback, useState } from 'react';
+import { useOptionalFileRowMetadata } from '../indexing/file-row-metadata-context';
 import {
   EXPLORER_METADATA_COLUMN_CONFIGS,
   EXPLORER_METADATA_HEADER_CLASS,
   EXPLORER_NAME_HEADER_CLASS,
   getExplorerColumnResizeBounds,
 } from '../tree/file-tree-columns';
+import { useOptionalExplorerSort } from './explorer-sort-context';
 
 /**
  * Width the scroller's vertical scrollbar takes from its content box. 0 on
@@ -73,6 +85,19 @@ export interface ExplorerColumnHeaderProps {
   visibleMetadataColumnIds: readonly ExplorerMetadataColumnId[];
 }
 
+function sortButtonLabel(
+  label: string,
+  columnId: string,
+  sortState: { columnId: string | null; direction: 'asc' | 'desc' | null }
+): string {
+  if (sortState.columnId !== columnId || sortState.direction === null) {
+    return `${label}: sort ascending`;
+  }
+  return sortState.direction === 'asc'
+    ? `${label}: sorted ascending; sort descending`
+    : `${label}: sorted descending; restore default order`;
+}
+
 export function ExplorerColumnHeader({
   columnWidths,
   scrollerRef,
@@ -82,12 +107,38 @@ export function ExplorerColumnHeader({
     (state: TreeTableColumnSizesStoreState) => state.setColumn
   );
   const gutterWidth = useScrollbarGutterWidth(scrollerRef);
-
-  if (visibleMetadataColumnIds.length === 0) {
-    // Name-only: a header row that says nothing the tree does not already say
-    // is pure vertical cost in the app's narrowest panel.
-    return null;
-  }
+  const explorerSort = useOptionalExplorerSort();
+  // Capability gating (docs/agents/ui-conventions.md): Type/Tokens/Size can
+  // only be ordered where the metadata seam is mounted, so a surface without it
+  // does not OFFER those sorts at all rather than offering one that throws.
+  // Name never needs the seam.
+  const canSortByMetadata = useOptionalFileRowMetadata() !== null;
+  const treeTableSortState = explorerSort?.sortState
+    ? {
+        columnId: explorerSort.sortState.field,
+        direction: explorerSort.sortState.direction,
+      }
+    : { columnId: null, direction: null };
+  const handleSort = useCallback(
+    (columnId: string): void => {
+      if (!explorerSort) {
+        return;
+      }
+      if (!isExplorerSortField(columnId)) {
+        throw new Error(`Unsupported Explorer sort column: ${columnId}`);
+      }
+      if (isExplorerMetadataSortField(columnId) && !canSortByMetadata) {
+        throw new Error(
+          `Explorer sort column "${columnId}" was activated without the file-row metadata seam`
+        );
+      }
+      const currentDirection =
+        treeTableSortState.columnId === columnId ? treeTableSortState.direction : null;
+      const direction = getNextTreeTableSortDirection(currentDirection);
+      explorerSort.setSortState(direction === null ? null : { direction, field: columnId });
+    },
+    [canSortByMetadata, explorerSort, treeTableSortState.columnId, treeTableSortState.direction]
+  );
 
   const visible = new Set(visibleMetadataColumnIds);
   const columns = EXPLORER_METADATA_COLUMN_CONFIGS.filter((config) => visible.has(config.id));
@@ -102,12 +153,21 @@ export function ExplorerColumnHeader({
         a11y: role="presentation" strips the TABLE semantics, because this
         header belongs to N sibling treegrids and ARIA has no way to associate
         one header with several grids — announcing a stray one-row table is
-        worse than announcing nothing. The column labels are aria-hidden since
-        every metadata cell already self-describes (its sr-only text carries the
-        column's meaning, e.g. "1,234 tokens"). The resize handles deliberately
-        stay in the accessibility tree: they are real controls with their own
-        names, and burying focusable elements under aria-hidden is precisely the
-        violation that rule exists to prevent.
+        worse than announcing nothing.
+
+        Consequence, and the reason `aria-sort` below is markup only: on a
+        presentational `th` `aria-sort` is INERT — nothing announces it. The
+        sort state reaches assistive tech through each sort button's
+        `aria-label` ("Tokens: sorted descending; restore default order"),
+        which is a real control in a real accessibility tree. The attribute
+        stays because the tests assert the markup contract shared with
+        TreeTable's own header, where it is NOT inert.
+
+        NON-interactive labels are aria-hidden: they are decoration next to
+        cells that already self-describe (each metadata cell's sr-only text
+        carries the column's meaning, e.g. "1,234 tokens"). Sort buttons and
+        resize handles deliberately stay in the accessibility tree — never bury
+        a focusable control under aria-hidden.
       */}
       <table className="w-full table-fixed caption-bottom text-sm" role="presentation">
         <colgroup>
@@ -126,13 +186,32 @@ export function ExplorerColumnHeader({
         </colgroup>
         <thead>
           <tr>
-            <th className={cn('text-left text-muted-foreground', EXPLORER_NAME_HEADER_CLASS)}>
-              <span aria-hidden="true">Name</span>
+            <th
+              aria-sort={getTreeTableAriaSortValue('name', treeTableSortState)}
+              className={cn('text-left text-muted-foreground', EXPLORER_NAME_HEADER_CLASS)}
+              data-column-id="name"
+            >
+              <button
+                aria-label={sortButtonLabel('Name', 'name', treeTableSortState)}
+                className="flex h-full w-full cursor-pointer items-center gap-1 text-left"
+                onClick={() => handleSort('name')}
+                type="button"
+              >
+                Name
+                {treeTableSortState.columnId === 'name' ? (
+                  <span aria-hidden="true">
+                    {treeTableSortState.direction === 'asc' ? '↑' : '↓'}
+                  </span>
+                ) : null}
+              </button>
             </th>
             {columns.map((config) => {
               const width = columnWidths[config.id];
               return (
                 <th
+                  {...(canSortByMetadata
+                    ? { 'aria-sort': getTreeTableAriaSortValue(config.id, treeTableSortState) }
+                    : {})}
                   className={cn(
                     'relative text-left text-muted-foreground',
                     EXPLORER_METADATA_HEADER_CLASS
@@ -141,15 +220,36 @@ export function ExplorerColumnHeader({
                   key={config.id}
                   style={{ width }}
                 >
-                  <div
-                    aria-hidden="true"
-                    className={cn(
-                      'flex items-center gap-1',
-                      config.align === 'right' && 'justify-end'
-                    )}
-                  >
-                    {config.label}
-                  </div>
+                  {canSortByMetadata ? (
+                    <button
+                      aria-label={sortButtonLabel(config.label, config.id, treeTableSortState)}
+                      className={cn(
+                        'flex h-full w-full cursor-pointer items-center gap-1',
+                        config.align === 'right' && 'justify-end'
+                      )}
+                      onClick={() => handleSort(config.id)}
+                      type="button"
+                    >
+                      {config.label}
+                      {treeTableSortState.columnId === config.id ? (
+                        <span aria-hidden="true">
+                          {treeTableSortState.direction === 'asc' ? '↑' : '↓'}
+                        </span>
+                      ) : null}
+                    </button>
+                  ) : (
+                    <span
+                      // Non-interactive: decoration beside cells that already
+                      // self-describe. See the a11y note above.
+                      aria-hidden="true"
+                      className={cn(
+                        'flex h-full w-full items-center gap-1',
+                        config.align === 'right' && 'justify-end'
+                      )}
+                    >
+                      {config.label}
+                    </span>
+                  )}
                   {width === undefined ? null : (
                     <ColumnResizeHandle
                       bounds={getExplorerColumnResizeBounds(config.id)}

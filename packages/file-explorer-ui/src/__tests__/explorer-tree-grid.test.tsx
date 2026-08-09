@@ -11,8 +11,10 @@
  * 3. The performance contract: a token arriving repaints ONE cell. Sibling
  *    rows are not re-read, and no row rebuild happens at all.
  */
+
+import { useExplorerSortStateStore } from '@brainstrike/app-state/stores/explorer-sort-state-store';
 import type { IFileNode } from '@brainstrike/types';
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -22,6 +24,7 @@ import {
 } from '../indexing/file-row-metadata-context';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import { ExplorerColumnsProvider } from '../shell/explorer-columns-context';
+import { ExplorerSortProvider } from '../shell/explorer-sort-context';
 import { EXCLUDED_TOKENS_TITLE } from '../tree/file-tree-metadata-cells';
 import OptimizedFileTree, { fileTreeTelemetry } from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
@@ -98,24 +101,26 @@ function Harness({
     onReady?.(rowMetadata);
   }, [onReady, rowMetadata]);
   return (
-    <FileRowMetadataProvider value={rowMetadata.contextValue}>
-      <ExplorerColumnsProvider
-        value={{
-          areMetadataColumnsSuppressed: false,
-          // Wide enough that clamping is a no-op; the clamp itself is pinned in
-          // explorer-column-header.test.tsx.
-          columnWidths: { size: 76, tokens: 76, type: 72 },
-          visibleMetadataColumnIds: ['type', 'tokens', 'size'],
-        }}
-      >
-        <OptimizedFileTree
-          fileTree={fileTree}
-          folderId={ROOT}
-          loadingFiles={new Set()}
-          showColumnHeader={true}
-        />
-      </ExplorerColumnsProvider>
-    </FileRowMetadataProvider>
+    <ExplorerSortProvider>
+      <FileRowMetadataProvider value={rowMetadata.contextValue}>
+        <ExplorerColumnsProvider
+          value={{
+            areMetadataColumnsSuppressed: false,
+            // Wide enough that clamping is a no-op; the clamp itself is pinned in
+            // explorer-column-header.test.tsx.
+            columnWidths: { size: 76, tokens: 76, type: 72 },
+            visibleMetadataColumnIds: ['type', 'tokens', 'size'],
+          }}
+        >
+          <OptimizedFileTree
+            fileTree={fileTree}
+            folderId={ROOT}
+            loadingFiles={new Set()}
+            showColumnHeader={true}
+          />
+        </ExplorerColumnsProvider>
+      </FileRowMetadataProvider>
+    </ExplorerSortProvider>
   );
 }
 
@@ -154,12 +159,35 @@ function rowFor(name: string): HTMLElement {
 describe('Explorer tree grid', () => {
   beforeEach(() => {
     cacheState = { isOperational: true, tokens: {} };
+    useExplorerSortStateStore.getState().reset();
   });
 
   it('renders the four column headers when the single-root header is enabled', async () => {
     await renderGrid(LOADED_TREE);
     const headers = screen.getAllByRole('columnheader').map((cell) => cell.textContent);
     expect(headers).toEqual(['Name', 'Type', 'Tokens', 'Size']);
+  });
+
+  it('routes the single-root header through TreeTable sorting state', async () => {
+    await renderGrid(LOADED_TREE);
+    const tokensHeader = screen.getByRole('columnheader', { name: /^Tokens/ });
+
+    fireEvent.click(tokensHeader);
+    expect(useExplorerSortStateStore.getState().sortState).toEqual({
+      direction: 'asc',
+      field: 'tokens',
+    });
+    expect(tokensHeader).toHaveAttribute('aria-sort', 'ascending');
+
+    fireEvent.click(tokensHeader);
+    expect(useExplorerSortStateStore.getState().sortState).toEqual({
+      direction: 'desc',
+      field: 'tokens',
+    });
+    expect(tokensHeader).toHaveAttribute('aria-sort', 'descending');
+
+    fireEvent.click(tokensHeader);
+    expect(useExplorerSortStateStore.getState().sortState).toBeNull();
   });
 
   it('shows a real count and size for a counted file', async () => {
@@ -297,5 +325,34 @@ describe('Explorer tree grid', () => {
     // No row rebuild: the seam never invalidates the row model.
     expect(fileTreeTelemetry.treeRowsRebuildCount).toBe(rowBuildsBefore);
     expect(within(rowFor('notes.txt')).getByTitle('7 tokens')).toBeInTheDocument();
+  });
+
+  it('performs one sorted-row rebuild when a pending token count lands', async () => {
+    const sortedTree = [file('/a.ts', 10), file('/b.ts', 20)];
+    cacheState.tokens['/a.ts'] = 10;
+    useExplorerSortStateStore.getState().setSortState({ direction: 'asc', field: 'tokens' });
+    let metadata: ExplorerRowMetadata | null = null;
+    await renderGrid(sortedTree, (value) => {
+      metadata = value;
+    });
+    const ready = metadata as ExplorerRowMetadata | null;
+    if (!ready) {
+      throw new Error('expected the harness to expose the metadata seam');
+    }
+    const rowOrder = (): string[] =>
+      screen
+        .getAllByRole('row')
+        .map((row) => row.getAttribute('data-node-id'))
+        .filter((nodeId): nodeId is string => nodeId !== null);
+    expect(rowOrder()).toEqual(['/a.ts', '/b.ts']);
+    const rowBuildsBefore = fileTreeTelemetry.treeRowsRebuildCount;
+
+    cacheState.tokens['/b.ts'] = 5;
+    act(() => {
+      ready.onTokenResolved(`${ROOT}|@|/b.ts`);
+    });
+
+    expect(rowOrder()).toEqual(['/b.ts', '/a.ts']);
+    expect(fileTreeTelemetry.treeRowsRebuildCount).toBe(rowBuildsBefore + 1);
   });
 });

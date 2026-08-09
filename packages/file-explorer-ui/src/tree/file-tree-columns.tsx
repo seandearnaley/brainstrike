@@ -114,6 +114,7 @@ function buildMetadataColumn(
     isTreeColumn: false,
     maxWidth: bounds.maxWidth,
     minWidth: bounds.minWidth,
+    sortable: true,
   };
 }
 
@@ -143,6 +144,7 @@ export function buildFileTreeColumns({
       id: 'name',
       // Pinned: the tree column absorbs the remaining width and never resizes.
       resizable: false,
+      sortable: true,
     },
   ];
   for (const config of EXPLORER_METADATA_COLUMN_CONFIGS) {

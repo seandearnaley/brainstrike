@@ -24,6 +24,7 @@
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { ChevronsDownUp, ChevronsUpDown, Loader2 } from 'lucide-react';
 import * as React from 'react';
+import { resolveTreeExpansionDisabledState } from '../utils/tree-expansion-disabled-state';
 
 interface TreeExpansionButtonsProps {
   isExpandingAll: boolean;
@@ -31,19 +32,6 @@ interface TreeExpansionButtonsProps {
   isRefreshing: boolean;
   onCollapseAll: () => void;
   onExpandAll: () => void;
-}
-
-export function resolveTreeExpansionDisabledState(props: {
-  isExpandingAll: boolean;
-  isLoading: boolean;
-  isRefreshing: boolean;
-}): { collapse: boolean; expand: boolean } {
-  return {
-    // Collapse stays enabled while expanding — it doubles as the stop
-    // affordance (the panel's collapseAll cancels the running sweep first).
-    collapse: props.isLoading || props.isRefreshing,
-    expand: props.isLoading || props.isRefreshing || props.isExpandingAll,
-  };
 }
 
 export const TreeExpansionButtons = React.memo(

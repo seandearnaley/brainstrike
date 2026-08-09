@@ -121,6 +121,12 @@ export interface FileRowMetadataStore {
    */
   getDirectorySnapshot: (compositeKey: string) => FileRowDirectoryRollup;
   /**
+   * Monotonic per-root revision used only while that root is metadata-sorted.
+   * Moves once per invalidation batch that touches the root — see
+   * `subscribeFolder` for why it is not narrowed to observed value changes.
+   */
+  getFolderRevision: (folderId: string) => number;
+  /**
    * Metadata for a file key. The returned object keeps a STABLE identity until
    * an `invalidate`/`invalidateAll` observes a real change — that is what lets
    * useSyncExternalStore skip unaffected cells and, conversely, guarantees a
@@ -150,7 +156,44 @@ export interface FileRowMetadataStore {
    * source on the next read instead of summing stale snapshots.
    */
   invalidateAll: () => void;
+  /**
+   * Re-read named DIRECTORY keys and notify — including the per-root sort
+   * revision — ONLY where a rollup actually moved. For the deferred rollup
+   * flush, which re-resolves subtrees it queued and usually lands on the same
+   * totals.
+   *
+   * Why this can be honest where `invalidate` cannot (whole-branch review F4):
+   * `invalidate`'s unconditional per-root bump exists because a sorted tree
+   * reads FILE values the cache does not hold — the comparator goes through the
+   * non-caching `peekSnapshot`. Directory rollups are the opposite:
+   * `getDirectorySnapshot` populates the cache on every read, so every
+   * directory in the projection IS cached, and "no cached rollup moved" really
+   * does mean "the order cannot have moved". MEASURED
+   * (`__tests__/explorer-sort-structural-cost.integration.test.tsx`): this
+   * removes one of THREE full 10k-row rebuild+sorts per expand/collapse.
+   */
+  invalidateDirectories: (compositeKeys: readonly string[]) => void;
+  /**
+   * Metadata for a file key WITHOUT caching it. For readers that sweep the
+   * whole projection instead of one row — the sort comparator — where caching
+   * would grow the store past the subscribed rows and disable eviction. The
+   * returned object has no identity guarantee; never feed it to
+   * useSyncExternalStore.
+   */
+  peekSnapshot: (compositeKey: string) => FileRowMetadata;
   subscribe: (compositeKey: string, listener: () => void) => () => void;
+  /**
+   * One notification per invalidation batch that touches this root. Explorer
+   * row sorting uses this instead of N per-row renders.
+   *
+   * Coarser than the per-key path ON PURPOSE: an ordered tree compares values
+   * across its whole expanded projection, most of which is off-screen and
+   * therefore uncached, so "a cached snapshot changed" would miss real order
+   * changes. A listener also PINS this root's directory rollups against
+   * eviction (recomputing one walks an enumerated subtree); file snapshots stay
+   * bounded by the subscribed rows.
+   */
+  subscribeFolder: (folderId: string, listener: () => void) => () => void;
 }
 
 function metadataEquals(a: FileRowMetadata, b: FileRowMetadata): boolean {
@@ -224,8 +267,23 @@ const PARTIAL_PENDING_METADATA: FileRowDirectoryRollup = {
  */
 export function createFileRowMetadataStore(sources: FileRowMetadataSources): FileRowMetadataStore {
   const listenersByKey = new Map<string, Set<() => void>>();
+  const listenersByFolder = new Map<string, Set<() => void>>();
+  const revisionByFolder = new Map<string, number>();
   const fileSnapshots = new Map<string, FileRowMetadata>();
   const directoryRollups = new Map<string, FileRowDirectoryRollup>();
+  /**
+   * Directory keys an OUTSIDE caller has read since the last sweep — the
+   * liveness mark for folder-pinned rollups (whole-branch review F3).
+   *
+   * A folder (sort) listener pins every directory rollup for its root, and the
+   * sort comparator reads `getDirectorySnapshot` for every directory row in the
+   * PROJECTION, so both caches filled to the projection's high-water mark and
+   * collapsing never shrank them again: every later expand, collapse and
+   * quick-filter keystroke then recomputed every rollup the session had ever
+   * shown. Only EXTERNAL reads mark — `refreshCachedKey`'s own recompute must
+   * not, or a rollup would keep itself alive forever.
+   */
+  const directoriesReadSinceSweep = new Set<string>();
 
   const notifyKey = (compositeKey: string): void => {
     const listeners = listenersByKey.get(compositeKey);
@@ -236,6 +294,33 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     // subscriber, mutating the Set mid-loop (Zustand/Redux-internals pattern).
     for (const listener of [...listeners]) {
       listener();
+    }
+  };
+
+  /**
+   * Bump ONE revision per root per invalidation batch and notify its folder
+   * listeners.
+   *
+   * The signal is deliberately "this root's metadata batch may have moved the
+   * ordering", not "a cached snapshot changed". A sorted tree orders by values
+   * for the whole expanded projection, which is far larger than the subscribed
+   * window — deriving the signal from cached-and-changed keys would only be
+   * honest if the store cached the whole projection, and pinning the whole
+   * projection is exactly the unbounded cache this store exists to avoid
+   * (BST-1209 review, important finding 2). Over-notifying costs at most one
+   * coalesced row rebuild per batch; under-notifying leaves a visibly stale
+   * order with nothing to say so.
+   */
+  const bumpFolders = (folderIds: Iterable<string>): void => {
+    for (const folderId of new Set(folderIds)) {
+      revisionByFolder.set(folderId, (revisionByFolder.get(folderId) ?? 0) + 1);
+      const listeners = listenersByFolder.get(folderId);
+      if (!listeners) {
+        continue;
+      }
+      for (const listener of [...listeners]) {
+        listener();
+      }
     }
   };
 
@@ -256,6 +341,7 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     };
   };
 
+  /** Cache-populating read: the identity a subscribed cell needs. */
   const readFileMetadata = (compositeKey: string): FileRowMetadata => {
     const cached = fileSnapshots.get(compositeKey);
     if (cached) {
@@ -266,6 +352,17 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     return computed;
   };
 
+  /**
+   * VALUE-only read: answers from the cache when it is there, computes without
+   * populating it when it is not. Used by every caller that wants a number
+   * rather than a stable object — a sort comparator, and rollup aggregation
+   * over descendants that may be nowhere near the viewport. Those callers read
+   * the whole projection, so letting them populate the cache would grow it past
+   * the subscribed rows and disable the eviction that bounds it.
+   */
+  const peekFileMetadata = (compositeKey: string): FileRowMetadata =>
+    fileSnapshots.get(compositeKey) ?? computeFileMetadata(compositeKey);
+
   const computeDirectoryRollup = (compositeKey: string): FileRowDirectoryRollup => {
     const subtree = sources.getDirectorySubtree(compositeKey);
     if (!subtree.isComplete) {
@@ -275,7 +372,7 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     let size = 0;
     let tokens = 0;
     for (const fileKey of subtree.fileKeys) {
-      const metadata = readFileMetadata(fileKey);
+      const metadata = peekFileMetadata(fileKey);
       if (metadata.tokens === 'pending' || metadata.size === undefined) {
         return PARTIAL_PENDING_METADATA;
       }
@@ -291,6 +388,13 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
    * Re-read one cached key. Subscribed keys are recomputed and notified only on
    * a real change; unsubscribed keys are evicted so the caches stay bounded by
    * the rows actually in play.
+   *
+   * A folder (sort) listener pins DIRECTORY rollups only. Recomputing a rollup
+   * is the expensive read — it walks a whole enumerated subtree — so an ordered
+   * tree keeps those, bounding that cache by the projection's directory rows.
+   * File snapshots stay bounded by the SUBSCRIBED rows exactly as documented:
+   * the comparator reads them through `peekFileMetadata`, which neither
+   * populates nor needs the cache.
    */
   const refreshCachedKey = (compositeKey: string, cache: 'directory' | 'file'): boolean => {
     const isDirectory = cache === 'directory';
@@ -298,7 +402,10 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     if (!store.has(compositeKey)) {
       return false;
     }
-    if (!listenersByKey.has(compositeKey)) {
+    const { folderId } = decodeFileSelection(compositeKey);
+    const isPinned =
+      listenersByKey.has(compositeKey) || (isDirectory && listenersByFolder.has(folderId));
+    if (!isPinned) {
       store.delete(compositeKey);
       return false;
     }
@@ -321,11 +428,40 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
   };
 
   /**
+   * Drop folder-pinned rollups for directories nothing has read since the last
+   * sweep — they are no longer in the projection, so nothing is serving them.
+   *
+   * Runs at the START of `invalidateAll`, before any recompute, so a rollup
+   * cannot mark itself live. Keys with their OWN listener (a rendered cell) are
+   * never swept; they are bounded by the subscribed rows already.
+   *
+   * A sweep with no external reads at all in between is skipped: an empty mark
+   * set is "no evidence" — two reconciliations back to back, with no render
+   * between them, would otherwise evict the whole live projection.
+   */
+  const sweepUnreadFolderPinnedRollups = (): void => {
+    if (directoriesReadSinceSweep.size === 0) {
+      return;
+    }
+    for (const compositeKey of [...directoryRollups.keys()]) {
+      if (directoriesReadSinceSweep.has(compositeKey) || listenersByKey.has(compositeKey)) {
+        continue;
+      }
+      directoryRollups.delete(compositeKey);
+    }
+    directoriesReadSinceSweep.clear();
+  };
+
+  /**
    * Files first, then directories: a directory rollup reads its descendants'
    * snapshots, so refreshing files up front keeps the rollup from summing a
    * value it is about to be told is stale.
    */
-  const refreshKeys = (fileKeys: Iterable<string>, directoryKeys: Iterable<string>): void => {
+  const refreshKeys = (
+    fileKeys: Iterable<string>,
+    directoryKeys: Iterable<string>,
+    touchedFolderIds: Iterable<string>
+  ): void => {
     const changed: string[] = [];
     for (const compositeKey of fileKeys) {
       if (refreshCachedKey(compositeKey, 'file')) {
@@ -340,10 +476,19 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     for (const compositeKey of changed) {
       notifyKey(compositeKey);
     }
+    // Folders named by the batch, PLUS any folder a cached value actually moved
+    // in — the latter covers a root whose listener has not attached yet, so a
+    // sort that mounts mid-batch still sees a revision it can react to.
+    bumpFolders([
+      ...touchedFolderIds,
+      ...changed.map((compositeKey) => decodeFileSelection(compositeKey).folderId),
+    ]);
   };
 
   return {
     getDirectorySnapshot: (compositeKey) => {
+      // Liveness mark: this key is in something's projection right now.
+      directoriesReadSinceSweep.add(compositeKey);
       const cached = directoryRollups.get(compositeKey);
       if (cached) {
         return cached;
@@ -352,12 +497,17 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
       directoryRollups.set(compositeKey, computed);
       return computed;
     },
+    getFolderRevision: (folderId) => revisionByFolder.get(folderId) ?? 0,
     getSnapshot: readFileMetadata,
     invalidate: (compositeKeys) => {
       const fileKeys = new Set<string>();
       const directoryKeys = new Set<string>();
+      const touchedFolderIds = new Set<string>();
       for (const compositeKey of compositeKeys) {
         fileKeys.add(compositeKey);
+        // The NAMED key's root, whether or not that key is cached: an ordered
+        // tree reads values the cache does not hold (see `bumpFolders`).
+        touchedFolderIds.add(decodeFileSelection(compositeKey).folderId);
         if (directoryRollups.has(compositeKey)) {
           directoryKeys.add(compositeKey);
         }
@@ -368,11 +518,36 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
           }
         }
       }
-      refreshKeys(fileKeys, directoryKeys);
+      refreshKeys(fileKeys, directoryKeys, touchedFolderIds);
     },
     invalidateAll: () => {
-      refreshKeys([...fileSnapshots.keys()], [...directoryRollups.keys()]);
+      // Let go of the projection's leftovers BEFORE recomputing, so a
+      // reconciliation costs the rows in play rather than the high-water mark.
+      sweepUnreadFolderPinnedRollups();
+      // Everything may have moved, so every ordered root is told so.
+      refreshKeys(
+        [...fileSnapshots.keys()],
+        [...directoryRollups.keys()],
+        listenersByFolder.keys()
+      );
     },
+    invalidateDirectories: (compositeKeys) => {
+      const directoryKeys = new Set<string>();
+      for (const compositeKey of compositeKeys) {
+        // A key the store does not cache is a key nothing has read, so nothing
+        // is rendering or ordering by it.
+        if (directoryRollups.has(compositeKey)) {
+          directoryKeys.add(compositeKey);
+        }
+      }
+      if (directoryKeys.size === 0) {
+        return;
+      }
+      // NO `touchedFolderIds`: the bump is derived from real changes only. See
+      // the interface comment for why that is honest for directory keys.
+      refreshKeys([], directoryKeys, []);
+    },
+    peekSnapshot: peekFileMetadata,
     subscribe: (compositeKey, listener) => {
       const listeners = listenersByKey.get(compositeKey) ?? new Set<() => void>();
       listeners.add(listener);
@@ -381,6 +556,17 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
         listeners.delete(listener);
         if (listeners.size === 0) {
           listenersByKey.delete(compositeKey);
+        }
+      };
+    },
+    subscribeFolder: (folderId, listener) => {
+      const listeners = listenersByFolder.get(folderId) ?? new Set<() => void>();
+      listeners.add(listener);
+      listenersByFolder.set(folderId, listeners);
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) {
+          listenersByFolder.delete(folderId);
         }
       };
     },
