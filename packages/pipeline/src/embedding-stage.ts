@@ -13,7 +13,7 @@
  *
  * 1. **Queue-Only**: All enqueuing happens via JobQueueLike interface (no direct DB writes)
  * 2. **Pure Orchestration**: No embedding execution - just job creation
- * 3. **Idempotent**: Dedupe keys ensure same chunk+set+model combination is only enqueued once
+ * 3. **Idempotent**: Dedupe keys ensure same chunk+set+content combination is only enqueued once
  * 4. **Progress Tracking**: Real-time progress with configurable callbacks
  *
  * @example
@@ -34,7 +34,8 @@
  * ```
  */
 
-import { buildEmbedJobDedupeKey, generateChunkId } from './identifiers.js';
+import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
+import { generateChunkId } from './identifiers.js';
 import type { ChunkId, ChunkOutput, EmbeddingSetId, FileId, JobId, JobState } from './types.js';
 
 // =============================================================================
@@ -330,7 +331,7 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
         modelKey,
         expectedDimension
       );
-      const dedupeKey = buildEmbedJobDedupeKey(chunkId, embeddingSetId, modelKey);
+      const dedupeKey = buildEmbedJobDedupeKey(chunkId, embeddingSetId, chunk.contentHash);
 
       params.push({
         dedupeKey,

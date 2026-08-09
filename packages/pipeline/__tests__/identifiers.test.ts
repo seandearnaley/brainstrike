@@ -1,7 +1,8 @@
+import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
 import { describe, expect, it } from 'vitest';
+import * as identifiers from '../src/identifiers.js';
 import {
   buildChunkDedupeKey,
-  buildEmbedJobDedupeKey,
   buildFileDedupeKey,
   generateChunkId,
   generateEmbeddingSetId,
@@ -127,39 +128,11 @@ describe('Dedupe Key Builders', () => {
     });
   });
 
-  describe('buildEmbedJobDedupeKey', () => {
-    it('builds correct format', () => {
-      const key = buildEmbedJobDedupeKey('chunk-uuid', 'set-uuid', 'text-embedding-3-small');
-      expect(key).toBe('embed:chunk-uuid:set-uuid:text-embedding-3-small');
-    });
-
-    it('ensures idempotent enqueue', () => {
-      // Same inputs should produce same key
-      const key1 = buildEmbedJobDedupeKey('chunk-1', 'set-1', 'model-1');
-      const key2 = buildEmbedJobDedupeKey('chunk-1', 'set-1', 'model-1');
-
-      expect(key1).toBe(key2);
-    });
-
-    it('different chunks produce different keys', () => {
-      const key1 = buildEmbedJobDedupeKey('chunk-1', 'set-1', 'model-1');
-      const key2 = buildEmbedJobDedupeKey('chunk-2', 'set-1', 'model-1');
-
-      expect(key1).not.toBe(key2);
-    });
-
-    it('different sets produce different keys', () => {
-      const key1 = buildEmbedJobDedupeKey('chunk-1', 'set-1', 'model-1');
-      const key2 = buildEmbedJobDedupeKey('chunk-1', 'set-2', 'model-1');
-
-      expect(key1).not.toBe(key2);
-    });
-
-    it('different models produce different keys', () => {
-      const key1 = buildEmbedJobDedupeKey('chunk-1', 'set-1', 'text-embedding-3-small');
-      const key2 = buildEmbedJobDedupeKey('chunk-1', 'set-1', 'text-embedding-3-large');
-
-      expect(key1).not.toBe(key2);
+  describe('embedding job dedupe keys', () => {
+    // Embedding job keys are built by @brainstrike/indexing-contract, not here,
+    // so that the db and pipeline enqueue paths cannot drift apart.
+    it('are not produced by this module', () => {
+      expect(Object.keys(identifiers)).not.toContain('buildEmbedJobDedupeKey');
     });
   });
 });
@@ -195,15 +168,13 @@ describe('parseDedupeKey', () => {
     });
   });
 
-  it('parses embed job dedupe key', () => {
-    const result = parseDedupeKey('embed:chunk-uuid:set-uuid:text-embedding-3-small');
-
-    expect(result).toEqual({
-      chunkId: 'chunk-uuid',
-      embeddingSetId: 'set-uuid',
-      modelKey: 'text-embedding-3-small',
-      type: 'embed',
-    });
+  // Embedding job keys carry no type tag and end in an opaque content hash.
+  // Guessing a layout for them is what BST-1214 punished, so the parser refuses
+  // both the canonical shape and the retired `embed:`-prefixed one. Chunk and
+  // set identity come from job_queue.chunk_id / job_queue.embedding_set_id.
+  it('refuses to decode embedding job dedupe keys', () => {
+    expect(parseDedupeKey(buildEmbedJobDedupeKey('chunk-1', 'set-1', 'hash-1'))).toBeNull();
+    expect(parseDedupeKey('embed:chunk-uuid:set-uuid:text-embedding-3-small')).toBeNull();
   });
 
   it('returns null for invalid format', () => {
@@ -215,7 +186,6 @@ describe('parseDedupeKey', () => {
   it('returns null for incomplete keys', () => {
     expect(parseDedupeKey('file:hash')).toBeNull();
     expect(parseDedupeKey('chunk:fileid')).toBeNull();
-    expect(parseDedupeKey('embed:chunk:set')).toBeNull();
   });
 
   it('returns null for non-numeric chunk index', () => {
@@ -326,16 +296,16 @@ describe('Dedupe Invariants', () => {
 
   it('embed job dedupe key guarantees idempotency', () => {
     // This test validates the core invariant for durable job queues:
-    // Re-enqueuing the same chunk+set+model should return existing job
+    // re-enqueuing the same chunk+set+content should return the existing job.
 
     const chunkId = generateChunkId();
     const setId = generateEmbeddingSetId();
-    const modelKey = 'text-embedding-3-small';
+    const contentHash = 'content-hash-1';
 
     // Simulate multiple enqueue attempts
-    const attempt1 = buildEmbedJobDedupeKey(chunkId, setId, modelKey);
-    const attempt2 = buildEmbedJobDedupeKey(chunkId, setId, modelKey);
-    const attempt3 = buildEmbedJobDedupeKey(chunkId, setId, modelKey);
+    const attempt1 = buildEmbedJobDedupeKey(chunkId, setId, contentHash);
+    const attempt2 = buildEmbedJobDedupeKey(chunkId, setId, contentHash);
+    const attempt3 = buildEmbedJobDedupeKey(chunkId, setId, contentHash);
 
     // All attempts should use the same dedupe key
     expect(attempt1).toBe(attempt2);
@@ -361,14 +331,7 @@ describe('Dedupe Invariants', () => {
       type: 'chunk',
     });
 
-    // Embed key roundtrip
-    const embedKey = buildEmbedJobDedupeKey('chunk-abc', 'set-def', 'model-ghi');
-    const parsedEmbed = parseDedupeKey(embedKey);
-    expect(parsedEmbed).toEqual({
-      chunkId: 'chunk-abc',
-      embeddingSetId: 'set-def',
-      modelKey: 'model-ghi',
-      type: 'embed',
-    });
+    // Embed keys are deliberately one-way: they are built, never parsed.
+    expect(parseDedupeKey(buildEmbedJobDedupeKey('chunk-abc', 'set-def', 'hash-ghi'))).toBeNull();
   });
 });

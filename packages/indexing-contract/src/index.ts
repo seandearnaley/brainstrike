@@ -535,6 +535,55 @@ export interface IndexingEmbeddingJobQueuePort<TTransaction = unknown> {
   resetProgress?: () => void;
 }
 
+/** Stand-in segment for an embedding job that targets no specific set. */
+const EMBED_JOB_DEDUPE_KEY_NO_SET = 'none';
+
+/**
+ * Build the dedupe key for an `embed_chunk` job.
+ *
+ * This is the ONE supported producer of `job_queue.dedupe_key` for embedding
+ * jobs. It lives here, rather than in `@brainstrike/db` or
+ * `@brainstrike/pipeline`, because both of those enqueue embedding jobs and the
+ * key must be byte-identical across them — a second format silently defeats the
+ * `idx_job_queue_dedupe_active` unique index and re-enqueues duplicates.
+ *
+ * Format: `{chunkId}:{embeddingSetId ?? 'none'}:{contentHash}`
+ *
+ * Content hash rather than model key is deliberate: re-embedding is driven by
+ * chunk content changing, so a chunk whose content is unchanged dedupes against
+ * its in-flight job.
+ *
+ * **Do not parse this key.** Splitting it positionally is not a supported way to
+ * recover chunk or embedding-set identity — the segment layout is an internal
+ * detail and a content hash is opaque. Read the first-class indexed columns
+ * `job_queue.chunk_id` and `job_queue.embedding_set_id` instead (migrations 042
+ * and 043 added them for exactly this reason). BST-1214: a debug query that used
+ * `split_part(dedupe_key, ':', 1)` reported every failed embedding as merely
+ * pending, because it was reading a key built by a different producer.
+ *
+ * @throws If any component is blank — a blank segment would collide across
+ * otherwise distinct chunks, so it is refused rather than coerced.
+ */
+export function buildEmbedJobDedupeKey(
+  chunkId: string,
+  embeddingSetId: string | null | undefined,
+  contentHash: string
+): string {
+  const normalizedChunkId = chunkId.trim();
+  if (!normalizedChunkId) {
+    throw new Error('Cannot build an embedding job dedupe key without a chunk id.');
+  }
+
+  const normalizedContentHash = contentHash.trim();
+  if (!normalizedContentHash) {
+    throw new Error('Cannot build an embedding job dedupe key without a content hash.');
+  }
+
+  const normalizedSetId = embeddingSetId?.trim() || EMBED_JOB_DEDUPE_KEY_NO_SET;
+
+  return `${normalizedChunkId}:${normalizedSetId}:${normalizedContentHash}`;
+}
+
 export interface EmbeddingModelConfig {
   contextWindow?: number;
   description: string;
