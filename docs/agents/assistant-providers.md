@@ -1198,7 +1198,10 @@ preferred selector; a name listed in producer-owned `ambiguousRootNames` falls
 back to `rootId`, matching the full-inventory `describeOpenRootTopology`
 policy. Line breaks in both the selector and path are escaped so neither can
 forge protocol lines. The page's already-gutter-prefixed content follows
-verbatim. The header adds `size` and `omitted` only for a truncated page. A
+verbatim; the native mutation-side refusal for accidentally pasting that
+display form back into file content is specified in
+`assistant-runtime.md` under "GUTTER-PREFIX WRITE GUARD (BST-1202)". The header
+adds `size` and `omitted` only for a truncated page. A
 `continue: cursor=<nextCursor>` footer appears only when a continuation cursor
 exists: never when the request fit completely, and never in the registry-less
 internal read mode where truncation can occur without an issuable cursor. The
