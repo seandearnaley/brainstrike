@@ -7,6 +7,7 @@ export * from './token-summary-bar';
 export * from './use-background-token-indexer-integration';
 export * from './use-file-row-metadata-store';
 export * from './use-persistent-token-cache';
+export * from './use-selected-file-size-prefetch';
 export * from './use-text-token-count';
 export * from './use-token-counting';
 export * from './visible-file-selection-keys';

@@ -18,25 +18,48 @@
  * owning workspace root.
  *
  * NO SILENT FALLBACKS: a file that has not been counted reads `pending`, a
- * file the indexer will never count reads `excluded`, and a directory whose
- * subtree is not fully enumerated (or whose descendants are not all measured)
- * reads an explicit `partial` marker. Nothing here ever reports a zero it
- * cannot justify.
+ * file the indexer will never count reads `excluded` WITH the reason, and a
+ * directory whose subtree is not fully enumerated (or whose descendants are not
+ * all measured) reads an explicit `partial` marker. Nothing here ever reports a
+ * zero it cannot justify.
+ *
+ * The store cannot observe the tree. It caches what it computes and only
+ * recomputes when told to, so a caller that changes the tree's SHAPE (expand,
+ * collapse, refresh, root switch) MUST call `invalidateAll()` — see
+ * `getDirectorySubtree` below and the consumer note on `useFileRowMetadataStore`.
  */
 
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { getFileExtension, isBinaryFile } from '@brainstrike/utils/file-utils';
+
+/**
+ * Why the indexer will never produce a count for a row. These mirror the two
+ * permanent retirements in `planTokenIndexingDispatch` — a file it excludes is
+ * added to `indexedKeysToAdd`, so it is never revisited and its count never
+ * arrives. Rendering either as `pending` would be a lie that also pins every
+ * ancestor rollup to `partial` forever.
+ *
+ * - `'binary'` — `isBinaryFile`, the planner's own first check.
+ * - `'too-large'` — over `DEFAULT_MAX_FILE_SIZE`, the same shared constant the
+ *   planner defaults `maxIndexableFileSize` to.
+ */
+export type FileRowTokenExclusionReason = 'binary' | 'too-large';
 
 /**
  * Token state for one file row.
  * - `number` — a real count from the token cache.
  * - `'pending'` — not counted yet (cache miss); NEVER render this as 0.
- * - `'excluded'` — the indexer will never count it. Binaries only, using
- *   `isBinaryFile` so this matches the dispatch planner's own exclusion.
+ * - `'excluded'` — the indexer will never count it; `exclusionReason` says why.
  */
 export type FileRowTokenState = number | 'excluded' | 'pending';
 
 export interface FileRowMetadata {
+  /**
+   * Set exactly when `tokens === 'excluded'`, so the cell can distinguish
+   * "excluded — binary" from "excluded — too large to count".
+   */
+  readonly exclusionReason?: FileRowTokenExclusionReason;
   /** Bytes. Absent when neither the tree node nor the token cache knows it. */
   readonly size?: number;
   readonly tokens: FileRowTokenState;
@@ -70,8 +93,21 @@ export interface FileRowDirectorySubtree {
 export interface FileRowMetadataSources {
   /** `file_token_cache.file_size`; the fallback when the node has no size. */
   getCachedSize: (compositeKey: string) => number | undefined;
-  /** Enumerated subtree for a directory key; `null` when the key is not one. */
-  getDirectorySubtree: (compositeKey: string) => FileRowDirectorySubtree | null;
+  /**
+   * Enumerated subtree for a directory key. TOTAL by contract: a key the caller
+   * knows nothing about — an unexpanded directory, an unregistered key, or a
+   * FILE key reached by mistake — answers `{ fileKeys: [], isComplete: false }`,
+   * which reads as `partial`. Returning a sentinel rather than `null` is what
+   * keeps a cell from throwing mid-render, and it removes the old ambiguity
+   * where "this is a file" and "this directory is not enumerated yet" were the
+   * same `null`.
+   *
+   * The store CACHES the rollup this produces and cannot see the tree change
+   * underneath it, so a caller whose enumeration shifts (expand, collapse,
+   * refresh, root switch) MUST follow with `invalidateAll()`. See
+   * `use-file-tree-metadata-source` for the tree-side implementation.
+   */
+  getDirectorySubtree: (compositeKey: string) => FileRowDirectorySubtree;
   /** `IFileNode.size` fed by the tree; the preferred size source. */
   getNodeSize: (compositeKey: string) => number | undefined;
   /** Hot-cache (PGlite-warmed) count; `undefined` when not counted yet. */
@@ -79,7 +115,10 @@ export interface FileRowMetadataSources {
 }
 
 export interface FileRowMetadataStore {
-  /** Rollup for a directory key. Throws when the key has no enumerated subtree. */
+  /**
+   * Rollup for a directory key. Never throws: a key with no enumerated subtree
+   * reads `partial` (see `FileRowMetadataSources.getDirectorySubtree`).
+   */
   getDirectorySnapshot: (compositeKey: string) => FileRowDirectoryRollup;
   /**
    * Metadata for a file key. The returned object keeps a STABLE identity until
@@ -115,7 +154,32 @@ export interface FileRowMetadataStore {
 }
 
 function metadataEquals(a: FileRowMetadata, b: FileRowMetadata): boolean {
-  return a.tokens === b.tokens && a.size === b.size && a.type === b.type;
+  return (
+    a.tokens === b.tokens &&
+    a.size === b.size &&
+    a.type === b.type &&
+    a.exclusionReason === b.exclusionReason
+  );
+}
+
+/**
+ * The indexer's permanent retirements, in the planner's own order (binary is
+ * checked before size). Classification WINS over any count already in the
+ * cache: these rows are ones the indexer will not (re)count, so a leftover
+ * value is stale by construction — content-hash invalidation means a live count
+ * cannot coexist with a size that now exceeds the limit.
+ */
+function resolveExclusionReason(
+  path: string,
+  size: number | undefined
+): FileRowTokenExclusionReason | null {
+  if (isBinaryFile(path)) {
+    return 'binary';
+  }
+  if (size !== undefined && size > DEFAULT_MAX_FILE_SIZE) {
+    return 'too-large';
+  }
+  return null;
 }
 
 function rollupEquals(a: FileRowDirectoryRollup, b: FileRowDirectoryRollup): boolean {
@@ -180,12 +244,14 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     // getFileExtension / isBinaryFile both scan back to the last separator, so
     // the full path is a valid argument — no basename allocation needed.
     const size = sources.getNodeSize(compositeKey) ?? sources.getCachedSize(compositeKey);
-    const tokens: FileRowTokenState = isBinaryFile(path)
-      ? 'excluded'
-      : (sources.getTokenCount(compositeKey) ?? 'pending');
+    const exclusionReason = resolveExclusionReason(path, size);
     return {
+      ...(exclusionReason === null ? {} : { exclusionReason }),
       ...(size === undefined ? {} : { size }),
-      tokens,
+      tokens:
+        exclusionReason === null
+          ? (sources.getTokenCount(compositeKey) ?? 'pending')
+          : ('excluded' as const),
       type: getFileExtension(path),
     };
   };
@@ -202,9 +268,6 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
 
   const computeDirectoryRollup = (compositeKey: string): FileRowDirectoryRollup => {
     const subtree = sources.getDirectorySubtree(compositeKey);
-    if (!subtree) {
-      throw new Error(`No enumerated subtree for directory key "${compositeKey}"`);
-    }
     if (!subtree.isComplete) {
       return PARTIAL_INCOMPLETE_SUBTREE;
     }

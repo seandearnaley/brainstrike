@@ -43,16 +43,29 @@ import { useOptionalTokenCacheContext } from './token-cache-context';
 
 export interface UseFileRowMetadataStoreParams {
   /**
-   * Enumerated subtree for a directory composite key, or `null` when the key is
-   * not a directory. `isComplete` must mirror the tree's
-   * `hasIncompleteDescendants` guard so rollups never sum a partial subtree.
+   * Enumerated subtree for a directory composite key. TOTAL by contract —
+   * answer `{ fileKeys: [], isComplete: false }` for anything you cannot
+   * enumerate rather than returning nothing; `isComplete` must mirror the
+   * tree's `hasIncompleteDescendants` guard so rollups never sum a partial
+   * subtree.
+   *
+   * CONSUMER OBLIGATION: rollups computed from this are cached, and neither the
+   * store nor this hook can see the tree change. Whenever your enumeration
+   * shifts — expand, collapse, filter, tree refresh, root switch — call
+   * `store.invalidateAll()` in the same commit. `use-file-tree-metadata-source`
+   * does this off the row-model identity.
    */
-  getDirectorySubtree: (compositeKey: string) => FileRowDirectorySubtree | null;
+  getDirectorySubtree: (compositeKey: string) => FileRowDirectorySubtree;
   /** `IFileNode.size` for a file composite key, when the tree knows it. */
   getNodeSize: (compositeKey: string) => number | undefined;
 }
 
 export interface UseFileRowMetadataStoreResult {
+  /**
+   * Call `store.invalidateAll()` yourself whenever the TREE SHAPE changes —
+   * neither trigger below can observe expand/collapse, and cached directory
+   * rollups would otherwise keep summing the old enumeration.
+   */
   /**
    * Pass this straight to `useBackgroundTokenIndexerIntegration`'s
    * `onTokenResolved`. It is the precise invalidation path; without it every

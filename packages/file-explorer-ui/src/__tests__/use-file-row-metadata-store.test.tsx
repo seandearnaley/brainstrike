@@ -17,6 +17,7 @@ vi.mock('../indexing/token-cache-context', () => ({
 }));
 
 const ROOT = 'root-id';
+const UNKNOWN_SUBTREE: FileRowDirectorySubtree = { fileKeys: [], isComplete: false };
 const FILE_A = encodeFileSelection(ROOT, 'src/a.ts');
 const FILE_B = encodeFileSelection(ROOT, 'src/b.ts');
 
@@ -70,7 +71,7 @@ describe('useFileRowMetadataStore', () => {
   const renderStore = () =>
     renderHook(() =>
       useFileRowMetadataStore({
-        getDirectorySubtree: (compositeKey) => subtrees[compositeKey] ?? null,
+        getDirectorySubtree: (compositeKey) => subtrees[compositeKey] ?? UNKNOWN_SUBTREE,
         getNodeSize: (compositeKey) => nodeSizes[compositeKey],
       })
     );

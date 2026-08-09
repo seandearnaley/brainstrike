@@ -69,7 +69,9 @@ function createStore(tokens: Record<string, number>): FileRowMetadataStore {
   const sources: FileRowMetadataSources = {
     getCachedSize: () => undefined,
     getDirectorySubtree: (compositeKey) =>
-      compositeKey === DIRECTORY_KEY ? { fileKeys: [FILE_A, FILE_B], isComplete: true } : null,
+      compositeKey === DIRECTORY_KEY
+        ? { fileKeys: [FILE_A, FILE_B], isComplete: true }
+        : { fileKeys: [], isComplete: false },
     getNodeSize: (compositeKey) => (compositeKey === FILE_A ? 100 : 20),
     getTokenCount: (compositeKey) => tokens[compositeKey],
   };

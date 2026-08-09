@@ -264,6 +264,13 @@ binary/size exclusions and the indexed/in-flight de-duplication are shared:
    would strand every later visible file on a full re-count. The memo is the
    parent-owned `preloadedVisibleFoldersRef`, reset with the other indexer memos
    on root change, tree clear, and `clearIndexedCache`.
+   It is **capped**: the visible set is every file under an expanded directory,
+   not the viewport, so one expand on a large directory can surface thousands of
+   uncached files, each costing a full-content read (IPC on desktop). A pass
+   dispatches at most `VISIBLE_FILE_INDEXING_MAX_PER_PASS` (500) keys and
+   re-arms for the remainder — but ONLY when the previous pass consumed
+   something, so a set that can never be consumed (every key parked for a
+   missing handle) cannot spin. Nothing is dropped; it is deferred.
    It is **throttled** by a `VISIBLE_FILE_INDEXING_DEBOUNCE_MS` floor set to 2×
    the selection trigger's longest adaptive delay. The two debounces are
    independent, so this is a strong bias toward selection-first, NOT a
@@ -279,10 +286,26 @@ Per-row metadata for the tree grid (tokens/size/type + directory rollups) is
 read through `FileRowMetadataStore`
 (`packages/file-explorer-ui/src/indexing/file-row-metadata-store.ts`), a
 per-composite-key external store. Rules that must hold: an uncounted file reads
-`pending` and a binary reads `excluded` (never a silent zero); a directory
-rollup is only `complete` when the subtree is fully enumerated AND every
-descendant's metadata has landed, otherwise it is an explicit `partial` marker;
-and a count landing for one key must not re-render any other row.
+`pending`; a file the planner permanently retires reads `excluded` with an
+`exclusionReason`, and that set must stay in sync with
+`planTokenIndexingDispatch` — today `'binary'` (`isBinaryFile`) and
+`'too-large'` (over the shared `DEFAULT_MAX_FILE_SIZE`), both of which the
+planner pushes into `indexedKeysToAdd` so their count never arrives. Adding a
+new permanent retirement to the planner without adding its reason here leaves
+those rows on `pending` forever AND pins every ancestor rollup to `partial`.
+A directory rollup is only `complete` when the subtree is fully enumerated AND
+every descendant's metadata has landed, otherwise it is an explicit `partial`
+marker; excluded files contribute zero tokens and their real size without
+blocking completeness. A count landing for one key must not re-render any other
+row.
+
+`getDirectorySubtree` is TOTAL: anything the caller cannot enumerate answers
+`{ fileKeys: [], isComplete: false }` rather than nothing, so a cell can never
+throw mid-render and "this is a file" is not confused with "this directory is
+not enumerated yet". Because rollups are cached and the store cannot see the
+tree, the caller MUST call `invalidateAll()` whenever the tree SHAPE changes
+(expand, collapse, filter, refresh, root switch) — `use-file-tree-metadata-source`
+does this off the row-model identity.
 
 Invalidation has two paths and the split is load-bearing. `useFileRowMetadataStore`
 returns an `onTokenResolved` that MUST be passed to

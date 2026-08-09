@@ -62,6 +62,21 @@ export const TOKEN_INDEXER_BATCH_YIELD_MS = 16;
 export const VISIBLE_FILE_INDEXING_DEBOUNCE_MS = 1000;
 
 /**
+ * Ceiling on how many files ONE visible-file indexing pass dispatches
+ * (BST-1207, decision D2).
+ *
+ * The visible set is every file under an expanded directory, not the viewport,
+ * so a single expand on a large directory can surface thousands of uncached
+ * files — and each uncached file costs a full-content read (IPC on desktop,
+ * `getFile()` on web) before the tokenizer even sees it. 500 is a batch the
+ * `TOKEN_INDEXER_IO_BATCH_SIZE` reader drains in ~60 cooperative windows, which
+ * keeps one expand from monopolizing the IPC channel while still being far more
+ * than a screenful. The pass re-arms for the remainder whenever it made
+ * progress, so nothing is dropped — it is deferred.
+ */
+export const VISIBLE_FILE_INDEXING_MAX_PER_PASS = 500;
+
+/**
  * Trailing coalescing window for the per-row metadata store's full
  * reconciliation pass (BST-1207).
  *

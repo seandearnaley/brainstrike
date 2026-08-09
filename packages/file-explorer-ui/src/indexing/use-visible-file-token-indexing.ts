@@ -16,6 +16,13 @@
  *   memoized ONLY once persistence is up: while the DB is still booting
  *   `preloadFolder` is a no-op, and remembering that no-op would strand every
  *   visible file on a full re-count for the rest of the session.
+ * - **Capped.** The visible set is every file under an expanded directory, not
+ *   the viewport, so expanding one large directory can surface thousands of
+ *   uncached files at once — each of which costs a full-content read (IPC on
+ *   desktop). A pass dispatches at most `VISIBLE_FILE_INDEXING_MAX_PER_PASS`
+ *   keys and re-arms itself for the remainder, but ONLY when the previous pass
+ *   made progress, so a set that can never be consumed (every key parked for a
+ *   missing handle) cannot spin.
  * - **Throttled.** The `VISIBLE_FILE_INDEXING_DEBOUNCE_MS` floor is 2× the
  *   selection trigger's longest adaptive delay, so visible work sits behind
  *   selection work for every batch size except the degenerate case where a huge
@@ -31,8 +38,12 @@
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
-import { useCallback, useEffect } from 'react';
-import { getAdaptiveDebounceMs, VISIBLE_FILE_INDEXING_DEBOUNCE_MS } from '../constants';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  getAdaptiveDebounceMs,
+  VISIBLE_FILE_INDEXING_DEBOUNCE_MS,
+  VISIBLE_FILE_INDEXING_MAX_PER_PASS,
+} from '../constants';
 import type { HandleInfo } from './background-token-indexer-handles';
 import type { TokenCacheContextValue } from './token-cache-context';
 
@@ -56,8 +67,12 @@ export interface UseVisibleFileTokenIndexingParams {
   isTokenCacheOperational: boolean;
   /** Re-arms the effect when the DB comes up, so a no-op warm gets retried. */
   isTokenCachePersisted: boolean;
-  /** Parent-owned memo of folders already warmed for THIS trigger. */
-  preloadedFoldersRef: MutableRefObject<Set<string>>;
+  /**
+   * Parent-owned memo of folders already warmed for THIS trigger. A stable Set
+   * instance (not a ref) — the parent clears it in place on root change, tree
+   * clear, and `clearIndexedCache`.
+   */
+  preloadedFolders: Set<string>;
   tokenCacheRef: MutableRefObject<TokenCacheContextValue | null>;
   /** The selection trigger's dispatch path, reused verbatim. */
   triggerIndexing: (compositeKeys: string[]) => Promise<void>;
@@ -74,11 +89,16 @@ export function useVisibleFileTokenIndexing({
   inFlightRef,
   isTokenCacheOperational,
   isTokenCachePersisted,
-  preloadedFoldersRef,
+  preloadedFolders,
   tokenCacheRef,
   triggerIndexing,
   visibleFiles,
 }: UseVisibleFileTokenIndexingParams): void {
+  // Re-arm counter for the capped pass. State, not a ref: consuming a batch
+  // has to schedule the NEXT effect run, and nothing else in the deps moves
+  // when a batch completes.
+  const [passCursor, setPassCursor] = useState(0);
+
   const indexVisibleFiles = useCallback(
     async (compositeKeys: readonly string[]): Promise<void> => {
       const cache = tokenCacheRef.current;
@@ -92,7 +112,7 @@ export function useVisibleFileTokenIndexing({
       }
       const warmups: Promise<void>[] = [];
       for (const folderId of folderIds) {
-        if (preloadedFoldersRef.current.has(folderId)) {
+        if (preloadedFolders.has(folderId)) {
           continue;
         }
         warmups.push(
@@ -101,7 +121,7 @@ export function useVisibleFileTokenIndexing({
             // persistence is up `preloadFolder` reads nothing, and memoizing
             // that would defeat cached-first for the whole session.
             if (tokenCacheRef.current?.isPersisted) {
-              preloadedFoldersRef.current.add(folderId);
+              preloadedFolders.add(folderId);
             }
           })
         );
@@ -131,7 +151,7 @@ export function useVisibleFileTokenIndexing({
         await triggerIndexing(uncachedKeys);
       }
     },
-    [indexedFilesRef, preloadedFoldersRef, tokenCacheRef, triggerIndexing]
+    [indexedFilesRef, preloadedFolders, tokenCacheRef, triggerIndexing]
   );
 
   useEffect(() => {
@@ -143,26 +163,34 @@ export function useVisibleFileTokenIndexing({
       return;
     }
 
-    const newFiles = Array.from(visibleFiles).filter(
-      (compositeKey) =>
-        !(indexedFilesRef.current.has(compositeKey) || inFlightRef.current.has(compositeKey))
-    );
-    if (newFiles.length === 0) {
+    const isUnconsumed = (compositeKey: string): boolean =>
+      !(indexedFilesRef.current.has(compositeKey) || inFlightRef.current.has(compositeKey));
+    const candidates = Array.from(visibleFiles).filter(isUnconsumed);
+    if (candidates.length === 0) {
       return;
     }
 
+    const batch = candidates.slice(0, VISIBLE_FILE_INDEXING_MAX_PER_PASS);
     const debounceMs = Math.max(
-      getAdaptiveDebounceMs(newFiles.length),
+      getAdaptiveDebounceMs(batch.length),
       VISIBLE_FILE_INDEXING_DEBOUNCE_MS
     );
     const timeoutId = setTimeout(() => {
-      void indexVisibleFiles(newFiles);
+      void indexVisibleFiles(batch).then(() => {
+        const remaining = Array.from(visibleFiles).filter(isUnconsumed).length;
+        // Re-arm on PROGRESS only. A pass that consumed nothing — every key
+        // parked for a missing handle, say — must not reschedule itself.
+        if (remaining > 0 && remaining < candidates.length) {
+          setPassCursor((cursor) => cursor + 1);
+        }
+      });
     }, debounceMs);
 
     return () => clearTimeout(timeoutId);
   }, [
     visibleFiles,
     indexVisibleFiles,
+    passCursor,
     fileHandleMapRef,
     indexGetHandleRef,
     indexedFilesRef,

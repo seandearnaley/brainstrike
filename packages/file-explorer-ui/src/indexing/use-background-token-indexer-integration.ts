@@ -45,6 +45,7 @@ import {
 } from './background-token-indexer-selection-shrink';
 import { resolveBackgroundIndexerWorkerUrlHref } from './resolve-token-cache-worker-url';
 import { useOptionalTokenCacheContext } from './token-cache-context';
+import { useSelectedFileSizePrefetch } from './use-selected-file-size-prefetch';
 import { useVisibleFileTokenIndexing } from './use-visible-file-token-indexing';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
@@ -162,62 +163,6 @@ function doesPreloadedSnapshotCoverSelection(
   return normalizedPaths.every((path) => preloadedPaths.has(path));
 }
 
-/**
- * Electron-style handle with path property
- */
-/**
- * Look up the file size for `compositeKey` from the handle sources the
- * indexing effect already consults -- `FileTreeIndex` first (O(1), shared
- * across folders), then the local HandleInfo map built from the current
- * tree. Returns `undefined` when neither source knows the size yet; the
- * caller can re-run after the FileTreeIndex version bumps or the local map
- * rebuilds.
- *
- * Extracted so the metadata-prefetch effect stays small and so it can be
- * unit-tested without a full render. Parking compositeKey decoding /
- * normalization here also means the effect body doesn't branch on path
- * validity.
- */
-function lookupSelectedFileSize(params: {
-  compositeKey: string;
-  getHandle: ((folderId: string, path: string) => HandleInfo | undefined) | undefined;
-  localMap: ReadonlyMap<string, HandleInfo>;
-}): { folderId: string; normalizedPath: string; fileSize: number } | null {
-  const { compositeKey, getHandle, localMap } = params;
-  let folderId: string;
-  let selectionPath: string;
-  try {
-    const decoded = decodeFileSelection(compositeKey);
-    folderId = decoded.folderId;
-    selectionPath = decoded.path;
-  } catch (error) {
-    logger.debug('Failed to decode compositeKey during size prefetch lookup', {
-      compositeKey,
-      error,
-    });
-    return null;
-  }
-  // FileTreeIndex keys by raw tree paths (same as classification loop below),
-  // so use selectionPath here and only normalize once we're committing to a
-  // cache write.
-  const handleInfo = getHandle?.(folderId, selectionPath) ?? localMap.get(compositeKey);
-  if (!handleInfo || typeof handleInfo.fileSize !== 'number') {
-    return null;
-  }
-  let normalizedPath: string;
-  try {
-    normalizedPath = normalizeSelectionPathForTokenCache(folderId, selectionPath);
-  } catch (error) {
-    logger.debug('Failed to normalize selection path during size prefetch lookup', {
-      error,
-      folderId,
-      selectionPath,
-    });
-    return null;
-  }
-  return { fileSize: handleInfo.fileSize, folderId, normalizedPath };
-}
-
 // Foreground selection-driven dispatch is intentionally NOT gated on
 // `isImporting` or `isEmbeddingActive`. The tokenizer worker is CPU-only and
 // does not contend with the collection sync for WebGPU; PGLite serializes
@@ -319,8 +264,15 @@ export function useBackgroundTokenIndexerIntegration({
   const rebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // P0 optimization: Track staleness to enable lazy rebuilds
   const fileHandleMapStaleRef = useRef(true); // Start stale since map is empty
-  // P0 optimization: Track previous selection size for 0→>0 transition detection
-  const previousSelectionSizeForMapRef = useRef<number>(0);
+  // Previous INDEXABLE count (selected + visible) for 0→>0 edge detection.
+  // Widened from selection-only when the visible trigger landed: a workspace
+  // with a loaded tree is essentially never at 0, so this edge now fires only
+  // on first load. That is fine — Effect A (tree-driven) already marks the map
+  // stale and schedules a rebuild whenever EITHER count is non-zero, so the
+  // selection-specific edge it used to detect is superseded, not lost. With no
+  // `visibleFiles` prop the count is the selection size and behaviour is
+  // unchanged.
+  const previousIndexableCountForMapRef = useRef<number>(0);
 
   // P0 optimization: Track which folder selections have been preloaded to avoid repeated DB reads.
   // A folder is only considered preloaded when both the cache version and the selected-path coverage
@@ -328,8 +280,9 @@ export function useBackgroundTokenIndexerIntegration({
   // hydration when the same folder expands to include additional files.
   const preloadedFoldersRef = useRef<Map<string, PreloadedFolderSnapshot>>(new Map());
   // The VISIBLE trigger's own folder-warm memo. Separate from the map above
-  // (which tracks selection-path coverage) but reset in the same places.
-  const preloadedVisibleFoldersRef = useRef<Set<string>>(new Set());
+  // (which tracks selection-path coverage) but reset in the same places. Held
+  // in useState so the Set is built ONCE, not rebuilt and discarded per render.
+  const [preloadedVisibleFolders] = useState<Set<string>>(() => new Set());
   // Track previous persistence state to clear preload memo when persistence changes
   const previousPersistedStateRef = useRef<boolean | undefined>(undefined);
   const selectionSkipReasonRef = useRef<string | null>(null);
@@ -345,7 +298,12 @@ export function useBackgroundTokenIndexerIntegration({
   // count visible files as well — otherwise a workspace with nothing selected
   // never builds a map and the visible trigger can never dispatch.
   const visibleFilesSizeRef = useRef(visibleFiles?.size ?? 0);
-  visibleFilesSizeRef.current = visibleFiles?.size ?? 0;
+  // Synced in an effect, not during render: a render React discards must not
+  // leak into the deferred rebuild that reads this ref 500ms later. Declared
+  // ahead of every effect that reads it so they see this commit's value.
+  useEffect(() => {
+    visibleFilesSizeRef.current = visibleFiles?.size ?? 0;
+  }, [visibleFiles]);
 
   /**
    * Compute root fingerprint from fileTree for detecting root folder changes.
@@ -388,7 +346,7 @@ export function useBackgroundTokenIndexerIntegration({
       inFlightRef.current.clear();
       pendingNoHandleRef.current.clear();
       preloadedFoldersRef.current.clear();
-      preloadedVisibleFoldersRef.current.clear();
+      preloadedVisibleFolders.clear();
       bumpInFlightPulse((v) => v + 1);
       logger.debug('Cleared caches due to root folder change', {
         nextRootIds: rootFingerprint,
@@ -402,7 +360,7 @@ export function useBackgroundTokenIndexerIntegration({
       previousRootIdsRef.current = rootFingerprint;
     }
     hasSeenRootRef.current = true;
-  }, [rootFingerprint]);
+  }, [preloadedVisibleFolders, rootFingerprint]);
 
   /**
    * Idempotent rebuild scheduler - only schedules if no rebuild is already queued.
@@ -503,8 +461,8 @@ export function useBackgroundTokenIndexerIntegration({
    */
   const indexableFileCount = selectedFiles.size + (visibleFiles?.size ?? 0);
   useEffect(() => {
-    const prevSize = previousSelectionSizeForMapRef.current;
-    previousSelectionSizeForMapRef.current = indexableFileCount;
+    const prevSize = previousIndexableCountForMapRef.current;
+    previousIndexableCountForMapRef.current = indexableFileCount;
 
     // Only act on 0 → >0 transition
     const isZeroToNonZero = prevSize === 0 && indexableFileCount > 0;
@@ -1092,31 +1050,15 @@ export function useBackgroundTokenIndexerIntegration({
   const tokenCacheIsOperational = tokenCache?.isOperational ?? false;
   const tokenCacheIsPersisted = tokenCache?.isPersisted ?? false;
 
-  // Prefetch file sizes into the hot cache as soon as the selection and
-  // handle sources know them. Previously sizes were only written after the
-  // background token indexer finished a batch, so any time the indexing path
-  // was gated (embedding active, adaptive debounce, large queue) the
-  // context-explorer column rendered `—` for size even though the tree
-  // already had the value. Writes are idempotent (use-token-cache no-ops when
-  // the value matches) so re-running on every selection change is cheap.
-  useEffect(() => {
-    const cache = tokenCacheRef.current;
-    if (!cache?.isOperational || selectedFiles.size === 0) {
-      return;
-    }
-    const getHandle = indexGetHandleRef.current;
-    const localMap = fileHandleMapRef.current;
-    if (!getHandle && localMap.size === 0) {
-      return;
-    }
-    for (const compositeKey of selectedFiles) {
-      const lookup = lookupSelectedFileSize({ compositeKey, getHandle, localMap });
-      if (!lookup) {
-        continue;
-      }
-      cache.updateFileSizeCache(lookup.folderId, lookup.normalizedPath, lookup.fileSize);
-    }
-  }, [selectedFiles, tokenCacheIsOperational, fileHandleMapSize, indexVersion]);
+  useSelectedFileSizePrefetch({
+    fileHandleMapRef,
+    fileHandleMapSize,
+    indexGetHandleRef,
+    indexVersion,
+    isTokenCacheOperational: tokenCacheIsOperational,
+    selectedFiles,
+    tokenCacheRef,
+  });
 
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
@@ -1218,7 +1160,7 @@ export function useBackgroundTokenIndexerIntegration({
     inFlightRef,
     isTokenCacheOperational: tokenCacheIsOperational,
     isTokenCachePersisted: tokenCacheIsPersisted,
-    preloadedFoldersRef: preloadedVisibleFoldersRef,
+    preloadedFolders: preloadedVisibleFolders,
     tokenCacheRef,
     triggerIndexing,
     visibleFiles,
@@ -1231,13 +1173,13 @@ export function useBackgroundTokenIndexerIntegration({
     if (fileTree.length === 0) {
       indexedFilesRef.current.clear();
       pendingNoHandleRef.current.clear();
-      preloadedVisibleFoldersRef.current.clear();
+      preloadedVisibleFolders.clear();
       if (inFlightRef.current.size > 0) {
         inFlightRef.current.clear();
         bumpInFlightPulse((value) => value + 1);
       }
     }
-  }, [fileTree.length]);
+  }, [fileTree.length, preloadedVisibleFolders]);
 
   // Retry pending files when FileTreeIndex version changes (index was updated with new handles)
   // This handles the case where recursive selection loads handles after initial indexing attempt
@@ -1476,10 +1418,10 @@ export function useBackgroundTokenIndexerIntegration({
     pendingNoHandleRef.current.clear();
     // P0 optimization: Also clear preload memos to force re-preload
     preloadedFoldersRef.current.clear();
-    preloadedVisibleFoldersRef.current.clear();
+    preloadedVisibleFolders.clear();
     bumpInFlightPulse((v) => v + 1);
     logger.debug('Manually cleared indexed cache', { previousSize });
-  }, []);
+  }, [preloadedVisibleFolders]);
 
   return {
     diagnostics: {

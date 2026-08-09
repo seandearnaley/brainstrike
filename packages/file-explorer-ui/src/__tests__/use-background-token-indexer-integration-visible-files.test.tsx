@@ -13,6 +13,11 @@ import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  TOKEN_INDEXER_BATCH_YIELD_MS,
+  VISIBLE_FILE_INDEXING_DEBOUNCE_MS,
+  VISIBLE_FILE_INDEXING_MAX_PER_PASS,
+} from '../constants';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
 
@@ -91,6 +96,18 @@ const VISIBLE_BINARY = encodeFileSelection('root', 'logo.png');
 
 const fileTree: IFileNode[] = [fileNode('a.txt'), fileNode('b.txt'), fileNode('logo.png')];
 
+/** A tree big enough to overflow one capped pass, plus its composite keys. */
+function buildOversizedTree(fileCount: number): { keys: Set<string>; tree: IFileNode[] } {
+  const tree: IFileNode[] = [];
+  const keys = new Set<string>();
+  for (let index = 0; index < fileCount; index += 1) {
+    const path = `bulk-${index}.txt`;
+    tree.push(fileNode(path));
+    keys.add(encodeFileSelection('root', path));
+  }
+  return { keys, tree };
+}
+
 const EMPTY_SELECTION = new Set<string>();
 
 /** Long enough to clear the handle-map rebuild AND the visible-file throttle. */
@@ -101,10 +118,36 @@ const SETTLE_MS = 5000;
  * async (it awaits the persistent-cache warm before dispatching), so timer
  * advancement alone leaves the dispatch parked in a promise continuation.
  */
-async function flushTimers(): Promise<void> {
-  for (let pass = 0; pass < 3; pass += 1) {
+async function flushTimers(passes = 3): Promise<void> {
+  for (let pass = 0; pass < passes; pass += 1) {
     await act(async () => {
       vi.runAllTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+}
+
+/**
+ * Advance exactly one visible-file pass: its debounce, then the cooperative
+ * yields between dispatch batches. Stays well inside the next pass's debounce
+ * so passes stay individually observable.
+ */
+async function drainOnePass(): Promise<void> {
+  // Two debounce-length advances: the handle-map rebuild has to land and
+  // re-render before the visible effect can schedule its own timer (and, on the
+  // second pass, the re-arm has to fire before the new timer is scheduled).
+  for (let step = 0; step < 2; step += 1) {
+    await act(async () => {
+      vi.advanceTimersByTime(VISIBLE_FILE_INDEXING_DEBOUNCE_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+  const yieldsPerPass = 30;
+  for (let step = 0; step < yieldsPerPass; step += 1) {
+    await act(async () => {
+      vi.advanceTimersByTime(TOKEN_INDEXER_BATCH_YIELD_MS);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -225,6 +268,49 @@ describe('useBackgroundTokenIndexerIntegration visible-file trigger', () => {
     rerender(new Set([VISIBLE_A, VISIBLE_B]));
     await flushTimers();
 
+    expect(preloadFolderMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps one pass and re-arms for the remainder', async () => {
+    // Expanding a large directory surfaces every descendant at once, and each
+    // uncached file costs a full-content read. Time is advanced explicitly here
+    // (not `runAllTimers`) so the assertion can land in the window AFTER one
+    // pass has fully drained but BEFORE the re-arm debounce elapses — which is
+    // the only way to see the cap rather than the final total.
+    const overflow = 20;
+    const { keys, tree } = buildOversizedTree(VISIBLE_FILE_INDEXING_MAX_PER_PASS + overflow);
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: tree,
+        selectedFiles: EMPTY_SELECTION,
+        visibleFiles: keys,
+      })
+    );
+
+    await drainOnePass();
+    expect(indexedPaths()).toHaveLength(VISIBLE_FILE_INDEXING_MAX_PER_PASS);
+
+    // Nothing changed except that the first batch landed; the pass re-arms.
+    await drainOnePass();
+    expect(indexedPaths()).toHaveLength(VISIBLE_FILE_INDEXING_MAX_PER_PASS + overflow);
+  });
+
+  it('does not re-arm when a pass consumed nothing', async () => {
+    // Every key resolves from cache into `indexedFilesRef` on the first pass,
+    // so the second pass has no candidates and must simply stop.
+    getTokenCountMock.mockReturnValue(1234);
+    renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree,
+        selectedFiles: EMPTY_SELECTION,
+        visibleFiles: new Set([VISIBLE_A, VISIBLE_B]),
+      })
+    );
+
+    await flushTimers();
+    await flushTimers();
+
+    expect(indexFilesMock).not.toHaveBeenCalled();
     expect(preloadFolderMock).toHaveBeenCalledTimes(1);
   });
 

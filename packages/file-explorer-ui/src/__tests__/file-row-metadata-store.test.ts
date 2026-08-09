@@ -1,4 +1,5 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createFileRowMetadataStore,
@@ -7,6 +8,9 @@ import {
 } from '../indexing/file-row-metadata-store';
 
 const ROOT = 'root-id';
+/** `getDirectorySubtree` is total: anything unknown answers "not enumerated". */
+const UNKNOWN_SUBTREE: FileRowDirectorySubtree = { fileKeys: [], isComplete: false };
+const OVER_MAX_FILE_SIZE = DEFAULT_MAX_FILE_SIZE + 1;
 
 function key(path: string): string {
   return encodeFileSelection(ROOT, path);
@@ -27,7 +31,7 @@ function sources({
 }: SourceFixture = {}): FileRowMetadataSources {
   return {
     getCachedSize: (compositeKey) => cachedSizes[compositeKey],
-    getDirectorySubtree: (compositeKey) => subtrees[compositeKey] ?? null,
+    getDirectorySubtree: (compositeKey) => subtrees[compositeKey] ?? UNKNOWN_SUBTREE,
     getNodeSize: (compositeKey) => nodeSizes[compositeKey],
     getTokenCount: (compositeKey) => tokens[compositeKey],
   };
@@ -66,10 +70,44 @@ describe('createFileRowMetadataStore file snapshots', () => {
   it('marks binaries excluded — the same rule the dispatch planner applies', () => {
     const store = createFileRowMetadataStore(sources({ nodeSizes: { [key('logo.png')]: 500 } }));
     expect(store.getSnapshot(key('logo.png'))).toEqual({
+      exclusionReason: 'binary',
       size: 500,
       tokens: 'excluded',
       type: 'png',
     });
+  });
+
+  it('marks files over the indexable size limit excluded, not pending forever', () => {
+    // The planner retires these into `indexedKeysToAdd`, so their count never
+    // arrives; `pending` would be a permanent lie.
+    const store = createFileRowMetadataStore(
+      sources({ nodeSizes: { [key('src/huge.ts')]: OVER_MAX_FILE_SIZE } })
+    );
+    expect(store.getSnapshot(key('src/huge.ts'))).toEqual({
+      exclusionReason: 'too-large',
+      size: OVER_MAX_FILE_SIZE,
+      tokens: 'excluded',
+      type: 'ts',
+    });
+  });
+
+  it('leaves a file exactly at the size limit indexable', () => {
+    const store = createFileRowMetadataStore(
+      sources({ nodeSizes: { [key('src/big.ts')]: DEFAULT_MAX_FILE_SIZE } })
+    );
+    expect(store.getSnapshot(key('src/big.ts')).tokens).toBe('pending');
+  });
+
+  it('cannot classify an oversized file whose size is unknown', () => {
+    const store = createFileRowMetadataStore(sources());
+    expect(store.getSnapshot(key('src/unknown.ts')).exclusionReason).toBeUndefined();
+  });
+
+  it('reports binary before size when a file is both', () => {
+    const store = createFileRowMetadataStore(
+      sources({ nodeSizes: { [key('huge.png')]: OVER_MAX_FILE_SIZE } })
+    );
+    expect(store.getSnapshot(key('huge.png')).exclusionReason).toBe('binary');
   });
 
   it('marks uncounted text files pending rather than zero', () => {
@@ -193,7 +231,7 @@ describe('createFileRowMetadataStore per-key notification', () => {
     const getTokenCount = vi.fn((compositeKey: string) => tokens[compositeKey]);
     const store = createFileRowMetadataStore({
       getCachedSize: () => undefined,
-      getDirectorySubtree: () => null,
+      getDirectorySubtree: () => UNKNOWN_SUBTREE,
       getNodeSize: () => 1,
       getTokenCount,
     });
@@ -222,7 +260,7 @@ describe('createFileRowMetadataStore per-key notification', () => {
     const getTokenCount = vi.fn(() => undefined);
     const store = createFileRowMetadataStore({
       getCachedSize: () => undefined,
-      getDirectorySubtree: () => null,
+      getDirectorySubtree: () => UNKNOWN_SUBTREE,
       getNodeSize: () => undefined,
       getTokenCount,
     });
@@ -317,9 +355,28 @@ describe('createFileRowMetadataStore directory rollups', () => {
     });
   });
 
-  it('throws instead of guessing when the key has no enumerated subtree', () => {
+  it('reads partial — never throws mid-render — when the key has no enumerated subtree', () => {
     const store = directoryStore({});
-    expect(() => store.getDirectorySnapshot(dirKey)).toThrow(/no enumerated subtree/i);
+    expect(store.getDirectorySnapshot(dirKey)).toEqual({
+      reason: 'incomplete-subtree',
+      status: 'partial',
+    });
+  });
+
+  it('counts oversized files as zero tokens without blocking the rollup', () => {
+    const store = directoryStore({
+      nodeSizes: { [key('src/a.ts')]: 100, [key('src/huge.ts')]: OVER_MAX_FILE_SIZE },
+      subtrees: {
+        [dirKey]: { fileKeys: [key('src/a.ts'), key('src/huge.ts')], isComplete: true },
+      },
+      tokens: { [key('src/a.ts')]: 10 },
+    });
+
+    expect(store.getDirectorySnapshot(dirKey)).toEqual({
+      size: 100 + OVER_MAX_FILE_SIZE,
+      status: 'complete',
+      tokens: 10,
+    });
   });
 
   it('notifies a subscribed ancestor directory when a descendant token lands', () => {
