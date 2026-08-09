@@ -479,8 +479,14 @@ describe('tool output artifact reader', () => {
       { cursor: first.nextCursor, maxBytes: 8, mode: 'cursor' },
       { now: () => NOW, reader }
     );
+    // This artifact has no line breaks, so a search maxBytes smaller than the
+    // remaining content would land mid-line with no boundary to align to
+    // (the single-giant-line guard); use a maxBytes that reaches the true
+    // end so the interleaved search itself succeeds, independent of that
+    // guard, while still exercising the plain-paging state below with its
+    // own small maxBytes.
     const search = await readToolOutputArtifact(
-      { cursor: first.nextCursor, maxBytes: 8, mode: 'cursor', pattern: 'needle' },
+      { cursor: first.nextCursor, maxBytes: 100, mode: 'cursor', pattern: 'needle' },
       { now: () => NOW, reader }
     );
     expect(projectToolOutputArtifactPage(search).value).toContain('  1: needle-m');
@@ -494,5 +500,155 @@ describe('tool output artifact reader', () => {
       decodeToolOutputArtifactContent(first.content, first.contentEncoding) +
         decodeToolOutputArtifactContent(resumed.content, resumed.contentEncoding)
     ).toBe('head-needle-m');
+  });
+
+  it('rejects a catastrophic-backtracking regex pattern before compiling it (no silent literal fallback)', async () => {
+    const content =
+      'safe content with no pathological input, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!';
+    const artifactRef = referenceFor(content);
+
+    await expect(
+      readToolOutputArtifact(
+        {
+          cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+          isRegex: true,
+          mode: 'cursor',
+          pattern: '^(a+)+$',
+        },
+        { now: () => NOW, reader: readerFor(content, artifactRef) }
+      )
+    ).rejects.toMatchObject({ reason: 'invalid_input' });
+  });
+
+  it('still matches with a safe regex pattern once the ReDoS guard is applied', async () => {
+    const content = ['alpha-1', 'beta-2'].join('\n');
+    const artifactRef = referenceFor(content);
+
+    const result = await readToolOutputArtifact(
+      {
+        cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+        isRegex: true,
+        mode: 'cursor',
+        pattern: '^alpha-\\d+$',
+      },
+      { now: () => NOW, reader: readerFor(content, artifactRef) }
+    );
+    if (!('matches' in result)) {
+      throw new TypeError('Expected a search result.');
+    }
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]?.lineText).toBe('alpha-1');
+  });
+
+  it('defers a line split by the maxBytes window instead of scanning a raw fragment, so a literal straddling the old byte boundary is found once the line is complete', async () => {
+    const line1 = 'a'.repeat(20);
+    const line2 = `${'b'.repeat(20)}NEEDLE${'c'.repeat(20)}`;
+    const content = [line1, line2].join('\n');
+    const artifactRef = referenceFor(content);
+    const reader = readerFor(content, artifactRef);
+
+    // Raw byte cut lands 3 characters into "NEEDLE" (line1 + '\n' + 20 'b's +
+    // "NEE"). Without line-boundary alignment this would split the literal
+    // across two independent calls, and it would never be found by either.
+    const first = await readToolOutputArtifact(
+      {
+        cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+        maxBytes: line1.length + 1 + 20 + 3,
+        mode: 'cursor',
+        pattern: 'NEEDLE',
+      },
+      { now: () => NOW, reader }
+    );
+    if (!('matches' in first)) {
+      throw new TypeError('Expected a search result.');
+    }
+    expect(first.matches).toHaveLength(0);
+    expect(first.searchLimited).toBe(true);
+    if (!first.nextCursor) {
+      throw new TypeError('Expected a continuation cursor.');
+    }
+
+    const second = await readToolOutputArtifact(
+      {
+        cursor: first.nextCursor,
+        maxBytes: line2.length + 10,
+        mode: 'cursor',
+        pattern: 'NEEDLE',
+      },
+      { now: () => NOW, reader }
+    );
+    if (!('matches' in second)) {
+      throw new TypeError('Expected a search result.');
+    }
+    expect(second.matches).toHaveLength(1);
+    expect(second.matches[0]?.lineText).toBe(line2);
+    expect(second.searchLimited).toBe(false);
+  });
+
+  it('never matches ^/$ anchors against an artificial slice edge that is not the real line boundary', async () => {
+    const line1 = 'a'.repeat(20);
+    const line2 = `x${'NEEDLE'}${'y'.repeat(20)}`;
+    const content = [line1, line2].join('\n');
+    const artifactRef = referenceFor(content);
+
+    const searchAcrossBothCalls = async (
+      pattern: string,
+      firstCallMaxBytes: number
+    ): Promise<number> => {
+      const reader = readerFor(content, artifactRef);
+      const first = await readToolOutputArtifact(
+        {
+          cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+          isRegex: true,
+          maxBytes: firstCallMaxBytes,
+          mode: 'cursor',
+          pattern,
+        },
+        { now: () => NOW, reader }
+      );
+      if (!('matches' in first && first.nextCursor)) {
+        throw new TypeError('Expected a limited search result with a continuation cursor.');
+      }
+      const second = await readToolOutputArtifact(
+        {
+          cursor: first.nextCursor,
+          isRegex: true,
+          maxBytes: line2.length + 10,
+          mode: 'cursor',
+          pattern,
+        },
+        { now: () => NOW, reader }
+      );
+      if (!('matches' in second)) {
+        throw new TypeError('Expected a search result.');
+      }
+      return first.matches.length + second.matches.length;
+    };
+
+    // Cut right after the leading 'x', before 'N': a raw (unaligned) fragment
+    // would start with "NEEDLE...", falsely satisfying ^NEEDLE even though
+    // the real line starts with 'x'.
+    expect(await searchAcrossBothCalls('^NEEDLE', line1.length + 1 + 1)).toBe(0);
+    // Cut right after "NEEDLE", before the trailing 'y's: a raw (unaligned)
+    // fragment would end with "...NEEDLE", falsely satisfying NEEDLE$ even
+    // though the real line continues with more characters after NEEDLE.
+    expect(await searchAcrossBothCalls('NEEDLE$', line1.length + 1 + 1 + 6)).toBe(0);
+  });
+
+  it('fails visibly when a single line exceeds the maxBytes scan window instead of silently scanning a fragment', async () => {
+    const content = 'x'.repeat(9000);
+    const artifactRef = referenceFor(content);
+
+    await expect(
+      readToolOutputArtifact(
+        {
+          cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+          maxBytes: 100,
+          mode: 'cursor',
+          pattern: 'x',
+        },
+        { now: () => NOW, reader: readerFor(content, artifactRef) }
+      )
+    ).rejects.toMatchObject({ reason: 'invalid_input' });
   });
 });

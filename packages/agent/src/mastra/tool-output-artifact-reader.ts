@@ -13,6 +13,7 @@ import {
   type ToolOutputArtifactPage,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
+import { assertSafeRegexSource } from '@brainstrike/utils';
 import { z } from 'zod';
 import {
   decodedTextModelOutputChars,
@@ -606,8 +607,13 @@ function createSearchMatcher(
   caseSensitive: boolean
 ): (line: string) => boolean {
   if (isRegex) {
+    // Model-supplied regex source is run per line across the scanned slice,
+    // same shape of risk as the workspace grep matcher (grep-search-service.ts)
+    // and the glob path filter. Reject over-long or catastrophic-backtracking
+    // shapes BEFORE compiling; never silently fall back to literal matching.
     let regex: RegExp;
     try {
+      assertSafeRegexSource(pattern);
       regex = new RegExp(pattern, caseSensitive ? '' : 'i');
     } catch (cause) {
       throw new ToolOutputArtifactReadError('invalid_input', cause);
@@ -645,23 +651,89 @@ function findSearchMatches(
   return matches;
 }
 
+/**
+ * Index one past the last complete line-break sequence in `text`, or -1 if
+ * none exists. A trailing bare `\r` at the very end of `text` is never
+ * treated as the alignment boundary: its `\n` may have fallen just past the
+ * byte window, and cutting there would split one CRLF line break across two
+ * search calls (a narrow, benign edge case — worst case a single spurious
+ * empty-line entry, never a missed match or a false anchor match, so it is
+ * intentionally not chased further than this).
+ */
+function lastLineBreakEnd(text: string): number {
+  const pattern = /\r\n|\r|\n/gu;
+  let end = -1;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    const isTrailingBareCarriageReturn = match[0] === '\r' && pattern.lastIndex === text.length;
+    if (!isTrailingBareCarriageReturn) {
+      end = pattern.lastIndex;
+    }
+  }
+  return end;
+}
+
+/**
+ * Trim a raw byte-bounded search slice back to its last complete line
+ * boundary so every line handed to the matcher is real: never a fragment
+ * artificially split by the maxBytes window. Without this, a literal
+ * straddling a page boundary is never found (each half is tested as if it
+ * were a whole line) and `^`/`$` anchors falsely match at the artificial
+ * fragment edges instead of true line start/end.
+ *
+ * The trimmed tail is not lost: it is re-scanned whole, from its real start,
+ * on the next call once the cursor resumes at the recomputed `endByte`.
+ *
+ * When the raw slice already reaches the true end of the artifact, the
+ * trailing content — even without a line terminator — is a genuine final
+ * line and is returned unmodified.
+ *
+ * When no line-break exists anywhere in the raw slice and more of the
+ * artifact remains, one line spans at least the whole maxBytes window. That
+ * line cannot be searched as a complete unit within this budget: rather than
+ * silently scanning a partial fragment (reintroducing the same straddling
+ * bug), this throws a visible, actionable error. The model can retry with a
+ * larger maxBytes (up to TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES) or fall back to
+ * cursor paging, which has no line-alignment requirement.
+ */
+function alignSearchSliceToLineBoundary(slice: DecodedArtifactSlice): {
+  readonly decoded: string;
+  readonly endByte: number;
+} {
+  const { artifactRef, decoded, endByte, offsetByte } = slice;
+  if (endByte >= artifactRef.byteLength) {
+    return { decoded, endByte };
+  }
+  const boundary = lastLineBreakEnd(decoded);
+  if (boundary === -1) {
+    throw new ToolOutputArtifactReadError(
+      'invalid_input',
+      new RangeError(
+        `Tool output artifact search line exceeds the ${TEXT_ENCODER.encode(decoded).byteLength}-byte scan window starting at offset ${offsetByte}; increase maxBytes (max ${TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES}) or use cursor paging for this region.`
+      )
+    );
+  }
+  const truncated = decoded.slice(0, boundary);
+  return { decoded: truncated, endByte: offsetByte + TEXT_ENCODER.encode(truncated).byteLength };
+}
+
 async function readToolOutputArtifactSearch(
   input: ReadToolOutputArtifactInput & { readonly pattern: string },
   options: ReadToolOutputArtifactPageOptions
 ): Promise<ToolOutputArtifactSearchResult> {
   const slice = await readDecodedArtifactSlice(input, options);
+  const aligned = alignSearchSliceToLineBoundary(slice);
   const matches = findSearchMatches(
-    slice.decoded,
+    aligned.decoded,
     slice.offsetByte,
     createSearchMatcher(input.pattern, input.isRegex ?? false, input.caseSensitive ?? false)
   );
-  const searchLimited = slice.endByte < slice.artifactRef.byteLength;
+  const searchLimited = aligned.endByte < slice.artifactRef.byteLength;
   return {
     artifactRef: slice.artifactRef,
-    endByte: slice.endByte,
+    endByte: aligned.endByte,
     matches,
     ...(searchLimited
-      ? { nextCursor: encodeToolOutputArtifactCursor(slice.artifactRef, slice.endByte) }
+      ? { nextCursor: encodeToolOutputArtifactCursor(slice.artifactRef, aligned.endByte) }
       : {}),
     offsetByte: slice.offsetByte,
     searchLimited,
