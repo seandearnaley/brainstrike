@@ -13,6 +13,7 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
+import { UNENUMERATED_DIRECTORY_SUBTREE } from '../indexing/file-row-metadata-source-registry';
 import {
   createFileRowMetadataStore,
   type FileRowDirectorySubtree,
@@ -89,7 +90,8 @@ describe('Explorer sort-change performance', () => {
     const { expanded, sizeByKey, subtreeByKey, tokensByKey, tree } = buildLargeTree();
     const store = createFileRowMetadataStore({
       getCachedSize: () => undefined,
-      getDirectorySubtree: (compositeKey) => subtreeByKey.get(compositeKey) ?? null,
+      getDirectorySubtree: (compositeKey) =>
+        subtreeByKey.get(compositeKey) ?? UNENUMERATED_DIRECTORY_SUBTREE,
       getNodeSize: (compositeKey) => sizeByKey.get(compositeKey),
       getTokenCount: (compositeKey) => tokensByKey.get(compositeKey),
     });

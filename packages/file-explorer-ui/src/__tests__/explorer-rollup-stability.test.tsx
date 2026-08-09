@@ -1,16 +1,18 @@
 /**
  * Structural-change stability for directory rollups (BST-1208, CI review).
  *
- * `treeRows` gets a fresh identity on every expand/collapse, every quick-filter
- * keystroke and every lazy child load — the most common interactions there are.
- * The reconcile effect used to CLEAR the deferral cache and then call
- * `invalidateAll` synchronously, so each of those flipped every settled
- * `complete` rollup to PARTIAL for one macrotask: a visible blink, behind a
- * tooltip ("this folder is not fully enumerated") that was momentarily untrue.
+ * The reconcile effect keys on `rowStructureRevision` (BST-1209: pure reorders
+ * never reach it — pinned by explorer-sort-rebuild-loop.test.tsx). What THIS
+ * file pins is stale-while-recompute under a REAL structural revision bump
+ * (expand, lazy child load, node add/remove): the effect used to CLEAR the
+ * deferral cache and then call `invalidateAll` synchronously, flipping every
+ * settled `complete` rollup to PARTIAL for one macrotask — a visible blink
+ * behind a tooltip ("this folder is not fully enumerated") that was momentarily
+ * untrue.
  *
- * The contract pinned here is stale-while-recompute: a structural change whose
- * subtree content did not actually move must notify NOBODY, before or after the
- * deferred refresh lands.
+ * Contract: a revision bump whose subtree content did not actually move must
+ * notify NOBODY, before or after the deferred refresh lands; a bump whose
+ * content DID move must notify.
  */
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { IFileNode } from '@brainstrike/types';
@@ -74,14 +76,14 @@ const FILE_TREE: IFileNode[] = [
   },
 ];
 
-/** Mounts the source only — no TreeTable, so `treeRows` is fully controllable. */
-function SourceMount({ treeRows }: { treeRows: unknown }) {
+/** Mounts the source only — no TreeTable, so the revision is fully controllable. */
+function SourceMount({ rowStructureRevision }: { rowStructureRevision: number }) {
   useFileTreeMetadataSource({
     fileTree: FILE_TREE,
     filteredPathSet: null,
     folderId: ROOT,
     normalizedTreeContext: null,
-    treeRows,
+    rowStructureRevision,
     visibleAggregates: null,
   });
   return null;
@@ -89,10 +91,10 @@ function SourceMount({ treeRows }: { treeRows: unknown }) {
 
 function Harness({
   onReady,
-  treeRows,
+  rowStructureRevision,
 }: {
   onReady: (metadata: ExplorerRowMetadata) => void;
-  treeRows: unknown;
+  rowStructureRevision: number;
 }) {
   const rowMetadata = useExplorerRowMetadata();
   useEffect(() => {
@@ -100,7 +102,7 @@ function Harness({
   }, [onReady, rowMetadata]);
   return (
     <FileRowMetadataProvider value={rowMetadata.contextValue}>
-      <SourceMount treeRows={treeRows} />
+      <SourceMount rowStructureRevision={rowStructureRevision} />
     </FileRowMetadataProvider>
   );
 }
@@ -118,17 +120,16 @@ describe('directory rollup stability across structural changes', () => {
     tokens = { '/src/a.ts': 10, '/src/b.ts': 5 };
   });
 
-  it('does not notify a subscriber when a treeRows change leaves the subtree unchanged', async () => {
+  it('does not notify a subscriber when a revision bump leaves the subtree unchanged', async () => {
     let metadata: ExplorerRowMetadata | null = null;
     const onReady = (value: ExplorerRowMetadata) => {
       metadata = value;
     };
 
-    const firstRows = [{ id: 'rows-1' }];
     const view = await act(async () =>
       render(
         <FileExplorerTestWrapper>
-          <Harness onReady={onReady} treeRows={firstRows} />
+          <Harness onReady={onReady} rowStructureRevision={1} />
         </FileExplorerTestWrapper>
       )
     );
@@ -153,12 +154,12 @@ describe('directory rollup stability across structural changes', () => {
     // From here the cell is settled; anything below is the regression under test.
     listener.mockClear();
 
-    // The common interaction: expand/collapse/filter mints a fresh row model
-    // whose directory content is identical.
+    // The common interaction: expand/lazy-load bumps the structure revision
+    // while the directory's content is identical.
     await act(async () => {
       view.rerender(
         <FileExplorerTestWrapper>
-          <Harness onReady={onReady} treeRows={[{ id: 'rows-2' }]} />
+          <Harness onReady={onReady} rowStructureRevision={2} />
         </FileExplorerTestWrapper>
       );
     });
@@ -189,7 +190,7 @@ describe('directory rollup stability across structural changes', () => {
     const view = await act(async () =>
       render(
         <FileExplorerTestWrapper>
-          <Harness onReady={onReady} treeRows={[{ id: 'rows-1' }]} />
+          <Harness onReady={onReady} rowStructureRevision={1} />
         </FileExplorerTestWrapper>
       )
     );
@@ -212,7 +213,7 @@ describe('directory rollup stability across structural changes', () => {
     await act(async () => {
       view.rerender(
         <FileExplorerTestWrapper>
-          <Harness onReady={onReady} treeRows={[{ id: 'rows-2' }]} />
+          <Harness onReady={onReady} rowStructureRevision={2} />
         </FileExplorerTestWrapper>
       );
     });
