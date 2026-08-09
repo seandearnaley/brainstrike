@@ -167,7 +167,20 @@ test('the nightly timeout covers every lane budget plus setup and build overhead
     (step) => step.name === 'Upload web traces'
   );
   assert.equal(traceUpload.with.path, 'apps/web/test-results/');
-  const webServerStartupMinutes = EXPECTED_LANES.length;
+  const playwrightConfig = readFileSync(
+    path.join(REPO_ROOT, 'apps/web/playwright.config.mts'),
+    'utf8'
+  );
+  const webServerTimeoutMatch = /\bwebServer\s*:\s*\{[\s\S]*?\btimeout\s*:\s*([\d_]+)/.exec(
+    playwrightConfig
+  );
+  assert.ok(
+    webServerTimeoutMatch,
+    'web Playwright config must declare a literal webServer.timeout'
+  );
+  const webServerTimeoutMilliseconds = Number(webServerTimeoutMatch[1].replaceAll('_', ''));
+  const webServerStartupMinutes =
+    EXPECTED_LANES.length * Math.ceil(webServerTimeoutMilliseconds / 60_000);
   const setupAndBuildMinutes = 24;
 
   assert.ok(
