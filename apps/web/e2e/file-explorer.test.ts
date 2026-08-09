@@ -330,16 +330,25 @@ test.describe('File Explorer', () => {
           (row): row is HTMLElement =>
             row instanceof HTMLElement && row.dataset['nodeId'] !== undefined
         );
-        const topSpacer = children.find(
-          (row): row is HTMLElement =>
-            row instanceof HTMLElement && row.dataset['nodeId'] === undefined
-        );
+        // The LEADING spacer specifically: TreeTable only renders it when
+        // paddingTop > 0, so a window starting at index 0 would let a positional
+        // `find` return the trailing spacer and derive a nonsense pitch.
+        const leading = children[0];
+        const topSpacer =
+          leading instanceof HTMLElement && leading.dataset['nodeId'] === undefined
+            ? leading
+            : undefined;
         const firstRow = rows[0];
         if (!(topSpacer && firstRow && rows.length > 4)) {
           throw new Error('Expected a virtualized interior window with a leading spacer');
         }
 
         const firstIndex = Number(firstRow.dataset['index']);
+        if (!firstIndex) {
+          throw new Error(
+            `Expected an interior window, but it starts at row ${firstIndex} — the scroll never landed mid-list.`
+          );
+        }
         const declaredPitch = topSpacer.getBoundingClientRect().height / firstIndex;
 
         // Median of consecutive row tops: the pitch the browser actually paints,
@@ -360,7 +369,6 @@ test.describe('File Explorer', () => {
           modelledTopIndex: Math.floor(viewport.scrollTop / declaredPitch),
           paintedPitch,
           paintedTopIndex: topmostVisible ? Number(topmostVisible.dataset['index']) : -1,
-          rowCount: rows.length + Number(topSpacer.dataset['index'] ?? 0),
         };
       });
 
