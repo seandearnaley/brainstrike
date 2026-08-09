@@ -653,7 +653,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     const explorer = new FileExplorerPage(page);
     await expect(page.getByText('No folders in your workspace')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
-      '2000/2000',
+      '2K/2K',
       { timeout: 15_000 }
     );
 
@@ -670,7 +670,7 @@ test.describe('File Explorer persistence (web) @stateful @web-file-explorer-pers
     await explorer.selectRoot();
     await expect(explorer.fileTree.getByText('src')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: 'Selection count (read-only)' })).toContainText(
-      '2000/2000',
+      '2K/2K',
       { timeout: 15_000 }
     );
   });

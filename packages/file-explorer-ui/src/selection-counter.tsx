@@ -144,9 +144,14 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
     return 'Click to edit maximum selection count';
   }, [isEditable]);
   const accessibleLabel = `${selectedCount} of ${maxSelectionCount} files selected. ${tooltipLabel}`;
+  // Compact mode abbreviates BOTH sides of the fraction — a mixed "2K/2000"
+  // reads as two different scales. Exact values stay in the accessible label.
   const visibleSelectedCount = compact
     ? formatCompactSelectionCount(selectedCount)
     : String(selectedCount);
+  const visibleMaxCount = compact
+    ? formatCompactSelectionCount(maxSelectionCount)
+    : String(maxSelectionCount);
 
   // Dynamic styling based on selection status
   const statusStyles = useMemo(() => {
@@ -179,7 +184,7 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
           data-testid="selection-count-suffix"
         >
           <span className="mx-0.5">/</span>
-          <span data-testid="selection-max">{maxSelectionCount}</span>
+          <span data-testid="selection-max">{visibleMaxCount}</span>
         </span>
       </span>
       {isEditable && (
