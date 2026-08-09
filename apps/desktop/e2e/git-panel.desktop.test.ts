@@ -87,19 +87,25 @@ async function seedRoot(page: Page, rootPath: string): Promise<void> {
 }
 
 /**
- * Every terminal state `GitPanel` can settle into. Each is a SEPARATE early
- * return in git-panel.tsx, so `git-panel` is the repo-happy-path testid only —
- * waiting on it alone hangs for the full timeout whenever the panel legitimately
- * settles somewhere else (a non-git folder renders `git-panel-not-a-repo` and
- * never mounts `git-panel`). The helper therefore waits for the panel to SETTLE
- * and leaves it to each test to assert WHICH state it settled into.
+ * The states that mean `GitPanel` has RESOLVED A STATUS. Each is a separate
+ * early return in git-panel.tsx, so `git-panel` is the repo-happy-path testid
+ * only — waiting on it alone hangs for the full timeout whenever the panel
+ * legitimately settles somewhere else (a non-git folder renders
+ * `git-panel-not-a-repo` and never mounts `git-panel`). The helper waits for
+ * one of these and leaves each test to assert WHICH one.
+ *
+ * `git-panel-no-root` is deliberately EXCLUDED even though it is a fifth early
+ * return. `useGitPanel` derives `activeRootId` from
+ * `useFileSystem().rootDirectoryHandle`, which is null until the renderer
+ * rehydrates the seeded root after `seedRoot`'s reload — so no-root is a boot
+ * TRANSIENT here, not an outcome. Accepting it would let the wait resolve
+ * before any status existed (and the `Loading Git` check below would pass
+ * vacuously, since the no-root branch never renders that text). Every state
+ * listed here requires `panel.status` to have resolved, so the wait converges.
+ * A run that genuinely ends with no root now fails this wait, which is correct:
+ * it means the seed did not take.
  */
-const gitPanelSettledSelector = [
-  'git-panel',
-  'git-panel-not-a-repo',
-  'git-panel-error',
-  'git-panel-no-root',
-]
+const gitPanelSettledSelector = ['git-panel', 'git-panel-not-a-repo', 'git-panel-error']
   .map((testId) => `[data-testid="${testId}"]`)
   .join(', ');
 
@@ -172,7 +178,12 @@ test.describe('Git panel (desktop)', () => {
     await page.getByRole('button', { exact: true, name: 'hello.ts' }).first().click();
     // #2279 converged this pane onto the shared changeset engine: `GitDiffSurface`
     // (which owned `git-panel-diff`) was deleted in favour of `ChangesetFileDiffCard`.
-    await expect(page.getByTestId('changeset-file-diff-card-diff-view')).toBeVisible({
+    // Asserted by ROLE + NAME rather than the card's testid: the card renders
+    // `DiffView` with `aria-label={`Diff for ${entry.path}`}`, so this pins the
+    // diff to THIS file — a testid alone would also pass on a diff opened for
+    // the wrong row. The region exists only on the loaded-success branch, so it
+    // still cannot pass on a loading/binary/error card.
+    await expect(page.getByRole('region', { name: 'Diff for hello.ts' })).toBeVisible({
       timeout: 20_000,
     });
   });
