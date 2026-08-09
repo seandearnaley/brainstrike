@@ -809,8 +809,12 @@ CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_occurred_at_idx
 
 -- Estimator-vs-provider prompt-token reconciliation pairs (BST-1205).
 -- Bootstrapped here AND created by migration 086 — keep the shape
--- byte-identical. estimated_prompt_tokens covers only model-visible tool
--- outputs plus tool definitions, not full conversation/system-prompt text.
+-- byte-identical. The numerator is the chars/4 backstop over model-visible tool
+-- outputs plus tool definitions, each counted once. final_step_prompt_tokens is
+-- the latest step prompt, which contains prior tool outputs once via Mastra's
+-- resend behavior—not the cross-step accumulated total. Conversation/system
+-- prompt text outside tool outputs/definitions is excluded from both. Only
+-- completed runs with at least one measured tool output are written.
 -- Mirrored because thread deletion references every sidecar unconditionally;
 -- only desktop main writes rows during normal operation.
 CREATE TABLE IF NOT EXISTS ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (
@@ -820,9 +824,14 @@ CREATE TABLE IF NOT EXISTS ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (
   model text NOT NULL,
   provider text NOT NULL,
   estimated_prompt_tokens integer NOT NULL CHECK (estimated_prompt_tokens >= 0),
-  provider_reported_prompt_tokens integer NOT NULL CHECK (provider_reported_prompt_tokens >= 0),
+  final_step_prompt_tokens integer NOT NULL CHECK (final_step_prompt_tokens >= 0),
+  step_count integer NOT NULL DEFAULT 1 CHECK (step_count >= 1),
+  model_visible_projection_count integer NOT NULL DEFAULT 0 CHECK (model_visible_projection_count >= 0),
   occurred_at timestamptz NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_thread_idx
+  ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (thread_id);
 
 CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_model_idx
   ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (model, occurred_at DESC);

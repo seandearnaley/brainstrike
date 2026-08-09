@@ -215,7 +215,7 @@ the bare `occurred_at` predicate resolves to an index scan on it).
 Migration 086 owns the FK-less
 `brainstrike_token_estimate_calibration` ledger. Each row stores a durable,
 model/provider-attributed run-end pair of `estimated_prompt_tokens` and
-`provider_reported_prompt_tokens`; the desktop writer derives `thread_id` from
+`final_step_prompt_tokens`; the desktop writer derives `thread_id` from
 the existing `run_id` with `INSERT ... SELECT` rather than trusting a carried
 thread id. Rows contain numbers, ids, model/provider strings, and timestamps
 only—never message content, tool content, prompts, file paths, or command text.
@@ -224,13 +224,15 @@ registry, and the thread-delete sidecar list. Its DDL is mirrored in the
 renderer-lazy assistant bootstrap because that repository references every
 sidecar unconditionally even though desktop main owns normal writes.
 
-Scope is intentionally explicit: `estimated_prompt_tokens` is
-`RunTokenDiagnostics`'s chars/4 backstop for model-visible tool-output
-projections plus tool definitions. It does **not** include full conversation or
-system-prompt text. The paired provider total is consequently a partial-scope
-reconciliation signal, not a full context-budget estimate or a calibration
-factor. See `RunTokenDiagnostics`'s reconciliation doc comment in
-`packages/agent/src/mastra/token-measurement.ts`.
+Scope is intentionally explicit. The numerator, `estimated_prompt_tokens`, is
+`RunTokenDiagnostics`'s chars/4 backstop over model-visible tool-output
+projections plus tool definitions, each counted once. The denominator,
+`final_step_prompt_tokens`, is the single latest step's prompt count, which
+already contains every prior tool output once via Mastra's resend behavior—not
+the cross-step accumulated billing total. Both figures are comparable over the
+same final-prompt-content basis; conversation/system-prompt text outside tool
+outputs and definitions is excluded from both. Only completed runs with at
+least one measured tool output persist a row.
 
 The least-new-mechanism seam is a standalone table modeled on migration 083.
 Both figures already meet in the agent/main-process stream before the existing
@@ -242,8 +244,9 @@ process-boundary mechanism without improving attribution or fidelity.
 Retention exactly mirrors tool-call telemetry: rows older than 60 days are
 pruned unbounded on idle passes and oldest-first in bounded batches while the
 job queue is active, with a cheap expired-row guard probe. Migration 086 ships
-the `occurred_at`-leading index from the start, and idle maintenance includes
-the table in `VACUUM (ANALYZE)`. Factory reset clears the evidence while normal
+the `occurred_at`-leading index from the start plus a `thread_id` index for the
+thread-delete sidecar predicate, and idle maintenance includes the table in
+`VACUUM (ANALYZE)`. Factory reset clears the evidence while normal
 restarts retain it. Paired tests cover agent emission/omission, desktop
 run/thread attribution in real PGlite, migration/reset/bootstrap parity,
 60-day maintenance, and the checked-in `estimator-calibration.sql` lens golden

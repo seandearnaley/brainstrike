@@ -300,15 +300,19 @@ projections. `grepSearch` and `globWorkspace` attach zero-match, request-offset,
 and typed truncation metadata to their raw result in a private WeakMap before
 projection, so no projected-text parsing or user search data enters telemetry.
 
-At run end, the same diagnostics instance may also emit one internal
-`token-estimate-calibration` chunk when a finish part supplied provider prompt
-usage and measurement succeeded. Its estimate is the chars/4 backstop for the
-model-visible tool-output projections plus tool definitions that
-`RunTokenDiagnostics` observed. It does **not** cover conversation or system-
-prompt text, so the durable pair is a partial-scope reconciliation signal, not
-a budget-meter calibration factor. The desktop run-persistence capability
-consumes it before renderer serialization; missing actual usage, failed
-measurement, or missing model/provider attribution emits no sample.
+At run end, the same diagnostics instance may emit one internal
+`token-estimate-calibration` chunk only for a completed run with at least one
+measured model-visible tool output. The numerator is the chars/4 backstop over
+model-visible tool-output projections plus tool definitions, each counted once.
+The denominator is `finalStepPromptTokens`, the single most recent step's
+prompt-token count; via Mastra's resend behavior that prompt already contains
+every prior tool output exactly once, unlike the cross-step accumulated billing
+total. Both figures therefore use the same final-prompt-content basis.
+Conversation/system-prompt text outside tool outputs and definitions is excluded
+from both. The desktop run-persistence capability consumes the chunk before
+renderer serialization; incomplete runs, missing final-step usage, failed
+measurement, zero measured projections, or missing model/provider attribution
+emit no sample.
 
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before

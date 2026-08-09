@@ -330,6 +330,7 @@ export async function prepareHostedToolDiscovery(params: {
         // by Mastra's context-store parser. Use the existing fail-loud inert
         // model so any future accidental invocation cannot perform inference.
         model: createListingOnlyModel(),
+        onToolsLoaded: (tools) => tokenDiagnostics.recordAdditionalToolDefinitions(tools),
         toolNameMap: params.toolNameMap,
       })
     : undefined;

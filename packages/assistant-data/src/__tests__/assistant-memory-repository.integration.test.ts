@@ -2405,20 +2405,24 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         'model',
         'provider',
         'estimated_prompt_tokens',
-        'provider_reported_prompt_tokens',
+        'final_step_prompt_tokens',
+        'step_count',
+        'model_visible_projection_count',
         'occurred_at',
       ]);
 
       const indexes = await db.query<{ indexname: string }>(
         `SELECT indexname
          FROM pg_indexes
-         WHERE tablename = 'brainstrike_token_estimate_calibration'`
+         WHERE tablename = 'brainstrike_token_estimate_calibration'
+           AND indexname <> 'brainstrike_token_estimate_calibration_pkey'`
       );
-      expect(indexes.rows.map((row) => row.indexname)).toEqual(
-        expect.arrayContaining([
+      expect(indexes.rows.map((row) => row.indexname).sort()).toEqual(
+        [
           'brainstrike_token_estimate_calibration_model_idx',
           'brainstrike_token_estimate_calibration_occurred_at_idx',
-        ])
+          'brainstrike_token_estimate_calibration_thread_idx',
+        ].sort()
       );
     } finally {
       await wasmLoader.closeCached(dataDir);
@@ -3409,7 +3413,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     await db.query(
       `INSERT INTO brainstrike_token_estimate_calibration
         (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
-         provider_reported_prompt_tokens)
+         final_step_prompt_tokens)
        VALUES ('calibration-delete', $1, 'run-delete', 'model', 'provider', 42, 50)`,
       [thread.id]
     );
@@ -3516,7 +3520,7 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       await db.query(
         `INSERT INTO brainstrike_token_estimate_calibration
           (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
-           provider_reported_prompt_tokens)
+           final_step_prompt_tokens)
          VALUES ($1, $2, $3, 'model', 'provider', 17, 20)`,
         [`calibration-${thread.id}`, thread.id, `run-${thread.id}`]
       );

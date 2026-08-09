@@ -7,11 +7,14 @@ import type { Migration } from './migration-runner';
  * run/thread parents. Desktop derives thread ownership from the run row when it
  * inserts; thread deletion and factory reset own cleanup explicitly.
  *
- * `estimated_prompt_tokens` is deliberately partial. It is the chars/4
- * backstop over RunTokenDiagnostics' model-visible tool-output projections plus
- * tool definitions only; it excludes full conversation and system-prompt text.
- * The paired provider figure is therefore a reconciliation signal for that
- * share, not a full budget-meter calibration factor.
+ * Comparable final-prompt basis: `estimated_prompt_tokens` is the chars/4
+ * backstop over model-visible tool-output projections plus tool definitions,
+ * each counted once. `final_step_prompt_tokens` is the single most recent
+ * step's prompt count, which already contains every prior tool output once via
+ * Mastra's resend behavior—not the cross-step accumulated billing total.
+ * Conversation/system-prompt text outside tool outputs and definitions is
+ * excluded from both. Only completed runs with at least one measured tool
+ * output persist a row.
  *
  * `id` uses `crypto.randomUUID()` at the writer, matching the sibling telemetry
  * ledger. Rows contain numbers, model/provider strings, ids, and timestamps
@@ -30,9 +33,14 @@ export const migration086TokenEstimateCalibration: Migration = {
       model text NOT NULL,
       provider text NOT NULL,
       estimated_prompt_tokens integer NOT NULL CHECK (estimated_prompt_tokens >= 0),
-      provider_reported_prompt_tokens integer NOT NULL CHECK (provider_reported_prompt_tokens >= 0),
+      final_step_prompt_tokens integer NOT NULL CHECK (final_step_prompt_tokens >= 0),
+      step_count integer NOT NULL DEFAULT 1 CHECK (step_count >= 1),
+      model_visible_projection_count integer NOT NULL DEFAULT 0 CHECK (model_visible_projection_count >= 0),
       occurred_at timestamptz NOT NULL DEFAULT NOW()
     );
+
+    CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_thread_idx
+      ON brainstrike_token_estimate_calibration (thread_id);
 
     CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_model_idx
       ON brainstrike_token_estimate_calibration (model, occurred_at DESC);

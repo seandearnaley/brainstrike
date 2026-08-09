@@ -158,7 +158,7 @@ describe('mastra streaming integration', () => {
     });
   });
 
-  it('records bounded token diagnostics with actual provider prompt usage', async () => {
+  it('records bounded token diagnostics with actual accumulated provider prompt usage', async () => {
     setMockStreamParts([
       { textDelta: 'hello', type: 'text-delta' },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 11, promptTokens: 7 } },
@@ -181,16 +181,9 @@ describe('mastra streaming integration', () => {
       for await (const chunk of iterator) {
         chunks.push(chunk);
       }
-      expect(chunks).toContainEqual({
-        type: 'token-estimate-calibration',
-        value: {
-          estimatedPromptTokens: 1,
-          model: 'gpt-5.6-terra',
-          occurredAt: expect.any(Number),
-          provider: 'openai',
-          providerReportedPromptTokens: 7,
-        },
-      });
+      expect(chunks).not.toContainEqual(
+        expect.objectContaining({ type: 'token-estimate-calibration' })
+      );
     } finally {
       removeLogListener();
     }
@@ -224,10 +217,61 @@ describe('mastra streaming integration', () => {
     });
   });
 
-  it('omits token-estimate calibration when no provider prompt usage arrived', async () => {
-    setMockStreamParts([{ textDelta: 'stream ended early', type: 'text-delta' }]);
+  it('uses the final step prompt and step count for a completed multi-step calibration row', async () => {
+    const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
+      measurementMode: 'declared-compatible-reference',
+      measurementStatus: 'measured',
+      modelVisibleProjectionBackstopTokens: 8,
+      modelVisibleProjectionCount: 1,
+      toolDefinitionBackstopTokens: 2,
+      toolDefinitionCount: 0,
+    });
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 2, promptTokens: 10 } },
+      { type: 'step-finish', usage: { completionTokens: 3, promptTokens: 40 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 5, promptTokens: 50 } },
+    ]);
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'use a tool', type: 'text' }], role: 'user' }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            model: 'gpt-5.6-terra',
+            provider: 'openai',
+          },
+        }
+      );
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).toContainEqual({
+        type: 'token-estimate-calibration',
+        value: {
+          estimatedPromptTokens: 10,
+          finalStepPromptTokens: 40,
+          model: 'gpt-5.6-terra',
+          modelVisibleProjectionCount: 1,
+          occurredAt: expect.any(Number),
+          provider: 'openai',
+          stepCount: 2,
+        },
+      });
+    } finally {
+      fieldsSpy.mockRestore();
+    }
+  });
+
+  it('omits token-estimate calibration when a completed run has no tool outputs', async () => {
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 7 } },
+    ]);
     const iterator = await streamMastraAgent(
-      [{ id: 'user-1', parts: [{ text: 'hi there', type: 'text' }], role: 'user' }],
+      [{ id: 'user-1', parts: [{ text: 'answer directly', type: 'text' }], role: 'user' }],
       {
         runtime: {
           apiKey: 'test-key',
@@ -247,6 +291,90 @@ describe('mastra streaming integration', () => {
     );
   });
 
+  it('omits token-estimate calibration when the stream ends without finish', async () => {
+    const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
+      measurementMode: 'declared-compatible-reference',
+      measurementStatus: 'measured',
+      modelVisibleProjectionBackstopTokens: 8,
+      modelVisibleProjectionCount: 1,
+      toolDefinitionCount: 0,
+    });
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
+      { textDelta: 'stream ended early', type: 'text-delta' },
+    ]);
+    const iterator = await streamMastraAgent(
+      [{ id: 'user-1', parts: [{ text: 'hi there', type: 'text' }], role: 'user' }],
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'gpt-5.6-terra',
+          provider: 'openai',
+        },
+      }
+    );
+
+    try {
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      expect(chunks).not.toContainEqual(
+        expect.objectContaining({ type: 'token-estimate-calibration' })
+      );
+    } finally {
+      fieldsSpy.mockRestore();
+    }
+  });
+
+  it('omits token-estimate calibration when a non-watchdog stream error escapes', async () => {
+    const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
+      measurementMode: 'declared-compatible-reference',
+      measurementStatus: 'measured',
+      modelVisibleProjectionBackstopTokens: 8,
+      modelVisibleProjectionCount: 1,
+      toolDefinitionCount: 0,
+    });
+    setMockStreamParts([
+      {
+        payload: { metadata: { providerMetadata: { openrouter: { usage: { cost: 0.001 } } } } },
+        type: 'step-finish',
+        usage: { completionTokens: 1, promptTokens: 7 },
+      },
+      {
+        finishReason: 'stop',
+        providerMetadata: { openrouter: { usage: { cost: -1 } } },
+        type: 'finish',
+        usage: { completionTokens: 1, promptTokens: 7 },
+      },
+    ]);
+    const chunks: unknown[] = [];
+
+    try {
+      const iterator = await streamMastraAgent(
+        [{ id: 'user-1', parts: [{ text: 'use a tool', type: 'text' }], role: 'user' }],
+        {
+          runtime: {
+            apiKey: 'test-key',
+            model: 'openai/gpt-5.6-terra',
+            provider: 'openrouter',
+          },
+        }
+      );
+      await expect(async () => {
+        for await (const chunk of iterator) {
+          chunks.push(chunk);
+        }
+      }).rejects.toThrow(/OpenRouter.*cost/i);
+      expect(chunks).not.toContainEqual(
+        expect.objectContaining({ type: 'token-estimate-calibration' })
+      );
+    } finally {
+      fieldsSpy.mockRestore();
+    }
+  });
+
   it('omits token-estimate calibration when token measurement failed', async () => {
     const fieldsSpy = vi.spyOn(RunTokenDiagnostics.prototype, 'toLogFields').mockReturnValue({
       measurementMode: 'declared-compatible-reference',
@@ -256,6 +384,7 @@ describe('mastra streaming integration', () => {
       toolDefinitionCount: 0,
     });
     setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 7 } },
     ]);
 

@@ -389,18 +389,20 @@ export interface StreamChunkToolCallTelemetry {
   readonly value: readonly ToolCallTelemetrySample[];
 }
 /**
- * Run-end calibration pair for the chars/4 share measured by
- * `RunTokenDiagnostics`. `estimatedPromptTokens` covers model-visible tool
- * outputs plus tool definitions only — never the full conversation or system
- * prompt — so it is a partial-scope reconciliation signal, not a budget-meter
- * calibration factor.
+ * Run-end calibration pair over the final prompt's estimator-visible share.
+ * `estimatedPromptTokens` counts model-visible tool-output projections plus
+ * tool definitions once; `finalStepPromptTokens` is the most recent provider
+ * step's prompt size, which contains prior tool outputs once via Mastra's resend
+ * behavior. Conversation/system-prompt text outside those shares is excluded.
  */
 export interface TokenEstimateCalibrationSample {
   readonly estimatedPromptTokens: number;
+  readonly finalStepPromptTokens: number;
   readonly model: string;
+  readonly modelVisibleProjectionCount: number;
   readonly occurredAt: number;
   readonly provider: string;
-  readonly providerReportedPromptTokens: number;
+  readonly stepCount: number;
 }
 export interface StreamChunkTokenEstimateCalibration {
   readonly type: 'token-estimate-calibration';

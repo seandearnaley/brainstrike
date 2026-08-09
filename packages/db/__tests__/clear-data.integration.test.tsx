@@ -118,7 +118,7 @@ const SENTINEL_INSERTS = [
   // BST-1205: durable estimator/provider prompt-token calibration evidence.
   `INSERT INTO brainstrike_token_estimate_calibration
      (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
-      provider_reported_prompt_tokens)
+      final_step_prompt_tokens)
      VALUES ('sentinel-calibration', 'sentinel-thread', 'sentinel-run',
       'model', 'provider', 42, 50)`,
   // BST-992 convergence: factory-reset-only sentinel (representative of the

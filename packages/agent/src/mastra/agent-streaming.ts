@@ -305,6 +305,7 @@ function processMastraStreamPart(
       }
       // Same usage-candidate order as makeFinishChunk (top-level, then payload).
       accumulateSteppedUsage(lifecycleState, readStreamPartUsage(p));
+      lifecycleState.stepCount += 1;
       const stepFinishedChunk = makeRunEventChunk(
         'run.step.finished',
         'completed',
@@ -1016,6 +1017,7 @@ async function* streamChunksFromMastra({
     sawStepBilledCost: false,
     sawStepWithoutBilledCost: false,
     stepBilledCostUsd: 0,
+    stepCount: 0,
     steppedCompletionTokens: 0,
     steppedPromptTokens: 0,
     streamStartedAtMs: Date.now(),
@@ -1105,13 +1107,6 @@ async function* streamChunksFromMastra({
     const endChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
       : makeMissingFinishStreamChunks(lifecycleState);
-    yield* drainTokenEstimateCalibrationChunk(
-      true,
-      runtime,
-      runtimeData,
-      lifecycleState,
-      calibrationState
-    );
     yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
     for (const chunk of endChunks) {
       yield chunk;
@@ -1121,26 +1116,12 @@ async function* streamChunksFromMastra({
       // Best-effort telemetry must not be lost on an ordinary stream/projector
       // failure after earlier tool calls already completed — drain whatever
       // was accumulated before propagating the failure (review fix).
-      yield* drainTokenEstimateCalibrationChunk(
-        true,
-        runtime,
-        runtimeData,
-        lifecycleState,
-        calibrationState
-      );
       yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
       throw error;
     }
     const terminalChunks = runtimeData?.signal?.aborted
       ? makeCancelledDelegationRunEventChunks(lifecycleState)
       : makeStreamWatchdogTermination(error, lifecycleState, runtimeData);
-    yield* drainTokenEstimateCalibrationChunk(
-      true,
-      runtime,
-      runtimeData,
-      lifecycleState,
-      calibrationState
-    );
     yield* drainToolCallTelemetryChunks(true, runtime, toolCallTelemetryState);
     for (const chunk of terminalChunks) {
       yield chunk;
@@ -1311,6 +1292,14 @@ function* drainToolCallTelemetryChunks(
   }
 }
 
+/**
+ * Emit one completed-run pair on the final-prompt-content basis. The numerator
+ * counts model-visible tool-output projections plus tool definitions once; the
+ * denominator is the latest step prompt, which contains every prior tool
+ * output once through Mastra's resend behavior—not the cross-step billing sum.
+ * Conversation/system-prompt text outside tool outputs and definitions is
+ * excluded from both, and a run without a measured tool output is ineligible.
+ */
 function* drainTokenEstimateCalibrationChunk(
   terminal: boolean,
   runtime: MastraAgentRuntime,
@@ -1322,19 +1311,20 @@ function* drainTokenEstimateCalibrationChunk(
     return;
   }
   state.emitted = true;
-  const providerReportedPromptTokens = lifecycleState.providerReportedPromptTokens;
+  const finalStepPromptTokens = lifecycleState.latestStepPromptTokens;
   const model = runtimeData?.model;
   const provider = runtimeData?.provider;
-  if (providerReportedPromptTokens === undefined || !(model && provider)) {
+  if (finalStepPromptTokens === undefined || !(model && provider)) {
     return;
   }
-  const fields = runtime.tokenDiagnostics.toLogFields({ providerReportedPromptTokens });
-  if (fields['measurementStatus'] === 'failed') {
+  const fields = runtime.tokenDiagnostics.toLogFields();
+  if (fields['measurementStatus'] === 'failed' || fields['modelVisibleProjectionCount'] === 0) {
     return;
   }
-  // Deliberately partial: RunTokenDiagnostics sees only model-visible tool
-  // outputs and tool definitions. It does NOT see conversation/system-prompt
-  // text, so this is evidence for that share alone, never a budget calibration.
+  // Comparable final-prompt basis: the numerator counts model-visible tool
+  // outputs and tool definitions once; the latest step prompt already contains
+  // every prior tool output once via Mastra's resend behavior. Conversation and
+  // system-prompt text outside those shares remain excluded from both figures.
   const estimatedPromptTokens =
     (fields['modelVisibleProjectionBackstopTokens'] as number) +
     ((fields['toolDefinitionBackstopTokens'] as number | undefined) ?? 0);
@@ -1342,10 +1332,12 @@ function* drainTokenEstimateCalibrationChunk(
     type: 'token-estimate-calibration',
     value: {
       estimatedPromptTokens,
+      finalStepPromptTokens,
       model,
+      modelVisibleProjectionCount: fields['modelVisibleProjectionCount'] as number,
       occurredAt: Date.now(),
       provider,
-      providerReportedPromptTokens: fields['providerReportedPromptTokens'] as number,
+      stepCount: lifecycleState.stepCount,
     },
   };
 }

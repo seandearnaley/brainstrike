@@ -55,7 +55,7 @@ async function insertTokenEstimateCalibration(
   await db.query(
     `INSERT INTO brainstrike_token_estimate_calibration
       (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
-       provider_reported_prompt_tokens, occurred_at)
+       final_step_prompt_tokens, occurred_at)
      VALUES ($1, 'thread', 'run', 'gpt-5.6-terra', 'openai', 100, 125, $2)`,
     [id, occurredAtIso]
   );

@@ -1212,21 +1212,24 @@ correlation key.
 
 `brainstrike_token_estimate_calibration` (migration 086 in BOTH runners)
 stores one attributable run-end pair: the chars/4 estimate measured by
-`RunTokenDiagnostics` and the provider-reported prompt-token total from the
-stream finish part. The internal `token-estimate-calibration` stream chunk is
-consumed by the desktop main-process persistence wrapper and never reaches the
-renderer. The writer uses `INSERT ... SELECT` through
+`RunTokenDiagnostics` and `final_step_prompt_tokens`, the single most recent
+step's prompt-token count. The internal `token-estimate-calibration` stream
+chunk is consumed by the desktop main-process persistence wrapper and never
+reaches the renderer. The writer uses `INSERT ... SELECT` through
 `brainstrike_assistant_thread_runs` to derive `thread_id` from `run_id`, warns
 without failing the assistant turn on a missing run or failed write, and stores
 only ids, token counts, model/provider strings, and a timestamp.
 
-The estimate has a deliberately narrower scope than the provider denominator:
-it is `modelVisibleProjectionBackstopTokens +
-(toolDefinitionBackstopTokens ?? 0)`, covering model-visible tool-output
-projections plus tool definitions only. `RunTokenDiagnostics` never sees full
-conversation or system-prompt text. These ratios are therefore a partial-scope
-reconciliation signal for future evidence-based work, not a budget-meter
-calibration factor and not permission to tune `APPROX_CHARS_PER_TOKEN`.
+The numerator is `modelVisibleProjectionBackstopTokens +
+(toolDefinitionBackstopTokens ?? 0)`: chars/4 over model-visible tool-output
+projections plus tool definitions, each counted once. The denominator is the
+latest step's prompt count, which already contains every prior tool output once
+via Mastra's resend behavior—not the cross-step accumulated billing total. Both
+figures are comparable over the same final-prompt-content basis;
+conversation/system-prompt text outside tool outputs and definitions is excluded
+from both. Only completed runs with at least one measured tool output persist.
+The ratio remains reconciliation evidence, not permission to tune
+`APPROX_CHARS_PER_TOKEN`.
 
 The table is FK-less because numbered migrations cannot depend on the lazy
 assistant parents. The renderer bootstrap mirrors migration 086 because its
@@ -1238,9 +1241,10 @@ occurred-at-leading index created in migration 086; the idle pass also runs
 `VACUUM (ANALYZE)` for the table.
 
 The checked-in `estimator-calibration.sql` lens groups an inclusive time window
-by model and returns sample count plus min/median/max/average estimate-to-
-provider ratios, with `NULLIF` guarding zero provider totals. Paired proofs are
-the emission cases in `packages/agent/src/__tests__/mastra-streaming.spec.ts`,
+by model and returns sample count plus min/median/max/average estimate-to-final-
+step ratios. It excludes zero estimates defensively and counts only positive
+denominators, matching runs that actually exercised the estimator. Paired
+proofs are the emission cases in `packages/agent/src/__tests__/mastra-streaming.spec.ts`,
 the real-PGlite desktop persistence integration test, the migration/reset and
 scheduled-maintenance tests in `packages/db/__tests__`, and
 `search-lens-estimator-calibration.test.ts`, which parses and executes the

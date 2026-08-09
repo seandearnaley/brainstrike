@@ -10,11 +10,13 @@ type TestDatabase = Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
 
 interface CalibrationRow {
   estimated_prompt_tokens: number;
+  final_step_prompt_tokens: number;
   model: string;
+  model_visible_projection_count: number;
   occurred_at: string;
   provider: string;
-  provider_reported_prompt_tokens: number;
   run_id: string;
+  step_count: number;
   thread_id: string;
 }
 
@@ -68,24 +70,28 @@ describe('persistDesktopTokenEstimateCalibration against real PGlite', () => {
 
       await drain(db, 'run-calibration-1', {
         estimatedPromptTokens: 321,
+        finalStepPromptTokens: 456,
         model: 'gpt-5.6-terra',
+        modelVisibleProjectionCount: 3,
         occurredAt,
         provider: 'openai',
-        providerReportedPromptTokens: 456,
+        stepCount: 4,
       });
 
       const result = await db.query<CalibrationRow>(
         `SELECT thread_id, run_id, model, provider, estimated_prompt_tokens,
-                provider_reported_prompt_tokens, occurred_at
+                final_step_prompt_tokens, step_count, model_visible_projection_count, occurred_at
            FROM brainstrike_token_estimate_calibration`
       );
       expect(result.rows).toHaveLength(1);
       expect(result.rows[0]).toMatchObject({
         estimated_prompt_tokens: 321,
+        final_step_prompt_tokens: 456,
         model: 'gpt-5.6-terra',
+        model_visible_projection_count: 3,
         provider: 'openai',
-        provider_reported_prompt_tokens: 456,
         run_id: 'run-calibration-1',
+        step_count: 4,
         thread_id: 'thread-calibration-1',
       });
       expect(new Date(result.rows[0]?.occurred_at ?? '').getTime()).toBe(occurredAt);
