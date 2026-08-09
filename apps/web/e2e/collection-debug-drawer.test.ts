@@ -13,15 +13,24 @@ async function ensureDatabasePanelVisible(page: Page): Promise<void> {
 }
 
 /**
- * Smoke coverage for the collection debug drawer (BST-1214).
+ * Browser coverage for the collection debug drawer (BST-1214).
  *
  * The unit suite owns the drawer's behavior; what only a real browser can
  * prove is that the lazily-imported content chunk actually resolves inside the
  * built app and mounts against the app's real action registry. A drawer that
  * silently failed to code-split — or that threw for a missing
  * ActionRegistryProvider — would still pass every jsdom test.
+ *
+ * `@stateful`, NOT `@web-smoke`: the drawer is rendered past the
+ * `if (!repository)` early return in `database-demo-panel.tsx`, so its toggle
+ * does not exist until the PGlite provider has produced a repository. That is a
+ * hard database dependency — dropping the readiness wait would not make this
+ * test fast, it would just move the same wait into a `toBeVisible` timeout and
+ * put a DB-dependent spec in the lane that exists to stay quick. It therefore
+ * runs serially in its own `test:e2e:lane:collection-drawer`, which
+ * full-regression invokes.
  */
-test.describe('Collection debug drawer @web-smoke', () => {
+test.describe('Collection debug drawer @stateful @web-collection-drawer', () => {
   test.describe.configure({ timeout: 120_000 });
 
   test.beforeEach(async ({ page }) => {
