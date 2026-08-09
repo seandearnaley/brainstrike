@@ -626,7 +626,11 @@ describe('mastra real tool execution (real @mastra/core/agent)', () => {
 
     expect(executeSpy).toHaveBeenCalledTimes(1);
     expect(modelFacingToolOutput).toContain('output was truncated');
-    expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
+    // The model's view stays BOUNDED (the property this test protects) even
+    // though balanced head+tail retention now legitimately surfaces the
+    // trailing sentinel inside that bound — assert boundedness by length,
+    // not by tail-absence.
+    expect(modelFacingToolOutput).toContain(rawOnlyTail);
     expect(modelFacingToolOutput.length).toBeLessThanOrEqual(8000);
 
     const rawSuccess = chunks.find(
@@ -2724,9 +2728,15 @@ describe('tool-lifecycle hooks (real @mastra/core/agent)', () => {
     expect(executeSpy).toHaveBeenCalledTimes(1);
     expect(modelFacingToolOutput).toContain('output was truncated');
     expect(modelFacingToolOutput).toContain(`Post-tool context: ${hookContext}`);
+    // Internal envelope field names must never leak into model-facing text —
+    // a real leak-prevention property, independent of head/tail retention.
     expect(modelFacingToolOutput).not.toContain('hookAdditionalContext');
     expect(modelFacingToolOutput).not.toContain(HOOK_RESULT_ENVELOPE_FIELD);
-    expect(modelFacingToolOutput).not.toContain(rawOnlyTail);
+    // The model's view stays BOUNDED (the property this test protects) even
+    // though balanced head+tail retention now legitimately surfaces the
+    // trailing sentinel inside that bound — assert boundedness by length,
+    // not by tail-absence.
+    expect(modelFacingToolOutput).toContain(rawOnlyTail);
     expect(modelFacingToolOutput.length).toBeLessThanOrEqual(8000);
   });
 

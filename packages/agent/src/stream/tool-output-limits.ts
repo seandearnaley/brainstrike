@@ -335,6 +335,54 @@ function buildPreviewOutput(params: {
   };
 }
 
+function buildPreviewOmissionMarker(omittedChars: number): string {
+  return `…[${omittedChars} chars omitted]…`;
+}
+
+/** True when `codeUnit` is the leading half of a UTF-16 surrogate pair. */
+function isHighSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xd8_00 && codeUnit <= 0xdb_ff;
+}
+
+/** True when `codeUnit` is the trailing half of a UTF-16 surrogate pair. */
+function isLowSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xdc_00 && codeUnit <= 0xdf_ff;
+}
+
+/**
+ * Arbitrary transport previews retain a balanced 50/50 head and tail. This
+ * differs from executeCommand's domain-specific 40/60 stream split because a
+ * generic output has no basis for prioritizing recent content over its start.
+ */
+const PREVIEW_HEAD_RATIO = 0.5;
+
+function splitPreviewHeadTail(source: string, maxChars: number): string {
+  const boundedMaxChars = Math.max(0, Math.floor(maxChars));
+  if (source.length <= boundedMaxChars) {
+    return source;
+  }
+
+  // The omitted count cannot have more digits than source.length, so reserve
+  // that widest marker before dividing the remaining room between content.
+  const reservedMarkerLength = buildPreviewOmissionMarker(source.length).length;
+  if (boundedMaxChars < reservedMarkerLength) {
+    return '';
+  }
+  const retainedBudget = boundedMaxChars - reservedMarkerLength;
+  const headBudget = Math.floor(retainedBudget * PREVIEW_HEAD_RATIO);
+  const tailBudget = retainedBudget - headBudget;
+  const rawHead = source.slice(0, headBudget);
+  const head =
+    rawHead.length > 0 && isHighSurrogate(rawHead.charCodeAt(rawHead.length - 1))
+      ? rawHead.slice(0, -1)
+      : rawHead;
+  const rawTail = tailBudget > 0 ? source.slice(-tailBudget) : '';
+  const tail =
+    rawTail.length > 0 && isLowSurrogate(rawTail.charCodeAt(0)) ? rawTail.slice(1) : rawTail;
+  const omittedChars = source.length - head.length - tail.length;
+  return `${head}${buildPreviewOmissionMarker(omittedChars)}${tail}`;
+}
+
 function createBoundedPreviewOutput(params: {
   readonly maxSerializedChars: number;
   readonly maxTokens: number;
@@ -349,7 +397,7 @@ function createBoundedPreviewOutput(params: {
   );
   const initial = buildPreviewOutput({
     ...params,
-    preview: sliceCodePoints(params.previewSource, initialPreviewChars),
+    preview: splitPreviewHeadTail(params.previewSource, initialPreviewChars),
   });
   if (stringifyJsonSafe(initial).length <= params.maxSerializedChars) {
     return initial;
@@ -362,7 +410,7 @@ function createBoundedPreviewOutput(params: {
   const availableChars = Math.max(0, params.maxSerializedChars - stringifyJsonSafe(empty).length);
   return buildPreviewOutput({
     ...params,
-    preview: sliceCodePoints(params.previewSource, Math.floor(availableChars / 6)),
+    preview: splitPreviewHeadTail(params.previewSource, Math.floor(availableChars / 6)),
   });
 }
 

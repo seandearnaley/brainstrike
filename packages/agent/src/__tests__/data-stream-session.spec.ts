@@ -1894,7 +1894,7 @@ describe('AssistantDataStreamSession', () => {
       expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
     });
 
-    it('keeps oversized successful tool output successful with a bounded preview', async () => {
+    it('keeps oversized successful tool output successful with a balanced head+tail preview', async () => {
       const oversizedOutput = `${'filesystem match\n'.repeat(5000)}needle-at-tail`;
       const chunks: StreamChunk[] = [
         {
@@ -1950,19 +1950,34 @@ describe('AssistantDataStreamSession', () => {
       expect(toolResult?.isError).toBeUndefined();
       expect(toolResult?.result?.preview).toContain('filesystem match');
       expect(serializedToolResult.length).toBeLessThan(20_000);
-      expect(serializedToolResult).not.toContain('needle-at-tail');
+      // Balanced head+tail retention (was head-only): the tail evidence the
+      // old preview always discarded now survives alongside the head.
+      expect(serializedToolResult).toContain('needle-at-tail');
       expect(textDelta).toBeUndefined();
       expect(finishMessage?.value).toMatchObject({ finishReason: 'unknown' });
     });
 
-    it('does not split surrogate pairs in oversized tool output previews', () => {
-      const output = `${'a'.repeat(7999)}🙂${'tail'.repeat(2000)}`;
+    it('does not split surrogate pairs at either preview boundary', () => {
+      const output = `HEAD-${'🙂'.repeat(6000)}-TAIL`;
       const bounded = boundToolOutputForModel('filesystem.search_files', output).output as {
         preview?: string;
       };
+      const preview = bounded.preview ?? '';
 
-      expect(bounded.preview).toBe(`${'a'.repeat(7999)}🙂`);
-      expect(bounded.preview?.charCodeAt(bounded.preview.length - 1)).not.toBe(0xd8_3d);
+      // Balanced retention (was head-only): both ends of the source survive.
+      expect(preview.startsWith('HEAD-')).toBe(true);
+      expect(preview.endsWith('-TAIL')).toBe(true);
+      expect(preview).not.toContain('�');
+      // No lone surrogate at either cut point: every high surrogate is
+      // immediately followed by its low-surrogate partner.
+      for (let index = 0; index < preview.length; index += 1) {
+        const codeUnit = preview.charCodeAt(index);
+        if (codeUnit >= 0xd8_00 && codeUnit <= 0xdb_ff) {
+          const next = preview.charCodeAt(index + 1);
+          expect(next).toBeGreaterThanOrEqual(0xdc_00);
+          expect(next).toBeLessThanOrEqual(0xdf_ff);
+        }
+      }
     });
 
     it('does not iterate the entire oversized tool output when building a preview', () => {
