@@ -34,6 +34,16 @@ function stepRunsExactCommand(step, expectedCommand) {
   return typeof step.run === 'string' && normalizeExpression(step.run) === expectedCommand;
 }
 
+function assertExecutingPlaywrightCommand(command, label) {
+  const normalizedCommand = normalizeExpression(command);
+  assert.match(normalizedCommand, /(?:^|\s)playwright test(?:\s|$)/, `${label} must execute tests`);
+  assert.doesNotMatch(
+    normalizedCommand,
+    /(?:^|\s)--(?:help|list|version)(?:=|\s|$)/,
+    `${label} must not use a diagnostic-only Playwright flag`
+  );
+}
+
 function untaggedTitles(source, fileName, tag) {
   const testEntries = listPlaywrightTitleEntries(source, fileName).filter(
     (entry) => entry.kind === 'test'
@@ -72,12 +82,23 @@ test('MONEY TEST: the smoke matcher rejects disabled lanes and diagnostic suffix
   );
 });
 
+test('MONEY TEST: package smoke lanes cannot become diagnostic-only', () => {
+  for (const flag of ['--help', '--list', '--version']) {
+    assert.throws(
+      () => assertExecutingPlaywrightCommand(`pnpm exec playwright test ${flag}`, 'fixture'),
+      /diagnostic-only/
+    );
+  }
+});
+
 test('REAL REPO: every web AI Tools settings title is selected by Web E2E smoke', () => {
   const source = read(WEB_SPEC);
   assert.deepEqual(untaggedTitles(source, WEB_SPEC, '@web-smoke'), []);
 
   const webPackage = JSON.parse(read('apps/web/package.json'));
-  assert.match(webPackage.scripts['test:e2e:lane:smoke'], /--grep ["']@web-smoke["']/);
+  const smokeCommand = webPackage.scripts['test:e2e:lane:smoke'];
+  assertExecutingPlaywrightCommand(smokeCommand, 'web smoke lane');
+  assert.match(smokeCommand, /--grep ["']@web-smoke["']/);
 });
 
 test('REAL REPO: every desktop AI Tools settings title is selected by Desktop E2E smoke', () => {
@@ -86,6 +107,7 @@ test('REAL REPO: every desktop AI Tools settings title is selected by Desktop E2
 
   const desktopPackage = JSON.parse(read('apps/desktop/package.json'));
   const smokeCommand = desktopPackage.scripts['test:e2e:lane:smoke'];
+  assertExecutingPlaywrightCommand(smokeCommand, 'desktop smoke lane');
   assert.match(smokeCommand, /e2e\/tools-settings\.desktop\.test\.ts/);
   assert.match(smokeCommand, /--grep=["']@smoke["']/);
 });
@@ -97,6 +119,7 @@ test('REAL REPO: desktop smoke tags remain selected by nightly regression', () =
     /pnpm run test:e2e:lane:tools-settings-nightly/
   );
   const nightlyCommand = desktopPackage.scripts['test:e2e:lane:tools-settings-nightly'];
+  assertExecutingPlaywrightCommand(nightlyCommand, 'desktop AI Tools nightly lane');
   assert.match(nightlyCommand, /e2e\/tools-settings\.desktop\.test\.ts/);
   assert.match(nightlyCommand, /--project=smoke/);
   assert.match(nightlyCommand, /--grep=["']@smoke["']/);
