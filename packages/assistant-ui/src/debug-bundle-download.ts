@@ -2,7 +2,7 @@
  * Filename + save-to-disk helpers for the failed-message debug bundle.
  *
  * Split out of `copy-debug-bundle-button.tsx` because that module is
- * component-only by contract (react-doctor `only-export-components` / Fast
+ * component-only by contract (react-refresh `only-export-components` / Fast
  * Refresh boundary) — these are pure/DOM helpers with their own unit test.
  *
  * Both are thin bundle-specific wrappers over `@brainstrike/utils`'s shared

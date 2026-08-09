@@ -1537,6 +1537,34 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   referential stability for consumers outside the compiled tree). The rule fired 1211× (54%
   of the original backlog) demanding removal — disabled per team decision.
   `react-hooks-js/preserve-manual-memoization` stays ON (it protects memo the compiler needs).
+- **An unimplemented rule id is accepted SILENTLY — 0 findings means "gone" OR "clean".**
+  `doctor.config.ts` emits no "unknown rule" error, so a config that believes it enabled
+  (or disabled) a rule is indistinguishable from one that did not, and that rule's zero
+  findings read as a passing gate. Proved on `react-doctor/only-export-components`
+  (2026-08-09, pinned 0.9.3): the id appears in the bundle ONLY as a *value* in the
+  oxlint→react-doctor alias tables (`react-refresh/only-export-components` and
+  `react/only-export-components` both map to it) with no rule implementation behind it,
+  and adding `rules: { 'react-doctor/only-export-components': 'warn' }` left counts
+  byte-identical (149 → 149 on `packages/file-explorer-ui`). **Before citing a
+  react-doctor rule id as a contract, prove it fires on a known violation** — a
+  package-scoped scan returning 0 is not evidence.
+  `scripts/__tests__/lint-rule-liveness-contract.test.mjs` mechanizes that proof for the
+  rules this repo treats as contracts: it feeds a known violation through the real config
+  and fails if the rule stops reporting. Extend it when a doc starts citing a new rule as
+  an invariant.
+- **The Fast Refresh module-boundary contract is NOT react-doctor's — it is
+  `react-refresh/only-export-components` in `eslint.config.js`** (#2372, plugin
+  `eslint-plugin-react-refresh`), riding the same `--max-warnings` ratchet as the
+  compiler diagnostics (ceiling 194 → 341). It landed at 155 warnings across 77 files;
+  burn it down and lower the ceiling, exactly as for the compiler wave. Biome's `useComponentExportOnlyModules`
+  was evaluated and rejected for this job despite already being installed and already
+  blocking: measured against this repo it also flags unexported components (63 sites —
+  not a defect, since `@vitejs/plugin-react`'s `validateRefreshBoundaryAndEnqueueUpdate`
+  walks `moduleExports` only, so a private component never breaks the boundary) and
+  misreads `export default <Component>` aliases (29 false positives, e.g.
+  `logging-settings.tsx`, whose only exports are one component named and defaulted).
+  The eslint plugin matches the Vite runtime semantics; do not swap in Biome's rule
+  without re-measuring both.
 
 Local: `pnpm run react-doctor` (full scan, telemetry off via config) ·
 `npx react-doctor . --scope changed --verbose` (only new issues) ·

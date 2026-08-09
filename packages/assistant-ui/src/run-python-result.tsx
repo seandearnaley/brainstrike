@@ -21,7 +21,7 @@
  * vocabulary but reads top-down as a labelled `<section>` (no longer live).
  *
  * Narrowing and formatters live in `run-python-result-model.ts` so this file
- * exports only components (react-doctor `only-export-components`).
+ * exports only components (react-refresh `only-export-components`).
  */
 import { AlertCircle, CheckCircle, CircleSlash, Globe, Timer } from 'lucide-react';
 import type { ReactElement } from 'react';

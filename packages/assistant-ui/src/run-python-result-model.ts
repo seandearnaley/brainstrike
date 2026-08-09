@@ -2,7 +2,7 @@
  * BST-1070: the non-component half of the `run_python` result surface —
  * display-result narrowing and the shared formatters. Split from
  * `run-python-result.tsx` so the component file exports only components
- * (react-doctor `only-export-components`: Fast Refresh cannot preserve state
+ * (react-refresh `only-export-components`: Fast Refresh cannot preserve state
  * through files with mixed exports), and so the approval card and the result
  * surface share ONE duration formatter instead of two drifting copies of the
  * same rounding rule.

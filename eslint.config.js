@@ -7,6 +7,7 @@
 // its lint-time instrument.
 import tsParser from '@typescript-eslint/parser';
 import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
 
 const recommendedLatest = reactHooks.configs.flat['recommended-latest'];
 
@@ -19,7 +20,15 @@ const recommendedLatest = reactHooks.configs.flat['recommended-latest'];
 // 196→197: a merge in flight when the ratchet landed (#1790) was measured
 // after the fact — the ceiling race is expected; re-baseline with a note.
 // Burned 197→194: #1764's render-phase ref writes in use-file-system-watcher
-// replaced by useEventCallback, clearing 3 react-hooks/refs warnings.)
+// replaced by useEventCallback, clearing 3 react-hooks/refs warnings.
+// Re-baselined 194→341 (#2372) when react-refresh/only-export-components
+// joined this ratchet: 155 new Fast Refresh boundary warnings across 77 files,
+// PLUS closing 8 warnings of accumulated slack — the compiler-diagnostic count
+// had drifted to 186 while the ceiling still read 194, which is exactly the
+// invisible-regression window this comment warns about. 186 + 155 = 341.
+// The ceiling race bit again on the way in: measured at 161/78, then #2368
+// landed mid-flight and split file-explorer-panel-toolbar-helpers.tsx, clearing
+// exactly 6. Re-measure after any rebase before pushing a ratchet change.)
 const compilerDiagnosticsAsWarnings = Object.fromEntries(
   Object.keys(recommendedLatest.rules).map((rule) => [rule, 'warn'])
 );
@@ -90,6 +99,7 @@ export default [
     plugins: {
       ...externalDirectiveStubs,
       ...recommendedLatest.plugins,
+      'react-refresh': reactRefresh,
     },
     rules: {
       ...compilerDiagnosticsAsWarnings,
@@ -99,6 +109,23 @@ export default [
       // and @jacobwolf/biome-unnecessary-effect are the compensating controls.
       'react-hooks/exhaustive-deps': 'off',
       'react-hooks/rules-of-hooks': 'error',
+      // Fast Refresh module-boundary contract (#2372). This is the REAL
+      // enforcer: react-doctor's `only-export-components` id exists only in its
+      // oxlint→react-doctor alias table with no rule behind it, so the many
+      // source comments citing it were describing an unenforced convention.
+      // See the REACT DOCTOR section in docs/agents/ci-quality.md.
+      //
+      // Semantics deliberately match @vitejs/plugin-react's runtime check
+      // (`validateRefreshBoundaryAndEnqueueUpdate`), which accepts an export
+      // when it is component-like OR its identity is unchanged: only EXPORTED
+      // plain functions and hooks break the boundary. Biome's
+      // `useComponentExportOnlyModules` was rejected for this job — it also
+      // flags unexported components (63 sites, not a defect: the runtime walks
+      // `moduleExports` only) and misreads `export default <Component>` aliases
+      // (29 false positives).
+      //
+      // `allowConstantExport` matches Vite, which tolerates constant exports.
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   },
 ];
