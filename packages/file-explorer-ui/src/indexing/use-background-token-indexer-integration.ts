@@ -1050,6 +1050,8 @@ export function useBackgroundTokenIndexerIntegration({
   const tokenCacheIsOperational = tokenCache?.isOperational ?? false;
   const tokenCacheIsPersisted = tokenCache?.isPersisted ?? false;
 
+  // Sizes also reach the hot cache ahead of any indexing batch — see
+  // `use-selected-file-size-prefetch.ts` for why that second path exists.
   useSelectedFileSizePrefetch({
     fileHandleMapRef,
     fileHandleMapSize,
