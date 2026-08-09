@@ -13,6 +13,7 @@ import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState } from './utils/app-state';
+import { importSelectedFilesFromExplorer } from './utils/explorer-import';
 import { ensureRightPanelVisible, waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
@@ -68,15 +69,13 @@ async function importOneFile(page: Page): Promise<void> {
   await expect(explorer.selectAllButton).toBeEnabled({ timeout: 15_000 });
   await explorer.selectAllButton.click();
   const databasePanel = page.getByTestId('database-demo-panel');
-  const importButton = databasePanel.getByRole('button', { name: /^Import \(\d+\)$/ });
-  await expect(importButton).toBeVisible({ timeout: 15_000 });
-  await importButton.click();
-  // Wait for the collection summary to report at least one imported file.
+  await importSelectedFilesFromExplorer(page);
+  // Wait for the collection summary to report at least one imported file. This
+  // is the completion signal now that the trigger stays enabled throughout.
   await expect(databasePanel.getByRole('listbox', { name: 'Search Collection' })).toContainText(
     /[1-9]\d*\s+files?/,
     { timeout: 120_000 }
   );
-  await expect(importButton).toBeEnabled({ timeout: 120_000 });
 }
 
 function nameResizeHandle(page: Page): Locator {

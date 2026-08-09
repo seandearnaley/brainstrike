@@ -29,6 +29,10 @@ import React, { type ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectionActions } from '../context-actions';
 import { DatabaseDemoPanel as DatabaseDemoPanelImplementation } from '../database-demo-panel';
+import {
+  clearImportActivitySnapshot,
+  publishImportActivitySnapshot,
+} from '../import-activity-snapshot';
 import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
 
 // Helper to wrap renders with TooltipProvider and the context-action registry
@@ -681,6 +685,21 @@ describe('DatabaseDemoPanel', () => {
       expect(screen.queryByTestId('mock-embedding-status-bar')).not.toBeInTheDocument();
     });
 
+    it('offers no import trigger of its own', async () => {
+      // BST-1212 gave importing exactly one entry point: the explorer's
+      // selection action bar, which is where the selection being imported
+      // lives. A second trigger here would be a second source of truth for the
+      // target collection, so guard the ruling where the panel is rendered
+      // rather than from an e2e assertion that a removed button is absent.
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: /^Import\s*\(/ })).not.toBeInTheDocument();
+    });
+
     it('renders the collection browser view', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
@@ -699,13 +718,34 @@ describe('DatabaseDemoPanel', () => {
         expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__).toBeDefined();
       });
 
+      // The panel runs no imports of its own, so it reports idle until the
+      // surface that does (the explorer's selection bar) publishes.
       expect(window.__brainstrikeDatabaseDemoTestHooks__?.getImportSnapshot()).toEqual(
         expect.objectContaining({
           activeCollectionId: TEST_COLLECTION_ID,
           isImporting: false,
-          selectedFileCount: 1,
+          progress: null,
+          selectedFileCount: 0,
         })
       );
+
+      publishImportActivitySnapshot({
+        progress: {
+          completed: 2,
+          current: '/workspace/b.ts',
+          errors: [],
+          phase: 'importing',
+          total: 5,
+        },
+        selectedFileCount: 5,
+      });
+      expect(window.__brainstrikeDatabaseDemoTestHooks__?.getImportSnapshot()).toEqual(
+        expect.objectContaining({
+          progress: expect.objectContaining({ completed: 2, phase: 'importing', total: 5 }),
+          selectedFileCount: 5,
+        })
+      );
+      clearImportActivitySnapshot();
       expect(window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__?.getSnapshot()).toEqual(
         expect.objectContaining({
           error: null,
@@ -892,7 +932,7 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('File Import', () => {
-    it('disables manual import when the active collection is managed by background indexing', async () => {
+    it('explains why manual import is unavailable when the active collection is background-indexed', async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
         hasHydrated: true,
@@ -903,14 +943,11 @@ describe('DatabaseDemoPanel', () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+        expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
       });
-
-      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
-      expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
     });
 
-    it('disables manual import when the loaded active collection is the managed collection', async () => {
+    it('explains why manual import is unavailable when the loaded active collection is the managed one', async () => {
       useBackgroundIndexingPreferencesStore.setState({
         enabled: true,
         hasHydrated: true,
@@ -939,14 +976,11 @@ describe('DatabaseDemoPanel', () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+        expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
       });
-
-      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
-      expect(screen.getByText(/manual db imports are disabled/i)).toBeInTheDocument();
     });
 
-    it('clears an active workspace index and keeps manual import unavailable', async () => {
+    it('clears an active workspace index without showing the managed-collection notice', async () => {
       useVectorStatusUIStoreDirect.getState().setCachedCollections([
         {
           category: null,
@@ -990,49 +1024,22 @@ describe('DatabaseDemoPanel', () => {
         expect(useVectorStatusUIStoreDirect.getState().activeEmbeddingSetId).toBeNull();
       });
 
-      expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeDisabled();
       expect(screen.queryByText(/manual db imports are disabled/i)).not.toBeInTheDocument();
     });
 
-    it('attempts to call import function when import button is clicked', async () => {
-      const user = userEvent.setup();
+    it('offers no import trigger — importing is driven from the explorer selection bar', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
+        expect(screen.getByTestId('database-panel-actions')).toBeInTheDocument();
       });
 
-      const importButton = screen.getByRole('button', { name: /^Import\s*\(/ });
-      await user.click(importButton);
-
-      // The component should attempt to call import, even if it fails due to missing adapters
-      // Since we're mocking the enhanced file import service, it should at least try
-      // Let's verify the button was clicked and some action was taken
-      expect(importButton).toBeInTheDocument();
-
-      // Check that a toast was called (either success or error)
-      expect(mockToast).toHaveBeenCalled();
-    });
-
-    it('shows toast when import fails due to missing adapters', async () => {
-      const user = userEvent.setup();
-      renderWithProviders(<DatabaseDemoPanel />);
-
-      await waitFor(() => {
-        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
-      });
-
-      const importButton = screen.getByRole('button', { name: /^Import\s*\(/ });
-      await user.click(importButton);
-
-      // The component should show an import error
-      // The actual error depends on setup, but import should fail
-      expect(mockToast).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Import Failed',
-          variant: 'destructive',
+      expect(screen.queryByRole('button', { name: /^Import\s*\(/ })).not.toBeInTheDocument();
+      expect(
+        within(screen.getByTestId('database-panel-actions')).queryByRole('button', {
+          name: /^Import/,
         })
-      );
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -1192,7 +1199,7 @@ describe('DatabaseDemoPanel', () => {
       expect(within(footer).queryByRole('button', { name: /Help/ })).not.toBeInTheDocument();
     });
 
-    it('keeps Export, Import, and Embeddings actions in the footer (not the toolbar)', async () => {
+    it('keeps Export and Embeddings actions in the footer (not the toolbar)', async () => {
       renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
@@ -1204,9 +1211,7 @@ describe('DatabaseDemoPanel', () => {
       expect(footer).toHaveClass('@container/database-actions');
       expect(footerRow).toHaveClass('h-9', 'justify-center');
       expect(within(footerRow).getByRole('button', { name: /^Export$/ })).toBeInTheDocument();
-      expect(within(footerRow).getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       expect(within(footerRow).getByTestId('mock-embedding-actions-dropdown')).toBeInTheDocument();
-      expect(within(footerRow).getByText('Import')).toHaveClass('hidden', '@[420px]:inline');
 
       const toolbar = screen.getByTestId('database-panel-toolbar');
       expect(within(toolbar).queryByRole('button', { name: /^Export$/ })).not.toBeInTheDocument();

@@ -1,5 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { explorerImportPicker, explorerImportTrigger } from './utils/explorer-import';
 import {
   clearDatabaseRecords,
   resolveRefreshButton,
@@ -440,14 +441,44 @@ test.describe('Database Persistence', () => {
       await page.waitForTimeout(200);
     }
 
-    const importButton = page.getByRole('button', { name: /^Import\s*\(/ });
-    if ((await importButton.isVisible()) && !(await importButton.isDisabled())) {
-      await importButton.click();
-      await page.waitForTimeout(5000);
-      return true;
+    // Importing is driven from the explorer's selection action bar (BST-1212):
+    // trigger -> collection picker -> confirm. This helper is best-effort, so
+    // every step is guarded rather than asserted.
+    const importTrigger = explorerImportTrigger(page);
+    // The action is code-split, and its first render is a DISABLED placeholder
+    // whose accessible name already matches the trigger locator. A one-shot
+    // `isDisabled()` therefore reads the placeholder and bails every time,
+    // silently falling through to the sample-data path and never exercising
+    // this import at all — so wait for the real control instead.
+    const triggerReady = await expect(importTrigger)
+      .toBeEnabled({ timeout: 15_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!triggerReady) {
+      return false;
     }
+    await importTrigger.click();
 
-    return false;
+    // Every bail-out past this point must dismiss the popover: leaving it open
+    // would cover the Explorer while the sample-data fallback drives the
+    // Database panel behind it.
+    const picker = explorerImportPicker(page);
+    if (!(await picker.isVisible({ timeout: 5000 }).catch(() => false))) {
+      await page.keyboard.press('Escape');
+      return false;
+    }
+    const confirmImport = picker.getByTestId('explorer-import-confirm');
+    const confirmReady = await expect(confirmImport)
+      .toBeEnabled({ timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!confirmReady) {
+      await page.keyboard.press('Escape');
+      return false;
+    }
+    await confirmImport.click();
+    await page.waitForTimeout(5000);
+    return true;
   }
 
   async function createUsingSampleData(page: Page): Promise<boolean> {
@@ -781,7 +812,7 @@ test.describe('Database Persistence', () => {
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
-    await expect(activeWindow.getByRole('button', { name: /^Import\s*\(/ })).toBeVisible();
+    await expect(activeWindow.getByTestId('database-panel-actions')).toBeVisible();
     await clickRefreshIfAvailable(activeWindow);
     await verifyUIFunctionalityAndState(activeWindow);
   });
@@ -843,7 +874,7 @@ test.describe('Database Persistence', () => {
       .textContent();
     expect(relaunchedStatusText).toContain('Storage:');
     expect(relaunchedStatusText).toMatch(/IPC|PGlite/i);
-    await expect(relaunchedWindow.getByRole('button', { name: /^Import\s*\(/ })).toBeVisible();
+    await expect(relaunchedWindow.getByTestId('database-panel-actions')).toBeVisible();
     await expect(
       relaunchedWindow.locator('[data-testid="database-demo-panel"]').first()
     ).toBeVisible();

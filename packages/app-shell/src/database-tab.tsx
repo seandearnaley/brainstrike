@@ -1,6 +1,7 @@
 import type { QueueAdapter } from '@brainstrike/queue';
-import { type ComponentType, type ReactElement, useEffect, useState } from 'react';
+import type { ComponentType, ReactElement } from 'react';
 import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
+import { useLazyComponentWithEmbeddingQueue } from './use-lazy-component-with-embedding-queue';
 
 type DatabaseTabChunkModule = typeof import('./database-tab-chunk');
 
@@ -21,6 +22,10 @@ function loadDatabaseTabModule(): Promise<DatabaseTabChunkModule> {
   });
 }
 
+function loadDatabaseTabComponent(): Promise<ComponentType<LoadedDatabaseTabProps>> {
+  return loadDatabaseTabModule().then((module) => module.DatabaseTab);
+}
+
 export function preloadDatabaseTab(): Promise<void> {
   return loadDatabaseTabModule().then(() => undefined);
 }
@@ -37,50 +42,17 @@ export function DatabaseTab({
   chunkingMode = 'local',
   loadEmbeddingQueue = null,
 }: DatabaseTabProps): ReactElement {
-  const [resolvedComponent, setResolvedComponent] =
-    useState<ComponentType<LoadedDatabaseTabProps> | null>(() => databaseTabChunkComponent);
-  const [embeddingQueue, setEmbeddingQueue] = useState<QueueAdapter | null>(null);
-  const [loadError, setLoadError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    if (resolvedComponent && (embeddingQueue || !loadEmbeddingQueue)) {
-      return;
-    }
-
-    let cancelled = false;
-    const modulePromise = resolvedComponent
-      ? Promise.resolve(null)
-      : loadDatabaseTabModule().then((module) => module.DatabaseTab);
-    const queuePromise =
-      embeddingQueue || !loadEmbeddingQueue ? Promise.resolve(null) : loadEmbeddingQueue();
-
-    void Promise.all([modulePromise, queuePromise])
-      .then(([resolvedDatabaseTab, resolvedQueue]) => {
-        if (!cancelled) {
-          if (resolvedDatabaseTab) {
-            setResolvedComponent(() => resolvedDatabaseTab);
-          }
-          if (resolvedQueue) {
-            setEmbeddingQueue(resolvedQueue);
-          }
-          setLoadError(null);
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setLoadError(
-            error instanceof Error ? error : new Error('Failed to load database tools.')
-          );
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [embeddingQueue, loadEmbeddingQueue, resolvedComponent]);
-
-  const queueReady = !loadEmbeddingQueue || embeddingQueue !== null;
-  const ready = resolvedComponent !== null && queueReady;
+  const {
+    component: resolvedComponent,
+    embeddingQueue,
+    loadError,
+    ready,
+  } = useLazyComponentWithEmbeddingQueue<LoadedDatabaseTabProps>({
+    initialComponent: databaseTabChunkComponent,
+    label: 'database tab',
+    load: loadDatabaseTabComponent,
+    loadEmbeddingQueue,
+  });
 
   let content: ReactElement;
   if (loadError) {
@@ -93,7 +65,7 @@ export function DatabaseTab({
         Failed to load database tools: {loadError.message}
       </div>
     );
-  } else if (ready) {
+  } else if (ready && resolvedComponent) {
     const ResolvedComponent = resolvedComponent;
     content = <ResolvedComponent chunkingMode={chunkingMode} embeddingQueue={embeddingQueue} />;
   } else {

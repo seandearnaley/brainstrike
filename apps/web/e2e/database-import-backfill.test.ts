@@ -2,6 +2,10 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/web-fixture';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { resetAppState } from './utils/app-state';
+import {
+  expectExplorerImportSelectionCount,
+  importSelectedFilesFromExplorer,
+} from './utils/explorer-import';
 import { ensureRightPanelVisible, waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
@@ -374,11 +378,7 @@ async function selectFilesForImport(page: Page, expectedSelectedCount: number): 
   }
   await expect(explorer.selectAllButton).toBeEnabled({ timeout: 15_000 });
   await explorer.selectAllButton.click();
-  await expect(
-    page.getByTestId('database-demo-panel').getByRole('button', { name: /^Import \(\d+\)$/ })
-  ).toContainText(`(${expectedSelectedCount})`, {
-    timeout: 15_000,
-  });
+  await expectExplorerImportSelectionCount(page, expectedSelectedCount);
 }
 
 async function waitForCollectionSummary(
@@ -502,12 +502,10 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
 
     const databasePanel = page.getByTestId('database-demo-panel');
-    const importButton = databasePanel.getByRole('button', { name: /^Import \(\d+\)$/ });
-    await expect(importButton).toContainText('(2)', { timeout: 15_000 });
 
     const timeOriginBeforeBackfill = await page.evaluate(() => window.performance.timeOrigin);
 
-    await importButton.click();
+    await importSelectedFilesFromExplorer(page, { expectedSelectedCount: 2 });
 
     const importedCounts = await waitForCollectionSummary(
       page,
@@ -581,12 +579,9 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     try {
       const baseline = await readHeapSnapshot(page, 'before-import');
 
-      const databasePanel = page.getByTestId('database-demo-panel');
-      const importButton = databasePanel.getByRole('button', { name: /^Import \(\d+\)$/ });
-      await expect(importButton).toContainText(`(${IMPORT_MEMORY_FIXTURE_FILE_COUNT})`, {
-        timeout: 15_000,
+      await importSelectedFilesFromExplorer(page, {
+        expectedSelectedCount: IMPORT_MEMORY_FIXTURE_FILE_COUNT,
       });
-      await importButton.click();
 
       const completedImport = await waitForDatabaseImportSnapshot(
         page,
@@ -723,12 +718,8 @@ test.describe('Database import and backfill (web) @stateful @web-import-indexing
     await page.keyboard.press('Escape');
     await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
 
-    const databasePanel = page.getByTestId('database-demo-panel');
-    const importButton = databasePanel.getByRole('button', { name: /^Import \(\d+\)$/ });
-    await expect(importButton).toContainText('(2)', { timeout: 15_000 });
-
     const timeOriginBeforeImport = await page.evaluate(() => window.performance.timeOrigin);
-    await importButton.click();
+    await importSelectedFilesFromExplorer(page, { expectedSelectedCount: 2 });
 
     const importedCounts = await waitForCollectionSummary(
       page,

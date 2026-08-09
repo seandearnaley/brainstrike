@@ -43,6 +43,13 @@ export interface SelectionActionBarProps {
   summaryDetail?: React.ReactNode;
   /** Native title for truncated secondary status content. */
   summaryDetailTitle?: string;
+  /**
+   * Composed controls rendered after the declarative actions. Use this for
+   * selection actions that own transient UI of their own (a popover, a
+   * dialog trigger) and therefore cannot be expressed as a plain
+   * `SelectionAction` button.
+   */
+  trailingContent?: React.ReactNode | undefined;
 }
 
 export interface SelectionActionBarOverlayProps {
@@ -85,6 +92,7 @@ export function SelectionActionBar({
   summary,
   summaryDetail,
   summaryDetailTitle,
+  trailingContent,
 }: SelectionActionBarProps): React.JSX.Element {
   function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
     if (event.defaultPrevented || event.key !== 'Escape') {
@@ -120,7 +128,7 @@ export function SelectionActionBar({
         ) : null}
       </div>
 
-      {actions.length > 0 ? (
+      {actions.length > 0 || trailingContent ? (
         <>
           <div
             aria-hidden="true"
@@ -155,6 +163,7 @@ export function SelectionActionBar({
                 </Button>
               );
             })}
+            {trailingContent}
           </div>
         </>
       ) : null}

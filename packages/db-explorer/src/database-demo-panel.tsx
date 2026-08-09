@@ -1,12 +1,5 @@
-import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog';
-import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
-import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
-import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import {
-  type CachedCollection,
-  useVectorStatusUIStore,
-} from '@brainstrike/app-state/stores/vector-status-ui-store';
-import { type EmbeddingSet, refreshCollectionIndexingStats } from '@brainstrike/db';
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
+import type { EmbeddingSet } from '@brainstrike/db';
 import {
   useClearAllData,
   useDbProviderError,
@@ -18,16 +11,16 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { separatorClassName, useToast } from '@brainstrike/ui';
-import { CreateEmbeddingSetDialog, useEmbeddingControls } from '@brainstrike/vector-management';
+import { useEmbeddingControls } from '@brainstrike/vector-management';
 import { Database } from 'lucide-react';
-import { type ReactElement, type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { ClearDatabaseDialog } from './components/clear-database-dialog';
 import { CollectionBrowserView } from './components/collection-browser-view';
+import { CreateCollectionDialog } from './components/create-collection-dialog';
 import { DatabaseDemoCollectionDialogs } from './components/database-demo-collection-dialogs';
 import { DatabaseDemoPrimaryPanel } from './components/database-demo-primary-panel';
 import { SemanticSearchProvider, useSemanticSearch } from './contexts/semantic-search-context';
-import { useAvailableModels, useAvailableProviders } from './hooks/use-available-models';
 import { useCollectionDialogs } from './hooks/use-collection-dialogs';
 import { useDatabaseClearAction } from './hooks/use-database-clear-action';
 import { useDatabaseDemoActions } from './hooks/use-database-demo-actions';
@@ -37,61 +30,16 @@ import { useDatabaseErrorBoundary } from './hooks/use-database-error-boundary';
 import { useEmbeddingQueueRegistration } from './hooks/use-embedding-queue-registration';
 import { useExportHandlers } from './hooks/use-export-handlers';
 import { useImportActivitySync } from './hooks/use-import-activity-sync';
-import { createImportCompletionHandler } from './hooks/use-import-completion';
-import { useImportFlowSettings } from './hooks/use-import-flow-settings';
 import { useImportSettings } from './hooks/use-import-settings';
+import { useIsManagedCollection } from './hooks/use-is-managed-collection';
 import { useSemanticSearchExecutor } from './hooks/use-semantic-search-executor';
 import { useDatabaseDemoStore } from './stores/database-demo-store';
-import type { EnhancedImportResult } from './types';
 import { useDatabaseDemoData } from './use-database-demo-data';
-import type { UseImportFlowResult } from './use-import-flow';
-import { useImportFlow } from './use-import-flow';
+import { collectionCacheSnapshotFromEmbeddingSet } from './utils/collection-cache-snapshot';
 
 interface DatabaseDemoPanelProps {
   embeddingQueue?: QueueAdapter | null;
   onDatabaseCleared: (() => void) | null;
-}
-
-interface CreateCollectionDialogProps {
-  db: ReturnType<typeof usePGliteDatabase>;
-  onClose: () => void;
-  onCreated: (newSetId: string, newSet: EmbeddingSet) => void;
-  repository: ReturnType<typeof useEmbeddingSetsRepository>;
-}
-
-function CreateCollectionDialog({
-  db,
-  onClose,
-  onCreated,
-  repository,
-}: CreateCollectionDialogProps): ReactElement {
-  const models = useModelRegistryStore((state) => state.models);
-  const providers = useModelRegistryStore((state) => state.providers);
-  const isRegistryLoading = useModelRegistryStore((state) => state.isLoading);
-  useEnsureModelRegistry({ db });
-  const { catalog: runtimeEmbeddingCatalog, isLoading: isRuntimeCatalogLoading } =
-    useLocalRuntimeEmbeddingModelCatalog({
-      maxVerificationModels: 8,
-      verifyEmbeddingDimensions: true,
-    });
-  const availableModels = useAvailableModels(models, runtimeEmbeddingCatalog);
-  const availableProviders = useAvailableProviders(providers, runtimeEmbeddingCatalog);
-
-  return (
-    <CreateEmbeddingSetDialog
-      isLoading={isRegistryLoading || isRuntimeCatalogLoading}
-      models={availableModels}
-      onOpenChange={(open: boolean) => {
-        if (!open) {
-          onClose();
-        }
-      }}
-      onSetCreated={onCreated}
-      open
-      providers={availableProviders}
-      repository={repository}
-    />
-  );
 }
 
 function DatabasePanelFrame({
@@ -181,24 +129,6 @@ function DatabasePanelStateContent({ error }: { error?: Error }): ReactElement {
   );
 }
 
-function collectionCacheSnapshotFromEmbeddingSet(set: EmbeddingSet): CachedCollection {
-  return {
-    category: set.category ?? null,
-    chunkCount: 0,
-    createdAt: set.createdAt,
-    description: set.description ?? null,
-    dimensions: set.dimensions,
-    distance: set.distance,
-    embeddingCount: 0,
-    fileCount: 0,
-    id: set.id,
-    modelId: set.modelId,
-    modelKey: set.modelKey,
-    name: set.name ?? null,
-    tags: set.tags ?? null,
-  };
-}
-
 interface DatabaseDemoSemanticSearchTestSnapshot {
   error: string | null;
   firstResultNodeId: string | null;
@@ -278,6 +208,8 @@ export function DatabaseDemoPanel({
     );
     return collection?.name ?? collection?.modelKey ?? undefined;
   });
+  // Still needed as a prop for the collection browser; the managed-collection
+  // rule itself lives in useIsManagedCollection.
   const activeCollectionSystemRole = useVectorStatusUIStore((state) => {
     const collection = state.cachedCollections.find(
       (candidate) => candidate.id === activeCollectionId
@@ -286,12 +218,7 @@ export function DatabaseDemoPanel({
   });
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const upsertCachedCollection = useVectorStatusUIStore((s) => s.upsertCachedCollection);
-  const managedCollectionId = useBackgroundIndexingPreferencesStore((s) => s.managedCollectionId);
-  const isManagedCollection = Boolean(
-    activeCollectionId &&
-      (activeCollectionSystemRole === 'workspace-index' ||
-        activeCollectionId === managedCollectionId)
-  );
+  const isManagedCollection = useIsManagedCollection();
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
@@ -304,9 +231,6 @@ export function DatabaseDemoPanel({
   const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
 
   const importSettings = useImportSettings();
-  const [chunkRepository, setChunkRepository] =
-    useState<UseImportFlowResult['chunkRepository']>(null);
-  const resolveActiveCollectionId = useCallback(() => activeCollectionId, [activeCollectionId]);
 
   // Read import state from Zustand store (shared with VectorStatus for query pausing)
   const isImportActive = useImportActivitySync();
@@ -314,7 +238,7 @@ export function DatabaseDemoPanel({
 
   const data = useDatabaseDemoData({
     activeCollectionId,
-    chunkRepository,
+    chunkRepository: dbChunkRepository,
     database: dbContext,
     isEmbeddingActive,
     isImporting: isImportActive,
@@ -361,46 +285,16 @@ export function DatabaseDemoPanel({
     toast,
   });
 
-  const importFlowSettings = useImportFlowSettings(importSettings);
-
-  const handleImportComplete = useCallback(
-    async (results: EnhancedImportResult[]) => {
-      const handler = createImportCompletionHandler(toast, loadRecords, loadChunks, async () => {
-        if (!dbContext) {
-          throw new Error('Import completion stats refresh requires an initialized database.');
-        }
-        if (!activeCollectionId) {
-          throw new Error('Import completion stats refresh requires an active collection.');
-        }
-        await refreshCollectionIndexingStats(dbContext, [activeCollectionId], {
-          label: 'import completion stats refresh',
-          priority: 'foreground',
-        });
-      });
-      await handler(results);
-    },
-    [activeCollectionId, dbContext, toast, loadRecords, loadChunks]
-  );
-
-  const importFlow = useImportFlow({
-    embeddingQueue,
-    importSettings: importFlowSettings,
-    onChunkRepositoryChange: setChunkRepository,
-    onImportComplete: handleImportComplete,
-    resolveActiveCollectionId,
-    toast,
-  });
-
   useEmbeddingQueueRegistration(embeddingQueue);
+  // Import progress comes from whichever surface is running the import (the
+  // explorer's selection bar), not from a duplicate service mounted here.
   useDatabaseDemoTestHook({
     activeCollectionId,
-    isImporting: importFlow.isImporting,
-    progress: importFlow.progress,
+    isImporting: isImportActive,
     recordCount: records.length,
     recordCurrentPage: recordPagination.currentPage,
     recordPageSize: recordPagination.pageSize,
     recordTotalRecords: recordPagination.totalRecords,
-    selectedFileCount: importFlow.selectedFileCount,
   });
 
   const handleClearDatabase = useDatabaseClearAction({
@@ -451,7 +345,6 @@ export function DatabaseDemoPanel({
             dbContext={dbContext}
             dropdownProps={dropdownProps}
             exportHandlers={exportHandlers}
-            importFlow={importFlow}
             importSettings={importSettings}
             isManagedCollection={isManagedCollection}
             onClearDatabase={handleClearDatabase}
