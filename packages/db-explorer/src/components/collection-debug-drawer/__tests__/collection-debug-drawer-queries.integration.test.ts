@@ -15,19 +15,31 @@
  *
  * The SQL is imported from the drawer module itself, not copied: a copy would
  * be the "same SQL drifting apart" channel this codebase repeatedly closes, and
- * a green copy would prove nothing about what the drawer actually sends. This
- * is a test-only source import; it adds no runtime dependency from
- * `@brainstrike/db` on `@brainstrike/db-explorer`.
+ * a green copy would prove nothing about what the drawer actually sends.
+ *
+ * It lives HERE, beside the module under test, rather than in `packages/db`.
+ * The first version sat in `packages/db/__tests__` and reached back into
+ * db-explorer source, which inverts the package graph — `db-explorer` depends
+ * on `db`, not the reverse — and `turbo boundaries` failed it. This direction
+ * is an ordinary in-package relative import, and `migrate`/`wasmLoader` are
+ * public exports of `@brainstrike/db` (star re-exported from its entry point).
  */
 
-import type { PGlite } from '@electric-sql/pglite';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   CHUNKS_FOR_FILE_QUERY as CHUNKS_FOR_FILE_SQL,
   INCOMPLETE_FILES_QUERY as INCOMPLETE_FILES_SQL,
-} from '../../db-explorer/src/components/collection-debug-drawer/collection-debug-queries.js';
-import { migrate } from '../src/migrations/bootstrap.js';
-import { wasmLoader } from '../src/wasm-loader.js';
+} from '../collection-debug-queries';
+
+/**
+ * Derived from the loader rather than imported from `@electric-sql/pglite`:
+ * db-explorer does not depend on that package (it reaches the database only
+ * through `@brainstrike/db`), and `turbo boundaries` rightly rejects importing
+ * an undeclared one — even for a type. Adding the dependency to annotate a
+ * single local would be the wrong direction.
+ */
+type PGlite = Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
 
 const SET_ID = 'set-primary';
 const OTHER_SET_ID = 'set-other';
