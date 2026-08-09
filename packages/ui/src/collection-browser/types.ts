@@ -6,12 +6,12 @@
  */
 
 import type * as React from 'react';
+import type { CollectionNodeType } from '../bulk-action-bar';
 import type { TreeNode } from '../tree-table/types';
 
-/**
- * Node types in the collection hierarchy
- */
-export type CollectionNodeType = 'collection' | 'file' | 'chunk' | 'embedding';
+// The node-kind union is owned by the shared bulk action bar; browser modules
+// keep importing it from here.
+export type { CollectionNodeType };
 
 /**
  * Embedding status for filtering

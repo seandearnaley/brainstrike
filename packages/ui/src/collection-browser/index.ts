@@ -9,8 +9,6 @@
 export type { SortDirection, SortState } from '../tree-table/types';
 
 // Sub-components
-export type { BulkAction, BulkActionBarProps } from './bulk-action-bar';
-export { BulkActionBar, DEFAULT_BULK_ACTIONS } from './bulk-action-bar';
 export type { CollectionBrowserProps } from './collection-browser';
 // Main component
 export { CollectionBrowser, shortenPath } from './collection-browser';
@@ -35,7 +33,6 @@ export type {
   CollectionBrowserFilters,
   CollectionBrowserToolbarProps,
   CollectionData,
-  CollectionNodeType,
   CollectionTreeNode,
   DistanceMetric,
   EmbeddingData,

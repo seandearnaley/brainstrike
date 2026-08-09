@@ -14,10 +14,6 @@ describe('collection-browser module exports', () => {
     expect(collectionBrowserModule.FilterChip).toBeDefined();
   });
 
-  it('exports BulkActionBar', () => {
-    expect(collectionBrowserModule.BulkActionBar).toBeDefined();
-  });
-
   it('exports SearchModeBar', () => {
     expect(collectionBrowserModule.SearchModeBar).toBeDefined();
   });

@@ -6,11 +6,11 @@
  */
 
 import * as React from 'react';
+import type { BulkAction } from '../bulk-action-bar';
+import { BulkActionBar } from '../bulk-action-bar';
 import { cn } from '../lib/utils';
 import { DEFAULT_AUTO_PAGED_ROW_THRESHOLD, TreeTable } from '../tree-table/tree-table';
 import type { TreeTablePaginationOptions, TreeTableWindowingStrategy } from '../tree-table/types';
-import type { BulkAction } from './bulk-action-bar';
-import { BulkActionBar } from './bulk-action-bar';
 import type {
   BrowserNodeData,
   CollectionBrowserFilters,
