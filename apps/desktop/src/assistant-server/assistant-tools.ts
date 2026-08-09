@@ -31,7 +31,7 @@ import {
   type RenameWorkspaceFileInput,
   type RunSkillScriptInput,
   type RuntimeData,
-  readToolOutputArtifactPage,
+  readToolOutputArtifact,
   resolveRequestPermissionPolicy,
   resolveSelfApprovalDecision,
   type ScannedWorkspaceSkills,
@@ -410,7 +410,7 @@ export function buildDesktopAssistantTools(
                 input
               );
               try {
-                return await readToolOutputArtifactPage(
+                return await readToolOutputArtifact(
                   { ...resolvedInput, mode: 'cursor' },
                   {
                     reader: toolOutputArtifactReader,
