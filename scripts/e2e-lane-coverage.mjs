@@ -61,7 +61,7 @@ const EXCLUDED_SPEC_DIRS = {
 };
 
 /**
- * Project-level `grep`/`grepInvert` from each app's playwright.config.ts.
+ * Project-level `grep`/`grepInvert` from each app's playwright.config.mts.
  *
  * Only `desktop:regression` changes any verdict today (its `grepInvert: /@smoke/`
  * means a `@smoke`-titled desktop spec absent from the smoke lane's file list

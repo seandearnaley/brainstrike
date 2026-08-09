@@ -158,7 +158,7 @@ export function uncoveredCiGates(plan) {
  * A Playwright lane, run under CI environment semantics — and ONLY this
  * command.
  *
- * Both `playwright.config.ts` files branch on `config.isCI` (which reads
+ * Both `playwright.config.mts` files branch on `config.isCI` (which reads
  * `CI`/`GITHUB_ACTIONS`) for `forbidOnly`, `fullyParallel`, `globalTimeout`,
  * `retries`, `workers`, `reporter`, the Chromium launch args, and `trace`; the
  * `e2e/utils` helpers key their own wait budgets off `CI` too. Without it the

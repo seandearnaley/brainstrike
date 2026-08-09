@@ -381,9 +381,6 @@ export const compareWithBaseline = async (
   currentMetrics: PerformanceMetric[],
   baselineFile?: string
 ) => {
-  const fs = require('node:fs').promises;
-  const path = require('node:path');
-
   let baselinePath = baselineFile;
   if (!baselinePath) {
     const metricsDir = path.join(process.cwd(), 'performance-metrics');
