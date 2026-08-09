@@ -540,11 +540,11 @@ Escalate rather than ship mediocre output. Never Haiku.
 Merge only after several green rounds.
 
 **On pushing — read this, do not skim it.** AGENTS.md requires explicit
-confirmation before pushing to a remote, and the only *standing* exception is a
-chartered Night Shift loop. This project has a **separate, explicit grant from
-Sean** (2026-08-01): commit regularly, push to PRs when ready, let bot review and
-PR checks drive the repair loops, and merge only after several rounds of
-automated tests pass.
+confirmation before pushing to a remote. The former standing exception for
+chartered Night Shift loops was retired in PR #2311. This project has a
+**separate, explicit grant from Sean** (2026-08-01): commit regularly, push to
+PRs when ready, let bot review and PR checks drive the repair loops, and merge
+only after several rounds of automated tests pass.
 
 That grant is what authorises the workflow above. It is **scoped to this
 project's tickets** and does not generalise: it is not licence to push
