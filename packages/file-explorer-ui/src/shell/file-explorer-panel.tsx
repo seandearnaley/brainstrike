@@ -898,7 +898,13 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
               onDirectorySelect={handleToolbarDirectorySelect}
               selectionStatusControl={
                 <div
-                  className="flex min-w-0 items-center @[128px]:gap-1.5 gap-0.5"
+                  // overflow-hidden is STRUCTURAL, not cosmetic: this cluster
+                  // is `min-w-0`, so a shrunk box lets its content spill to the
+                  // right and PAINT OVER the Expand/Collapse cluster beside it
+                  // — measured live at a 349px panel, the counter covered the
+                  // left half of Expand All and swallowed its clicks. Clipping
+                  // makes that a visual truncation instead of a dead control.
+                  className="flex min-w-0 items-center @[128px]:gap-1.5 gap-0.5 overflow-hidden"
                   data-testid="selection-status-controls"
                 >
                   <SelectionModeBadge
@@ -911,9 +917,12 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
                     show={!!rootDirectoryHandle}
                     triggerVariant="icon"
                   />
-                  {/* Yields to the Expand/Collapse cluster that now shares
-                      this track; the mode badge keeps the compact count. */}
-                  <div className="@[160px]:block hidden" data-testid="selection-counter-control">
+                  {/* Yields to the Expand/Collapse cluster that now shares this
+                      track; the mode badge keeps the compact count. MEASURED on
+                      the built preview: the track needs 180px to hold pl-3 (12)
+                      + this cluster's 106px of content + the 4px gap + the 58px
+                      expansion pair. Revealing it any earlier overflows. */}
+                  <div className="@[180px]:block hidden" data-testid="selection-counter-control">
                     <SelectionCounter
                       compact
                       maxSelectionCount={maxSelectionCount}

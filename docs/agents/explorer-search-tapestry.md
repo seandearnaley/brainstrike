@@ -492,8 +492,13 @@ fallback.
   step below, and these two used to avoid the problem by floating over the tree
   (retired: the overlay covered the tree grid's column header and ate its
   clicks; see `docs/agents/ui-conventions.md`). Adding them costs the left track
-  60px, so the compact selection COUNTER yields below 160px of track; the
-  selection-mode badge still renders the compact count, so no state is lost.
+  ~60px, so the compact selection COUNTER yields below **180px of track** — the
+  measured sum of the 12px gutter, the status cluster's 106px of content, the
+  4px gap and the 58px expansion pair. The selection-mode badge still renders
+  the compact count, so no state is lost. The status cluster is also
+  `overflow-hidden`: it is `min-w-0`, so without clipping a shrunk box spills
+  its content over the expansion buttons and swallows their clicks (observed
+  live at a 349px panel before the threshold was corrected).
   No new breakpoint was introduced — every toolbar action has exactly one home
   at every width.
   At **300px** a FOURTH control joins — the tree-grid Columns popover

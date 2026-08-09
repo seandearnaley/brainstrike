@@ -374,12 +374,20 @@ describe('FileExplorerPanel', () => {
       'gap-0.5',
       '@[128px]:gap-1.5'
     );
-    // The counter yields to the Expand/Collapse cluster that shares this
-    // track now (whole-branch review F11); the mode badge keeps the compact
-    // count below the threshold.
+    // The counter yields to the Expand/Collapse cluster that shares this track
+    // now (whole-branch review F11); the mode badge keeps the compact count
+    // below the threshold. 180px is MEASURED on the built preview: pl-3 (12) +
+    // this cluster's 106px of content + the 4px gap + the 58px expansion pair.
+    // Revealing it earlier overflowed the shrunk cluster onto Expand All and
+    // ate its clicks.
     expect(within(toolbar).getByTestId('selection-counter-control')).toHaveClass(
       'hidden',
-      '@[160px]:block'
+      '@[180px]:block'
+    );
+    // And the cluster CLIPS, so no future content can paint over its neighbour.
+    expect(within(toolbar).getByTestId('selection-status-controls')).toHaveClass(
+      'min-w-0',
+      'overflow-hidden'
     );
   });
 
