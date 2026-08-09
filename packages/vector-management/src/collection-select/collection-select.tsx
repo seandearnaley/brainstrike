@@ -26,7 +26,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 export interface CollectionRow {
   category: string | null;
   chunkCount: null | string | number;
-  createdAt: string;
+  /** `timestamptz`; PGlite yields a `Date`. See {@link normalizeTimestamp}. */
+  createdAt: string | Date;
   description: string | null;
   dimensions: number;
   distance: string;
@@ -37,7 +38,8 @@ export interface CollectionRow {
   modelKey: string;
   name: string | null;
   statsAvailable?: boolean | string;
-  statsLastRefreshedAt?: string | null;
+  /** `timestamptz`; PGlite yields a `Date`. See {@link normalizeTimestamp}. */
+  statsLastRefreshedAt?: string | Date | null;
   systemRole?: EmbeddingSetSystemRole | null;
   tags: string | null;
 }
@@ -227,13 +229,35 @@ function useResolvedCollectionData(
 }
 
 /**
+ * Pins a timestamp column to a primitive.
+ *
+ * PGlite returns `timestamptz` as a `Date`, and every read builds its own
+ * instances for the same instant. `areCollectionsEqual` compares these with
+ * `!==`, so two structurally identical snapshots never compare equal: a single
+ * owner then rewrites the shared cache on every refresh, and a second live
+ * `useCollections` — which this module forbids, but only in a doc comment —
+ * ping-pongs it into React #185. Normalizing here removes the landmine instead
+ * of leaving the invariant as the only thing standing between us and it.
+ *
+ * Strings pass through untouched, so no already-normalized value is rewritten.
+ */
+function normalizeTimestamp(value: string | Date | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+/**
  * Hook to fetch and normalize collection data
  */
 function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[] {
   return rows.map((row) => ({
     category: row.category,
     chunkCount: Number(row.chunkCount ?? 0),
-    createdAt: row.createdAt,
+    // `createdAt` is non-nullable, so it is narrowed inline rather than through
+    // normalizeTimestamp — nothing here may invent a missing timestamp.
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
     description: row.description,
     dimensions: row.dimensions,
     distance: row.distance as 'cosine' | 'l2' | 'ip',
@@ -247,7 +271,7 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
       row.statsAvailable === undefined
         ? true
         : row.statsAvailable === true || row.statsAvailable === 'true',
-    statsLastRefreshedAt: row.statsLastRefreshedAt ?? null,
+    statsLastRefreshedAt: normalizeTimestamp(row.statsLastRefreshedAt),
     systemRole: row.systemRole ?? null,
     tags: row.tags,
   }));
