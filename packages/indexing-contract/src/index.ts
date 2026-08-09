@@ -559,6 +559,14 @@ const EMBED_JOB_DEDUPE_KEY_NO_SET = 'none';
  * practice a model change means a new embedding set, so `embeddingSetId` differs
  * and the keys diverge anyway.
  *
+ * The absence of a leading type tag is deliberate, not an oversight. All dedupe
+ * keys — `file:`, `chunk:`, and these — share one namespace under the unique
+ * partial index `idx_job_queue_dedupe_active(dedupe_key) WHERE state IN
+ * ('queued','running')`. An untagged key can only collide with a tagged one if a
+ * chunk id is literally `'file'` or `'chunk'`, which UUID chunk ids rule out.
+ * The tag was dropped because the two live producers had already shipped this
+ * shape, so adding one would have rewritten keys for every queued job.
+ *
  * **Do not parse this key.** Splitting it positionally is not a supported way to
  * recover chunk or embedding-set identity — the segment layout is an internal
  * detail and a content hash is opaque. Read the first-class indexed columns
