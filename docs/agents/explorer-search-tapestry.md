@@ -145,10 +145,13 @@ additionally get a Source/Preview toggle; preview is the default.
   network requests, independent of CSP. Every failure is visible (placeholder,
   toast, or error block) — no silent fallbacks.
 - **Crash safety:** MarkdownPreviewErrorBoundary offers "Open in source".
-- **Binary files:** the content worker stores the `BINARY_CONTENT_MESSAGE`
-  sentinel (`@brainstrike/types`, exact-match — indexing/import guards key on
-  it) as the tab's content; `FileTabBody` renders `BinaryFilePreview`
-  (file-explorer-ui/components) instead of a code surface. Its buttons are a
+- **Binary files:** the content worker returns an `inaccessible` structured
+  result whose message is `BINARY_CONTENT_MESSAGE` (`@brainstrike/types`).
+  Background indexing/import branches only on that discriminated status — it
+  never classifies accessibility from message text. UI loading boundaries
+  project the message to the tab's content; `FileTabBody` exact-matches it and
+  renders `BinaryFilePreview` (file-explorer-ui/components) instead of a code
+  surface. Its buttons are a
   projection of the shared context-action registry (`file.reveal-in-os`,
   `file.open-in-default-app`, one copy-path variant) — same capability gating
   as the right-click menu, so web builds without fs bridges just show fewer
@@ -240,6 +243,12 @@ there rather than hiding entries after the adapter has already read them.
 - Workspace include/exclude filters control visible-tree filtering and
   selection. They are not the Workspace Index traversal policy; do not mutate
   custom filters to implement indexing exclusions.
+- **Flattening is iterative and order-preserving.** After discovery,
+  `flattenFileNodes` uses an explicit LIFO stack and pushes roots and children
+  in reverse so the emitted files retain recursive pre-order DFS and sibling
+  order. Do not replace it with recursion or array spreading: the paired tests
+  require 100,000 levels of nesting and 100,000 files in one directory to
+  flatten without call-stack or function-argument overflow.
 
 The policy test owns the preset contract. The parallel-directory-walker test
 must also prove excluded directories are rejected before `readDirectory` is

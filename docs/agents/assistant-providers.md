@@ -1183,12 +1183,21 @@ registers `brainstrike.readToolOutputArtifact` only when that scoped capability
 exists; web and requests without complete memory scope omit it instead of
 stubbing it. The shared resolver retains its strict initial-reference and
 continuation modes for internal callers, while the registered native model tool
-exposes only the required opaque `cursor` plus optional `maxBytes`. Settlement
+exposes the required opaque `cursor`, optional `maxBytes`, and optional search
+fields `pattern`/`isRegex`/`caseSensitive`. Search composes with paging: the
+cursor selects the starting byte and omitting `pattern` preserves the raw-page
+path. Settlement
 always creates that cursor, so removing the redundant mode/reference fields
 prevents smaller models from fabricating contradictory calls and shrinks the
-provider schema. Its raw result is the guarded artifact page for display and persistence. Its purpose-built model
-projection omits the repeated artifact reference, retains format and byte
-offsets, and carries either `complete: true` or an exact next tool/input pair.
+provider schema. Its raw result is the guarded artifact page or typed search
+slice for display and persistence. Its purpose-built model projection omits the
+repeated artifact reference: paging retains format and byte offsets and carries
+either `complete: true` or an exact next tool/input pair; search emits the same
+compact `grep content` header and `line: text` rows as workspace grep, with
+1-based line numbers local to the scanned byte slice. Search projection reuses
+the shared header/row formatter and must attach an actionable cursor whenever
+source bytes or matches remain omitted; a limited result without guidance
+throws, while a complete zero-match result is valid.
 If JSON escaping plus continuation metadata would exceed the 6000-character
 domain budget, the projector fits a shorter code-point prefix and recomputes
 the cursor at that byte boundary; it never generically truncates content or
@@ -1273,7 +1282,10 @@ preferred selector; a name listed in producer-owned `ambiguousRootNames` falls
 back to `rootId`, matching the full-inventory `describeOpenRootTopology`
 policy. Line breaks in both the selector and path are escaped so neither can
 forge protocol lines. The page's already-gutter-prefixed content follows
-verbatim. The header adds `size` and `omitted` only for a truncated page. A
+verbatim; the native mutation-side refusal for accidentally pasting that
+display form back into file content is specified in
+`assistant-runtime.md` under "GUTTER-PREFIX WRITE GUARD (BST-1202)". The header
+adds `size` and `omitted` only for a truncated page. A
 `continue: cursor=<nextCursor>` footer appears only when a continuation cursor
 exists: never when the request fit completely, and never in the registry-less
 internal read mode where truncation can occur without an issuable cursor. The

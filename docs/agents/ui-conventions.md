@@ -104,6 +104,28 @@ Windowing and performance:
   - `OptimizedFileTree` accepts `isDisplayTreeFiltered`; `false` skips the
     O(N) filtered-path-set walk on the normalized path (null set = no
     restriction). Callers that cannot tell omit it (conservative build).
+- `rowHeight` selects one of TWO contracts and they are not interchangeable.
+  A **function or per-type record** makes the value a first-paint estimate:
+  TreeTable attaches TanStack's measure ref, every rendered row is measured,
+  and a wrong estimate only costs scrollbar accuracy until measurement lands
+  (what the threads panel relies on — see `thread-panel-visible-rows.ts`).
+  A **number** disables measurement entirely, which promotes the value to a
+  load-bearing promise: the spacer math (`paddingTop = firstIndex * rowHeight`),
+  `getTotalSize()`, and every `scrollToIndex`/reveal offset derive from it and
+  nothing ever reconciles them against the DOM. A numeric `rowHeight` must
+  therefore equal the MEASURED pitch, never a design target.
+  `OptimizedFileTree`'s `ROW_HEIGHT` is **29** — a 28px content line (24px
+  `h-6` control + `my-0.5`) plus the 1px collapsed `border-b`. It read 32 for a
+  long time while rows painted 29: because a table virtualizer positions its
+  window with spacer ROWS rather than `translateY`, that never overlapped rows
+  or drifted cumulatively (each `paddingTop` re-anchors to model coordinates);
+  it instead left the scrollport ~110px shorter than the model, jittering as
+  the window resized, and put the row under every computed offset off by one.
+  Measure the pitch as the delta between consecutive row tops — a single row's
+  `getBoundingClientRect().height` reports 28.5, because border collapsing
+  splits the 1px rule across neighbours. Pinned live by "paints tree rows at
+  exactly the pitch its virtualizer models" in `apps/web/e2e/file-explorer.test.ts`;
+  jsdom has no layout, so no unit test can catch this class of drift.
 - Row render stability is a pinned contract (`tree-table-render-stability.test.tsx`):
   row-facing handlers are identity-stable (`useEventCallback`), the keyboard
   `actions` object and the virtualizer measure adapter are memoized, and the

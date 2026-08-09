@@ -10,6 +10,7 @@ import {
   resumeDimensionIndexBuilds,
   suspendDimensionIndexBuilds,
 } from '@brainstrike/db';
+import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { canonicalizeProviderModelKey } from '@brainstrike/utils';
 import { isExpectedBackfillTeardown } from './desktop-shutdown-state';
@@ -933,7 +934,7 @@ async function enqueueEmbeddingChunkJobsBatch(
 
   const jobs = await jobQueue.enqueueBatch(
     batch.map((row) => ({
-      dedupeKey: `${row.id}:${embeddingSetId}:${row.contentHash}`,
+      dedupeKey: buildEmbedJobDedupeKey(row.id, embeddingSetId, row.contentHash),
       jobType: 'embed_chunk' as const,
       maxAttempts: 5,
       payload: {

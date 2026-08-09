@@ -186,6 +186,14 @@ export {
   type PersonaSubAgentBuildResult,
 } from './mastra/build-persona-subagents';
 export {
+  clipGrepProjectionLine,
+  formatGrepContentHeader,
+  formatGrepContentRow,
+  formatGrepProjectionPageRange,
+  GREP_MATCH_LINE_MAX_CHARS,
+  normalizeGrepProjectionLine,
+} from './mastra/grep-model-format';
+export {
   createMastraAgentError,
   isMastraAgentError,
   MastraAgentError,
@@ -222,12 +230,15 @@ export {
   type ReadToolOutputArtifactInput,
   ReadToolOutputArtifactInputSchema,
   type ReadToolOutputArtifactPageOptions,
+  readToolOutputArtifact,
   readToolOutputArtifactPage,
   type ScopedToolOutputArtifactRangeResult,
   type ScopedToolOutputArtifactReader,
   type ToolOutputArtifactModelProjection,
   ToolOutputArtifactReadError,
   type ToolOutputArtifactReadFailureReason,
+  type ToolOutputArtifactSearchProjection,
+  type ToolOutputArtifactSearchResult,
 } from './mastra/tool-output-artifact-reader';
 export {
   TOOL_OUTPUT_ARTIFACT_INLINE_MAX_BYTES,
@@ -240,6 +251,10 @@ export {
   isToolProjectionInputRejected,
   ToolProjectionInputRejectedError,
 } from './mastra/tool-projection-input-rejected';
+export {
+  buildToolProjectionRewriteInputProcessor,
+  ToolProjectionRewriteProcessor,
+} from './mastra/tool-projection-rewrite-processor';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';
@@ -432,6 +447,7 @@ export {
   toJsonSafe,
 } from './stream/json';
 export {
+  APPROX_CHARS_PER_TOKEN,
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
   fitItemsToCharBudget,
@@ -681,6 +697,7 @@ export type {
   StreamChunkTool,
   StreamChunkToolApprovalRequired,
   StreamIterator,
+  TokenEstimateCalibrationSample,
   ToolCallTelemetrySample,
   ToolProjectionRewriteEntry,
   ToolProjectionRewriteLookup,

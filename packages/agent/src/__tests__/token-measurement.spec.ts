@@ -142,6 +142,40 @@ describe('run token diagnostics', () => {
     });
   });
 
+  it('adds newly loaded tool definitions with the same aggregate measurement shape', async () => {
+    const initialTool = createTool({
+      description: 'Initially visible tool.',
+      execute: async () => ({}),
+      id: 'initial_tool',
+      inputSchema: z.object({ query: z.string() }),
+    });
+    const deferredTool = createTool({
+      description: 'Deferred workspace tool with a distinct schema.',
+      execute: async () => ({}),
+      id: 'deferred_tool',
+      inputSchema: z.object({ path: z.string(), startLine: z.number().optional() }),
+    });
+    const diagnostics = await createRunTokenDiagnostics({
+      capability: EXACT_O200K,
+      tools: { initial_tool: initialTool },
+    });
+    const before = diagnostics.toLogFields();
+
+    diagnostics.recordAdditionalToolDefinitions({ deferred_tool: deferredTool });
+    diagnostics.recordAdditionalToolDefinitions({});
+    const after = diagnostics.toLogFields();
+
+    expect(after.toolDefinitionCount).toBe(2);
+    expect(after.toolDefinitionBackstopTokens).toBeGreaterThan(
+      Number(before.toolDefinitionBackstopTokens)
+    );
+    expect(after.toolDefinitionSerializedCharacters).toBeGreaterThan(
+      Number(before.toolDefinitionSerializedCharacters)
+    );
+    expect(after.toolDefinitionTokens).toBeGreaterThan(Number(before.toolDefinitionTokens));
+    expect(diagnostics.toolDefinitionContextBreakdown()?.byTool).toHaveLength(1);
+  });
+
   it('records privacy-safe per-tool model-facing characters and generic truncation', async () => {
     const diagnostics = await createRunTokenDiagnostics({ capability: EXACT_O200K, tools: {} });
 

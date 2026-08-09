@@ -15,7 +15,7 @@ export const TOOL_RESULT_TOO_LARGE_CODE = 'tool_result_too_large';
 export const TOOL_RESULT_TRUNCATED_CODE = 'tool_result_truncated';
 
 /** Mirrors countTokensHeuristic (ceil(chars / 4)) so budgets stay deterministic. */
-const APPROX_CHARS_PER_TOKEN = 4;
+export const APPROX_CHARS_PER_TOKEN = 4;
 
 export const TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW = 131_072;
 const DOMAIN_TOOL_RESULT_TOKEN_FLOOR = 500;

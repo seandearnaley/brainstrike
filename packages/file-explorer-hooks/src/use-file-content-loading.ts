@@ -106,7 +106,13 @@ export function useFileContentLoading(
           loadingPathsRef.current.delete(key);
         });
 
-        setFileContents((prev) => ({ ...prev, ...results }));
+        const displayContents = Object.fromEntries(
+          Object.entries(results).map(([key, result]) => [
+            key,
+            result.status === 'accessible' ? result.content : result.message,
+          ])
+        );
+        setFileContents((prev) => ({ ...prev, ...displayContents }));
       } catch (err) {
         setError(err as Error);
       } finally {

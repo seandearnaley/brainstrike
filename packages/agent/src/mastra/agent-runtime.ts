@@ -1,3 +1,4 @@
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import { Agent, type MastraDBMessage, type ToolsInput } from '@mastra/core/agent';
@@ -388,6 +389,7 @@ export async function createMastraAgentRuntime(
   // window; runtime-discovered Ollama/LM Studio ids share the conservative
   // 32,768-token declaration from @brainstrike/assistant-contract.
   const resolvedToolResultBudget = resolveToolResultBudgetForModel(normalizedProvider, modelName);
+  let registeredDelegationToolNames: readonly string[] = [];
   const {
     artifactSettledTools,
     askTools,
@@ -398,6 +400,7 @@ export async function createMastraAgentRuntime(
     toolNameMap,
   } = await composeRuntimeToolMap({
     apiKey,
+    getDelegationToolNames: () => registeredDelegationToolNames,
     hasStorage: Boolean(storage),
     hookRunner,
     inlineMaxSerializedCharsByToolName: toolOutputArtifactInlineMaxSerializedCharsByToolName,
@@ -501,6 +504,11 @@ export async function createMastraAgentRuntime(
     toolOutputObserver: (toolId, output) =>
       tokenDiagnostics.recordSubagentToolOutput(toolId, output),
   });
+  registeredDelegationToolNames = Array.from(delegationToolPersonas, ([toolName, personaId]) =>
+    personasById.get(personaId)?.allowedToolIds.includes(NATIVE_TOOL_ID.readToolOutputArtifact)
+      ? toolName
+      : null
+  ).filter((toolName): toolName is string => toolName !== null);
 
   const composedInstructions = composeRuntimeInstructions({
     budgetNote,

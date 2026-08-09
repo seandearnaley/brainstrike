@@ -19,7 +19,7 @@ export type { ResolvedChunkingStrategy } from '@brainstrike/text-splitter';
  * |---------------|-------------|--------------------------------------|
  * | FileRecord    | UUID        | contentHash + embeddingSetId         |
  * | FileChunk     | UUID        | fileRecordId + chunkIndex            |
- * | EmbeddingJob  | UUID        | chunkId + embeddingSetId + modelKey  |
+ * | EmbeddingJob  | UUID        | chunkId + embeddingSetId + contentHash |
  *
  * ## Stage Flow
  *
@@ -279,10 +279,17 @@ export interface DedupeKeyFormat {
   chunk: `chunk:${string}:${number}`;
 
   /**
-   * Embedding job dedupe: chunk + set + model
-   * Format: `embed:{chunkId}:{embeddingSetId}:{modelKey}`
+   * Embedding job dedupe: chunk + set + content hash.
+   * Built only by `buildEmbedJobDedupeKey` in `@brainstrike/indexing-contract`,
+   * which is shared with the `@brainstrike/db` enqueue path. Unlike the keys
+   * below it carries no type tag, so it must never be parsed positionally —
+   * read `job_queue.chunk_id` / `job_queue.embedding_set_id` instead.
+   *
+   * Deliberately plain `string`: a template literal here would imply a segment
+   * layout the builder does not promise, which is the habit this key's format
+   * unification was meant to break.
    */
-  embedJob: `embed:${string}:${string}:${string}`;
+  embedJob: string;
   /**
    * File dedupe: hash + set
    * Format: `file:{contentHash}:{embeddingSetId}`
