@@ -20,6 +20,21 @@ const NUL = '\0';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
+// `git ls-files` always emits POSIX separators; `path.*` emits `\` on win32.
+// Comparing the two directly passes on macOS/Linux and fails on Windows with a
+// misleading "enumeration broke" message (PR #2379 review). Same idiom as
+// mastra-boundary-contract.test.mjs:144 and its siblings.
+const toPosix = (value) => value.split(path.sep).join('/');
+
+// The real-tree scan is identical across every argument-less call, but each one
+// re-spawns git and re-reads ~4.2k files. Memoized so `pnpm test:scripts` pays
+// for one scan instead of six. Fixture-rooted calls stay per-test.
+let realTreeScan;
+const scanRealTree = () => {
+  realTreeScan ??= findRawNulByteViolations();
+  return realTreeScan;
+};
+
 function writeFixture(files) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'raw-nul-guard-'));
   for (const [rel, contents] of Object.entries(files)) {
@@ -44,7 +59,7 @@ function writeFixture(files) {
 // invisible to grep/git grep (both treat the file as binary and skip it), so
 // this assertion is the only thing that can see the debt at all.
 test('real tree: no tracked source file contains a raw 0x00 byte', () => {
-  const { violations } = findRawNulByteViolations();
+  const { violations } = scanRealTree();
 
   assert.deepEqual(
     violations,
@@ -94,7 +109,7 @@ const MIN_FILES_PER_EXTENSION = {
 };
 
 test('discovery floor: the scanned source set is not silently empty', () => {
-  const { scannedFiles } = findRawNulByteViolations();
+  const { scannedFiles } = scanRealTree();
 
   assert.ok(
     scannedFiles.length >= MIN_SCANNED_FILES,
@@ -105,7 +120,7 @@ test('discovery floor: the scanned source set is not silently empty', () => {
 });
 
 test('sentinel: the scan is repo-wide, reaching root config and non-workspace trees', () => {
-  const { scannedFiles } = findRawNulByteViolations();
+  const { scannedFiles } = scanRealTree();
 
   const starved = Object.entries(MIN_FILES_PER_AREA)
     .map(([area, minimum]) => ({
@@ -128,7 +143,7 @@ test('sentinel: the scan is repo-wide, reaching root config and non-workspace tr
 // swept in by accident while these specific live configs were missed. These are
 // the exact paths the PR #2379 review called out as escaping the old pathspecs.
 test('sentinel: live root config and spikes sources are in scope', () => {
-  const { scannedFiles } = findRawNulByteViolations();
+  const { scannedFiles } = scanRealTree();
 
   const missing = [
     'commitlint.config.ts',
@@ -147,7 +162,7 @@ test('sentinel: live root config and spikes sources are in scope', () => {
 });
 
 test('sentinel: every guarded extension is actually reached in the real tree', () => {
-  const { scannedFiles } = findRawNulByteViolations();
+  const { scannedFiles } = scanRealTree();
 
   assert.deepEqual(
     Object.keys(MIN_FILES_PER_EXTENSION).sort(),
@@ -177,9 +192,12 @@ test('sentinel: every guarded extension is actually reached in the real tree', (
 // the property no count can — that the scan actually reaches the guard's own
 // source, the blind spot that let a NUL sit in scripts/ unnoticed.
 test('sentinel: the guard scans its own source and this test file', () => {
-  const { scannedFiles } = findRawNulByteViolations();
-  const testFile = path.relative(REPO_ROOT, fileURLToPath(import.meta.url));
-  const guardFile = path.join(path.dirname(path.dirname(testFile)), 'verify-no-raw-nul-bytes.mjs');
+  const { scannedFiles } = scanRealTree();
+  const testFile = toPosix(path.relative(REPO_ROOT, fileURLToPath(import.meta.url)));
+  const guardFile = path.posix.join(
+    path.posix.dirname(path.posix.dirname(testFile)),
+    'verify-no-raw-nul-bytes.mjs'
+  );
 
   for (const expected of [testFile, guardFile]) {
     assert.ok(
