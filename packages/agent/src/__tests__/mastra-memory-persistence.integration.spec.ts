@@ -767,8 +767,13 @@ describe('mastra memory persistence through the live stream path', () => {
       .find((part) => part.type === 'tool-invocation');
     const storedModelOutput = invocationPart?.providerMetadata?.mastra?.modelOutput;
     expect(storedModelOutput).toMatchObject({ type: 'text' });
+    // The model's view stays BOUNDED (this is the property this test
+    // protects) even though balanced head+tail retention now means the
+    // trailing sentinel legitimately survives inside that bound — assert
+    // boundedness by serialized size, not by tail-absence.
     expect(JSON.stringify(storedModelOutput)).toContain('output was truncated');
-    expect(JSON.stringify(storedModelOutput)).not.toContain(rawOnlyTail);
+    expect(JSON.stringify(storedModelOutput).length).toBeLessThan(20_000);
+    expect(JSON.stringify(storedModelOutput)).toContain(rawOnlyTail);
 
     let replayedModelOutput = '';
     await runTurnWithMemory({
@@ -783,7 +788,8 @@ describe('mastra memory persistence through the live stream path', () => {
     });
 
     expect(replayedModelOutput).toContain('output was truncated');
-    expect(replayedModelOutput).not.toContain(rawOnlyTail);
+    expect(replayedModelOutput.length).toBeLessThan(20_000);
+    expect(replayedModelOutput).toContain(rawOnlyTail);
   });
 
   it('preserves hosted OpenAI tool-search item references through persistence and hydration', async () => {
