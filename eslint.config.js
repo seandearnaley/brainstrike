@@ -116,7 +116,7 @@ export default [
       // and @jacobwolf/biome-unnecessary-effect are the compensating controls.
       'react-hooks/exhaustive-deps': 'off',
       'react-hooks/rules-of-hooks': 'error',
-      // Fast Refresh module-boundary contract (#2372). This is the REAL
+      // Fast Refresh module-boundary contract (BST-1220, #2372). This is the REAL
       // enforcer: react-doctor's `only-export-components` id exists only in its
       // oxlint→react-doctor alias table with no rule behind it, so the many
       // source comments citing it were describing an unenforced convention.

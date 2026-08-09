@@ -1,6 +1,6 @@
 // Lint-rule LIVENESS contract.
 //
-// Why this exists (#2372): `react-doctor/only-export-components` was
+// Why this exists (BST-1220, #2372): `react-doctor/only-export-components` was
 // documented as an enforced contract, cited in a dozen source files, and used
 // to justify real module splits — while reporting 0 findings, because the id
 // exists ONLY in react-doctor's oxlint→react-doctor alias table with no rule

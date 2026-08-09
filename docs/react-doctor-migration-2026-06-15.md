@@ -113,7 +113,7 @@ existing biome + knip setup. Do NOT hand-suppress every finding.
   61, `js-combine-iterations` 57, …) — fix clear wins; many are stylistic.
 - **PR 7 — Maintainability non-memo** (`only-export-components`, `no-giant-component`,
   `no-barrel-import`, …) — triage; expect a high FP/stylistic rate.
-  - **CORRECTION (2026-08-09, #2372): `only-export-components` is not a react-doctor
+  - **CORRECTION (2026-08-09, BST-1220, #2372): `only-export-components` is not a react-doctor
     rule and cannot be burned down here.** The id exists only in the bundle's
     oxlint→react-doctor alias tables with no implementation behind it, and react-doctor
     accepts it in `doctor.config.ts` silently, so the 51 in the baseline above is not

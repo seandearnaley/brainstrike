@@ -2,7 +2,7 @@
 // PER-RULE eslint warning ratchet. Replaces the single `--max-warnings=N`
 // scalar that `lint:eslint` used to carry.
 //
-// Why per-rule (#2372): one scalar over two independent warning families
+// Why per-rule (BST-1220, #2372): one scalar over two independent warning families
 // (`react-hooks/*` compiler diagnostics and `react-refresh/*` Fast Refresh
 // boundary) lets them trade headroom invisibly — burning 20 Fast Refresh
 // warnings without lowering the ceiling silently grants 20 warnings of slack to

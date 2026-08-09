@@ -1567,7 +1567,7 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   own `react-hooks/preserve-manual-memoization` is live, reporting 2 warnings, and is now
   tracked in `eslint-warning-baseline.json`.
 - **The Fast Refresh module-boundary contract is NOT react-doctor's — it is
-  `react-refresh/only-export-components` in `eslint.config.js`** (#2372, plugin
+  `react-refresh/only-export-components` in `eslint.config.js`** (BST-1220, #2372, plugin
   `eslint-plugin-react-refresh`), riding the same `--max-warnings` ratchet as the
   compiler diagnostics. It landed at 155 warnings across 77 files; burn it down and lower
   its baseline entry, exactly as for the compiler wave.
