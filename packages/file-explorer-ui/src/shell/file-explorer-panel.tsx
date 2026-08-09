@@ -51,6 +51,8 @@ import { ToolbarPresetSelector } from '../toolbar-preset-selector';
 import { getRootFolderId } from '../utils/get-root-folder-id';
 import { persistFileExplorerStateImmediately } from '../utils/persist-file-explorer-state';
 import { applyQuickFilterToTree, collectVisibleFiles } from '../utils/quick-filter-tree';
+import { ExplorerColumnVisibilityControls } from './explorer-column-visibility-controls';
+import { ExplorerColumnsProvider, useExplorerColumnsValue } from './explorer-columns-context';
 import {
   CompactToolbarActions,
   FilterChipsToggleButton,
@@ -65,8 +67,6 @@ import {
   useForestExpandConfirm,
   ViewFiltersToggleButton,
 } from './file-explorer-panel-toolbar-helpers';
-import { ExplorerColumnVisibilityControls } from './explorer-column-visibility-controls';
-import { ExplorerColumnsProvider, useExplorerColumnsValue } from './explorer-columns-context';
 import {
   useFileExplorerStoreContext,
   useFileExplorerStoreSelector,
@@ -1105,7 +1105,9 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
                   ? [pendingRestore.name]
                   : ['previous folder']
             }
-            isOpen={!rootDirectoryHandle && (!!pendingRestore || showDeniedBanner || showStaleBanner)}
+            isOpen={
+              !rootDirectoryHandle && (!!pendingRestore || showDeniedBanner || showStaleBanner)
+            }
             isRestoring={isRestoring}
             onChooseDifferentFolder={handleChooseDifferentFolderFromRestore}
             onDismiss={dismissRestore}
