@@ -146,12 +146,6 @@ export function DatabaseDemoPanel({
 
   // Use Zustand store directly as single source of truth for collection selection and import state
   const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
-  const activeCollectionSystemRole = useVectorStatusUIStore((state) => {
-    const collection = state.cachedCollections.find(
-      (candidate) => candidate.id === activeCollectionId
-    );
-    return collection?.systemRole ?? null;
-  });
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const upsertCachedCollection = useVectorStatusUIStore((s) => s.upsertCachedCollection);
   const isManagedCollection = useIsManagedCollection();
