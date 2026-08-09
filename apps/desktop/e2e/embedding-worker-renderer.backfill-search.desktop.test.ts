@@ -1,28 +1,31 @@
-import type { DatabaseDemoSemanticSearchTestSnapshot } from './embedding-worker-renderer.shared';
 import * as shared from './embedding-worker-renderer.shared';
 import { expect, test } from './embedding-worker-renderer.shared';
 
 const {
   ERROR_LOCATOR,
+  attachCollectionFilesToWorkspaceRoot,
   clearEmbeddingQueue,
   createChunkedImportFixture,
   createImportTargetCollection,
-  getDatabaseDemoSemanticSearchSnapshot,
+  ensureMockWorkspaceOpen,
   getEmbeddingHostStatus,
   getEmbeddingSetCounts,
   getEmbeddingSetQueueStats,
-  getHybridSearchBox,
   getRendererLogRecords,
   getRendererTimeOrigin,
   getVisibleAlertTexts,
   isDatabaseError,
+  openWorkspaceSearchPanel,
   recordContainsText,
   reloadRendererInTest,
+  runWorkspaceSemanticSearch,
+  selectWorkspaceSearchCollection,
   setVectorDevicePreference,
   showDatabaseDemoPanel,
   waitForBackfillButtonEnabled,
   waitForBackfillQueueMovementOrFatalError,
   waitForEmbeddedCollectionSummary,
+  waitForWorkspaceSemanticSearchResults,
   waitForImportedChunks,
 } = shared;
 
@@ -379,247 +382,46 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     // The top result should be the chunk itself (similarity ~1.0)
     expect(directSqlSearchResult.topSimilarity).toBeGreaterThan(0.95);
 
-    // ── 7. UI semantic search: fill search box, click Query, verify results ─
-    const semanticSearchBox = await getHybridSearchBox(activeWindow);
+    // ── 7. UI semantic search through Workspace Search ────────────────────
+    // The Collection Browser's hybrid-search box is gone; Workspace Search is
+    // the surviving surface. It is workspace-scoped, so the synthetic fixture
+    // files must be attributed to a live mounted root before they can match.
+    await ensureMockWorkspaceOpen(activeWindow);
+    const workspaceRootId = await attachCollectionFilesToWorkspaceRoot(
+      activeWindow,
+      embeddingSetId
+    );
+
+    const searchPanel = await openWorkspaceSearchPanel(activeWindow);
+    await selectWorkspaceSearchCollection(searchPanel, collectionName);
 
     // Search for known content from our fixture
     const searchQuery = 'desktop chunking backfill';
-    await semanticSearchBox.fill(searchQuery);
-    await activeWindow.getByRole('button', { name: /^Query$/ }).click({ timeout: 5000 });
+    await runWorkspaceSemanticSearch(searchPanel, searchQuery);
 
-    // Poll for search results
-    const searchStartedAt = Date.now();
-    let lastSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
-    while (Date.now() - searchStartedAt < 60_000) {
-      const snapshot = await getDatabaseDemoSemanticSearchSnapshot(activeWindow);
-      lastSnapshot = snapshot;
-
-      if (snapshot?.error) {
-        throw new Error(`Semantic search failed: ${snapshot.error}`);
-      }
-
-      if (
-        snapshot?.hasSearched &&
-        !snapshot.isSearching &&
-        snapshot.resultCount > 0 &&
-        snapshot.firstResultNodeId !== null
-      ) {
-        break;
-      }
-
-      await activeWindow.waitForTimeout(250);
-    }
-
-    if (
-      !(
-        lastSnapshot?.hasSearched &&
-        !lastSnapshot.isSearching &&
-        lastSnapshot.resultCount > 0 &&
-        lastSnapshot.firstResultNodeId !== null
-      )
-    ) {
-      // Gather diagnostic info for debugging
-      const rendererLogs = await getRendererLogRecords(activeWindow);
-      const alertTexts = await getVisibleAlertTexts(activeWindow);
-      const searchLogs = rendererLogs.filter(
-        (record) =>
-          recordContainsText(record, 'Search') ||
-          recordContainsText(record, 'search') ||
-          recordContainsText(record, 'embedder') ||
-          recordContainsText(record, 'Embedder')
-      );
-      throw new Error(
-        'Semantic search did not return results within 60s after successful backfill.\n' +
-          `query="${searchQuery}"\n` +
-          `snapshot=${JSON.stringify(lastSnapshot)}\n` +
-          `directSqlSearchWorked=${directSqlSearchResult.matchCount > 0}\n` +
-          `dbEmbeddedChunks=${dbDiagnostics.embeddedCount}\n` +
-          `dbDimension=${embeddingDimension}\n` +
-          `alerts=${JSON.stringify(alertTexts)}\n` +
-          `searchLogs=${JSON.stringify(searchLogs.slice(-10))}`
-      );
-    }
-
-    expect(lastSnapshot!.resultCount).toBeGreaterThan(0);
-    expect(lastSnapshot!.firstResultNodeId).not.toBeNull();
-
-    // ── 8. Verify tree renders file nodes, not the empty state ──────────
-    // Catches the lazy-chunk regression: semantic results have chunk nodeIds
-    // ("chunk-<id>") but the tree only has file nodes ("file-<id>") because
-    // chunks are loaded on-demand. The fix resolves chunk results to their
-    // parent file node via "file-${result.fileRecordId}".
-    const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
-    const emptyResultsMessage = collectionTreeRegion.getByText(
-      'No matching results found. Try adjusting your search query or threshold.'
+    const rendererLogs = await getRendererLogRecords(activeWindow);
+    const searchLogs = rendererLogs.filter(
+      (record) =>
+        recordContainsText(record, 'Search') ||
+        recordContainsText(record, 'search') ||
+        recordContainsText(record, 'embedder') ||
+        recordContainsText(record, 'Embedder')
     );
-    await expect(emptyResultsMessage).toHaveCount(0, { timeout: 5000 });
+    const searchSnapshot = await waitForWorkspaceSemanticSearchResults(searchPanel, {
+      context:
+        `query="${searchQuery}"\n` +
+        `directSqlSearchWorked=${directSqlSearchResult.matchCount > 0}\n` +
+        `dbEmbeddedChunks=${dbDiagnostics.embeddedCount}\n` +
+        `dbDimension=${embeddingDimension}\n` +
+        `workspaceRootId=${workspaceRootId}\n` +
+        `alerts=${JSON.stringify(await getVisibleAlertTexts(activeWindow))}\n` +
+        `searchLogs=${JSON.stringify(searchLogs.slice(-10))}`,
+    });
 
-    // Verify the firstResultNodeId resolves to a valid file- prefixed ID
-    // (proves the lazy-chunk fallback mapped chunk IDs to file node IDs)
-    expect(lastSnapshot!.firstResultNodeId).toMatch(/^(chunk-|file-)/);
-  });
-
-  test('@desktop-embedding-search search renders file nodes when chunks are lazily loaded (many-file collection)', async ({
-    window,
-  }) => {
-    test.setTimeout(300_000);
-
-    // This test reproduces the exact production bug: with many files, the
-    // collection tree is PAGINATED (e.g. 50 files per page). Search results
-    // reference files on OTHER pages — those file nodes don't exist in the
-    // tree. Without building the tree from search results directly, the tree
-    // shows "No matching results found" despite the search returning results.
-    // Use one page plus overflow (> default page size of 50) to guarantee
-    // pagination without turning this search regression into a queue-capacity
-    // stress test.
-
-    let activeWindow = await showDatabaseDemoPanel(window);
-    if (await isDatabaseError(activeWindow)) {
-      throw new Error('Database initialization failed');
-    }
-
-    await clearEmbeddingQueue(activeWindow);
-    const collectionName = `Lazy Chunk Search ${Date.now()}`;
-    const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
-
-    const LAZY_FILE_COUNT = 60;
-    await activeWindow.evaluate(
-      async ({ id, fileCount }) => {
-        const api = (
-          window as unknown as {
-            electronAPI?: {
-              db?: {
-                query?: (
-                  sql: string,
-                  params?: unknown[]
-                ) => Promise<{ rows: Record<string, unknown>[] }>;
-              };
-            };
-          }
-        ).electronAPI;
-        if (!api?.db?.query) {
-          throw new Error('Database API not available');
-        }
-
-        const now = new Date().toISOString();
-        for (let i = 0; i < fileCount; i++) {
-          const fileId = `lazy-file-${crypto.randomUUID()}`;
-          const content = `export function handler${i}() { return "lazy-chunk-search-fixture-${i}"; }`;
-          await api.db.query(
-            `INSERT INTO file_records (id, path, name, size, content, content_hash, token_count, embedding_set_id, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
-            [
-              fileId,
-              `/mock/lazy/${i}.ts`,
-              `lazy-${i}.ts`,
-              content.length,
-              content,
-              `hash-${fileId}`,
-              20,
-              id,
-              now,
-            ]
-          );
-          const chunkContent = `export function handler${i}() { return "lazy-chunk-search-fixture-${i}"; }`;
-          await api.db.query(
-            // content_tsvector is a STORED generated column (migration 034) — the DB
-            // computes it from content, so seeds must NOT insert it directly.
-            `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
-            [
-              `${fileId}-chunk-0`,
-              fileId,
-              0,
-              chunkContent,
-              `chunk-hash-${fileId}-0`,
-              15,
-              'code',
-              chunkContent.length,
-              now,
-            ]
-          );
-          await api.db.query(
-            `UPDATE file_records SET chunks_processed_at = $2, chunks_count = 1, chunking_strategy = 'recursive', updated_at = $2 WHERE id = $1`,
-            [fileId, now]
-          );
-        }
-      },
-      { fileCount: LAZY_FILE_COUNT, id: embeddingSetId }
-    );
-
-    // Configure WASM and reload
-    await setVectorDevicePreference(activeWindow, 'wasm');
-    await reloadRendererInTest(activeWindow, 'embedding-worker-lazy-chunk-search');
-    activeWindow = await showDatabaseDemoPanel(activeWindow);
-
-    // Select collection and backfill
-    const collectionOption = activeWindow.locator(`#collection-option-${embeddingSetId}`);
-    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
-    await collectionOption.click({ timeout: 5000 });
-
-    await expect
-      .poll(async () => await getEmbeddingSetCounts(activeWindow, embeddingSetId), {
-        timeout: 30_000,
-      })
-      .toMatchObject({ totalChunks: LAZY_FILE_COUNT });
-
-    const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
-    const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
-    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
-    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
-    await backfillButton.click({ timeout: 5000 });
-
-    const outcome = await waitForBackfillQueueMovementOrFatalError(activeWindow, embeddingSetId);
-    if (outcome === 'error') {
-      const status = await getEmbeddingHostStatus(activeWindow);
-      throw new Error(`Backfill failed: ${status.lastError ?? 'unknown'}`);
-    }
-
-    await expect
-      .poll(async () => await getEmbeddingSetCounts(activeWindow, embeddingSetId), {
-        timeout: 120_000,
-      })
-      .toMatchObject({ embeddedChunks: LAZY_FILE_COUNT });
-
-    // ── Search: chunks are NOT expanded in the tree (lazy loaded) ──
-    const semanticSearchBox = await getHybridSearchBox(activeWindow);
-    await semanticSearchBox.fill('lazy-chunk-search-fixture');
-    await activeWindow.getByRole('button', { name: /^Query$/ }).click({ timeout: 5000 });
-
-    // Poll for search results
-    let lastSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
-    await expect
-      .poll(
-        async () => {
-          lastSnapshot = await getDatabaseDemoSemanticSearchSnapshot(activeWindow);
-          return lastSnapshot;
-        },
-        { timeout: 60_000 }
-      )
-      .toMatchObject({
-        error: null,
-        hasSearched: true,
-        isSearching: false,
-      });
-
-    // THE CRITICAL ASSERTIONS:
-    // 1. Search returned results (backend works)
-    expect(lastSnapshot!.resultCount).toBeGreaterThan(0);
-
-    // 2. Tree must NOT show the empty state
-    const collectionTreeRegion = activeWindow.getByTestId('collection-tree-region');
-    const emptyMessage = collectionTreeRegion.getByText(
-      'No matching results found. Try adjusting your search query or threshold.'
-    );
-    await expect(emptyMessage).toHaveCount(0, { timeout: 5000 });
-
-    // 3. Search result nodes exist in the tree
-    expect(lastSnapshot!.firstResultNodeId).not.toBeNull();
-
-    // 4. Search result chunks must show "Complete" embedding status (not "No Embedding")
-    //    since they came from an embedding search — they definitely have embeddings.
-    const noEmbeddingBadges = collectionTreeRegion.getByText('No Embedding');
-    await expect(noEmbeddingBadges).toHaveCount(0, { timeout: 5000 });
+    // ── 8. The results tree rendered real file rows, not the empty state ───
+    expect(searchSnapshot.resultFileCount).toBeGreaterThan(0);
+    expect(searchSnapshot.emptyState).toBe(false);
+    expect(searchSnapshot.firstResultLabel).not.toBeNull();
   });
 
   test('@desktop-embedding-search search works when vector-preferences store has no devicePref (stale migration)', async ({
@@ -730,56 +532,27 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     await collectionOption2.click({ timeout: 5000 });
 
     // ── The critical assertion: search must not crash the renderer ──
-    const timeOriginBeforeSearch = await getRendererTimeOrigin(activeWindow);
+    await ensureMockWorkspaceOpen(activeWindow);
+    await attachCollectionFilesToWorkspaceRoot(activeWindow, embeddingSetId);
 
-    const semanticSearchBox = await getHybridSearchBox(activeWindow);
-    await semanticSearchBox.fill('desktop chunking backfill');
-    await activeWindow.getByRole('button', { name: /^Query$/ }).click({ timeout: 5000 });
+    const searchPanel = await openWorkspaceSearchPanel(activeWindow);
+    await selectWorkspaceSearchCollection(searchPanel, collectionName);
+
+    const timeOriginBeforeSearch = await getRendererTimeOrigin(activeWindow);
+    await runWorkspaceSemanticSearch(searchPanel, 'desktop chunking backfill');
 
     // Wait briefly then verify the renderer did NOT crash/reload
     await activeWindow.waitForTimeout(3000);
     const timeOriginAfterSearch = await getRendererTimeOrigin(activeWindow);
     expect(timeOriginAfterSearch).toBe(timeOriginBeforeSearch);
 
-    // Poll for search results
-    const searchStartedAt = Date.now();
-    let lastSnapshot: DatabaseDemoSemanticSearchTestSnapshot | null = null;
-    while (Date.now() - searchStartedAt < 60_000) {
-      const snapshot = await getDatabaseDemoSemanticSearchSnapshot(activeWindow);
-      lastSnapshot = snapshot;
+    const searchSnapshot = await waitForWorkspaceSemanticSearchResults(searchPanel, {
+      context:
+        'stale vector-preferences store\n' +
+        `alerts=${JSON.stringify(await getVisibleAlertTexts(activeWindow))}`,
+    });
 
-      if (snapshot?.error) {
-        throw new Error(`Search failed with stale prefs: ${snapshot.error}`);
-      }
-
-      if (
-        snapshot?.hasSearched &&
-        !snapshot.isSearching &&
-        snapshot.resultCount > 0 &&
-        snapshot.firstResultNodeId !== null
-      ) {
-        break;
-      }
-
-      await activeWindow.waitForTimeout(250);
-    }
-
-    if (!(lastSnapshot?.hasSearched && !lastSnapshot.isSearching && lastSnapshot.resultCount > 0)) {
-      const alertTexts = await getVisibleAlertTexts(activeWindow);
-      throw new Error(
-        'Search returned no results with stale vector-preferences store.\n' +
-          `snapshot=${JSON.stringify(lastSnapshot)}\n` +
-          `alerts=${JSON.stringify(alertTexts)}`
-      );
-    }
-
-    expect(lastSnapshot!.resultCount).toBeGreaterThan(0);
-
-    // Verify tree renders results (no empty state from lazy-chunk nodeId mismatch)
-    const collectionTreeRegion2 = activeWindow.getByTestId('collection-tree-region');
-    const emptyMessage2 = collectionTreeRegion2.getByText(
-      'No matching results found. Try adjusting your search query or threshold.'
-    );
-    await expect(emptyMessage2).toHaveCount(0, { timeout: 5000 });
+    expect(searchSnapshot.resultFileCount).toBeGreaterThan(0);
+    expect(searchSnapshot.emptyState).toBe(false);
   });
 });
