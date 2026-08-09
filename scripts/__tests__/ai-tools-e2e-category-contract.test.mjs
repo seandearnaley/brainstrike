@@ -47,7 +47,7 @@ function categoryLabelViolations(source) {
     violations.push('does not import TOOL_CATEGORIES');
   }
   if (
-    !/TOOL_CATEGORIES\s*\[\s*NATIVE_TOOL_DEFAULTS\s*\[\s*NATIVE_TOOL_ID\s*\]\s*\.category\s*\]\s*\.label/.test(
+    !/\bconst\s+TOOL_CATEGORY_LABEL\s*=\s*TOOL_CATEGORIES\s*\[\s*NATIVE_TOOL_DEFAULTS\s*\[\s*NATIVE_TOOL_ID\s*\]\s*\.category\s*\]\s*\.label/.test(
       source
     )
   ) {
@@ -109,6 +109,28 @@ test('MONEY TEST: the metadata-derived option selector must retain exact matchin
 
   assert.deepEqual(categoryLabelViolations(source), [
     'does not select the category option through exact TOOL_CATEGORY_LABEL matching',
+  ]);
+});
+
+test('MONEY TEST: an unused metadata expression cannot hide a hardcoded label initializer', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const UNUSED_DERIVED_LABEL = TOOL_CATEGORIES[
+      NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    ].label;
+    const TOOL_CATEGORY_LABEL = 'Retrieval';
+    await page.getByRole(
+      'option',
+      { exact: true, name: TOOL_CATEGORY_LABEL }
+    ).click();
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), [
+    'does not derive the category label from the native-tool contract',
   ]);
 });
 
