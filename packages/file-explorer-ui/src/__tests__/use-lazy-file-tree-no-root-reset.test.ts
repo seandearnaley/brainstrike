@@ -27,7 +27,10 @@ const mockWorkerPort = {
   init: vi.fn(),
   loadPaths: vi.fn().mockResolvedValue({ expandedPaths: [], loadedCount: 0, patches: [] }),
   onChildrenLoaded: vi.fn(() => () => {}),
-  onError: vi.fn(() => () => {}),
+  // Typed arity so a test can capture the handler and raise a worker error.
+  onError: vi.fn((_handler: (error: Error) => void) => () => {
+    // no-op unsubscribe
+  }),
   onExpandedPathsDelta: vi.fn(() => () => {}),
   onLog: vi.fn(() => () => {}),
   onNodeLoadStateChanged: vi.fn(() => () => {}),
@@ -87,6 +90,40 @@ describe('useLazyFileTree no-root reset', () => {
       await result.current.refreshTree();
     });
 
+    expect(mockWorkerPort.init).toHaveBeenCalledTimes(1);
+  });
+
+  it('still clears a worker error raised while no root is loaded', async () => {
+    // `handleWorkerError` writes `error` through setState and touches NONE of
+    // the refs the worker-init guard consults, so the guard must never be
+    // allowed to suppress the state half of the reset — otherwise the error
+    // banner outlives every subsequent no-root reset (PR #2370 review).
+    let raiseWorkerError: ((error: Error) => void) | undefined;
+    mockWorkerPort.onError.mockImplementation((handler: (error: Error) => void) => {
+      raiseWorkerError = handler;
+      return () => {
+        // no-op unsubscribe
+      };
+    });
+
+    const TestWrapper = ({ children }: { children: ReactNode }) =>
+      FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+    const { result } = renderHook(() => useFileTree(null), { wrapper: TestWrapper });
+    await waitFor(() => expect(mockWorkerPort.init).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      raiseWorkerError?.(new Error('worker exploded'));
+    });
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    await act(async () => {
+      await result.current.refreshTree();
+    });
+
+    // The redundant worker init is still skipped, but the observable state is
+    // always re-applied.
+    expect(result.current.error).toBeNull();
     expect(mockWorkerPort.init).toHaveBeenCalledTimes(1);
   });
 

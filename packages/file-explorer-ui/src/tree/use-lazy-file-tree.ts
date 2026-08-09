@@ -308,10 +308,14 @@ export interface UseLazyFileTreeOptions {
   rootId?: string;
 }
 
-/** The exact target a completed `resetCommittedRootState` committed to. */
+/**
+ * The worker-visible target a completed `resetCommittedRootState` committed to.
+ * Deliberately excludes `isInitialLoading`: it records what a reset REQUESTED
+ * rather than what the state currently is, so it cannot detect divergence — and
+ * it is irrelevant here, since the state half of the reset always re-runs.
+ */
 interface CommittedReset {
   identity: string | null;
-  isInitialLoading: boolean;
   rootFolderId: string;
 }
 
@@ -512,26 +516,28 @@ export function useLazyFileTree(
       nextRootFolderId: string,
       isInitialLoading: boolean
     ): Error | null => {
-      // A reset is redundant only when the state is ALREADY precisely what this
-      // reset would produce: same target, and nothing loaded since it was
-      // committed. Any real load repopulates the tree, the handle map,
-      // `initializedRootRef` or `lastAppliedRootLoadRef`, so a reset that has
-      // work to do can never be swallowed here — this skips duplicate no-ops,
-      // it does not soften a genuine reset.
+      // Scope: the WORKER MESSAGE only. The renderer state below is always
+      // re-applied, because it also clears `error` and `loadingPaths` — fields
+      // written by paths that touch none of these refs (`handleWorkerError` is
+      // a plain `setState`), so suppressing the state half would make a worker
+      // error raised with no root unclearable by any later reset.
+      //
+      // Re-initializing the worker, by contrast, is pure redundant traffic when
+      // its tree is already empty for this folder id. Evaluated BEFORE the
+      // clears below, which would otherwise null out the very refs under test.
+      // Any real load repopulates the tree, the handle map,
+      // `initializedRootRef` or `lastAppliedRootLoadRef`, so an init that has
+      // work to do can never be skipped.
       const lastReset = committedResetRef.current;
-      if (
+      const isRedundantWorkerInit =
         lastReset !== null &&
         lastReset.identity === nextIdentity &&
         lastReset.rootFolderId === nextRootFolderId &&
-        lastReset.isInitialLoading === isInitialLoading &&
         committedRootIdentityRef.current === nextIdentity &&
         initializedRootRef.current === null &&
         lastAppliedRootLoadRef.current === null &&
         fileTreeRef.current.length === 0 &&
-        handleMapRef.current.size === 0
-      ) {
-        return null;
-      }
+        handleMapRef.current.size === 0;
 
       fileTreeRef.current = [];
       normalizedTreeRef.current = createEmptyNormalizedFileTreeState();
@@ -550,7 +556,7 @@ export function useLazyFileTree(
       });
 
       const port = portRef.current;
-      if (!port) {
+      if (!port || isRedundantWorkerInit) {
         return null;
       }
 
@@ -561,7 +567,6 @@ export function useLazyFileTree(
         // retry rather than marking a reset the worker never received.
         committedResetRef.current = {
           identity: nextIdentity,
-          isInitialLoading,
           rootFolderId: nextRootFolderId,
         };
         return null;
