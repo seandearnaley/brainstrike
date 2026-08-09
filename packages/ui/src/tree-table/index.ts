@@ -91,12 +91,6 @@ export type {
   TreeTableWindowingStrategy,
   UseTreeKeyboardResult,
 } from './types';
-export {
-  type ColumnBounds,
-  clampWidth,
-  computeColumnBounds,
-  DEFAULT_MAX_WIDTH,
-  DEFAULT_MIN_WIDTH,
-} from './use-column-sizing';
+export type { ColumnBounds } from './use-column-sizing';
 // Hooks
 export { type UseTreeKeyboardOptions, useTreeKeyboard } from './use-tree-keyboard';

@@ -39,6 +39,19 @@ export function useOptionalFileRowMetadata(): FileRowMetadataContextValue | null
   return useContext(FileRowMetadataContext);
 }
 
+/**
+ * For metadata CELLS, which only exist because the column builder already
+ * observed the seam. A missing provider there is a wiring bug, not a
+ * capability difference, so it throws instead of rendering an empty column.
+ */
+export function useFileRowMetadata(): FileRowMetadataContextValue {
+  const context = useContext(FileRowMetadataContext);
+  if (!context) {
+    throw new Error('useFileRowMetadata must be used within FileRowMetadataProvider');
+  }
+  return context;
+}
+
 export function FileRowMetadataProvider({
   children,
   value,

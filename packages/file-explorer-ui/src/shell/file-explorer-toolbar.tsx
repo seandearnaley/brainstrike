@@ -6,6 +6,13 @@ import * as React from 'react';
 interface FileExplorerToolbarProps {
   bulkSelectionControl?: React.ReactNode;
   /**
+   * Tree-grid column visibility. Revealed only at 300px, where the right track
+   * first fits a FOURTH 28px control without breaking the documented
+   * narrow-toolbar geometry — the same width below which the grid drops its
+   * metadata columns entirely (see explorer-columns-context.tsx).
+   */
+  columnsControl?: React.ReactNode;
+  /**
    * Narrow-width menu for actions that cannot coexist with 24px targets and the
    * edge gutters. Renders nothing while an operation is cancellable, so the
    * scanning indicator's cancel gets the slot instead.
@@ -28,6 +35,7 @@ interface FileExplorerToolbarProps {
 const FileExplorerToolbar = React.memo(
   ({
     bulkSelectionControl,
+    columnsControl,
     compactActionsControl,
     filtersControl,
     onDirectorySelect,
@@ -87,6 +95,12 @@ const FileExplorerToolbar = React.memo(
                 the cancel survives the narrow track, and the compact menu
                 yields its slot for the duration (see CompactToolbarActions). */}
             <div className="flex w-full min-w-0 items-center justify-end @[236px]/explorer-toolbar:gap-1 gap-0 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
+              {/* Columns joins one breakpoint LATER than View Filters: at
+                  236px the track holds exactly three 28px controls. */}
+              <div className="@[300px]/explorer-toolbar:contents hidden">{columnsControl}</div>
+              {/* NOT inside the narrow-hidden wrapper — BST-657: this cluster
+                  carries the scanning indicator's Cancel, the only abort path
+                  for a running sweep. It gates its own children by width. */}
               {treeActionsControl}
               <div className="@[236px]/explorer-toolbar:contents hidden">{filtersControl}</div>
               {compactActionsControl}

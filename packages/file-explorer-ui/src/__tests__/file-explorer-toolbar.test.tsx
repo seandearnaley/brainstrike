@@ -60,6 +60,7 @@ describe('FileExplorerToolbar', () => {
     renderWithProviders(
       <FileExplorerToolbar
         {...getProps({
+          columnsControl: <button type="button">Columns</button>,
           compactActionsControl: <button type="button">More Explorer actions</button>,
           filtersControl: <button type="button">View filters</button>,
           treeActionsControl: <button type="button">Refresh</button>,
@@ -70,9 +71,16 @@ describe('FileExplorerToolbar', () => {
     const toolbar = screen.getByTestId('file-explorer-toolbar');
     const rightCluster = toolbar.children.item(2)?.firstElementChild;
     expect(rightCluster).not.toBeNull();
-    const [treeActions, fullActions, compactActions, edgeAction] = Array.from(
+    const [columnsSlot, treeActions, fullActions, compactActions, edgeAction] = Array.from(
       rightCluster?.children ?? []
     );
+    // Columns joins one breakpoint LATER (BST-1208): at 236px the right track
+    // holds exactly three 28px controls, so a fourth would break the geometry.
+    expect(columnsSlot).toContainElement(screen.getByRole('button', { name: 'Columns' }));
+    expect(columnsSlot).toHaveClass('hidden', '@[300px]/explorer-toolbar:contents');
+    // Tree actions sit OUTSIDE the narrow-hidden wrapper (BST-657): the cluster
+    // carries the scanning indicator's Cancel, the only abort path for a
+    // running sweep. Only View Filters is width-gated here.
     expect(treeActions).toBe(screen.getByRole('button', { name: 'Refresh' }));
     expect(fullActions).toContainElement(screen.getByRole('button', { name: 'View filters' }));
     expect(fullActions).toHaveClass('hidden', '@[236px]/explorer-toolbar:contents');
