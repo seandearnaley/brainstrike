@@ -1,5 +1,6 @@
 import {
   NATIVE_TOOL_DEFAULTS,
+  TOOL_CATEGORIES,
   TOOL_LOADING_TIERS,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { expect, test } from './fixtures/web-fixture';
@@ -20,6 +21,7 @@ const tierLabelFor = (toolId: typeof NATIVE_TOOL_ID | typeof PEER_TOOL_ID): stri
 
 const TOOL_TIER_LABEL = tierLabelFor(NATIVE_TOOL_ID);
 const PEER_TIER_LABEL = tierLabelFor(PEER_TOOL_ID);
+const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category].label;
 
 async function openToolsSettings(page: import('@playwright/test').Page): Promise<SettingsPage> {
   const home = new HomePage(page);
@@ -55,7 +57,7 @@ test.describe('AI Tools and System Diagnostics settings (web)', () => {
 
     await page.getByTestId('reset-filters').click();
     await page.getByTestId('category-filter').click();
-    await page.getByRole('option', { name: 'Retrieval' }).click();
+    await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
     await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
     await expect(page.getByTestId(`tool-row-${PEER_TOOL_ID}`)).toBeVisible();
 

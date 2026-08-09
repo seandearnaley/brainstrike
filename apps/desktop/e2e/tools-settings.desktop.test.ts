@@ -1,5 +1,6 @@
 import {
   NATIVE_TOOL_DEFAULTS,
+  TOOL_CATEGORIES,
   TOOL_LOADING_TIERS,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { expect, test } from './fixtures/electron-fixture';
@@ -18,6 +19,7 @@ const tierLabelFor = (toolId: typeof NATIVE_TOOL_ID | typeof PEER_TOOL_ID): stri
 
 const TOOL_TIER_LABEL = tierLabelFor(NATIVE_TOOL_ID);
 const PEER_TIER_LABEL = tierLabelFor(PEER_TOOL_ID);
+const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category].label;
 
 async function openToolsSettings(
   homePage: import('./page-objects/home-page').HomePage,
@@ -45,7 +47,7 @@ test.describe('AI Tools settings (desktop)', () => {
 
     await window.getByTestId('reset-filters').click();
     await window.getByTestId('category-filter').click();
-    await window.getByRole('option', { name: 'Retrieval' }).click();
+    await window.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
     await expect(window.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
   });
 
