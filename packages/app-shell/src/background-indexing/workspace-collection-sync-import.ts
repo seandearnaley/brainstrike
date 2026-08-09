@@ -178,7 +178,18 @@ function isContentAccessible(content: string): boolean {
 
 export function flattenFileNodes(nodes: readonly IFileNode[]): IFileNode[] {
   const fileNodes: IFileNode[] = [];
-  const pendingNodes = [...nodes].reverse();
+  const pendingNodes: IFileNode[] = [];
+
+  const pushInReverse = (candidates: readonly IFileNode[]): void => {
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+      const candidate = candidates[index];
+      if (candidate) {
+        pendingNodes.push(candidate);
+      }
+    }
+  };
+
+  pushInReverse(nodes);
 
   while (pendingNodes.length > 0) {
     const node = pendingNodes.pop();
@@ -190,12 +201,7 @@ export function flattenFileNodes(nodes: readonly IFileNode[]): IFileNode[] {
       continue;
     }
     if (node.children) {
-      for (let index = node.children.length - 1; index >= 0; index -= 1) {
-        const child = node.children[index];
-        if (child) {
-          pendingNodes.push(child);
-        }
-      }
+      pushInReverse(node.children);
     }
   }
 

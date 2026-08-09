@@ -282,6 +282,14 @@ describe('flattenFileNodes', () => {
 
     expect(flattenFileNodes(tree)).toEqual([leaf]);
   });
+
+  it('flattens a wide directory without exceeding the function argument limit', () => {
+    const children = Array.from({ length: 100_000 }, (_, index) =>
+      makeFileNode(`wide/file-${index}.ts`, 1, null)
+    );
+
+    expect(flattenFileNodes([makeDirectoryNode('wide', 1, children)])).toEqual(children);
+  });
 });
 
 async function hashForRecordedContent(relativePath: string): Promise<string> {
