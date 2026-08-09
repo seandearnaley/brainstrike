@@ -26,7 +26,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 export interface CollectionRow {
   category: string | null;
   chunkCount: null | string | number;
-  createdAt: string;
+  /** `timestamptz`; PGlite yields a `Date`. See {@link normalizeTimestamp}. */
+  createdAt: string | Date;
   description: string | null;
   dimensions: number;
   distance: string;
@@ -37,7 +38,8 @@ export interface CollectionRow {
   modelKey: string;
   name: string | null;
   statsAvailable?: boolean | string;
-  statsLastRefreshedAt?: string | null;
+  /** `timestamptz`; PGlite yields a `Date`. See {@link normalizeTimestamp}. */
+  statsLastRefreshedAt?: string | Date | null;
   systemRole?: EmbeddingSetSystemRole | null;
   tags: string | null;
 }
@@ -227,13 +229,90 @@ function useResolvedCollectionData(
 }
 
 /**
+ * Pins a timestamp column to a primitive.
+ *
+ * PGlite returns `timestamptz` as a `Date`, and every read builds its own
+ * instances for the same instant. `areCollectionsEqual` compares these with
+ * `!==`, so two structurally identical snapshots never compare equal: a single
+ * owner then rewrites the shared cache on every refresh, and a second live
+ * `useCollections` — which this module forbids, but only in a doc comment —
+ * ping-pongs it into React #185. Normalizing here removes the landmine instead
+ * of leaving the invariant as the only thing standing between us and it.
+ *
+ * Strings pass through untouched, so no already-normalized value is rewritten.
+ */
+function normalizeTimestamp(value: string | Date | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+/** Anything starting `YYYY-MM-DDT` is already canonical and is left alone. */
+const ISO_TIMESTAMP_PREFIX = /^\d{4}-\d{2}-\d{2}T/u;
+
+/**
+ * Coerces a timestamp of UNKNOWN provenance to the same ISO form the query path
+ * produces.
+ *
+ * The collections query is not the only way rows reach the shared cache: the
+ * `embedding-set-updated` event carries an `EmbeddingSet`, whose `createdAt` is
+ * TYPED `string` but is produced by `String(row.created_at)` in both
+ * `EmbeddingSetsRepository.fromRow` and `manage-embedding-sets-dialog` — and
+ * `String(new Date(…))` is `'Sun Aug 09 2026 …'`, not ISO.
+ *
+ * Mixing the two formats in one cache breaks `compareCollectionsDesc`, which
+ * compares `createdAt` relationally: `'S' > '2'`, so an event-sourced entry
+ * would sort above every query-sourced one regardless of date. (Before
+ * timestamps were normalized at all this hid behind a mixed Date/string compare
+ * that yielded NaN and fell through to the id tiebreak.)
+ *
+ * Already-ISO strings pass through untouched so a round trip cannot drop
+ * sub-millisecond precision, and an unparseable value is returned as-is rather
+ * than replaced with an invented one.
+ */
+function toCanonicalTimestamp(value: string | Date): string {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (ISO_TIMESTAMP_PREFIX.test(value)) {
+    return value;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
+
+/**
+ * Normalizes an event-sourced collection so it can share a cache — and a
+ * sort — with the query-sourced ones.
+ */
+function canonicalizeCollectionTimestamps(
+  collection: CollectionWithDocCount
+): CollectionWithDocCount {
+  const createdAt = toCanonicalTimestamp(collection.createdAt);
+  const statsLastRefreshedAt = collection.statsLastRefreshedAt
+    ? toCanonicalTimestamp(collection.statsLastRefreshedAt)
+    : (collection.statsLastRefreshedAt ?? null);
+
+  if (
+    createdAt === collection.createdAt &&
+    statsLastRefreshedAt === collection.statsLastRefreshedAt
+  ) {
+    return collection;
+  }
+  return { ...collection, createdAt, statsLastRefreshedAt };
+}
+
+/**
  * Hook to fetch and normalize collection data
  */
 function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[] {
   return rows.map((row) => ({
     category: row.category,
     chunkCount: Number(row.chunkCount ?? 0),
-    createdAt: row.createdAt,
+    // `createdAt` is non-nullable, so it is narrowed inline rather than through
+    // normalizeTimestamp — nothing here may invent a missing timestamp.
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
     description: row.description,
     dimensions: row.dimensions,
     distance: row.distance as 'cosine' | 'l2' | 'ip',
@@ -247,7 +326,7 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
       row.statsAvailable === undefined
         ? true
         : row.statsAvailable === true || row.statsAvailable === 'true',
-    statsLastRefreshedAt: row.statsLastRefreshedAt ?? null,
+    statsLastRefreshedAt: normalizeTimestamp(row.statsLastRefreshedAt),
     systemRole: row.systemRole ?? null,
     tags: row.tags,
   }));
@@ -506,11 +585,14 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
         if (detail.reason === 'created' || detail.reason === 'updated') {
           pendingMutationsRef.current.set(detail.collection.id, detail.reason);
         }
+        // Second ingress into the shared cache. It must land in the same
+        // timestamp form as the query path or the two sort against each other.
+        const eventCollection = canonicalizeCollectionTimestamps(detail.collection);
         cachedCollectionsRef.current = upsertCollectionSnapshot(
           cachedCollectionsRef.current,
-          detail.collection
+          eventCollection
         );
-        upsertCachedCollection(detail.collection);
+        upsertCachedCollection(eventCollection);
       }
       if (liveQueryEnabled) {
         void refresh();
