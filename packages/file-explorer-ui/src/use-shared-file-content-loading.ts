@@ -10,7 +10,11 @@ import { getKnownFileSize } from '@brainstrike/utils/file-content';
 const logger = createLogger('SharedFileContentLoading');
 const MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS = 5;
 
-import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
+import type {
+  FileContentReadResult,
+  FileContentWorker,
+  FileReadRequest,
+} from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   useFileExplorerStoreContext,
@@ -84,11 +88,11 @@ function updateLoadingState(
 }
 
 function processWorkerResults(
-  results: Record<string, string>,
+  results: Record<string, FileContentReadResult>,
   setFileContent: (key: string, content: string) => void
 ): void {
-  for (const [key, value] of Object.entries(results)) {
-    setFileContent(key, value);
+  for (const [key, result] of Object.entries(results)) {
+    setFileContent(key, result.status === 'accessible' ? result.content : result.message);
   }
 }
 

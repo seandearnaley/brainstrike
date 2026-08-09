@@ -594,7 +594,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       },
     ]);
     processFilesMock.mockResolvedValue({
-      [encodeFileSelection('/workspace/root', 'src/index.ts')]: 'export const value = 1;',
+      [encodeFileSelection('/workspace/root', 'src/index.ts')]: {
+        content: 'export const value = 1;',
+        status: 'accessible',
+      },
     });
     listManagedCacheEntryMetadataMock.mockResolvedValue([]);
     runEnhancedImportMock.mockImplementation(async (params) => {
@@ -1707,16 +1710,18 @@ describe('WorkspaceCollectionSyncProvider', () => {
         type: 'file',
       },
     ]);
-    processFilesMock.mockImplementation(
-      async (requests: Array<{ compositeKey: string }>): Promise<Record<string, string>> =>
-        Object.fromEntries(
-          requests.map((request) => [
-            request.compositeKey,
-            request.compositeKey.includes('binary-content.md')
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          {
+            content: request.compositeKey.includes('binary-content.md')
               ? 'looks like markdown but contains a null\0byte'
               : 'export const value = 1;',
-          ])
-        )
+            status: 'accessible' as const,
+          },
+        ])
+      )
     );
     dbState.current = {
       exec: vi.fn(async () => undefined),
@@ -1802,11 +1807,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
         type: 'file',
       },
     ]);
-    processFilesMock.mockImplementation(
-      async (requests: Array<{ compositeKey: string }>): Promise<Record<string, string>> =>
-        Object.fromEntries(
-          requests.map((request) => [request.compositeKey, 'export const value = 1;'])
-        )
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: 'export const value = 1;', status: 'accessible' as const },
+        ])
+      )
     );
     dbState.current = {
       exec: vi.fn(async () => undefined),

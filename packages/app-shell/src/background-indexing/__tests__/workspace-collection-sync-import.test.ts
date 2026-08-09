@@ -3,7 +3,11 @@ import type {
   EmbeddingSet,
   ManagedCacheEntryMetadata,
 } from '@brainstrike/db';
-import type { FileContentProcessor, FileContentRequest } from '@brainstrike/file-explorer-hooks';
+import type {
+  FileContentProcessor,
+  FileContentRequest,
+  FileContentResult,
+} from '@brainstrike/file-explorer-hooks';
 import { runEnhancedImport } from '@brainstrike/file-import';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
@@ -303,11 +307,14 @@ function createRecordingProcessor(): {
 } {
   const seen: string[] = [];
   const processFiles = vi.fn(
-    async (requests: readonly FileContentRequest[]): Promise<Record<string, string>> => {
-      const contents: Record<string, string> = {};
+    async (requests: readonly FileContentRequest[]): Promise<Record<string, FileContentResult>> => {
+      const contents: Record<string, FileContentResult> = {};
       for (const request of requests) {
         seen.push(request.fileNode.path);
-        contents[request.compositeKey] = `content-of-${request.fileNode.path}`;
+        contents[request.compositeKey] = {
+          content: `content-of-${request.fileNode.path}`,
+          status: 'accessible',
+        };
       }
       return contents;
     }
@@ -319,6 +326,123 @@ function createRecordingProcessor(): {
 }
 
 describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
+  it('indexes accessible scan content even when its prose resembles the old inaccessible sentinel', async () => {
+    const node = makeFileNode('accessibility-notes.txt', 42, 1000);
+    const processFiles = vi.fn(
+      async (requests: readonly FileContentRequest[]): Promise<Record<string, FileContentResult>> =>
+        Object.fromEntries(
+          requests.map((request) => [
+            request.compositeKey,
+            {
+              content: 'File not accessible - explain this status to users',
+              status: 'accessible' as const,
+            },
+          ])
+        )
+    );
+
+    const result = await collectPreparedChangesInBatches({
+      abortSignal: new AbortController().signal,
+      existingEntries: [],
+      fileContentProcessor: { processFiles },
+      fileNodes: [node],
+      fileSystemAdapter: {} as FileSystemAdapter,
+      onCurrentFile: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: ROOT,
+      rootPath: ROOT,
+    });
+
+    expect(result.excludedEntries).toBe(0);
+    expect(result.changes).toEqual([
+      expect.objectContaining({ relativePath: 'accessibility-notes.txt' }),
+    ]);
+  });
+
+  it('excludes an inaccessible scan result even when its message is empty', async () => {
+    const processFiles = vi.fn(
+      async (requests: readonly FileContentRequest[]): Promise<Record<string, FileContentResult>> =>
+        Object.fromEntries(
+          requests.map((request) => [
+            request.compositeKey,
+            { message: '', status: 'inaccessible' as const },
+          ])
+        )
+    );
+
+    const result = await collectPreparedChangesInBatches({
+      abortSignal: new AbortController().signal,
+      existingEntries: [],
+      fileContentProcessor: { processFiles },
+      fileNodes: [makeFileNode('empty-message.txt', 42, 1000)],
+      fileSystemAdapter: {} as FileSystemAdapter,
+      onCurrentFile: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 1,
+        contentReadConcurrency: 1,
+        importBatchSize: 1,
+      },
+      rootId: ROOT,
+      rootPath: ROOT,
+    });
+
+    expect(result).toMatchObject({ changes: [], excludedEntries: 1 });
+  });
+
+  it('fails closed when the content processor omits a requested scan result', async () => {
+    const processFiles = vi.fn(async () => ({}));
+
+    await expect(
+      collectPreparedChangesInBatches({
+        abortSignal: new AbortController().signal,
+        existingEntries: [],
+        fileContentProcessor: { processFiles },
+        fileNodes: [makeFileNode('changed.ts', 42, 1000)],
+        fileSystemAdapter: {} as FileSystemAdapter,
+        onCurrentFile: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: ROOT,
+        rootPath: ROOT,
+      })
+    ).rejects.toThrow('File content processor omitted scan result');
+  });
+
+  it('fails closed when the content processor returns a malformed scan result', async () => {
+    const processFiles = vi.fn(async (requests: readonly FileContentRequest[]) => ({
+      [requests[0]?.compositeKey ?? 'missing']: { status: 'accessible' },
+    })) as unknown as FileContentProcessor['processFiles'];
+
+    await expect(
+      collectPreparedChangesInBatches({
+        abortSignal: new AbortController().signal,
+        existingEntries: [],
+        fileContentProcessor: { processFiles },
+        fileNodes: [makeFileNode('changed.ts', 42, 1000)],
+        fileSystemAdapter: {} as FileSystemAdapter,
+        onCurrentFile: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: ROOT,
+        rootPath: ROOT,
+      })
+    ).rejects.toThrow('File content processor returned malformed scan result');
+  });
+
   it('skips reading files whose size and mtime match the stored entry', async () => {
     const { processor, readPaths } = createRecordingProcessor();
     // The unchanged entry deliberately stores a NON-matching content hash to prove
@@ -530,14 +654,17 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
       makeFileNode(`large/file-${index}.txt`, 32, 2000 + index)
     );
     const processFiles = vi.fn(
-      async (requests: readonly FileContentRequest[]): Promise<Record<string, string>> => {
-        const contents: Record<string, string> = {};
+      async (
+        requests: readonly FileContentRequest[]
+      ): Promise<Record<string, FileContentResult>> => {
+        const contents: Record<string, FileContentResult> = {};
         for (const request of requests) {
-          contents[request.compositeKey] = request.fileNode.path.endsWith(
-            `file-${invalidIndex}.txt`
-          )
-            ? `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
-            : `content-of-${request.fileNode.path}`;
+          contents[request.compositeKey] = {
+            content: request.fileNode.path.endsWith(`file-${invalidIndex}.txt`)
+              ? `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
+              : `content-of-${request.fileNode.path}`,
+            status: 'accessible',
+          };
         }
         return contents;
       }
@@ -626,10 +753,13 @@ function makeMinimalCollection(): EmbeddingSet {
 
 function makeMinimalFileContentProcessor(change: PreparedCacheChange): FileContentProcessor {
   const processFiles = vi.fn(
-    async (requests: readonly FileContentRequest[]): Promise<Record<string, string>> => {
-      const contents: Record<string, string> = {};
+    async (requests: readonly FileContentRequest[]): Promise<Record<string, FileContentResult>> => {
+      const contents: Record<string, FileContentResult> = {};
       for (const request of requests) {
-        contents[request.compositeKey] = `content-of-${request.fileNode.path}`;
+        contents[request.compositeKey] = {
+          content: `content-of-${request.fileNode.path}`,
+          status: 'accessible',
+        };
       }
       return contents;
     }
@@ -890,13 +1020,18 @@ describe('runRootFolderCacheImport — rootId threading', () => {
       size: 620,
     };
     const processFiles = vi.fn(
-      async (requests: readonly FileContentRequest[]): Promise<Record<string, string>> => {
-        const contents: Record<string, string> = {};
+      async (
+        requests: readonly FileContentRequest[]
+      ): Promise<Record<string, FileContentResult>> => {
+        const contents: Record<string, FileContentResult> = {};
         for (const request of requests) {
-          contents[request.compositeKey] =
-            request.compositeKey === invalidCompositeKey
-              ? `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
-              : `content-of-${request.fileNode.path}`;
+          contents[request.compositeKey] = {
+            content:
+              request.compositeKey === invalidCompositeKey
+                ? `${'a'.repeat(600)}${String.fromCharCode(0)}still-invalid`
+                : `content-of-${request.fileNode.path}`,
+            status: 'accessible',
+          };
         }
         return contents;
       }
@@ -970,6 +1105,61 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         }),
       ])
     );
+  });
+
+  it('skips a file that becomes inaccessible between scan and import using its structured status', async () => {
+    vi.mocked(runEnhancedImport).mockClear();
+    const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
+      async () => {}
+    );
+    const change = makeMinimalChange();
+    const message = '';
+    const processFiles = vi.fn(
+      async (): Promise<Record<string, FileContentResult>> => ({
+        [change.compositeKey]: { message, status: 'inaccessible' },
+      })
+    );
+
+    await runRootFolderCacheImport({
+      abortSignal: new AbortController().signal,
+      applyManagedCacheBatch,
+      changes: [change],
+      chunkingWorkerPort: {
+        chunkBatch: vi.fn().mockResolvedValue([]),
+        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+        isReady: vi.fn().mockReturnValue(true),
+        transportKind: 'local',
+      } as never,
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      collection: makeMinimalCollection(),
+      db: makeMinimalDb() as never,
+      fileContentProcessor: { processFiles },
+      fileRecordRepository: {
+        findByCollectionId: vi.fn().mockResolvedValue([]),
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: change.id }),
+      } as never,
+      onProgress: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: 'root-db-1',
+      setImporting: () => {},
+      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(applyManagedCacheBatch).not.toHaveBeenCalled();
+    const enhancedImportResult = await vi.mocked(runEnhancedImport).mock.results[0]?.value;
+    expect(enhancedImportResult).toEqual([
+      expect.objectContaining({ error: message, id: change.id, imported: false }),
+    ]);
   });
 
   it('uses desktop atomic chunk/job enqueue when callback transactions are unavailable', async () => {
