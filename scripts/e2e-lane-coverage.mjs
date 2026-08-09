@@ -63,14 +63,14 @@ const EXCLUDED_SPEC_DIRS = {
 /**
  * Project-level `grep`/`grepInvert` from each app's playwright.config.ts.
  *
- * Desktop regression is intentionally unfiltered at project level: the broad
- * package script excludes embedding tags while dedicated workflow lanes grep
- * them in. Every project a lane targets must still be modelled: an
+ * Only `desktop:regression` changes any verdict today (its `grepInvert: /@smoke/`
+ * means smoke-tagged tests need an explicit smoke/nightly lane), but every
+ * project a lane targets must be modelled: an
  * unmodelled `--project=` throws rather than defaulting to "no filter", which
  * would silently over-report reachability.
  */
 const PLAYWRIGHT_PROJECT_FILTERS = {
-  'desktop:regression': {},
+  'desktop:regression': { grepInvert: /@smoke/ },
   'desktop:smoke': { grep: /@smoke/ },
   'web:functional': {},
   'web:smoke': { grep: /@smoke/ },

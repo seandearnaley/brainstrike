@@ -47,8 +47,7 @@ const playwrightConfig: PlaywrightTestConfig = {
       name: 'smoke',
     },
     {
-      // Lane commands own the selection filters: full regression excludes the
-      // dedicated embedding tags while embedding workflow lanes grep them in.
+      grepInvert: /@smoke/,
       name: 'regression',
     },
   ],

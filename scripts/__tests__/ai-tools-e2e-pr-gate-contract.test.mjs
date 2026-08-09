@@ -62,12 +62,12 @@ test('REAL REPO: desktop smoke tags remain selected by nightly regression', () =
   const desktopPackage = JSON.parse(read('apps/desktop/package.json'));
   assert.match(
     desktopPackage.scripts['test:e2e:lane:full-regression'],
-    /--grep-invert=["']@desktop-embedding-["']/
+    /pnpm run test:e2e:lane:tools-settings-nightly/
   );
-  assert.match(
-    read('apps/desktop/playwright.config.ts'),
-    /\{\s*(?:\/\/[^\n]*\n\s*)*name:\s*['"]regression['"],\s*\}/m
-  );
+  const nightlyCommand = desktopPackage.scripts['test:e2e:lane:tools-settings-nightly'];
+  assert.match(nightlyCommand, /e2e\/tools-settings\.desktop\.test\.ts/);
+  assert.match(nightlyCommand, /--project=smoke/);
+  assert.match(nightlyCommand, /--grep=["']@smoke["']/);
 });
 
 test('REAL REPO: pull-request E2E jobs invoke both smoke lane scripts', () => {
