@@ -15,10 +15,15 @@ const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   completedAt: '2026-05-01T12:00:00.100Z',
   durationMs: 100,
   prunedTerminalJobs: 2,
+  prunedTokenEstimateCalibrationRows: 3,
   prunedToolCallTelemetryRows: 7,
   startedAt: '2026-05-01T12:00:00.000Z',
   status: 'completed',
-  vacuumedTables: ['job_queue', 'brainstrike_tool_call_telemetry'],
+  vacuumedTables: [
+    'job_queue',
+    'brainstrike_tool_call_telemetry',
+    'brainstrike_token_estimate_calibration',
+  ],
 };
 
 function createQueuedCounts(
@@ -104,8 +109,13 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       expect.objectContaining({
         analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
         prunedTerminalJobs: 2,
+        prunedTokenEstimateCalibrationRows: 3,
         prunedToolCallTelemetryRows: 7,
-        vacuumedTables: ['job_queue', 'brainstrike_tool_call_telemetry'],
+        vacuumedTables: [
+          'job_queue',
+          'brainstrike_tool_call_telemetry',
+          'brainstrike_token_estimate_calibration',
+        ],
       }),
       'Scheduled database maintenance completed'
     );
@@ -130,6 +140,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       completedAt: '2026-05-01T12:00:00.300Z',
       durationMs: 300,
       prunedTerminalJobs: 5000,
+      prunedTokenEstimateCalibrationRows: 6,
       prunedToolCallTelemetryRows: 12,
       reason: 'active-job-queue',
       startedAt: '2026-05-01T12:00:00.000Z',

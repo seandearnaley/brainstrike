@@ -82,8 +82,8 @@ export default defineConfig({
         find: '@brainstrike/indexing-contract',
         replacement: resolve(import.meta.dirname, '../indexing-contract/src'),
       },
-      // Registry fills gaps (e.g. @brainstrike/hooks, executed unmocked by
-      // use-pending-chunks.test.ts). Hand-rolled entries win by first-match.
+      // Registry fills the gaps for workspace packages reached unmocked by
+      // tests but not aliased above. Hand-rolled entries win by first-match.
       // See workspace-src-aliases (incident #1066/#1207).
       ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
     ],

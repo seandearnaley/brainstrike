@@ -9,6 +9,7 @@ import { JobQueue, type JobState } from '../src/queue/job-queue.js';
 import { AgentSqlService } from '../src/search/agent-sql-service.js';
 import {
   DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+  DEFAULT_DATABASE_MAINTENANCE_TOKEN_ESTIMATE_CALIBRATION_RETENTION_MS,
   DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS,
   runScheduledDatabaseMaintenance,
 } from '../src/services/scheduled-database-maintenance.js';
@@ -42,6 +43,27 @@ async function insertToolCallTelemetry(
 async function countToolCallTelemetry(db: PGlite): Promise<number> {
   const result = await db.query<{ count: string }>(
     'SELECT COUNT(*)::text AS count FROM brainstrike_tool_call_telemetry'
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function insertTokenEstimateCalibration(
+  db: PGlite,
+  id: string,
+  occurredAtIso: string
+): Promise<void> {
+  await db.query(
+    `INSERT INTO brainstrike_token_estimate_calibration
+      (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
+       final_step_prompt_tokens, occurred_at)
+     VALUES ($1, 'thread', 'run', 'gpt-5.6-terra', 'openai', 100, 125, $2)`,
+    [id, occurredAtIso]
+  );
+}
+
+async function countTokenEstimateCalibration(db: PGlite): Promise<number> {
+  const result = await db.query<{ count: string }>(
+    'SELECT COUNT(*)::text AS count FROM brainstrike_token_estimate_calibration'
   );
   return Number(result.rows[0]?.count ?? 0);
 }
@@ -172,7 +194,11 @@ describe('scheduled database maintenance', () => {
       analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
       prunedTerminalJobs: 3,
       status: 'completed',
-      vacuumedTables: ['job_queue', 'brainstrike_tool_call_telemetry'],
+      vacuumedTables: [
+        'job_queue',
+        'brainstrike_tool_call_telemetry',
+        'brainstrike_token_estimate_calibration',
+      ],
     });
     expect(await countJobs(db)).toBe(1);
   });
@@ -205,6 +231,7 @@ describe('scheduled database maintenance', () => {
     expect(statements).toEqual([
       'VACUUM (ANALYZE) job_queue',
       'VACUUM (ANALYZE) brainstrike_tool_call_telemetry',
+      'VACUUM (ANALYZE) brainstrike_token_estimate_calibration',
       'ANALYZE file_chunks',
       'ANALYZE file_records',
       'ANALYZE embedding_cache',
@@ -212,7 +239,11 @@ describe('scheduled database maintenance', () => {
     expect(result).toMatchObject({
       analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
       status: 'completed',
-      vacuumedTables: ['job_queue', 'brainstrike_tool_call_telemetry'],
+      vacuumedTables: [
+        'job_queue',
+        'brainstrike_tool_call_telemetry',
+        'brainstrike_token_estimate_calibration',
+      ],
     });
   });
 
@@ -274,6 +305,7 @@ describe('scheduled database maintenance', () => {
     ).rejects.toThrow('analyze exploded');
     expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) job_queue');
     expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) brainstrike_tool_call_telemetry');
+    expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) brainstrike_token_estimate_calibration');
   });
 
   it('routes VACUUM/ANALYZE through the maintenance exec channel when available', async () => {
@@ -301,11 +333,18 @@ describe('scheduled database maintenance', () => {
     expect(maintenanceExec).toHaveBeenCalledWith(
       'VACUUM (ANALYZE) brainstrike_tool_call_telemetry'
     );
+    expect(maintenanceExec).toHaveBeenCalledWith(
+      'VACUUM (ANALYZE) brainstrike_token_estimate_calibration'
+    );
     expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_chunks');
     expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_records');
     expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE embedding_cache');
     expect(exec).not.toHaveBeenCalled();
-    expect(result.vacuumedTables).toEqual(['job_queue', 'brainstrike_tool_call_telemetry']);
+    expect(result.vacuumedTables).toEqual([
+      'job_queue',
+      'brainstrike_tool_call_telemetry',
+      'brainstrike_token_estimate_calibration',
+    ]);
     expect(result.analyzedTables).toEqual(['file_chunks', 'file_records', 'embedding_cache']);
   });
 
@@ -497,6 +536,91 @@ describe('scheduled database maintenance', () => {
         'SELECT id FROM brainstrike_tool_call_telemetry ORDER BY occurred_at ASC'
       );
       expect(remaining.rows.map((row) => row.id)).toEqual(['old', 'less-old']);
+    });
+  });
+
+  describe('token_estimate_calibration retention (BST-1205)', () => {
+    it('prunes rows older than 60 days on an idle pass and keeps newer rows', async () => {
+      await insertTokenEstimateCalibration(db, 'old-calibration', TELEMETRY_OLD_ISO);
+      await insertTokenEstimateCalibration(db, 'recent-calibration', TELEMETRY_RECENT_ISO);
+
+      const result = await runScheduledDatabaseMaintenance(db, {
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+      });
+
+      expect(result).toMatchObject({
+        prunedTokenEstimateCalibrationRows: 1,
+        status: 'completed',
+      });
+      expect(await countTokenEstimateCalibration(db)).toBe(1);
+    });
+
+    it('honors a custom retention window and rejects malformed configuration', async () => {
+      await insertTokenEstimateCalibration(db, 'calibration', TELEMETRY_RECENT_ISO);
+
+      const result = await runScheduledDatabaseMaintenance(db, {
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+        tokenEstimateCalibrationRetentionMs: 1000,
+      });
+
+      expect(result.prunedTokenEstimateCalibrationRows).toBe(1);
+      await expect(
+        runScheduledDatabaseMaintenance(db, {
+          now: () => new Date(NOW_ISO),
+          tokenEstimateCalibrationRetentionMs: -1,
+        })
+      ).rejects.toThrow('tokenEstimateCalibrationRetentionMs must be non-negative');
+      expect(DEFAULT_DATABASE_MAINTENANCE_TOKEN_ESTIMATE_CALIBRATION_RETENTION_MS).toBe(
+        DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS
+      );
+    });
+
+    it('runs the oldest-first bounded prune while the job queue is active', async () => {
+      const queue = new JobQueue(db);
+      await createJobWithState(db, queue, 'queued', RECENT_ISO);
+      await insertTokenEstimateCalibration(db, 'oldest', '2026-01-01T00:00:00.000Z');
+      await insertTokenEstimateCalibration(db, 'older', '2026-01-05T00:00:00.000Z');
+      await insertTokenEstimateCalibration(db, 'old', '2026-01-10T00:00:00.000Z');
+
+      const result = await runScheduledDatabaseMaintenance(db, {
+        activePruneLimit: 2,
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+      });
+
+      expect(result).toMatchObject({
+        prunedTokenEstimateCalibrationRows: 2,
+        status: 'partial',
+      });
+      const remaining = await db.query<{ id: string }>(
+        'SELECT id FROM brainstrike_token_estimate_calibration ORDER BY occurred_at ASC'
+      );
+      expect(remaining.rows.map((row) => row.id)).toEqual(['old']);
+    });
+
+    it('skips the active bounded DELETE when the guard finds no expired row', async () => {
+      const queue = new JobQueue(db);
+      await createJobWithState(db, queue, 'queued', RECENT_ISO);
+      await insertTokenEstimateCalibration(db, 'recent', TELEMETRY_RECENT_ISO);
+      const statements: string[] = [];
+      const trackingDb = {
+        query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) => {
+          statements.push(sql);
+          return await db.query<TRecord>(sql, params as unknown[]);
+        },
+      };
+
+      const result = await runScheduledDatabaseMaintenance(trackingDb, {
+        now: () => new Date(NOW_ISO),
+        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
+      });
+
+      expect(result.prunedTokenEstimateCalibrationRows).toBe(0);
+      expect(
+        statements.some((sql) => sql.includes('DELETE FROM brainstrike_token_estimate_calibration'))
+      ).toBe(false);
     });
   });
 });

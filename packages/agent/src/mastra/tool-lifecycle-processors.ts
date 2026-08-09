@@ -74,6 +74,8 @@ export interface ToolLifecycleState {
    */
   steering?: { stopRequested(): boolean } | undefined;
   stepBilledCostUsd: number;
+  /** Number of completed provider steps observed in this run. */
+  stepCount: number;
   /**
    * Per-step token usage accumulated across step-finish parts (mirrors
    * stepBilledCostUsd). A steered run's finish reports THIS sum — the

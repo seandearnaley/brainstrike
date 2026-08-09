@@ -18,6 +18,7 @@ import {
   THREAD_DELETE_SIDECAR_TABLES,
   THREAD_TITLE_SOURCE_METADATA_KEY,
   THREAD_TITLE_SOURCE_OM,
+  TOKEN_ESTIMATE_CALIBRATION_TABLE,
   TOOL_CALL_TELEMETRY_TABLE,
   WORKSPACE_SNAPSHOTS_TABLE,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
@@ -805,6 +806,38 @@ CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_tool_time_idx
 -- retention sweep, which filters on occurred_at alone (no tool_id predicate).
 CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_occurred_at_idx
   ON ${TOOL_CALL_TELEMETRY_TABLE} (occurred_at);
+
+-- Estimator-vs-provider prompt-token reconciliation pairs (BST-1205).
+-- Bootstrapped here AND created by migration 086 — keep the shape
+-- byte-identical. The numerator is the chars/4 backstop over model-visible tool
+-- outputs plus tool definitions, each counted once. final_step_prompt_tokens is
+-- the latest step prompt, which contains prior tool outputs once via Mastra's
+-- resend behavior—not the cross-step accumulated total. Conversation/system
+-- prompt text outside tool outputs/definitions is excluded from both. Only
+-- completed runs with at least one measured tool output are written.
+-- Mirrored because thread deletion references every sidecar unconditionally;
+-- only desktop main writes rows during normal operation.
+CREATE TABLE IF NOT EXISTS ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (
+  id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  run_id text NOT NULL,
+  model text NOT NULL,
+  provider text NOT NULL,
+  estimated_prompt_tokens integer NOT NULL CHECK (estimated_prompt_tokens >= 0),
+  final_step_prompt_tokens integer NOT NULL CHECK (final_step_prompt_tokens >= 0),
+  step_count integer NOT NULL DEFAULT 1 CHECK (step_count >= 1),
+  model_visible_projection_count integer NOT NULL DEFAULT 0 CHECK (model_visible_projection_count >= 0),
+  occurred_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_thread_idx
+  ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (thread_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_model_idx
+  ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (model, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_occurred_at_idx
+  ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (occurred_at);
 
 -- Native-tool model-projection overlays (BST-1192/BST-1200). Bootstrapped
 -- here AND created by migrations 084 + 087 — this renderer-executed bootstrap

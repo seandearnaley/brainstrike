@@ -902,6 +902,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await clearRelationIfPresent(tx, 'brainstrike_canvas_versions');
       // Durable per-tool model-facing telemetry (migration 083): FK-less.
       await clearRelationIfPresent(tx, 'brainstrike_tool_call_telemetry');
+      // Estimator/provider prompt-token calibration pairs (migration 086): FK-less.
+      await clearRelationIfPresent(tx, 'brainstrike_token_estimate_calibration');
       // Superseded native-tool projection overlays (migration 084): FK-less.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_projection_rewrites');
       // Complete tool output can contain sensitive command results and has no FK
@@ -993,6 +995,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     await clearRelationIfPresent(tx, 'brainstrike_canvas_versions');
     // Durable per-tool model-facing telemetry (migration 083).
     await clearRelationIfPresent(tx, 'brainstrike_tool_call_telemetry');
+    // Estimator/provider prompt-token calibration pairs (migration 086).
+    await clearRelationIfPresent(tx, 'brainstrike_token_estimate_calibration');
     // Superseded native-tool projection overlays (migration 084).
     await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_projection_rewrites');
     await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');

@@ -377,6 +377,10 @@ export class DataStreamMapper {
         // Internal desktop persistence payload. A run without a durable run id
         // has no writer wrapper, so never expose it to the renderer.
         return;
+      case 'token-estimate-calibration':
+        // Internal desktop persistence payload. A run without a durable run id
+        // has no writer wrapper, so never expose it to the renderer.
+        return;
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
         return;

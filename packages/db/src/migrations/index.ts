@@ -84,6 +84,7 @@ import { migration082CanvasDocuments } from './082-canvas-documents.js';
 import { migration083ToolCallTelemetry } from './083-tool-call-telemetry.js';
 import { migration084AssistantToolProjectionRewrites } from './084-assistant-tool-projection-rewrites.js';
 import { migration085ToolCallTelemetryOccurredAtIndex } from './085-tool-call-telemetry-occurred-at-index.js';
+import { migration086TokenEstimateCalibration } from './086-token-estimate-calibration.js';
 import { migration087ToolProjectionRewriteKinds } from './087-tool-projection-rewrite-kinds.js';
 import type { Migration } from './migration-runner';
 
@@ -175,6 +176,7 @@ export const migrations: Migration[] = [
   migration083ToolCallTelemetry,
   migration084AssistantToolProjectionRewrites,
   migration085ToolCallTelemetryOccurredAtIndex,
+  migration086TokenEstimateCalibration,
   migration087ToolProjectionRewriteKinds,
 ];
 
