@@ -137,7 +137,10 @@ describe('FileExplorerSelectionActions', () => {
     // any long-running service it owns — survives the selection drop.
     expect(screen.getByTestId('explorer-selection-actions')).toBeInTheDocument();
     expect(screen.getByTestId('pinning-action')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('0 files selected');
+    // Zero selection reads as words, not a "0 files selected" count, and the
+    // Clear control disappears — there is nothing for it to clear.
+    expect(screen.getByRole('status')).toHaveTextContent('No files selected');
+    expect(screen.queryByRole('button', { name: 'Clear file selection' })).not.toBeInTheDocument();
   });
 
   it('reports the pinned-at-zero-selection state to its host so padding can follow', () => {

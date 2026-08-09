@@ -37,6 +37,13 @@ export interface SelectionActionBarProps {
   compact?: boolean;
   /** Clear the current selection. */
   onClear: () => void;
+  /**
+   * Render the clear control. Consumers that keep the bar open with an EMPTY
+   * selection (a pinned long-running action) pass `false` — a Clear button
+   * with nothing to clear is a dead control. Escape-to-clear is suppressed
+   * with it.
+   */
+  showClearButton?: boolean;
   /** Primary selection status. Strings and composed React content are supported. */
   summary: React.ReactNode;
   /** Optional secondary status content. */
@@ -51,6 +58,16 @@ export interface SelectionActionBarProps {
    */
   trailingContent?: React.ReactNode | undefined;
 }
+
+/**
+ * Width-reveal class for compact labels INSIDE the bar's named container.
+ * The bar owns the `selection-actions` container name; injected trailing
+ * content (e.g. the explorer's Import action) must reveal its label at the
+ * same step, so it imports this constant instead of re-declaring the query.
+ * The value must stay a literal string here — Tailwind only emits classes its
+ * scanner can see, and this package's source is the scanned home.
+ */
+export const SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS = '@[360px]/selection-actions:inline hidden';
 
 export interface SelectionActionBarOverlayProps {
   /** Selection controls and any directly related transient panels. */
@@ -89,13 +106,14 @@ export function SelectionActionBar({
   clearButtonLabel = 'Clear',
   compact = false,
   onClear,
+  showClearButton = true,
   summary,
   summaryDetail,
   summaryDetailTitle,
   trailingContent,
 }: SelectionActionBarProps): React.JSX.Element {
   function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
-    if (event.defaultPrevented || event.key !== 'Escape') {
+    if (event.defaultPrevented || event.key !== 'Escape' || !showClearButton) {
       return;
     }
 
@@ -154,9 +172,7 @@ export function SelectionActionBar({
                 >
                   {action.icon}
                   <span
-                    className={
-                      collapseLabel ? '@[360px]/selection-actions:inline hidden' : undefined
-                    }
+                    className={collapseLabel ? SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS : undefined}
                   >
                     {visibleLabel}
                   </span>
@@ -168,21 +184,23 @@ export function SelectionActionBar({
         </>
       ) : null}
 
-      <Button
-        aria-label={clearButtonAriaLabel}
-        className="ml-auto gap-1 whitespace-nowrap motion-reduce:transition-none"
-        onClick={onClear}
-        onKeyDown={handleKeyDown}
-        size="sm"
-        title={clearButtonLabel}
-        type="button"
-        variant="ghost"
-      >
-        <X aria-hidden="true" className="h-4 w-4" />
-        <span className={compact ? '@[360px]/selection-actions:inline hidden' : undefined}>
-          {clearButtonLabel}
-        </span>
-      </Button>
+      {showClearButton ? (
+        <Button
+          aria-label={clearButtonAriaLabel}
+          className="ml-auto gap-1 whitespace-nowrap motion-reduce:transition-none"
+          onClick={onClear}
+          onKeyDown={handleKeyDown}
+          size="sm"
+          title={clearButtonLabel}
+          type="button"
+          variant="ghost"
+        >
+          <X aria-hidden="true" className="h-4 w-4" />
+          <span className={compact ? SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS : undefined}>
+            {clearButtonLabel}
+          </span>
+        </Button>
+      ) : null}
     </div>
   );
 }

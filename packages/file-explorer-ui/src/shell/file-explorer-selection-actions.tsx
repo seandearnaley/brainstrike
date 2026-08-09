@@ -64,7 +64,15 @@ export function FileExplorerSelectionActions({
               clearButtonAriaLabel="Clear file selection"
               compact
               onClear={onClear}
-              summary={`${selectedCount.toLocaleString()} ${selectedCount === 1 ? 'file' : 'files'} selected`}
+              // Pinned-at-zero (an import keeping the bar open after the
+              // selection cleared) reads as words and drops the Clear
+              // control — "0 files selected" + Clear was a dead affordance.
+              showClearButton={selectedCount > 0}
+              summary={
+                selectedCount > 0
+                  ? `${selectedCount.toLocaleString()} ${selectedCount === 1 ? 'file' : 'files'} selected`
+                  : 'No files selected'
+              }
               trailingContent={trailingContent}
             />
           </div>
