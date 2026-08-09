@@ -23,6 +23,12 @@ export { getContextExplorerFileExplorerPanel, getContextExplorerMiddlePanel, loa
 
 export interface ElectronE2eFileSystemFixture {
   directoriesByPath: Record<string, unknown[]>;
+  /**
+   * Opt-in per-read delay (ms) honored by the main-process `fs:readDirectory`
+   * handler (apps/desktop/src/ipc-domains/file-system-ipc.ts). Omit it — as
+   * every fixture below this one does — to keep reads instant.
+   */
+  directoryReadDelayMs?: number;
   fileContentsByPath: Record<string, string>;
   readDirectoryCalls: string[];
   readFileByPathCalls: string[];
@@ -1025,6 +1031,31 @@ export async function installNestedFolderFixture(
   }, fixture);
 }
 
+export const WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT = 30;
+export const WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT = 8;
+/** Every directory expand-all must read: the root folders plus their children. */
+export const WIDE_EXPAND_ALL_TOTAL_DIRECTORY_COUNT =
+  WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT +
+  WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT * WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT;
+
+/**
+ * Per-read delay that makes expand-all genuinely cancellable for the test below.
+ *
+ * Without it the memory-served fixture answers every read in microseconds and
+ * the whole 270-directory sweep finishes in ~35ms, leaving the Cancel button
+ * on screen for roughly 3 frames — the test then passes only because Playwright
+ * round-trips happen to land inside that window, and a single slow round-trip
+ * on a loaded CI runner loses it.
+ *
+ * Sizing: the worker walks directories in serial batches of 10 (BATCH_SIZE,
+ * packages/file-tree-worker/src/bfs-engine.ts) and each batch resolves as two
+ * chunk-barriered groups of 5 (MAX_CONCURRENT_LOADS, use-file-tree-worker.ts),
+ * so the sweep costs ~54 delays ≈ 13.5s — comfortably inside the test's 60s
+ * budget even if cancellation never lands. Matches the browser lane's constant
+ * (apps/web/e2e/performance/tree-rendering.test.ts, BST-1044).
+ */
+export const WIDE_EXPAND_ALL_DIRECTORY_READ_DELAY_MS = 250;
+
 export async function installWideExpandAllFixture(
   electronApp: ElectronApplication,
   rootPath: string
@@ -1077,27 +1108,31 @@ export async function installWideExpandAllFixture(
     type: 'file' as const,
   });
 
-  directoriesByPath[rootPath] = Array.from({ length: 30 }, (_, rootIndex) =>
-    createDirectoryEntry({
-      depth: 0,
-      name: `folder-${rootIndex}`,
-      path: `${rootPath}/folder-${rootIndex}`,
-      rootFolderId: rootPath,
-    })
-  );
-
-  for (let rootIndex = 0; rootIndex < 30; rootIndex += 1) {
-    const directoryPath = `${rootPath}/folder-${rootIndex}`;
-    directoriesByPath[directoryPath] = Array.from({ length: 8 }, (_, childIndex) =>
+  directoriesByPath[rootPath] = Array.from(
+    { length: WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT },
+    (_, rootIndex) =>
       createDirectoryEntry({
-        depth: 1,
-        name: `child-${rootIndex}-${childIndex}`,
-        path: `${directoryPath}/child-${rootIndex}-${childIndex}`,
+        depth: 0,
+        name: `folder-${rootIndex}`,
+        path: `${rootPath}/folder-${rootIndex}`,
         rootFolderId: rootPath,
       })
+  );
+
+  for (let rootIndex = 0; rootIndex < WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT; rootIndex += 1) {
+    const directoryPath = `${rootPath}/folder-${rootIndex}`;
+    directoriesByPath[directoryPath] = Array.from(
+      { length: WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT },
+      (_, childIndex) =>
+        createDirectoryEntry({
+          depth: 1,
+          name: `child-${rootIndex}-${childIndex}`,
+          path: `${directoryPath}/child-${rootIndex}-${childIndex}`,
+          rootFolderId: rootPath,
+        })
     );
 
-    for (let childIndex = 0; childIndex < 8; childIndex += 1) {
+    for (let childIndex = 0; childIndex < WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT; childIndex += 1) {
       const childDirectoryPath = `${directoryPath}/child-${rootIndex}-${childIndex}`;
       const filePath = `${childDirectoryPath}/file-${rootIndex}-${childIndex}.ts`;
       directoriesByPath[childDirectoryPath] = [
@@ -1115,6 +1150,7 @@ export async function installWideExpandAllFixture(
 
   const fixture: ElectronE2eFileSystemFixture = {
     directoriesByPath,
+    directoryReadDelayMs: WIDE_EXPAND_ALL_DIRECTORY_READ_DELAY_MS,
     fileContentsByPath,
     readDirectoryCalls: [],
     readFileByPathCalls: [],
