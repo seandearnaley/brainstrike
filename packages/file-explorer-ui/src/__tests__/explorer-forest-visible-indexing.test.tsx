@@ -19,6 +19,7 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { composeWrappers, createFileNode, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   FileRowMetadataProvider,
@@ -74,7 +75,12 @@ function ForestPanelHarness({
   rootDirectoryHandles: (typeof handleA)[];
 }) {
   const rowMetadata = useExplorerRowMetadata();
-  onVisibleKeys(rowMetadata.visibleFileKeys);
+  // Report from an effect, not during render: the real panel forwards these
+  // keys to the indexer after commit, and a render React discards must not
+  // publish keys for a tree that never mounted.
+  useEffect(() => {
+    onVisibleKeys(rowMetadata.visibleFileKeys);
+  }, [onVisibleKeys, rowMetadata.visibleFileKeys]);
   return (
     <FileRowMetadataProvider value={rowMetadata.contextValue}>
       <ForestTreeActionsProvider>
