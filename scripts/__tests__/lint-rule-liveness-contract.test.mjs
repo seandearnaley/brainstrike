@@ -30,13 +30,17 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 // lintText only uses the path to resolve config.
 const FIXTURE_PATH = path.join(repoRoot, 'packages/ui/src/lint-rule-liveness-fixture.tsx');
 
+// One instance, shared by every case: constructing ESLint re-reads and re-links
+// the flat config, which is the slow part. All cases lint against the same
+// shipping config, so a fresh instance per case buys nothing.
+const eslint = new ESLint({ cwd: repoRoot });
+
 /**
  * Lint a source string as if it were a real file at `filePath`, using the
  * repository's own eslint.config.js (not a synthetic config — the point is to
  * prove the SHIPPING configuration still enforces the rule).
  */
 async function lintFixture(code) {
-  const eslint = new ESLint({ cwd: repoRoot });
   const results = await eslint.lintText(code, { filePath: FIXTURE_PATH });
   return results.flatMap((result) => result.messages);
 }
@@ -128,7 +132,6 @@ test('the liveness fixture path is actually linted by the repo config', async ()
   // Guards the setup itself: if eslint.config.js `files`/`ignores` ever stop
   // covering FIXTURE_PATH, every case above would lint to zero messages and
   // could be "fixed" by loosening the assertions instead of the config.
-  const eslint = new ESLint({ cwd: repoRoot });
   assert.equal(
     await eslint.isPathIgnored(FIXTURE_PATH),
     false,

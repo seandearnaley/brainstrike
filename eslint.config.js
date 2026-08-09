@@ -124,14 +124,23 @@ export default [
       //
       // Semantics deliberately match @vitejs/plugin-react's runtime check
       // (`validateRefreshBoundaryAndEnqueueUpdate`), which accepts an export
-      // when it is component-like OR its identity is unchanged: only EXPORTED
-      // plain functions and hooks break the boundary. Biome's
+      // when it is component-like OR its identity is unchanged. Only EXPORTED
+      // bindings matter — a private helper never breaks the boundary. Biome's
       // `useComponentExportOnlyModules` was rejected for this job — it also
       // flags unexported components (63 sites, not a defect: the runtime walks
       // `moduleExports` only) and misreads `export default <Component>` aliases
       // (29 false positives).
       //
-      // `allowConstantExport` matches Vite, which tolerates constant exports.
+      // `allowConstantExport` matches Vite, but it is a LITERAL-only exemption —
+      // narrower than "constants". Measured against this config:
+      //   exempt: string / number / template-literal initialisers, and anything
+      //           PascalCase (the rule reads that as a component by convention)
+      //   WARNS:  camelCase arrow consts, `use*` hooks, `export const X = {…}`,
+      //           array literals, classes, plain function declarations
+      // So a warning on a `const` is usually correct rather than noise: an
+      // object or array initialiser gets a FRESH IDENTITY on re-evaluation, so
+      // it fails the runtime's identity check exactly like a function would.
+      // Only immutable primitives can be compared equal across a reload.
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   },
