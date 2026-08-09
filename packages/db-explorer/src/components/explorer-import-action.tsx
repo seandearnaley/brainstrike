@@ -2,21 +2,26 @@ import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/st
 import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { type EmbeddingSet, refreshCollectionIndexingStats } from '@brainstrike/db';
 import { useEmbeddingSetsRepository, usePGliteDatabase } from '@brainstrike/db/react';
+import { useSelectionActionBarPin } from '@brainstrike/file-explorer-ui/shell';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Button, Popover, PopoverContent, PopoverTrigger, useToast } from '@brainstrike/ui';
 import { FileText } from 'lucide-react';
-import { type ReactElement, useCallback, useState } from 'react';
+import { type ReactElement, useCallback, useEffect, useState } from 'react';
 import { useCollectionDialogs } from '../hooks/use-collection-dialogs';
 import { createImportCompletionHandler } from '../hooks/use-import-completion';
 import { useImportFlowSettings } from '../hooks/use-import-flow-settings';
 import { useImportSettings } from '../hooks/use-import-settings';
+import {
+  clearImportActivitySnapshot,
+  publishImportActivitySnapshot,
+} from '../import-activity-snapshot';
 import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
 import { useImportFlow } from '../use-import-flow';
 import { collectionCacheSnapshotFromEmbeddingSet } from '../utils/collection-cache-snapshot';
 import { CreateCollectionDialog } from './create-collection-dialog';
 import { DatabaseDemoCollectionDialogs } from './database-demo-collection-dialogs';
+import { ExplorerCollectionPicker } from './explorer-collection-picker';
 import { ImportProgressBar } from './import-progress-bar';
-import { SearchCollectionSelector } from './search-collection-selector';
 
 const MANAGED_COLLECTION_BLOCK_REASON = 'Background indexing manages imports for this collection';
 
@@ -122,20 +127,11 @@ export function ExplorerImportAction({
     toast,
   });
 
-  const handleCollectionChange = useCallback(
-    (collectionId: string | null) => {
-      const nextCollection = collectionId
-        ? useVectorStatusUIStore
-            .getState()
-            .cachedCollections.find((candidate) => candidate.id === collectionId)
-        : null;
-      if (nextCollection?.systemRole === 'workspace-index') {
-        return;
-      }
-      setActiveCollectionId(collectionId);
-    },
-    [setActiveCollectionId]
-  );
+  // System-owned collections never reach here: they are filtered out of the
+  // picker's list AND rejected by CollectionPicker's own protection check. No
+  // defensive re-check — a workspace-index id arriving here would be a bug we
+  // want to see, not swallow.
+  const handleCollectionChange = setActiveCollectionId;
 
   const handleCollectionCreated = useCallback(
     (newSetId: string, newSet: EmbeddingSet) => {
@@ -154,6 +150,24 @@ export function ExplorerImportAction({
     setPickerOpen(false);
     importFlow.handleImportClick();
   }, [importFlow.handleImportClick]);
+
+  // The import service lives in this component, and this component is a child
+  // of the selection bar. Without the pin, clearing the selection mid-import
+  // would unmount the service: its cleanup clears the app-wide
+  // embedding-queue-active flag and its progress state goes with it. Pinning
+  // holds the bar (and this subtree) open until the run is acknowledged.
+  useSelectionActionBarPin(importFlow.isImporting || importFlow.showImportProgress);
+
+  // This is the only surface that runs imports, so it is also the only one that
+  // can report their progress. The Database panel's observability hook reads
+  // what we publish here instead of owning a duplicate import service.
+  useEffect(() => {
+    publishImportActivitySnapshot({
+      progress: importFlow.progress,
+      selectedFileCount: importFlow.selectedFileCount,
+    });
+    return clearImportActivitySnapshot;
+  }, [importFlow.progress, importFlow.selectedFileCount]);
 
   const blockReason = resolveImportBlockReason({
     activeCollectionId,
@@ -203,16 +217,13 @@ export function ExplorerImportAction({
           side="top"
         >
           <div className="flex flex-col gap-3">
-            <SearchCollectionSelector
+            <ExplorerCollectionPicker
               activeCollectionId={activeCollectionId}
               db={dbContext}
-              headerLabel="Target Collection"
-              maxHeight="16rem"
               onCollectionChange={handleCollectionChange}
               onCreateCollection={collectionDialogs.handleCreateCollection}
               onDeleteCollection={collectionDialogs.handleDeleteCollection}
               onEditCollection={collectionDialogs.handleEditCollection}
-              showHeader
             />
 
             {isManagedCollection ? (
@@ -224,6 +235,7 @@ export function ExplorerImportAction({
             <Button
               aria-label="Import selected files into collection"
               className="w-full"
+              data-testid="explorer-import-confirm"
               disabled={blockReason !== null}
               onClick={handleImport}
               size="sm"

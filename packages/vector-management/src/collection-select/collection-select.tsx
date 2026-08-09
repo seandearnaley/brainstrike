@@ -359,6 +359,27 @@ function areCollectionsEqual(
   return true;
 }
 
+/**
+ * One-shot read of the collections projection.
+ *
+ * Exists so read-only surfaces (a transient picker) can show collections
+ * WITHOUT mounting a second `useCollections`. Two live instances both write the
+ * shared `cachedCollections` cache after applying their OWN pending mutations,
+ * so they ping-pong the store forever once those diverge (React "maximum update
+ * depth"). Exactly one `useCollections` may be mounted at a time.
+ */
+export async function fetchCollectionsSnapshot(
+  db: ReturnType<typeof usePGliteDatabase> | null | undefined
+): Promise<CollectionWithDocCount[]> {
+  if (!(db && typeof (db as { query?: unknown }).query === 'function')) {
+    return [];
+  }
+  const result = await (
+    db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
+  ).query(COLLECTIONS_QUERY);
+  return normalizeCollectionRows(result.rows);
+}
+
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);

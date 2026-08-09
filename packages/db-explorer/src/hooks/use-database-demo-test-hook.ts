@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { readImportActivitySnapshot } from '../import-activity-snapshot';
 import type { EnhancedImportProgress } from '../types';
 
 type DatabaseDemoImportProgress = EnhancedImportProgress;
@@ -46,24 +47,45 @@ declare global {
 
 interface UseDatabaseDemoTestHookOptions {
   readonly activeCollectionId: string | null;
+  /** App-wide import activity, not this panel's own (it runs no imports). */
   readonly isImporting: boolean;
-  readonly progress: DatabaseDemoImportProgress | null;
   readonly recordCount: number;
   readonly recordCurrentPage: number;
   readonly recordPageSize: number;
   readonly recordTotalRecords: number;
-  readonly selectedFileCount: number;
+}
+
+function projectProgress(
+  progress: DatabaseDemoImportProgress | null
+): DatabaseDemoImportTestSnapshot['progress'] {
+  if (!progress) {
+    return null;
+  }
+  return {
+    chunkingProgress: progress.chunkingProgress
+      ? {
+          chunksCreated: progress.chunkingProgress.chunksCreated,
+          currentFile: progress.chunkingProgress.currentFile ?? '',
+          filesProcessed: progress.chunkingProgress.filesProcessed,
+          strategyUsed: progress.chunkingProgress.strategyUsed ?? '',
+          totalFiles: progress.chunkingProgress.totalFiles,
+        }
+      : null,
+    completed: progress.completed,
+    current: progress.current ?? '',
+    errors: progress.errors.map((entry) => ({ error: entry.error, file: entry.file })),
+    phase: progress.phase,
+    total: progress.total,
+  };
 }
 
 export function useDatabaseDemoTestHook({
   activeCollectionId,
   isImporting,
-  progress,
   recordCount,
   recordCurrentPage,
   recordPageSize,
   recordTotalRecords,
-  selectedFileCount,
 }: UseDatabaseDemoTestHookOptions): void {
   useEffect(() => {
     if (!window.desktopLifecycle?.isTestMode) {
@@ -71,35 +93,23 @@ export function useDatabaseDemoTestHook({
     }
 
     window.__brainstrikeDatabaseDemoTestHooks__ = {
-      getImportSnapshot: () => ({
-        activeCollectionId,
-        isImporting,
-        progress: progress
-          ? {
-              chunkingProgress: progress.chunkingProgress
-                ? {
-                    chunksCreated: progress.chunkingProgress.chunksCreated,
-                    currentFile: progress.chunkingProgress.currentFile ?? '',
-                    filesProcessed: progress.chunkingProgress.filesProcessed,
-                    strategyUsed: progress.chunkingProgress.strategyUsed ?? '',
-                    totalFiles: progress.chunkingProgress.totalFiles,
-                  }
-                : null,
-              completed: progress.completed,
-              current: progress.current ?? '',
-              errors: progress.errors.map((entry) => ({ error: entry.error, file: entry.file })),
-              phase: progress.phase,
-              total: progress.total,
-            }
-          : null,
-        recordCount,
-        recordPagination: {
-          currentPage: recordCurrentPage,
-          pageSize: recordPageSize,
-          totalRecords: recordTotalRecords,
-        },
-        selectedFileCount,
-      }),
+      getImportSnapshot: () => {
+        // Read at call time: the import runs on another surface, so its
+        // progress must not be frozen into this effect's closure.
+        const importActivity = readImportActivitySnapshot();
+        return {
+          activeCollectionId,
+          isImporting,
+          progress: projectProgress(importActivity.progress),
+          recordCount,
+          recordPagination: {
+            currentPage: recordCurrentPage,
+            pageSize: recordPageSize,
+            totalRecords: recordTotalRecords,
+          },
+          selectedFileCount: importActivity.selectedFileCount,
+        };
+      },
     };
 
     return () => {
@@ -108,11 +118,9 @@ export function useDatabaseDemoTestHook({
   }, [
     activeCollectionId,
     isImporting,
-    progress,
     recordCount,
     recordCurrentPage,
     recordPageSize,
     recordTotalRecords,
-    selectedFileCount,
   ]);
 }

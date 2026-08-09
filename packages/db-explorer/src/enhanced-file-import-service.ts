@@ -43,6 +43,15 @@ import { useFileImportService } from './base-file-import-service';
 const logger = createLogger('AppShell:EnhancedFileImport');
 const QUEUE_PROGRESS_THROTTLE_MS = 100;
 
+/**
+ * `isEmbeddingQueueActive` is app-wide state on the shared vector-status store,
+ * but more than one import surface can subscribe to queue progress at a time
+ * (the Database panel and the explorer's selection bar). Refcount the
+ * subscribers so the LAST one to unmount clears the flag — otherwise whichever
+ * surface unmounts first reports "idle" on behalf of the one still running.
+ */
+let queueProgressSubscriberCount = 0;
+
 // Extended progress interface for chunking and embedding
 interface EnhancedFileImportOptions {
   chunkingStrategy?: ChunkingStrategy;
@@ -429,6 +438,8 @@ export function useEnhancedFileImportService(
       scheduleQueueProgressUpdate(detail);
     });
 
+    queueProgressSubscriberCount += 1;
+
     return () => {
       unsubscribe();
       if (queueProgressFlushTimeoutRef.current) {
@@ -441,7 +452,10 @@ export function useEnhancedFileImportService(
         queueActiveClearTimeoutRef.current = null;
       }
       lastQueueActiveRef.current = false;
-      setIsEmbeddingQueueActive(false);
+      queueProgressSubscriberCount -= 1;
+      if (queueProgressSubscriberCount === 0) {
+        setIsEmbeddingQueueActive(false);
+      }
     };
   }, [browserQueuePort, scheduleQueueProgressUpdate, setIsEmbeddingQueueActive]);
 

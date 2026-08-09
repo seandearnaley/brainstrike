@@ -6,6 +6,7 @@ import type {
 } from './embedding-worker-renderer.shared';
 import * as shared from './embedding-worker-renderer.shared';
 import { expect, test } from './embedding-worker-renderer.shared';
+import { importSelectedFilesFromExplorer } from './utils/explorer-import';
 
 const {
   ACTUAL_IMPORT_SENTENCES_PER_FILE,
@@ -200,12 +201,10 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         )
       ).toBe(true);
 
-      const importButton = activeWindow.getByRole('button', { name: /^Import\s*\(/ });
-      await expect(importButton).toContainText(`(${ACTUAL_IMPORT_STRESS_FILE_COUNT})`, {
+      await importSelectedFilesFromExplorer(activeWindow, {
+        expectedSelectedCount: ACTUAL_IMPORT_STRESS_FILE_COUNT,
         timeout: 30_000,
       });
-
-      await importButton.click({ timeout: 5000 });
 
       const runtimeIds = {
         chunking: new Set<string>(),

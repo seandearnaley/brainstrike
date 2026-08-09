@@ -20,17 +20,6 @@ interface SearchCollectionSelectorProps {
   db: ReturnType<typeof usePGliteDatabase>;
 
   /**
-   * Label shown above the list when the header is visible.
-   */
-  headerLabel?: string;
-
-  /**
-   * Scroll cap for the list. Defaults to `'none'` (the Database panel lets its
-   * own scroll owner handle overflow); bounded surfaces pass an explicit cap.
-   */
-  maxHeight?: string;
-
-  /**
    * Callback when collection selection changes
    */
   onCollectionChange: (collectionId: string | null) => void;
@@ -49,12 +38,6 @@ interface SearchCollectionSelectorProps {
    * Callback when edit is clicked on a collection
    */
   onEditCollection: (collection: CollectionPickerCollection) => void;
-
-  /**
-   * Whether to show the picker's own header (label + Create button). Defaults
-   * to `false`; the Database panel supplies its own "New" affordance.
-   */
-  showHeader?: boolean;
 }
 
 /**
@@ -71,13 +54,10 @@ interface SearchCollectionSelectorProps {
 export function SearchCollectionSelector({
   db,
   activeCollectionId,
-  headerLabel = 'Search Collection',
-  maxHeight = 'none',
   onCollectionChange,
   onCreateCollection,
   onEditCollection,
   onDeleteCollection,
-  showHeader = false,
 }: SearchCollectionSelectorProps) {
   const { toast } = useToast();
   const lastToastErrorRef = useRef<string | null>(null);
@@ -165,15 +145,14 @@ export function SearchCollectionSelector({
     <ErrorBoundary>
       <CollectionPicker
         collections={visibleCollections}
-        headerLabel={headerLabel}
         loading={isLoading}
-        maxHeight={maxHeight}
+        maxHeight="none"
         onCreate={onCreateCollection}
         onDelete={handleDelete}
         onEdit={handleEdit}
         onSelect={handleSelect}
         selectedId={selectedId}
-        showHeader={showHeader}
+        showHeader={false}
       />
     </ErrorBoundary>
   );

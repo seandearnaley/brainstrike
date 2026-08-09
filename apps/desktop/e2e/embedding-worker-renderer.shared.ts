@@ -40,6 +40,7 @@ export {
 
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import type { ElectronAppContext } from './utils/electron-helpers.mts';
+import { importSelectedFilesFromExplorer } from './utils/explorer-import';
 import { showDatabaseDemoPanel } from './utils/layout-helpers';
 
 export interface BufferedLogRecord {
@@ -3055,11 +3056,10 @@ export async function prepareRealWorldMixedStateScenario(
     }
   );
 
-  const importButton = activeWindow.getByRole('button', { name: /^Import\s*\(/ });
-  await expect(importButton).toContainText(`(${REAL_WORLD_MIXED_STATE_FILE_COUNT})`, {
+  await importSelectedFilesFromExplorer(activeWindow, {
+    expectedSelectedCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
     timeout: 30_000,
   });
-  await importButton.click({ timeout: 5000 });
 
   let sawChunkingHostActive = false;
   let importImportedPathCounts: ImportedPathCounts | null = null;

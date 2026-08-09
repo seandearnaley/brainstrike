@@ -84,8 +84,8 @@ const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
  */
 const SELECTION_BAR_SCROLL_PADDING = 'pb-20';
 
-function explorerScrollRootClassName(hasSelection: boolean): string {
-  return cn('h-full overflow-y-auto', hasSelection && SELECTION_BAR_SCROLL_PADDING);
+function explorerScrollRootClassName(barVisible: boolean): string {
+  return cn('h-full overflow-y-auto', barVisible && SELECTION_BAR_SCROLL_PADDING);
 }
 
 const LARGE_SELECTION_RENDER_DIAGNOSTIC_THRESHOLD = 250;

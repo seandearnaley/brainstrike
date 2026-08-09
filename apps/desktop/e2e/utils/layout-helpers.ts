@@ -603,7 +603,8 @@ export function getDatabasePanelElements(page: Page) {
       .or(page.locator('[data-testid="status-bar-db-loading"]'))
       .first(),
     deleteButtons: page.locator('tbody tr button[title="Remove record"]'),
-    importButton: page.locator('button:has-text("Import")'),
+    // No import control here: the trigger lives in the explorer's selection
+    // action bar (see utils/explorer-import.ts).
     panel: page.locator('[data-testid="database-demo-panel"]'),
     refreshButton: page.locator('button:has-text("Refresh")'),
     storageInfo: page.locator('text=NodeFS:').or(page.locator('text=IndexedDB')),

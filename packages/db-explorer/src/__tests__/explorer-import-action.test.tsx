@@ -14,19 +14,33 @@ import userEvent from '@testing-library/user-event';
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExplorerImportAction } from '../components/explorer-import-action';
+import {
+  clearImportActivitySnapshot,
+  readImportActivitySnapshot,
+} from '../import-activity-snapshot';
 
 const {
   mockCollections,
   mockDatabase,
   mockImportFiles,
+  mockImportServiceState,
   mockRefreshCollectionIndexingStats,
   mockSelectedFilePaths,
+  mockUseSelectionActionBarPin,
 } = vi.hoisted(() => ({
   mockCollections: { current: [] as CollectionPickerCollection[] },
   mockDatabase: { query: vi.fn() },
   mockImportFiles: vi.fn().mockResolvedValue(undefined),
+  mockImportServiceState: {
+    // Captured from the service options so tests can fire the service's first
+    // progress emission explicitly, the way the real service would.
+    emitProgress: null as (() => void) | null,
+    isImporting: false,
+    progress: null as Record<string, unknown> | null,
+  },
   mockRefreshCollectionIndexingStats: vi.fn().mockResolvedValue(undefined),
   mockSelectedFilePaths: { current: new Set<string>() },
+  mockUseSelectionActionBarPin: vi.fn(),
 }));
 
 vi.mock('@brainstrike/db', async (importOriginal) => {
@@ -74,12 +88,11 @@ vi.mock('@brainstrike/vector-management', async (importOriginal) => {
       </button>
     ),
     DeleteEmbeddingSetDialog: () => <div data-testid="mock-delete-embedding-set-dialog" />,
+    // The explorer picker deliberately does NOT mount useCollections (a second
+    // instance ping-pongs the shared cache); it reads the store cache and tops
+    // it up with this one-shot.
+    fetchCollectionsSnapshot: async () => mockCollections.current,
     RenameEmbeddingSetDialog: () => <div data-testid="mock-rename-embedding-set-dialog" />,
-    useCollections: () => ({
-      collections: mockCollections.current,
-      error: null,
-      loading: false,
-    }),
   };
 });
 
@@ -97,13 +110,16 @@ vi.mock('@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog'
 }));
 
 vi.mock('../enhanced-file-import-service', () => ({
-  useEnhancedFileImportService: () => ({
-    cancelImport: vi.fn(),
-    chunkRepository: null,
-    importFiles: mockImportFiles,
-    isImporting: false,
-    progress: null,
-  }),
+  useEnhancedFileImportService: (options: { onProgress?: () => void }) => {
+    mockImportServiceState.emitProgress = options.onProgress ?? null;
+    return {
+      cancelImport: vi.fn(),
+      chunkRepository: null,
+      importFiles: mockImportFiles,
+      isImporting: mockImportServiceState.isImporting,
+      progress: mockImportServiceState.progress,
+    };
+  },
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
@@ -112,6 +128,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     fileTree: [],
     unfilteredFileTree: null,
   }),
+  useSelectionActionBarPin: mockUseSelectionActionBarPin,
   useSelectionManager: () => ({ selectedFilePaths: mockSelectedFilePaths.current }),
 }));
 
@@ -147,7 +164,15 @@ const memoryThemeStorage = {
  */
 async function renderAction(ui: ReactElement): Promise<HTMLElement> {
   renderComponent(<ThemeProvider storageAdapter={memoryThemeStorage}>{ui}</ThemeProvider>);
-  return await screen.findByRole('button', { name: /^Import into collection/ });
+  const trigger = await screen.findByRole('button', { name: /^Import into collection/ });
+  if (mockImportServiceState.progress) {
+    // The real service's first emission is what flips the flow's
+    // showImportProgress latch; replay it here.
+    await act(async () => {
+      mockImportServiceState.emitProgress?.();
+    });
+  }
+  return trigger;
 }
 
 async function openPicker(): Promise<HTMLElement> {
@@ -157,16 +182,22 @@ async function openPicker(): Promise<HTMLElement> {
 }
 
 beforeEach(() => {
+  clearImportActivitySnapshot();
   __resetVectorStatusUIStoreForTests();
   __resetBackgroundIndexingPreferencesStoreForTests();
   __resetImportSettingsStoreForTests();
   mockImportFiles.mockClear();
   mockRefreshCollectionIndexingStats.mockClear();
+  mockUseSelectionActionBarPin.mockClear();
+  mockImportServiceState.emitProgress = null;
+  mockImportServiceState.isImporting = false;
+  mockImportServiceState.progress = null;
   mockSelectedFilePaths.current = new Set(['root-1|@|/workspace/a.ts', 'root-1|@|/workspace/b.ts']);
   mockCollections.current = [
     collection({ id: 'docs' }),
     collection({ id: 'workspace-index', name: 'Workspace Index', systemRole: 'workspace-index' }),
   ];
+  useVectorStatusUIStore.getState().setCachedCollections(mockCollections.current);
 });
 
 describe('ExplorerImportAction', () => {
@@ -244,6 +275,7 @@ describe('ExplorerImportAction', () => {
   it('opens the create-collection dialog from the picker', async () => {
     const user = userEvent.setup();
     mockCollections.current = [];
+    useVectorStatusUIStore.getState().setCachedCollections([]);
     const picker = await openPicker();
 
     await user.click(within(picker).getByRole('button', { name: 'Create First Collection' }));
@@ -251,9 +283,77 @@ describe('ExplorerImportAction', () => {
     expect(await screen.findByTestId('mock-create-embedding-set-dialog')).toBeInTheDocument();
   });
 
+  describe('while an import is running', () => {
+    beforeEach(() => {
+      mockImportServiceState.isImporting = true;
+      mockImportServiceState.progress = {
+        completed: 3,
+        current: '/workspace/a.ts',
+        errors: [],
+        phase: 'importing',
+        total: 8,
+      };
+    });
+
+    it('shows the import progress panel', async () => {
+      await renderAction(<ExplorerImportAction />);
+
+      const progress = await screen.findByTestId('explorer-import-progress');
+      expect(within(progress).getByText('Importing')).toBeInTheDocument();
+      expect(within(progress).getByLabelText('Files import progress')).toBeInTheDocument();
+      expect(within(progress).getByText('3/8')).toBeInTheDocument();
+    });
+
+    it('pins the selection bar so clearing the selection cannot tear the run down', async () => {
+      await renderAction(<ExplorerImportAction />);
+
+      // The service (and the app-wide embedding-queue-active flag it owns)
+      // dies with this subtree, so the bar must be held open.
+      expect(mockUseSelectionActionBarPin).toHaveBeenCalledWith(true);
+    });
+
+    it('publishes its progress for the app-wide import observability hook', async () => {
+      await renderAction(<ExplorerImportAction />);
+
+      expect(readImportActivitySnapshot()).toEqual({
+        progress: expect.objectContaining({ completed: 3, phase: 'importing', total: 8 }),
+        selectedFileCount: 2,
+      });
+    });
+
+    it('keeps the progress panel and the pin after the selection empties', async () => {
+      mockSelectedFilePaths.current = new Set();
+      await renderAction(<ExplorerImportAction />);
+
+      expect(await screen.findByTestId('explorer-import-progress')).toBeInTheDocument();
+      expect(mockUseSelectionActionBarPin).toHaveBeenCalledWith(true);
+    });
+
+    it('refuses to start a second import', async () => {
+      act(() => {
+        useVectorStatusUIStore.getState().setActiveEmbeddingSetId('docs');
+      });
+      const picker = await openPicker();
+
+      const confirm = within(picker).getByRole('button', {
+        name: 'Import selected files into collection',
+      });
+      expect(confirm).toBeDisabled();
+      expect(confirm).toHaveAttribute('title', 'An import is already running');
+    });
+  });
+
+  it('leaves the selection bar unpinned while idle', async () => {
+    await renderAction(<ExplorerImportAction />);
+
+    expect(mockUseSelectionActionBarPin).toHaveBeenCalledWith(false);
+    expect(mockUseSelectionActionBarPin).not.toHaveBeenCalledWith(true);
+  });
+
   it('activates a freshly created collection as the import target', async () => {
     const user = userEvent.setup();
     mockCollections.current = [];
+    useVectorStatusUIStore.getState().setCachedCollections([]);
     const picker = await openPicker();
 
     await user.click(within(picker).getByRole('button', { name: 'Create' }));

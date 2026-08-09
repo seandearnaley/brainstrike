@@ -1,3 +1,4 @@
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { QUEUE_PROGRESS_EVENT } from '@brainstrike/utils/browser-events';
 import { act, renderHook } from '@testing-library/react';
@@ -723,6 +724,31 @@ describe('useEnhancedFileImportService', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('keeps the app-wide queue-active flag set while another surface is still subscribed', () => {
+      // Two import surfaces can be mounted at once (the Database panel and the
+      // explorer's selection bar). `isEmbeddingQueueActive` is shared state, so
+      // the FIRST unmount must not report "idle" on behalf of the one still
+      // listening - only the last subscriber clears it.
+      const embeddingQueue = { add: vi.fn() } as unknown as QueueAdapter;
+
+      const first = renderHook(() => useEnhancedFileImportService({ embeddingQueue }));
+      const second = renderHook(() => useEnhancedFileImportService({ embeddingQueue }));
+
+      act(() => {
+        useVectorStatusUIStore.getState().setIsEmbeddingQueueActive(true);
+      });
+
+      act(() => {
+        first.unmount();
+      });
+      expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(true);
+
+      act(() => {
+        second.unmount();
+      });
+      expect(useVectorStatusUIStore.getState().isEmbeddingQueueActive).toBe(false);
     });
   });
 });
