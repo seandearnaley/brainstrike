@@ -1023,9 +1023,10 @@ describe('DatabaseDemoPanel', () => {
       mockRecordLiveQueryResult.loading = true;
       view.rerender(withProviders(<DatabaseDemoPanel />));
 
-      // Revalidation is a background state: the panel stays mounted and
-      // non-busy, and only the Refresh affordance reflects the in-flight read.
-      expect(screen.getByTestId('database-demo-panel')).toHaveAttribute('aria-busy', 'false');
+      // Revalidation is a background state: no loading takeover, and only the
+      // Refresh affordance reflects the in-flight read. (`aria-busy` is not
+      // asserted here — the ready branch hardcodes `busy={false}`, so the
+      // check could never fail and would only look like coverage.)
       expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Refresh' })).toBeDisabled();
     });

@@ -399,23 +399,32 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     const searchQuery = 'desktop chunking backfill';
     await runWorkspaceSemanticSearch(searchPanel, searchQuery);
 
-    const rendererLogs = await getRendererLogRecords(activeWindow);
-    const searchLogs = rendererLogs.filter(
-      (record) =>
-        recordContainsText(record, 'Search') ||
-        recordContainsText(record, 'search') ||
-        recordContainsText(record, 'embedder') ||
-        recordContainsText(record, 'Embedder')
-    );
+    // Diagnostics are gathered ON FAILURE, not here: renderer logs and visible
+    // alerts read at submit time would describe a moment up to 60s before the
+    // failure they are meant to explain.
     const searchSnapshot = await waitForWorkspaceSemanticSearchResults(searchPanel, {
-      context:
-        `query="${searchQuery}"\n` +
-        `directSqlSearchWorked=${directSqlSearchResult.matchCount > 0}\n` +
-        `dbEmbeddedChunks=${dbDiagnostics.embeddedCount}\n` +
-        `dbDimension=${embeddingDimension}\n` +
-        `workspaceRootId=${workspaceRootId}\n` +
-        `alerts=${JSON.stringify(await getVisibleAlertTexts(activeWindow))}\n` +
-        `searchLogs=${JSON.stringify(searchLogs.slice(-10))}`,
+      context: async () => {
+        const [rendererLogs, alertTexts] = await Promise.all([
+          getRendererLogRecords(activeWindow),
+          getVisibleAlertTexts(activeWindow),
+        ]);
+        const searchLogs = rendererLogs.filter(
+          (record) =>
+            recordContainsText(record, 'Search') ||
+            recordContainsText(record, 'search') ||
+            recordContainsText(record, 'embedder') ||
+            recordContainsText(record, 'Embedder')
+        );
+        return (
+          `query="${searchQuery}"\n` +
+          `directSqlSearchWorked=${directSqlSearchResult.matchCount > 0}\n` +
+          `dbEmbeddedChunks=${dbDiagnostics.embeddedCount}\n` +
+          `dbDimension=${embeddingDimension}\n` +
+          `workspaceRootId=${workspaceRootId}\n` +
+          `alerts=${JSON.stringify(alertTexts)}\n` +
+          `searchLogs=${JSON.stringify(searchLogs.slice(-10))}`
+        );
+      },
     });
 
     // ── 8. The results tree rendered real file rows, not the empty state ───
@@ -547,7 +556,7 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     expect(timeOriginAfterSearch).toBe(timeOriginBeforeSearch);
 
     const searchSnapshot = await waitForWorkspaceSemanticSearchResults(searchPanel, {
-      context:
+      context: async () =>
         'stale vector-preferences store\n' +
         `alerts=${JSON.stringify(await getVisibleAlertTexts(activeWindow))}`,
     });

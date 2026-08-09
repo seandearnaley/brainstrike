@@ -202,6 +202,25 @@ export async function getWorkspaceSemanticSearchSnapshot(
 }
 
 /**
+ * Failure diagnostics for {@link waitForWorkspaceSemanticSearchResults}.
+ *
+ * Prefer the thunk form for anything READ FROM THE APP (renderer logs, visible
+ * alerts): a plain string is evaluated at call time and would be printed up to
+ * a minute later, describing a moment that has nothing to do with the failure.
+ */
+type WorkspaceSearchFailureContext = (() => Promise<string> | string) | string;
+
+async function resolveFailureContext(
+  context: WorkspaceSearchFailureContext | undefined
+): Promise<string> {
+  if (context === undefined) {
+    return '';
+  }
+  const resolved = typeof context === 'function' ? await context() : context;
+  return resolved ? `\ncontext=${resolved}` : '';
+}
+
+/**
  * Poll until the panel reaches a successful terminal results state, throwing a
  * diagnostic error otherwise. Returns the winning snapshot.
  *
@@ -210,7 +229,7 @@ export async function getWorkspaceSemanticSearchSnapshot(
  */
 export async function waitForWorkspaceSemanticSearchResults(
   panel: Locator,
-  options?: { context?: string; timeoutMs?: number }
+  options?: { context?: WorkspaceSearchFailureContext; timeoutMs?: number }
 ): Promise<WorkspaceSemanticSearchSnapshot> {
   const timeoutMs = options?.timeoutMs ?? 60_000;
   const startedAt = Date.now();
@@ -222,9 +241,9 @@ export async function waitForWorkspaceSemanticSearchResults(
 
     if (snapshot.error) {
       throw new Error(
-        `Workspace semantic search failed: ${snapshot.error}${
-          options?.context ? `\ncontext=${options.context}` : ''
-        }`
+        `Workspace semantic search failed: ${snapshot.error}${await resolveFailureContext(
+          options?.context
+        )}`
       );
     }
 
@@ -237,8 +256,6 @@ export async function waitForWorkspaceSemanticSearchResults(
 
   throw new Error(
     `Workspace semantic search did not render results within ${timeoutMs}ms\n` +
-      `snapshot=${JSON.stringify(lastSnapshot)}${
-        options?.context ? `\ncontext=${options.context}` : ''
-      }`
+      `snapshot=${JSON.stringify(lastSnapshot)}${await resolveFailureContext(options?.context)}`
   );
 }

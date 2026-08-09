@@ -531,7 +531,27 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         await activeWindow.waitForTimeout(250);
       }
 
+      // Heavy UI interaction under load: run a semantic search over a 1002-file
+      // mixed-state session, then switch surfaces back to the Collections tab.
+      // The hidden embedding host must survive that — this check outlived the
+      // browser-only "Expand all" leg it used to hang off, because it is about
+      // the HOST, not about which surface did the interacting.
       await showDatabaseDemoPanel(activeWindow);
+
+      const [embeddingHostStatusAfterInteraction, queueStatsAfterInteraction] = await Promise.all([
+        getEmbeddingHostStatus(activeWindow),
+        getEmbeddingQueueStats(activeWindow),
+      ]);
+
+      if (
+        queueStatsAfterInteraction.queued + queueStatsAfterInteraction.running > 0 &&
+        (embeddingHostStatusAfterInteraction.state === 'error' ||
+          embeddingHostStatusAfterInteraction.state === 'stopped')
+      ) {
+        mixedStateFailures.push(
+          `embedding host stopped during active mixed-state backfill after heavy UI interaction: hostStatus=${JSON.stringify(embeddingHostStatusAfterInteraction)} queueStats=${JSON.stringify(queueStatsAfterInteraction)}`
+        );
+      }
 
       const importCollectionOption = activeWindow.locator(
         `#collection-option-${importEmbeddingSetId}`
