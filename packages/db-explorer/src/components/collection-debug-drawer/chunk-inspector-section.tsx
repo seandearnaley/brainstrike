@@ -69,10 +69,22 @@ export function ChunkInspectorSection({
     [files, selectedFileId]
   );
 
+  /**
+   * The selection is only live while its file is actually on the current Files
+   * page. Paging the Files pane swaps `records` underneath us, and nothing else
+   * here depends on `recordPage` — so without this the previous file's chunk
+   * rows stayed on screen next to a `1–50 of 0` range readout.
+   *
+   * Derived rather than cleared through an effect: this needs no extra render,
+   * cannot chain state updates, and lets the selection come back intact if the
+   * user pages back to the file.
+   */
+  const effectiveFileId = selectedFile?.id ?? null;
+
   // Load chunks for whichever file is selected. One-shot per selection — the
   // drawer never subscribes.
   useEffect(() => {
-    if (!(selectedFileId && activeCollectionId)) {
+    if (!(effectiveFileId && activeCollectionId)) {
       setChunks([]);
       setChunksError(null);
       return;
@@ -80,7 +92,7 @@ export function ChunkInspectorSection({
     let cancelled = false;
     setChunksLoading(true);
     setChunksError(null);
-    loadChunksForFile(database, selectedFileId, activeCollectionId, chunkPage)
+    loadChunksForFile(database, effectiveFileId, activeCollectionId, chunkPage)
       .then((rows) => {
         if (!cancelled) {
           setChunks(rows);
@@ -100,7 +112,7 @@ export function ChunkInspectorSection({
     return () => {
       cancelled = true;
     };
-  }, [activeCollectionId, chunkPage, database, selectedFileId]);
+  }, [activeCollectionId, chunkPage, database, effectiveFileId]);
 
   const handleSelectFile = useCallback((fileId: string) => {
     setSelectedFileId(fileId);
@@ -175,7 +187,7 @@ export function ChunkInspectorSection({
           onClaimTarget={onClaimTarget}
           onSelectFile={handleSelectFile}
           page={recordPage}
-          selectedFileId={selectedFileId}
+          selectedFileId={effectiveFileId}
           setPage={setRecordPage}
           totalPages={recordPagination.totalPages}
         />
@@ -183,7 +195,7 @@ export function ChunkInspectorSection({
         <ChunkListPane
           chunks={chunks}
           error={chunksError}
-          hasSelectedFile={selectedFileId !== null}
+          hasSelectedFile={effectiveFileId !== null}
           loading={chunksLoading}
           onClaimTarget={onClaimTarget}
           onSelectChunk={setSelectedChunkId}

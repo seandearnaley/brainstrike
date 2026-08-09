@@ -143,24 +143,45 @@ function makeDatabase() {
 }
 
 function renderContent(overrides: { systemRole?: 'workspace-index' | null } = {}): {
+  rerenderWithRecords: (next: DatabaseFileRecordSummary[]) => void;
   writtenTexts: string[];
 } {
   const { registry, writtenTexts } = createTestActionRegistry({ actions: collectionActions });
-  render(
+  const database = makeDatabase();
+  const tree = (records: DatabaseFileRecordSummary[]) => (
     <ActionRegistryProvider registry={registry}>
       <CollectionDebugDrawerContent
         activeCollectionId="col-1"
         activeCollectionSystemRole={overrides.systemRole ?? null}
         chunkRepository={null}
-        database={makeDatabase()}
+        database={database}
         fileRepository={null}
-        recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 1, totalRecords: 3 }}
-        records={RECORDS}
+        recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 2, totalRecords: 4 }}
+        records={records}
       />
     </ActionRegistryProvider>
   );
-  return { writtenTexts };
+  const { rerender } = render(tree(RECORDS));
+  return {
+    rerenderWithRecords: (next) => rerender(tree(next)),
+    writtenTexts,
+  };
 }
+
+/** A second Files page: none of the round-0 file ids appear here. */
+const SECOND_PAGE_RECORDS: DatabaseFileRecordSummary[] = [
+  {
+    chunksCount: 1,
+    chunksProcessedAt: '2026-01-01T00:00:00.000Z',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    embeddedChunksCount: 1,
+    id: 'file-9',
+    name: 'omega.md',
+    path: 'docs/omega.md',
+    size: 10,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  },
+];
 
 async function closeMenuAndFlushFocusRestore(): Promise<void> {
   if (screen.queryByRole('menu')) {
@@ -330,6 +351,44 @@ describe('collection debug drawer content', () => {
       });
       // Page 1 must actually be requested with the right offset.
       expect(chunkQueryPages).toContain(1);
+    });
+  });
+
+  describe('paging the Files pane while a file is selected', () => {
+    it('drops the previous file’s chunks instead of leaving them rendered', async () => {
+      const user = userEvent.setup();
+      const { rerenderWithRecords } = renderContent();
+
+      await user.click(screen.getByRole('button', { name: /alpha\.md/ }));
+      const chunkList = await screen.findByTestId('collection-debug-chunk-list');
+      expect(within(chunkList).getByText(/quick brown fox/)).toBeInTheDocument();
+
+      // The Files pager moves recordPage, which swaps `records` for a page that
+      // no longer contains the selected file.
+      rerenderWithRecords(SECOND_PAGE_RECORDS);
+
+      await waitFor(() => {
+        expect(screen.queryByText(/quick brown fox/)).not.toBeInTheDocument();
+      });
+      // ...and the range readout must not survive as "1–50 of 0".
+      expect(screen.queryByTestId('collection-debug-chunk-range')).not.toBeInTheDocument();
+      expect(screen.getByTestId('collection-debug-inspector')).toHaveTextContent(
+        /select a file to list its chunks/i
+      );
+    });
+
+    it('keeps the selection when the same file is still on the new page', async () => {
+      const user = userEvent.setup();
+      const { rerenderWithRecords } = renderContent();
+
+      await user.click(screen.getByRole('button', { name: /alpha\.md/ }));
+      await screen.findByTestId('collection-debug-chunk-list');
+
+      // A live-query refresh that still contains the selected file must not
+      // clear it — only a genuine disappearance should.
+      rerenderWithRecords([...RECORDS]);
+
+      expect(screen.getByText(/quick brown fox/)).toBeInTheDocument();
     });
   });
 

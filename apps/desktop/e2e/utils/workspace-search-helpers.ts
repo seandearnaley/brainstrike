@@ -170,7 +170,10 @@ export async function runWorkspaceSemanticSearch(panel: Locator, query: string):
 export async function getWorkspaceSemanticSearchSnapshot(
   panel: Locator
 ): Promise<WorkspaceSemanticSearchSnapshot> {
-  const errorLocator = panel.getByRole('alert');
+  // Scoped to the RESULTS-area alert. `panel.getByRole('alert')` also matched
+  // the input bar's invalid-regex message (`search-input-bar.tsx`), so a bad
+  // pattern would have read as a failed search.
+  const errorLocator = panel.getByTestId('workspace-search-results-error');
   const searchingLocator = panel.getByText('Searching…', { exact: true });
   const emptyLocator = panel.getByText('No matches found', { exact: true });
   const selectAllLocator = panel.getByRole('checkbox', { name: SELECT_ALL_LABEL_PATTERN });

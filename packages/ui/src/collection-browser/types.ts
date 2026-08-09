@@ -248,8 +248,9 @@ export interface SemanticSearchResult {
  * Props for the SearchConfigPanel component.
  *
  * The panel is pure presentational content (search tuning controls). Open/close
- * is owned by whatever surface hosts it — currently the cog Popover in
- * {@link SearchModeBarProps.advancedOptions}.
+ * is owned by whatever surface hosts it — currently the cog Popover in the
+ * Database tab's collection debug drawer (`retrieval-preview-section.tsx`).
+ * The former host, `SearchModeBar`, went with the Collection Browser tree.
  */
 export interface SearchConfigPanelProps {
   /** Custom class name */

@@ -29,11 +29,22 @@ import {
   useSharedSearchEmbedder,
 } from '@brainstrike/vector-management';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { SearchExecutor } from '../contexts/semantic-search-context';
 import {
   buildLocalEmbeddingModelConfigMap,
   resolveEmbeddingSetModelInfo,
 } from '../utils/embedding-models';
+
+/**
+ * A one-shot scoped retrieval: run `query` against `embeddingSetId` with the
+ * given tuning and return scored chunks. Previously declared alongside the
+ * SemanticSearchProvider, which lost its last consumer when the Collection
+ * Browser was retired (BST-1213/1214); the executor is now the only owner.
+ */
+export type SearchExecutor = (
+  query: string,
+  config: SearchConfig,
+  embeddingSetId: string | null
+) => Promise<SemanticSearchResult[]>;
 
 const logger = createLogger('SemanticSearchExecutor');
 
