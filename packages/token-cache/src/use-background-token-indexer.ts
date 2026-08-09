@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   IndexerBatchRequest,
   IndexerError,
+  IndexerErrorReason,
   IndexerProgress,
   IndexerResult,
   WorkerLog,
@@ -111,8 +112,12 @@ export interface UseBackgroundTokenIndexerOptions {
   autoStart?: boolean;
   /** Token counting mode */
   mode: TokenCountingMode;
-  /** Callback when a file fails to index */
-  onFileError?: (compositeKey: string, error: string) => void;
+  /**
+   * Callback when a file yields no token count. `reason` distinguishes an
+   * EXPECTED exclusion (`'binary'`) from a genuine failure (undefined), so the
+   * caller can pick severity and decide whether a retry could ever help.
+   */
+  onFileError?: (compositeKey: string, error: string, reason?: IndexerErrorReason) => void;
   /** Callback when a file's token count is resolved (includes file size for cache updates) */
   onFileIndexed?: (compositeKey: string, tokenCount: number, fileSize: number) => void;
   /** Callback for progress updates */
@@ -785,13 +790,23 @@ export function useBackgroundTokenIndexer({
 
       const currentOnFileError = onFileErrorRef.current;
       if (currentOnFileError) {
-        currentOnFileError(error.compositeKey, error.error);
+        currentOnFileError(error.compositeKey, error.error, error.reason);
       }
 
-      logger.warn('Background token indexer file error', {
-        compositeKey: error.compositeKey,
-        error: error.error,
-      });
+      // An expected exclusion is not a warning. Keeping it at warn meant one
+      // indexed tree of binary files cost three flight-recorder records each
+      // (worker log, here, and the integration's error), evicting real ones.
+      if (error.reason === 'binary') {
+        logger.debug('Background token indexer excluded file', {
+          compositeKey: error.compositeKey,
+          reason: error.reason,
+        });
+      } else {
+        logger.warn('Background token indexer file error', {
+          compositeKey: error.compositeKey,
+          error: error.error,
+        });
+      }
 
       // Check if all done
       if (pendingFilesRef.current.size === 0) {

@@ -15,7 +15,7 @@
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
-import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
+import type { FileToIndex, IndexerErrorReason } from '@brainstrike/token-cache/background-indexer';
 import { useBackgroundTokenIndexer } from '@brainstrike/token-cache/background-indexer';
 import type { FileForIndexingResolution, IFileNode } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -524,31 +524,49 @@ export function useBackgroundTokenIndexerIntegration({
     []
   );
 
-  const handleFileError = useCallback((compositeKey: string, error: string) => {
-    if (compositeKey === '__worker__') {
-      // Terminal worker failures invalidate the whole in-flight queue.
-      // Keep behavior deterministic by clearing all pending file markers.
-      inFlightRef.current.clear();
-      bumpInFlightPulse((value) => value + 1);
-      logger.error('Background indexer terminal worker error', { error });
-      return;
-    }
+  const handleFileError = useCallback(
+    (compositeKey: string, error: string, reason?: IndexerErrorReason) => {
+      if (compositeKey === '__worker__') {
+        // Terminal worker failures invalidate the whole in-flight queue.
+        // Keep behavior deterministic by clearing all pending file markers.
+        inFlightRef.current.clear();
+        bumpInFlightPulse((value) => value + 1);
+        logger.error('Background indexer terminal worker error', { error });
+        return;
+      }
 
-    inFlightRef.current.delete(compositeKey);
-    indexedFilesRef.current.delete(compositeKey);
-    if (inFlightRef.current.size === 0) {
-      bumpInFlightPulse((value) => value + 1);
-    }
-    // ENOENT means the file vanished between when we cached its handle and
-    // when we tried to read it (delete, rename, git checkout, etc.). The
-    // indexer correctly removed it from in-flight above; the absence isn't
-    // alert-worthy. Other IO errors are still real bugs and stay at error.
-    if (isMissingFileError(error)) {
-      logger.debug('Background indexer skipping deleted file', { compositeKey });
-      return;
-    }
-    logger.error('Background indexer file error', { compositeKey, error });
-  }, []);
+      inFlightRef.current.delete(compositeKey);
+      if (reason === 'binary') {
+        // A binary verdict is SETTLED, not failed: the read succeeded and the
+        // answer cannot change until the file's bytes do. It has to be marked
+        // like a resolved file (in-flight only ever holds pending work), or
+        // the next visible-files pass hands the key straight back — which is
+        // how 8 files produced 149 identical error records. The retry loop,
+        // not the classification, was the flood.
+        indexedFilesRef.current.add(compositeKey);
+      } else {
+        indexedFilesRef.current.delete(compositeKey);
+      }
+      if (inFlightRef.current.size === 0) {
+        bumpInFlightPulse((value) => value + 1);
+      }
+      // Expected outcomes are not errors. Binary content is a routine answer
+      // the tree asks for constantly (BST-1207 models it as the `excluded`
+      // row state), and ENOENT means the file vanished between caching its
+      // handle and reading it (delete, rename, git checkout). Both are debug.
+      // Other IO errors are still real bugs and stay at error.
+      if (reason === 'binary') {
+        logger.debug('Background indexer excluded binary file', { compositeKey });
+        return;
+      }
+      if (isMissingFileError(error)) {
+        logger.debug('Background indexer skipping deleted file', { compositeKey });
+        return;
+      }
+      logger.error('Background indexer file error', { compositeKey, error });
+    },
+    []
+  );
 
   // Use the background token indexer when context is available
   const backgroundIndexer = useBackgroundTokenIndexer({
