@@ -78,8 +78,15 @@ export interface FileTreeMetadataSourceParams {
    * children, a filter changing) moves totals without naming a key, so the
    * store is reconciled whenever the row model changes. Row identity is
    * stabilized upstream, so scrolling does NOT trigger this.
+   *
+   * A revision rather than the rows array ON PURPOSE (BST-1209): once the rows
+   * can be SORTED, array identity also changes on a pure reorder — and
+   * reconciling on a reorder flips every rollup to partial, which bumps the
+   * sort's metadata revision, which reorders the rows again, forever. The
+   * revision counts structure (`FileTreeRowReuseCache.getStructureRevision`)
+   * and is invariant under reordering, so the ring cannot close.
    */
-  treeRows: unknown;
+  rowStructureRevision: number;
   visibleAggregates: VisibleDirectoryAggregates | null;
 }
 
@@ -366,7 +373,7 @@ export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams):
     [deferredRollups]
   );
 
-  const { folderId, treeRows } = params;
+  const { folderId, rowStructureRevision } = params;
   const registerSource = metadata?.registerSource;
   useEffect(() => {
     if (!(registerSource && folderId)) {
@@ -410,6 +417,9 @@ export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams):
     store?.invalidateAll();
     // Cleanup runs before the next pass AND on unmount, so a queued flush can
     // never outlive the tree that scheduled it.
+    // LOAD-BEARING DEPENDENCY (BST-1209 review): key on the structure revision,
+    // never on row-array identity — a pure reorder must not reach this effect,
+    // or the sort→invalidate→revision→re-sort ring closes into a rebuild loop.
     return deferredRollups.cancel;
-  }, [deferredRollups, store, treeRows]);
+  }, [deferredRollups, rowStructureRevision, store]);
 }

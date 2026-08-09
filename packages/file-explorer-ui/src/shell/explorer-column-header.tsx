@@ -27,7 +27,10 @@ import {
   useExplorerColumnSizesStore,
 } from '@brainstrike/app-state/stores/explorer-column-sizes-store';
 import type { ExplorerMetadataColumnId } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
-import { isExplorerSortField } from '@brainstrike/app-state/stores/explorer-sort-state-store';
+import {
+  isExplorerMetadataSortField,
+  isExplorerSortField,
+} from '@brainstrike/app-state/stores/explorer-sort-state-store';
 import {
   ColumnResizeHandle,
   cn,
@@ -36,6 +39,7 @@ import {
   useResizeObserver,
 } from '@brainstrike/ui';
 import { type RefObject, useCallback, useState } from 'react';
+import { useOptionalFileRowMetadata } from '../indexing/file-row-metadata-context';
 import {
   EXPLORER_METADATA_COLUMN_CONFIGS,
   EXPLORER_METADATA_HEADER_CLASS,
@@ -104,6 +108,11 @@ export function ExplorerColumnHeader({
   );
   const gutterWidth = useScrollbarGutterWidth(scrollerRef);
   const explorerSort = useOptionalExplorerSort();
+  // Capability gating (docs/agents/ui-conventions.md): Type/Tokens/Size can
+  // only be ordered where the metadata seam is mounted, so a surface without it
+  // does not OFFER those sorts at all rather than offering one that throws.
+  // Name never needs the seam.
+  const canSortByMetadata = useOptionalFileRowMetadata() !== null;
   const treeTableSortState = explorerSort?.sortState
     ? {
         columnId: explorerSort.sortState.field,
@@ -118,12 +127,17 @@ export function ExplorerColumnHeader({
       if (!isExplorerSortField(columnId)) {
         throw new Error(`Unsupported Explorer sort column: ${columnId}`);
       }
+      if (isExplorerMetadataSortField(columnId) && !canSortByMetadata) {
+        throw new Error(
+          `Explorer sort column "${columnId}" was activated without the file-row metadata seam`
+        );
+      }
       const currentDirection =
         treeTableSortState.columnId === columnId ? treeTableSortState.direction : null;
       const direction = getNextTreeTableSortDirection(currentDirection);
       explorerSort.setSortState(direction === null ? null : { direction, field: columnId });
     },
-    [explorerSort, treeTableSortState.columnId, treeTableSortState.direction]
+    [canSortByMetadata, explorerSort, treeTableSortState.columnId, treeTableSortState.direction]
   );
 
   const visible = new Set(visibleMetadataColumnIds);
@@ -186,7 +200,9 @@ export function ExplorerColumnHeader({
               const width = columnWidths[config.id];
               return (
                 <th
-                  aria-sort={getTreeTableAriaSortValue(config.id, treeTableSortState)}
+                  {...(canSortByMetadata
+                    ? { 'aria-sort': getTreeTableAriaSortValue(config.id, treeTableSortState) }
+                    : {})}
                   className={cn(
                     'relative text-left text-muted-foreground',
                     EXPLORER_METADATA_HEADER_CLASS
@@ -195,22 +211,33 @@ export function ExplorerColumnHeader({
                   key={config.id}
                   style={{ width }}
                 >
-                  <button
-                    aria-label={sortButtonLabel(config.label, config.id, treeTableSortState)}
-                    className={cn(
-                      'flex h-full w-full cursor-pointer items-center gap-1',
-                      config.align === 'right' && 'justify-end'
-                    )}
-                    onClick={() => handleSort(config.id)}
-                    type="button"
-                  >
-                    {config.label}
-                    {treeTableSortState.columnId === config.id ? (
-                      <span aria-hidden="true">
-                        {treeTableSortState.direction === 'asc' ? '↑' : '↓'}
-                      </span>
-                    ) : null}
-                  </button>
+                  {canSortByMetadata ? (
+                    <button
+                      aria-label={sortButtonLabel(config.label, config.id, treeTableSortState)}
+                      className={cn(
+                        'flex h-full w-full cursor-pointer items-center gap-1',
+                        config.align === 'right' && 'justify-end'
+                      )}
+                      onClick={() => handleSort(config.id)}
+                      type="button"
+                    >
+                      {config.label}
+                      {treeTableSortState.columnId === config.id ? (
+                        <span aria-hidden="true">
+                          {treeTableSortState.direction === 'asc' ? '↑' : '↓'}
+                        </span>
+                      ) : null}
+                    </button>
+                  ) : (
+                    <span
+                      className={cn(
+                        'flex h-full w-full items-center gap-1',
+                        config.align === 'right' && 'justify-end'
+                      )}
+                    >
+                      {config.label}
+                    </span>
+                  )}
                   {width === undefined ? null : (
                     <ColumnResizeHandle
                       bounds={getExplorerColumnResizeBounds(config.id)}

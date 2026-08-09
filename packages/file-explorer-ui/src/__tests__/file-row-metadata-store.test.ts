@@ -289,6 +289,62 @@ describe('createFileRowMetadataStore per-key notification', () => {
     // snapshot that would live forever after the row scrolled away.
     expect(store.getSnapshot(key('a.ts'))).not.toBe(first);
   });
+
+  /**
+   * BST-1209 review, important finding 2: a metadata sort registers ONE folder
+   * listener and then reads a snapshot for every projected row. When the folder
+   * listener pinned every key in the root, that read path grew the cache to the
+   * whole expanded projection with no eviction — and made `invalidateAll` cost
+   * O(all cached subtrees) instead of O(rows in play).
+   */
+  it('still evicts unsubscribed file snapshots while a folder listener is attached', () => {
+    const store = createFileRowMetadataStore(sources());
+    store.subscribeFolder(ROOT, vi.fn());
+
+    const first = store.getSnapshot(key('a.ts'));
+    store.invalidateAll();
+
+    expect(store.getSnapshot(key('a.ts'))).not.toBe(first);
+  });
+
+  it('reads sort snapshots without caching them at all', () => {
+    const store = createFileRowMetadataStore(sources({ tokens: { [key('a.ts')]: 5 } }));
+    store.subscribeFolder(ROOT, vi.fn());
+
+    expect(store.peekSnapshot(key('a.ts'))).toEqual({ tokens: 5, type: 'ts' });
+    // Nothing was cached, so nothing can be evicted — a comparator sweeping
+    // 10k projected rows leaves the store exactly as it found it.
+    const listener = vi.fn();
+    store.subscribe(key('a.ts'), listener);
+    store.invalidateAll();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('answers a sort read from the cache when the row IS subscribed', () => {
+    const store = createFileRowMetadataStore(sources({ tokens: { [key('a.ts')]: 5 } }));
+    store.subscribe(key('a.ts'), vi.fn());
+
+    const subscribed = store.getSnapshot(key('a.ts'));
+    expect(store.peekSnapshot(key('a.ts'))).toBe(subscribed);
+  });
+
+  /**
+   * The ordering signal is per-BATCH, not per-cached-change: an ordered tree
+   * compares values across its whole projection, most of it uncached, so a
+   * count landing for an off-screen row must still be able to move the order.
+   */
+  it('bumps the root revision for an invalidated key it never cached', () => {
+    const tokens: Record<string, number> = {};
+    const store = createFileRowMetadataStore(sources({ tokens }));
+    const rootListener = vi.fn();
+    store.subscribeFolder(ROOT, rootListener);
+
+    tokens[key('offscreen.ts')] = 9;
+    store.invalidate([key('offscreen.ts')]);
+
+    expect(rootListener).toHaveBeenCalledTimes(1);
+    expect(store.getFolderRevision(ROOT)).toBe(1);
+  });
 });
 
 describe('createFileRowMetadataStore directory rollups', () => {

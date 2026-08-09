@@ -19,6 +19,7 @@ import {
   useExplorerColumnVisibilityStore,
 } from '@brainstrike/app-state/stores/explorer-column-visibility-store';
 import { useExplorerSortStateStore } from '@brainstrike/app-state/stores/explorer-sort-state-store';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { act, fireEvent, render, renderHook } from '@testing-library/react';
 import type { RefObject } from 'react';
@@ -110,6 +111,34 @@ function ForestHarness({
   );
 }
 
+/** The same header with NO `FileRowMetadataProvider` above it. */
+function SeamlessHeaderHarness() {
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const columnIds: readonly ExplorerMetadataColumnId[] = ['tokens'];
+  const columnWidths = resolveExplorerColumnWidths({
+    availableWidth: 0,
+    sizes: {},
+    visibleMetadataColumnIds: columnIds,
+  });
+  return (
+    <ExplorerSortProvider>
+      <ExplorerColumnsProvider
+        value={{
+          areMetadataColumnsSuppressed: false,
+          columnWidths,
+          visibleMetadataColumnIds: columnIds,
+        }}
+      >
+        <ExplorerColumnHeader
+          columnWidths={columnWidths}
+          scrollerRef={scrollerRef}
+          visibleMetadataColumnIds={columnIds}
+        />
+      </ExplorerColumnsProvider>
+    </ExplorerSortProvider>
+  );
+}
+
 /** `availableWidth: 0` means "unmeasured", which passes widths through as-is. */
 async function renderForest(
   columnIds: readonly ExplorerMetadataColumnId[],
@@ -179,6 +208,34 @@ describe('forest column header', () => {
     expect(Array.from(header?.querySelectorAll('th') ?? [], (cell) => cell.textContent)).toEqual([
       'Name',
     ]);
+  });
+
+  /**
+   * BST-1209 review, minor 1: the metadata seam is optional by design, so a
+   * surface without it must not OFFER a sort it cannot serve. Name still can —
+   * it orders from the tree node alone.
+   */
+  it('offers no metadata sort affordance when the metadata seam is absent', async () => {
+    const result = await act(async () =>
+      render(
+        <FileExplorerTestWrapper>
+          <SeamlessHeaderHarness />
+        </FileExplorerTestWrapper>
+      )
+    );
+    const header = result.container.querySelector('[data-testid="explorer-column-header"]');
+    const tokensHeader = header?.querySelector<HTMLTableCellElement>('[data-column-id="tokens"]');
+    if (!tokensHeader) {
+      throw new Error('expected a Tokens header cell');
+    }
+
+    expect(tokensHeader.textContent).toBe('Tokens');
+    expect(tokensHeader.querySelector('button')).toBeNull();
+    expect(tokensHeader).not.toHaveAttribute('aria-sort');
+    // The seamless surface is not sort-less: Name is still offered.
+    expect(
+      header?.querySelector('[data-column-id="name"]')?.querySelector('button')
+    ).not.toBeNull();
   });
 
   it('uses the shared asc -> desc -> default cycle and exposes aria-sort', async () => {
@@ -256,6 +313,38 @@ describe('forest column header', () => {
       'tree-table-resize-handle-tokens',
       'tree-table-resize-handle-size',
     ]);
+  });
+});
+
+/**
+ * BST-1209 review, minor 1: a persisted metadata sort that reaches a surface
+ * without the seam must degrade VISIBLY — default order plus a warn — never by
+ * throwing mid-render and never by quietly doing nothing.
+ */
+describe('metadata sort on a surface without the seam', () => {
+  beforeEach(() => {
+    useExplorerSortStateStore.getState().reset();
+  });
+
+  it('restores the default order and says so', async () => {
+    const warn = vi
+      .spyOn(createLogger('OptimizedFileTree'), 'warn')
+      .mockImplementation(() => undefined);
+    useExplorerSortStateStore.getState().setSortState({ direction: 'asc', field: 'tokens' });
+
+    await act(async () =>
+      render(
+        <FileExplorerTestWrapper>
+          <ExplorerSortProvider>
+            <OptimizedFileTree fileTree={SECTION_TREE} folderId={ROOT} loadingFiles={new Set()} />
+          </ExplorerSortProvider>
+        </FileExplorerTestWrapper>
+      )
+    );
+
+    expect(useExplorerSortStateStore.getState().sortState).toBeNull();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
 

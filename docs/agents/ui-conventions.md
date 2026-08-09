@@ -203,6 +203,27 @@ Windowing and performance:
     and sort after every resolved number in BOTH directions. A metadata arrival
     may legitimately reorder siblings while that field is active; the metadata
     store coalesces each per-root invalidation batch into one row rebuild.
+  - **A reorder is NOT a structural change.** The metadata seam's rollup
+    reconciliation keys off `FileTreeRowReuseCache.getStructureRevision()`, never
+    off the rows ARRAY identity: sorting mints a new array, reconciling clears
+    rollups, cleared rollups bump the sort's revision, and the order oscillates
+    once per macrotask forever. Pinned by
+    `__tests__/explorer-sort-rebuild-loop.test.tsx`; do not re-key that effect on
+    `treeRows`.
+  - The comparator reads the seam ONCE PER ROW (Schwartzian, in
+    `sortRowsPerDirectory`), not per comparison — a 10k-row sort makes ~130k
+    comparisons and each seam read allocates a composite key. Row-level reads go
+    through the store's non-caching `peekSnapshot`, because a comparator sweeps
+    the whole projection and caching that sweep would grow the store past the
+    subscribed rows and switch its eviction off. Directory rollups DO stay
+    cached (a folder listener pins them) — recomputing one walks an enumerated
+    subtree. Measured on a synthetic 10,100-node tree in
+    `__tests__/optimized-file-tree-sort-performance.test.ts`, which uses the
+    real store: a synthetic comparator there measures nothing.
+  - Metadata sorts are CAPABILITY-GATED. A surface without the metadata seam
+    does not offer Type/Tokens/Size sort affordances at all, and a persisted one
+    arriving there resets to the default order with a warn — visible
+    degradation, not a crash and not a silent no-op. Name never needs the seam.
   - a11y for that header: it is `role="presentation"` with `aria-hidden`
     STATIC labels when they are non-interactive, because one header cannot be
     ARIA-associated with N sibling treegrids and every metadata cell already
@@ -211,8 +232,10 @@ Windowing and performance:
     Each forest section names its own root
     (`aria-label="File tree: <root>"`); single-root stays `"File tree"`.
     TreeTable's own header cells carry `scope="col"`.
-  - Below 300px of panel width every metadata column is suppressed
-    (name-only). That threshold is deliberately the same width at which the
+  - Below 300px of panel width every metadata COLUMN is suppressed, leaving the
+    name column alone. The header itself still renders: it carries the Name sort
+    affordance, which is not a metadata capability and must stay reachable at
+    every width. That threshold is deliberately the same width at which the
     toolbar can host the Columns control — see the narrow-toolbar geometry in
     `docs/agents/explorer-search-tapestry.md`; keep the two in step.
 - Row render stability is a pinned contract (`tree-table-render-stability.test.tsx`):

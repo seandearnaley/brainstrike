@@ -40,6 +40,16 @@ export function isExplorerSortField(value: unknown): value is ExplorerSortField 
   return typeof value === 'string' && EXPLORER_SORT_FIELDS.includes(value as ExplorerSortField);
 }
 
+/**
+ * Fields whose ordering can only come from the file-row metadata seam. `name`
+ * is the exception: it orders from the tree node alone, so it works on every
+ * surface. Surfaces without the seam must not OFFER the rest — capability
+ * gating is the repo rule — and a persisted one there resets to default order.
+ */
+export function isExplorerMetadataSortField(field: ExplorerSortField): boolean {
+  return field !== 'name';
+}
+
 function parseSortState(value: unknown): ExplorerSortState | null {
   if (value === null) {
     return null;
