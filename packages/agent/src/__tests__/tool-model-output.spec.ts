@@ -116,27 +116,47 @@ describe('applyToolModelOutputProjections', () => {
   });
 
   it.each([
+    'grep',
+    'read',
+    'exec',
+  ])('keeps a ceiling-sized stored %s prefix replayable when fresh assertions use a floor tier', (prefix) => {
+    const floorBudget = resolveScaledToolResultBudget(8192);
+    const stored = {
+      type: 'text',
+      value: `${prefix} ${'x'.repeat(
+        CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget - prefix.length - 27
+      )}`,
+    };
+
+    expect(() =>
+      assertDomainProjectionWithinBudget(
+        `brainstrike.${prefix}`,
+        stored,
+        buildDefaultModelProjectionBudget(floorBudget)
+      )
+    ).toThrow(/exceeds the 2000-character budget/);
+    expect(() =>
+      assertDomainProjectionWithinBudget(
+        `brainstrike.${prefix}`,
+        stored,
+        buildDefaultModelProjectionBudget(CEILING_SCALED_TOOL_RESULT_BUDGET)
+      )
+    ).not.toThrow();
+  });
+
+  it.each([
     { contextWindow: 8192, label: 'local (Gemma)' },
     { contextWindow: 32_768, label: 'ollama / lmstudio' },
-  ])('BST-1219: floors a FRESH domain projection at the anchor for a sub-anchor resolved budget — $label', ({
+  ])('BST-1219: uses the unfloored resolved budget for a FRESH domain projection — $label', ({
     contextWindow,
   }) => {
-    // Desktop's purpose-built TEXT projectors are not yet threaded with the
-    // per-run resolved budget (BST-1219) — they still self-fit to the fixed
-    // anchor domain budget regardless of the active model. A sub-anchor
-    // resolved budget must not reject an ordinary anchor-sized (or smaller,
-    // but still >2000-char) projection a producer is still allowed to emit.
     const subAnchorBudget = resolveScaledToolResultBudget(contextWindow);
-    // Both tiers clamp to the SAME 500-token / 2000-char floor — the exact
-    // "2001-6000-char fresh projection under a 2000-char resolved budget"
-    // scenario the review raised.
     expect(subAnchorBudget.domainModelResultCharBudget).toBe(2000);
     const freshDefaultBudget = buildDefaultModelProjectionBudget(subAnchorBudget);
-    expect(freshDefaultBudget.domainSerializedChars).toBe(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET);
+    expect(freshDefaultBudget.domainSerializedChars).toBe(
+      subAnchorBudget.domainModelResultCharBudget
+    );
 
-    // Squarely inside 2001-6000 chars (not just the 6000-char boundary) —
-    // the ordinary case the review's "any workspace-tool result between
-    // 2001 and 6000 decoded chars" scenario describes.
     const midRangeOutput = {
       type: 'text',
       value: 'x'.repeat(4000 - 26),
@@ -144,9 +164,8 @@ describe('applyToolModelOutputProjections', () => {
     expect(decodedTextModelOutputChars(midRangeOutput.value)).toBe(4000);
     expect(() =>
       assertDomainProjectionWithinBudget('local.ollama-tool', midRangeOutput, freshDefaultBudget)
-    ).not.toThrow();
+    ).toThrow(/exceeds the 2000-character budget/);
 
-    // The exact anchor boundary (6000 chars) — must also not throw.
     const anchorSizedOutput = {
       type: 'text',
       value: 'x'.repeat(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET - 26),
@@ -156,7 +175,7 @@ describe('applyToolModelOutputProjections', () => {
     );
     expect(() =>
       assertDomainProjectionWithinBudget('local.ollama-tool', anchorSizedOutput, freshDefaultBudget)
-    ).not.toThrow();
+    ).toThrow(/exceeds the 2000-character budget/);
   });
 
   it('keeps raw execution untouched and gives the model a bounded text projection', async () => {

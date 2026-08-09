@@ -9,15 +9,21 @@ import type {
   McpConfig,
   RuntimeAssistantMemorySettings,
   RuntimeData,
+  ScaledToolResultBudget,
   ScannedWorkspaceSkills,
   ScopedToolOutputArtifactReader,
   StreamChunk,
   ToolOutputArtifactSettlementStore,
 } from '@brainstrike/agent';
 import {
+  getProviderDefaultModel,
+  isSupportedProvider,
   resolveRequestPermissionPolicy,
+  resolveScaledToolResultBudget,
+  resolveToolResultBudgetForModel,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
+  TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
@@ -130,6 +136,31 @@ function withSkillScriptResolver<K extends AgentStreamCapabilityKinds>(
     return dependencies;
   }
   return { ...dependencies, skillScriptResolver: resolver };
+}
+
+function withResolvedToolResultBudget<K extends AgentStreamCapabilityKinds>(
+  dependencies: AgentStreamToolDependencies<K>,
+  resolvedToolResultBudget: ScaledToolResultBudget
+): AgentStreamToolDependencies<K> {
+  return { ...dependencies, resolvedToolResultBudget };
+}
+
+/** Resolve the producer-side budget from the runtime's provider/model pair. */
+export function resolveToolBuildBudget(
+  runtimeData: Pick<RuntimeData, 'model' | 'provider'> | undefined,
+  logger: Pick<ScopedLogger, 'warn'>
+): ScaledToolResultBudget {
+  const rawProvider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
+  const normalizedProvider = rawProvider.toLowerCase();
+  if (!isSupportedProvider(normalizedProvider)) {
+    logger.warn('Cannot resolve tool-result budget for tool construction; using anchor fallback.', {
+      code: 'tool_result_budget_invalid_provider_fallback',
+      provider: rawProvider || '<unset>',
+    });
+    return resolveScaledToolResultBudget(TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW);
+  }
+  const model = runtimeData?.model || getProviderDefaultModel(normalizedProvider) || '';
+  return resolveToolResultBudgetForModel(normalizedProvider, model);
 }
 
 function buildInitialStreamMemoryOptions(
@@ -447,6 +478,7 @@ export interface AgentStreamCapabilityKinds {
 export interface AgentStreamToolDependencies<K extends AgentStreamCapabilityKinds> {
   readonly embeddingHostManager?: K['embeddingHost'] | null | undefined;
   readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
+  readonly resolvedToolResultBudget?: ScaledToolResultBudget | undefined;
   readonly skillScriptResolver?: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined;
   readonly toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
 }
@@ -820,15 +852,19 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       getDatabase,
       deps
     );
+    const resolvedToolResultBudget = resolveToolBuildBudget(trustedRuntimeData, logger);
     initializationStage = 'native_tool_preferences';
     const mastraTools = capabilities.tools.build(
       trustedRuntimeData,
-      withSkillScriptResolver(
-        withToolOutputArtifactReader(
-          toolDependencies,
-          artifactCapabilities.toolOutputArtifactReader
+      withResolvedToolResultBudget(
+        withSkillScriptResolver(
+          withToolOutputArtifactReader(
+            toolDependencies,
+            artifactCapabilities.toolOutputArtifactReader
+          ),
+          skillsRuntimeFields.workspaceSkills
         ),
-        skillsRuntimeFields.workspaceSkills
+        resolvedToolResultBudget
       )
     );
     initializationStage = 'provider_model_bootstrap';

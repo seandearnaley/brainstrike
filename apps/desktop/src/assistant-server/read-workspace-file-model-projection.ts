@@ -107,7 +107,8 @@ export function buildReadWorkspaceFileProjectionText(
 }
 
 export function projectReadWorkspaceFileModelOutput(
-  output: unknown
+  output: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
 ): ReadWorkspaceFileTextModelOutput {
   if (
     isRecord(output) &&
@@ -119,12 +120,9 @@ export function projectReadWorkspaceFileModelOutput(
     output['value'].startsWith('read ')
   ) {
     const replayed = makeWorkspaceTextModelOutput([output['value']]);
-    if (
-      decodedWorkspaceTextModelOutputChars([replayed.value]) >
-      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
-    ) {
+    if (decodedWorkspaceTextModelOutputChars([replayed.value]) > domainModelResultCharBudget) {
       throw new RangeError(
-        `readWorkspaceFile stored model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+        `readWorkspaceFile stored model projection exceeds the ${domainModelResultCharBudget}-character domain budget`
       );
     }
     return replayed;
@@ -132,12 +130,9 @@ export function projectReadWorkspaceFileModelOutput(
 
   const result = parseReadWorkspaceFileResult(unwrapLegacyJsonProjection(output));
   const projected = buildReadWorkspaceFileProjectionText(result);
-  if (
-    decodedWorkspaceTextModelOutputChars([projected.value]) >
-    MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
-  ) {
+  if (decodedWorkspaceTextModelOutputChars([projected.value]) > domainModelResultCharBudget) {
     throw new RangeError(
-      `readWorkspaceFile model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+      `readWorkspaceFile model projection exceeds the ${domainModelResultCharBudget}-character domain budget`
     );
   }
   return projected;

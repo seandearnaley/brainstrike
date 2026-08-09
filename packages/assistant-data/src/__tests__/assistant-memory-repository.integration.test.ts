@@ -2392,23 +2392,45 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       const repository = createPgliteAssistantThreadRepository(db as DbHandle);
       await repository.createThread('workspace-a');
 
-      const columns = await db.query<{ column_name: string }>(
-        `SELECT column_name
+      const columns = await db.query<{
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+      }>(
+        `SELECT column_name, data_type, is_nullable
          FROM information_schema.columns
          WHERE table_name = 'brainstrike_token_estimate_calibration'
          ORDER BY ordinal_position`
       );
-      expect(columns.rows.map((row) => row.column_name)).toEqual([
-        'id',
-        'thread_id',
-        'run_id',
-        'model',
-        'provider',
-        'estimated_prompt_tokens',
-        'final_step_prompt_tokens',
-        'step_count',
-        'model_visible_projection_count',
-        'occurred_at',
+      expect(columns.rows).toEqual([
+        { column_name: 'id', data_type: 'text', is_nullable: 'NO' },
+        { column_name: 'thread_id', data_type: 'text', is_nullable: 'NO' },
+        { column_name: 'run_id', data_type: 'text', is_nullable: 'NO' },
+        { column_name: 'model', data_type: 'text', is_nullable: 'NO' },
+        { column_name: 'provider', data_type: 'text', is_nullable: 'NO' },
+        { column_name: 'estimated_prompt_tokens', data_type: 'integer', is_nullable: 'NO' },
+        { column_name: 'final_step_prompt_tokens', data_type: 'integer', is_nullable: 'NO' },
+        { column_name: 'step_count', data_type: 'integer', is_nullable: 'NO' },
+        {
+          column_name: 'model_visible_projection_count',
+          data_type: 'integer',
+          is_nullable: 'NO',
+        },
+        {
+          column_name: 'resolved_domain_budget_tokens',
+          data_type: 'integer',
+          is_nullable: 'YES',
+        },
+        {
+          column_name: 'resolved_transport_budget_tokens',
+          data_type: 'integer',
+          is_nullable: 'YES',
+        },
+        {
+          column_name: 'occurred_at',
+          data_type: 'timestamp with time zone',
+          is_nullable: 'NO',
+        },
       ]);
 
       const indexes = await db.query<{ indexname: string }>(

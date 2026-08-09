@@ -317,10 +317,13 @@ run (domain payload sized up to the 12,000-char ceiling) that replays with hook
 context on a small-window run (e.g. an 8192-token local model) can compose a
 combined envelope sized for the ORIGINAL run's budget, not the replaying run's
 — the same 12,000-char-vs-3000-token-window mismatch the domain-only case
-already accepts by design, just one layer further out. Deferred as a follow-up
-(paired with BST-1219's desktop-projector threading, since both require
-widening what budget context reaches a replay) rather than implemented
-here.
+already accepts by design, just one layer further out. BST-1219's paired FRESH-
+path work has now landed: desktop projector producers receive the resolved
+per-run domain budget and the downstream fresh assertion uses that same
+unfloored value. Replay budget context was deliberately not widened. The
+remaining deferred tradeoff is therefore narrower and unchanged: only replay-
+time hook-context composition against the fixed `totalSerializedChars` /
+`totalTokens` axis described above.
 
 `ModelOutputProjectionObserver` receives `(toolName, output)` at this final
 projection seam. `RunTokenDiagnostics` uses it to retain one privacy-safe

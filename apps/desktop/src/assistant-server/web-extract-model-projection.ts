@@ -118,7 +118,10 @@ function output(lines: readonly string[]): WebExtractTextModelOutput {
   return { type: 'text', value: lines.join('\n') };
 }
 
-export function projectWebExtractModelOutput(raw: unknown): WebExtractTextModelOutput {
+export function projectWebExtractModelOutput(
+  raw: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): WebExtractTextModelOutput {
   const result = parseWebExtractResult(raw);
   if (JSON.stringify(result).length > WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS) {
     return output([
@@ -145,10 +148,7 @@ export function projectWebExtractModelOutput(raw: unknown): WebExtractTextModelO
     ...(result.error ? [`error: ${JSON.stringify(result.error)}`] : []),
   ];
   const projected = output(lines);
-  if (
-    decodedWorkspaceTextModelOutputChars([projected.value]) >
-    MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
-  ) {
+  if (decodedWorkspaceTextModelOutputChars([projected.value]) > domainModelResultCharBudget) {
     throw new RangeError('webExtract output must settle before model projection');
   }
   return projected;

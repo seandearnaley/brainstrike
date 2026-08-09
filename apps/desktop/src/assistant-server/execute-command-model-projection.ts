@@ -236,7 +236,10 @@ function fitProjectionToBudget(
   return best;
 }
 
-export function projectExecuteCommandModelOutput(output: unknown): ExecuteCommandTextModelOutput {
+export function projectExecuteCommandModelOutput(
+  output: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): ExecuteCommandTextModelOutput {
   if (
     isRecord(output) &&
     Reflect.ownKeys(output).length === 2 &&
@@ -247,9 +250,9 @@ export function projectExecuteCommandModelOutput(output: unknown): ExecuteComman
     output['value'].startsWith('exec ')
   ) {
     const replayed = makeWorkspaceTextModelOutput([output['value']]);
-    if (JSON.stringify(replayed).length > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (JSON.stringify(replayed).length > domainModelResultCharBudget) {
       throw new RangeError(
-        `executeCommand stored model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+        `executeCommand stored model projection exceeds the ${domainModelResultCharBudget}-character domain budget`
       );
     }
     return replayed;
@@ -257,14 +260,14 @@ export function projectExecuteCommandModelOutput(output: unknown): ExecuteComman
 
   const result = parseExecuteCommandResult(output);
   const projected = buildExecuteCommandProjection(result);
-  if (JSON.stringify(projected).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (JSON.stringify(projected).length <= domainModelResultCharBudget) {
     return projected;
   }
 
-  const fitted = fitProjectionToBudget(result, MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET);
-  if (JSON.stringify(fitted).length > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  const fitted = fitProjectionToBudget(result, domainModelResultCharBudget);
+  if (JSON.stringify(fitted).length > domainModelResultCharBudget) {
     throw new RangeError(
-      `executeCommand model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget even after self-fitting`
+      `executeCommand model projection exceeds the ${domainModelResultCharBudget}-character domain budget even after self-fitting`
     );
   }
   return fitted;
