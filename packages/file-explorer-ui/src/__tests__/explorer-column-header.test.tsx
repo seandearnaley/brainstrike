@@ -389,4 +389,22 @@ describe('column id identity stability', () => {
     expect(result.current.areMetadataColumnsSuppressed).toBe(true);
     expect(result.current.visibleMetadataColumnIds).toHaveLength(0);
   });
+
+  /**
+   * Whole-branch review F10. Width 0 means "not measured yet", and guessing
+   * ROOMY flashed the metadata columns on for one frame in every panel too
+   * narrow to keep them — the grid painted three columns, the first
+   * ResizeObserver callback took them away, and `table-fixed` re-laid the Name
+   * column across the full width. The narrow guess only ever adds columns.
+   */
+  it('treats an unmeasured panel as narrow, so the grid never flashes columns it must drop', () => {
+    const { result, rerender } = renderColumns(0);
+
+    expect(result.current.areMetadataColumnsSuppressed).toBe(true);
+    expect(result.current.visibleMetadataColumnIds).toHaveLength(0);
+
+    rerender({ width: 800 });
+    expect(result.current.areMetadataColumnsSuppressed).toBe(false);
+    expect(result.current.visibleMetadataColumnIds.length).toBeGreaterThan(0);
+  });
 });

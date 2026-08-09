@@ -30,6 +30,14 @@ interface FileExplorerToolbarProps {
    * cancel stays reachable at every panel width.
    */
   treeActionsControl?: React.ReactNode;
+  /**
+   * Expand All / Collapse All. Rendered in the LEFT track beside the selection
+   * status, because the right track is exactly full at every documented width
+   * step. Revealed at the same 236px step as Refresh and View Filters; below it
+   * these fold into `compactActionsControl` (whole-branch review F11 — this
+   * replaces the floating overlay that covered the tree grid's column header).
+   */
+  treeExpansionControl?: React.ReactNode;
 }
 
 const FileExplorerToolbar = React.memo(
@@ -42,6 +50,7 @@ const FileExplorerToolbar = React.memo(
     isLoading,
     selectionStatusControl,
     treeActionsControl,
+    treeExpansionControl,
   }: FileExplorerToolbarProps) => {
     // Multi-root: the add-folder action stays mathematically centered between the
     // selection controls. The label no longer flips on focus, and the focused-root
@@ -61,8 +70,16 @@ const FileExplorerToolbar = React.memo(
               centered add-folder button and intercept its pointer events (the
               unclickable-Add regression at narrow panel widths). */}
           <div className="@container/explorer-selection flex min-w-0 items-center justify-start overflow-hidden">
-            <div className="flex w-full min-w-0 items-center justify-start @[128px]/explorer-toolbar:pl-3 @[96px]/explorer-toolbar:pl-1.5 pl-1">
+            {/* The left track is the toolbar's only cluster with slack: the
+                right one is exactly full at 180/236/300px. Expand/Collapse
+                therefore live HERE, and the selection counter yields to them
+                below 160px of track (the mode badge still carries the compact
+                count), so the two never fight for the same pixels. */}
+            <div className="flex w-full min-w-0 items-center gap-1 @[128px]/explorer-toolbar:pl-3 @[96px]/explorer-toolbar:pl-1.5 pl-1">
               {selectionStatusControl}
+              <div className="@[236px]/explorer-toolbar:contents hidden">
+                {treeExpansionControl}
+              </div>
             </div>
           </div>
           <Button

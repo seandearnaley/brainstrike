@@ -217,10 +217,17 @@ export function useExplorerColumnsValue(
   const type = useExplorerColumnVisibilityStore((state) => state.type);
   const sizes = useExplorerColumnSizesStore((state: TreeTableColumnSizesStoreState) => state.sizes);
   const containerWidth = useContainerWidth(containerRef);
-  // Width 0 means "not measured yet" (first paint, or a hidden panel). Treat it
-  // as roomy so the grid does not flash name-only before layout settles.
-  const areMetadataColumnsSuppressed =
-    containerWidth > 0 && containerWidth < METADATA_COLUMNS_MIN_WIDTH;
+  // Width 0 means "not measured yet" (first paint, or a hidden panel), and the
+  // narrow answer is the one to guess with (whole-branch review F10).
+  //
+  // Treating it as ROOMY flashed the metadata columns ON for one frame in every
+  // panel too narrow to keep them: the grid painted three columns, the first
+  // ResizeObserver callback took them away, and `table-fixed` re-laid the Name
+  // column across the full width — a visible jolt on the app's most-used panel.
+  // The opposite guess costs at most one frame of name-only in a WIDE panel,
+  // where the columns then simply appear; nothing is re-laid out under the
+  // pointer, because the Name column only ever gives space back.
+  const areMetadataColumnsSuppressed = containerWidth < METADATA_COLUMNS_MIN_WIDTH;
 
   // TWO stages on purpose. The id array decides which cell renderers exist and
   // must not churn on width; the widths change per pixel during a panel drag

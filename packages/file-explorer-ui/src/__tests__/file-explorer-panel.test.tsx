@@ -42,6 +42,7 @@ vi.mock('../shell/file-explorer-toolbar', () => ({
     isLoading,
     selectionStatusControl,
     treeActionsControl,
+    treeExpansionControl,
   }: {
     bulkSelectionControl?: ReactNode;
     compactActionsControl?: ReactNode;
@@ -50,6 +51,7 @@ vi.mock('../shell/file-explorer-toolbar', () => ({
     isLoading: boolean;
     selectionStatusControl?: ReactNode;
     treeActionsControl?: ReactNode;
+    treeExpansionControl?: ReactNode;
   }) => (
     <div data-testid="file-explorer-toolbar">
       <div data-testid="toolbar">
@@ -59,6 +61,7 @@ vi.mock('../shell/file-explorer-toolbar', () => ({
         </button>
         {bulkSelectionControl}
         {selectionStatusControl}
+        {treeExpansionControl}
         {treeActionsControl}
         {filtersControl}
         {compactActionsControl}
@@ -371,9 +374,12 @@ describe('FileExplorerPanel', () => {
       'gap-0.5',
       '@[128px]:gap-1.5'
     );
+    // The counter yields to the Expand/Collapse cluster that shares this
+    // track now (whole-branch review F11); the mode badge keeps the compact
+    // count below the threshold.
     expect(within(toolbar).getByTestId('selection-counter-control')).toHaveClass(
       'hidden',
-      '@[72px]:block'
+      '@[160px]:block'
     );
   });
 
@@ -442,10 +448,11 @@ describe('FileExplorerPanel', () => {
     });
   });
 
-  it('hides the floating tree actions while expanded-paths restoration runs (BST-571)', () => {
-    // Both overlays pin to the tree area's top band; while RestorationStatus
-    // is showing, the floating cluster would draw over its right-aligned
-    // percentage readout — so the cluster yields for the (transient) restore.
+  it('keeps the tree expansion actions available while restoration runs', () => {
+    // The old floating cluster yielded to RestorationStatus because both
+    // pinned to the tree area's top band. On the toolbar nothing overlaps, so
+    // hiding a user action mid-restore would be a trap with no reason left
+    // (whole-branch review F11).
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
       isRestoringExpandedPaths: true,
@@ -459,7 +466,7 @@ describe('FileExplorerPanel', () => {
 
     renderWithProviders(<FileExplorerPanel />);
 
-    expect(screen.queryByTestId('floating-tree-actions')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tree-expansion-actions')).toBeInTheDocument();
   });
 
   it('rehydrates the persisted folder state when the restored root matches the current folder id', () => {
@@ -1862,13 +1869,15 @@ describe('FileExplorerPanel', () => {
       expect(toolbar).toContainElement(refresh);
       expect(collapsible).not.toContainElement(refresh);
 
-      // Expand/Collapse All moved OFF the crowded toolbar into the floating
-      // cluster pinned over the tree area's top-right.
-      const floating = screen.getByTestId('floating-tree-actions');
+      // Expand/Collapse All are BACK on the toolbar (whole-branch review F11):
+      // the floating overlay covered the tree grid's column header and ate its
+      // clicks. They sit in the left track, still outside the collapsible
+      // filter block so they stay reachable while filters are collapsed.
+      const expansion = screen.getByTestId('tree-expansion-actions');
+      expect(toolbar).toContainElement(expansion);
+      expect(collapsible).not.toContainElement(expansion);
       for (const testId of ['expand-all-button-small', 'collapse-all-button-small']) {
-        const button = screen.getByTestId(testId);
-        expect(floating).toContainElement(button);
-        expect(toolbar).not.toContainElement(button);
+        expect(expansion).toContainElement(screen.getByTestId(testId));
       }
     });
 

@@ -120,3 +120,13 @@ export const useExplorerColumnVisibilityStore = singleton as BoundStore;
 export function getDefaultExplorerColumnVisibility(): ExplorerColumnVisibility {
   return { ...DEFAULT_VISIBILITY };
 }
+
+/**
+ * FACTORY RESET CONTRACT. `localStorage.clear()` drops the persisted slice but
+ * not the LIVE singleton, and the web reset path does not force a reload — so
+ * without this the grid kept whatever columns the user had hidden right through
+ * a factory reset (whole-branch review F6).
+ */
+export function resetExplorerColumnVisibilityStoreToDefault(): void {
+  useExplorerColumnVisibilityStore.getState().reset();
+}

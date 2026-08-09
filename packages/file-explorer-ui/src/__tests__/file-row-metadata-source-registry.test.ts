@@ -2,9 +2,13 @@
  * Per-root source dispatch for the metadata seam (BST-1208).
  *
  * The CARRIED contract from the BST-1207 review lives here: a directory the
- * registry cannot enumerate must read as an explicit incomplete subtree, never
- * `null` — `computeDirectoryRollup` throws on null, which would take down the
- * render of a lazily expanded row.
+ * registry cannot enumerate must read as an explicit incomplete subtree. The
+ * type is non-nullable, so a lazily expanded row renders an honest partial
+ * marker instead of forcing every caller to handle a `null`.
+ *
+ * The visible-file key merge (whole-branch review F2) is pinned here too: it is
+ * the same per-root shape, and its CONTENT stability is what keeps an unchanged
+ * republication from re-arming the indexer's visible-file debounce.
  */
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { createLogger } from '@brainstrike/logging';
@@ -118,6 +122,63 @@ describe('file row metadata source registry', () => {
       registry.getNodeSize(`malformed-${index}`);
     }
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  describe('visible file keys', () => {
+    it('merges every root, so a forest indexes more than the focused section', () => {
+      const registry = createFileRowMetadataSourceRegistry();
+      registry.setVisibleFileKeys(ROOT_A, new Set(['a|@|/a/one.ts']));
+      registry.setVisibleFileKeys(ROOT_B, new Set(['b|@|/b/two.ts']));
+
+      expect([...registry.getVisibleFileKeys()].sort()).toEqual(['a|@|/a/one.ts', 'b|@|/b/two.ts']);
+    });
+
+    it('keeps the snapshot identity when a republication changes nothing', () => {
+      const registry = createFileRowMetadataSourceRegistry();
+      registry.setVisibleFileKeys(ROOT_A, new Set(['a|@|/a/one.ts']));
+      const first = registry.getVisibleFileKeys();
+      const listener = vi.fn();
+      registry.subscribeVisibleFileKeys(listener);
+
+      // A fresh Set with identical membership — exactly what a tree commit that
+      // changed nothing visible produces.
+      registry.setVisibleFileKeys(ROOT_A, new Set(['a|@|/a/one.ts']));
+
+      expect(registry.getVisibleFileKeys()).toBe(first);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('notifies and re-snapshots when membership actually moves', () => {
+      const registry = createFileRowMetadataSourceRegistry();
+      registry.setVisibleFileKeys(ROOT_A, new Set(['a|@|/a/one.ts']));
+      const first = registry.getVisibleFileKeys();
+      const listener = vi.fn();
+      registry.subscribeVisibleFileKeys(listener);
+
+      registry.setVisibleFileKeys(ROOT_A, new Set(['a|@|/a/one.ts', 'a|@|/a/two.ts']));
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(registry.getVisibleFileKeys()).not.toBe(first);
+      expect(registry.getVisibleFileKeys().size).toBe(2);
+    });
+
+    it('withdraws a root’s keys when its section unmounts', () => {
+      const registry = createFileRowMetadataSourceRegistry();
+      registry.setVisibleFileKeys(ROOT_A, new Set(['a|@|/a/one.ts']));
+      registry.setVisibleFileKeys(ROOT_B, new Set(['b|@|/b/two.ts']));
+
+      registry.setVisibleFileKeys(ROOT_B, new Set());
+
+      expect([...registry.getVisibleFileKeys()]).toEqual(['a|@|/a/one.ts']);
+    });
+
+    it('answers a shared empty snapshot before any root publishes', () => {
+      const first = createFileRowMetadataSourceRegistry();
+      const second = createFileRowMetadataSourceRegistry();
+
+      expect(first.getVisibleFileKeys().size).toBe(0);
+      expect(first.getVisibleFileKeys()).toBe(second.getVisibleFileKeys());
+    });
   });
 
   it('unregisters only its own source, so a remount-before-cleanup keeps the root sourced', () => {

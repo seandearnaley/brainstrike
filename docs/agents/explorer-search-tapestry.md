@@ -480,12 +480,22 @@ fallback.
   RootSection provider reacts — that is what makes the toolbar Refresh reach
   every forest root, including the focused root's VISIBLE section.
 - **Narrow toolbar geometry.** The Explorer panel's 180px minimum width leaves
-  a 76px right grid track. Below 236px, Refresh and View Filters move into one
-  24px compact-actions menu beside the 24px Select All control, preserving the
-  symmetric 12px edge gutters and WCAG-size hit regions. At 236px, the menu is
-  replaced by the full Refresh and View Filters controls; all three right-side
-  controls are 28px with 4px gaps. Select All remains the edge action at every
-  width, preventing any sibling from intercepting its pointer region.
+  a 76px right grid track. Below 236px, Refresh, View Filters **and Expand All /
+  Collapse All** move into one 24px compact-actions menu beside the 24px Select
+  All control, preserving the symmetric 12px edge gutters and WCAG-size hit
+  regions. At 236px, the menu is replaced by the full Refresh and View Filters
+  controls; all three right-side controls are 28px with 4px gaps. Select All
+  remains the edge action at every width, preventing any sibling from
+  intercepting its pointer region.
+  Expand All / Collapse All appear at that SAME 236px step, but in the **left**
+  track beside the selection status — the right track is exactly full at every
+  step below, and these two used to avoid the problem by floating over the tree
+  (retired: the overlay covered the tree grid's column header and ate its
+  clicks; see `docs/agents/ui-conventions.md`). Adding them costs the left track
+  60px, so the compact selection COUNTER yields below 160px of track; the
+  selection-mode badge still renders the compact count, so no state is lost.
+  No new breakpoint was introduced — every toolbar action has exactly one home
+  at every width.
   At **300px** a FOURTH control joins — the tree-grid Columns popover
   (BST-1208) — because that is the first width whose ~136px right track holds
   four 28px controls, three 4px gaps and the 12px gutter. It sits in its own

@@ -38,13 +38,11 @@ import { RestoreAccessModal } from '../components/restore-access-modal';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 import { FilterStatus } from '../file-explorer-status-components';
 import { useExplorerScrollRestore } from '../hooks/use-explorer-scroll-restore';
-import { useStableSet } from '../hooks/use-stable-set';
 import {
   FileRowMetadataProvider,
   useExplorerRowMetadata,
 } from '../indexing/file-row-metadata-context';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
-import { collectVisibleFileSelectionKeys } from '../indexing/visible-file-selection-keys';
 import { RestorationStatus } from '../restoration-status';
 import { formatCompactSelectionCount } from '../selection-count-format';
 import { SelectionCounter } from '../selection-counter';
@@ -58,8 +56,8 @@ import {
   FilterChipsToggleButton,
   isCancellableOperationRunning,
   isForestModeActive,
-  PanelFloatingTreeActions,
   PanelTreeActionButtons,
+  PanelTreeExpansionButtons,
   resolveCompactToolbarActionsState,
   resolveSelectAllWiring,
   runFocusedTreeExpandAll,
@@ -456,23 +454,19 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     return Array.from(visible);
   }, [quickFilteredTree]);
 
-  // Composite keys for the same visible set, feeding the background indexer's
-  // second (visible/expanded) trigger so the tree can show real token counts
-  // for rows the user only expanded. See BST-1207 decision D2.
-  //
-  // Stabilized by membership: a tree commit that changes nothing visible (a
-  // selection toggle, a loading flag) still produces a FRESH Set, and that bare
-  // identity change re-arms the visible-indexing debounce for work that is
-  // already done. Content equality is the whole fix.
-  const visibleFileSelectionKeys = useStableSet(
-    useMemo(() => collectVisibleFileSelectionKeys(quickFilteredTree ?? []), [quickFilteredTree])
-  );
-
   // Per-row metadata seam (BST-1207/1208). Owned here because `onTokenResolved`
   // below is the PRECISE invalidation path: every count the indexer resolves
   // repaints exactly that row's cell. Without this wiring the tree grid still
   // fills in — through the 250ms bulk reconcile — which is why dropping it is
   // silent, and why the panel test pins it.
+  //
+  // `visibleFileKeys` is the background indexer's second (visible/expanded)
+  // trigger — BST-1207 decision D2. It comes from the seam rather than from
+  // this component's own tree because `useFileExplorer()` only ever sees the
+  // FOCUSED root: deriving it here left every other forest section unindexed
+  // (whole-branch review F2). Each mounted tree publishes its own display
+  // enumeration and the registry merges them, keeping the snapshot CONTENT-
+  // stable so an unchanged republication does not re-arm the indexing debounce.
   const rowMetadata = useExplorerRowMetadata();
 
   // This hook automatically indexes selected AND visible files when a
@@ -484,7 +478,7 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     fileTree: stableFileTree,
     onTokenResolved: rowMetadata.onTokenResolved,
     selectedFiles: selectedFilePaths,
-    visibleFiles: visibleFileSelectionKeys,
+    visibleFiles: rowMetadata.visibleFileKeys,
     ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
   });
 
@@ -740,6 +734,14 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   // Run-boundary signal only — high-frequency progress is subscribed by the
   // PanelTreeActionButtons leaf, never by this panel component.
   const isForestExpandingAll = useForestIsExpandingAll();
+  /**
+   * "An expand-all sweep is running SOMEWHERE" — a forest sweep runs inside the
+   * section providers, so the focused provider's flag stays false throughout.
+   * Derived once: the toolbar buttons, the compact menu and the run guard must
+   * agree, and repeating the disjunction was also what tipped this component
+   * over the cognitive-complexity cap.
+   */
+  const isAnyExpandAllRunning = isExpandingAll || isForestExpandingAll;
 
   const forestExpandConfirm = useForestExpandConfirm(forestActions);
   const stageForestExpandConfirm = forestExpandConfirm.stage;
@@ -753,7 +755,7 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     });
 
     // Prevent clicks while expand-all is already running
-    if (isExpandingAll || isForestExpandingAll) {
+    if (isAnyExpandAllRunning) {
       logger.info('expandAll: blocked - already expanding');
       return;
     }
@@ -767,7 +769,7 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   }, [
     fileTree,
     forestActions,
-    isForestExpandingAll,
+    isAnyExpandAllRunning,
     isForestMode,
     stageForestExpandConfirm,
     store,
@@ -864,10 +866,13 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
               }
               compactActionsControl={
                 <CompactToolbarActions
+                  onCollapseAll={collapseAll}
+                  onExpandAll={expandAll}
                   onRefresh={handleRefresh}
                   setFiltersExpanded={setFiltersExpanded}
                   state={resolveCompactToolbarActionsState({
                     hasRoot: Boolean(rootDirectoryHandle),
+                    isExpandingAll: isAnyExpandAllRunning,
                     isFiltersExpanded,
                     isLoading,
                     isOperationInProgress: isCancellableOperationRunning({
@@ -906,7 +911,9 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
                     show={!!rootDirectoryHandle}
                     triggerVariant="icon"
                   />
-                  <div className="@[72px]:block hidden" data-testid="selection-counter-control">
+                  {/* Yields to the Expand/Collapse cluster that now shares
+                      this track; the mode badge keeps the compact count. */}
+                  <div className="@[160px]:block hidden" data-testid="selection-counter-control">
                     <SelectionCounter
                       compact
                       maxSelectionCount={maxSelectionCount}
@@ -932,6 +939,16 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
                     onRefresh={handleRefresh}
                   />
                 ) : null
+              }
+              treeExpansionControl={
+                <PanelTreeExpansionButtons
+                  hasRoot={Boolean(rootDirectoryHandle)}
+                  isExpandingAll={isAnyExpandAllRunning}
+                  isLoading={isLoading}
+                  isRefreshing={isRefreshing}
+                  onCollapseAll={collapseAll}
+                  onExpandAll={expandAll}
+                />
               }
             />
             {/* Filter section: one toggled block (driven from the toolbar's
@@ -1009,18 +1026,11 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
                 progress={restorationProgress}
               />
             </div>
-            {/* Expand/Collapse All float over the tree's (usually empty)
-                top-right corner instead of crowding the toolbar (BST-571).
-                Same overlay contract as RestorationStatus: never shifts rows. */}
-            <PanelFloatingTreeActions
-              hasRoot={Boolean(rootDirectoryHandle)}
-              isExpandingAll={isExpandingAll || isForestExpandingAll}
-              isLoading={isLoading}
-              isRefreshing={isRefreshing}
-              isRestoring={isRestoringExpandedPaths}
-              onCollapseAll={collapseAll}
-              onExpandAll={expandAll}
-            />
+            {/* Expand/Collapse All are NOT here any more. They floated over
+                this corner (BST-571) until BST-1208 put the tree grid's column
+                header in it — the overlay covered the trailing header cell and
+                swallowed its clicks. They now live in the toolbar's left track
+                (whole-branch review F11). */}
             {/* Scrollable content — scroll root for session scroll restore.
                 While the selection bar floats above, the scroll owner keeps
                 matching bottom padding so the last rows stay reachable; the bar

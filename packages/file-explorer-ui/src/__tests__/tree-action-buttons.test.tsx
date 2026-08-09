@@ -22,10 +22,10 @@ describe('TreeActionButtons', () => {
   it('renders refresh with its stable testid and no expand/collapse buttons (BST-571)', () => {
     renderWithTooltips(<TreeActionButtons {...defaultProps} />);
     expect(screen.getByTestId('refresh-button-small')).toBeInTheDocument();
-    // Expand All / Collapse All moved to the FloatingTreeActions overlay
-    // pinned over the tree area — the toolbar cluster hosts refresh only
-    // (see floating-tree-actions.test.tsx), and the narrow-width overflow
-    // menu that existed solely for them is gone with them.
+    // Expand All / Collapse All are a SEPARATE toolbar cluster in the left
+    // track (see tree-expansion-buttons.test.tsx) — this cluster hosts refresh
+    // and the scanning indicator only, and the narrow-width overflow menu that
+    // existed solely for them is gone with them.
     expect(screen.queryByTestId('expand-all-button-small')).not.toBeInTheDocument();
     expect(screen.queryByTestId('collapse-all-button-small')).not.toBeInTheDocument();
     expect(screen.queryByTestId('tree-actions-overflow-trigger')).not.toBeInTheDocument();

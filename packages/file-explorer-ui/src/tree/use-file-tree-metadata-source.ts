@@ -35,6 +35,7 @@ import type {
   FileRowDirectorySubtree,
   FileRowMetadataStore,
 } from '../indexing/file-row-metadata-store';
+import { collectVisibleFileSelectionKeys } from '../indexing/visible-file-selection-keys';
 import {
   hasNormalizedIncompleteDescendants,
   type VisibleDirectoryAggregates,
@@ -54,6 +55,11 @@ import { indexFileNodesByPath } from './optimized-file-tree-model';
  * computed inline.
  */
 export const DIRECTORY_ROLLUP_MAX_FILES = 2000;
+
+/** Withdrawal sentinel; shared so an unmount never allocates. */
+const EMPTY_VISIBLE_FILE_KEYS: ReadonlySet<string> = Object.freeze(new Set<string>()) as Readonly<
+  Set<string>
+>;
 
 type NormalizedTreeContext = ReturnType<typeof useOptionalFileTreeNormalizedContext>;
 
@@ -178,6 +184,19 @@ interface ResolvedSourceState {
 interface DeferredRollupState {
   cache: Map<string, FileRowDirectorySubtree>;
   pending: Set<string>;
+  /**
+   * Paths the STORE has asked about since the last `refreshAll` — the liveness
+   * mark for the sweep in `refreshAll` (whole-branch review F3).
+   *
+   * Every read of this cache arrives through the store: a cell or the sort
+   * comparator calls `getDirectorySnapshot`, which on a miss calls
+   * `computeDirectoryRollup` → `getDirectorySubtree` → `read` here, and the
+   * store's own `invalidateAll` re-reads exactly the rollups it still holds. So
+   * "read since the last refresh" IS "the store still holds this rollup", which
+   * is the bound the cache needs and the reason it does not need a store API to
+   * ask.
+   */
+  readSinceRefresh: Set<string>;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -209,6 +228,13 @@ export interface DeferredRollupController {
    * one commit old) until its replacement lands in the same macrotask. Rollups
    * whose content did not actually move then compare equal in the store and
    * notify nobody, so the common interaction repaints nothing at all.
+   *
+   * This is ALSO the sweep point (whole-branch review F3). The cache used to
+   * only ever grow — nothing removed a path once read — so after one expand-all
+   * it held every directory in the repo and `refreshAll` re-resolved all of
+   * them on every later keystroke, collapse and lazy child load. Entries the
+   * store has not asked about since the previous refresh are dropped: they are
+   * no longer projected, so nothing is serving them.
    */
   refreshAll: () => void;
 }
@@ -217,7 +243,12 @@ export function createDeferredRollupController({
   resolvedRef,
   storeRef,
 }: DeferredRollupSources): DeferredRollupController {
-  const state: DeferredRollupState = { cache: new Map(), pending: new Set(), timer: null };
+  const state: DeferredRollupState = {
+    cache: new Map(),
+    pending: new Set(),
+    readSinceRefresh: new Set(),
+    timer: null,
+  };
 
   const cancel = (): void => {
     if (state.timer !== null) {
@@ -255,6 +286,7 @@ export function createDeferredRollupController({
   return {
     cancel,
     read: (path) => {
+      state.readSinceRefresh.add(path);
       const cached = state.cache.get(path);
       if (cached) {
         return cached;
@@ -264,6 +296,25 @@ export function createDeferredRollupController({
       return UNENUMERATED_DIRECTORY_SUBTREE;
     },
     refreshAll: () => {
+      if (state.cache.size === 0) {
+        return;
+      }
+      // Sweep FIRST, then re-queue the survivors: an entry nothing has read
+      // since the previous refresh is no longer projected, and re-resolving it
+      // would be work for a row that does not exist.
+      //
+      // A refresh with no reads at all in between (two structural changes in
+      // one macrotask, before anything painted) keeps everything: an empty mark
+      // set means "no evidence", not "nothing is live".
+      if (state.readSinceRefresh.size > 0) {
+        for (const path of state.cache.keys()) {
+          if (!state.readSinceRefresh.has(path)) {
+            state.cache.delete(path);
+            state.pending.delete(path);
+          }
+        }
+      }
+      state.readSinceRefresh.clear();
       if (state.cache.size === 0) {
         return;
       }
@@ -323,6 +374,29 @@ export function useFileTreeMetadataSource(params: FileTreeMetadataSourceParams):
     }
     return registerSource(folderId, source);
   }, [folderId, registerSource, source]);
+
+  // Visible/expanded token indexing is published PER ROOT (whole-branch review
+  // F2). The panel used to build this set from its own `useFileExplorer()`
+  // tree — the FOCUSED root only — so in a forest every other section's Tokens
+  // cells stayed `pending` forever and, because a rollup goes partial on the
+  // first pending descendant, its folder Size totals with them. Only a mounted
+  // tree knows its own display enumeration, which is exactly why the other two
+  // lookups above already live here.
+  //
+  // `fileTree` is the DISPLAY tree (view + quick filters already applied) — the
+  // same input the panel used — so a single-root workspace's key set is
+  // unchanged by the move.
+  const visibleFileKeys = useMemo(() => collectVisibleFileSelectionKeys(fileTree), [fileTree]);
+  const publishVisibleFileKeys = metadata?.publishVisibleFileKeys;
+  useEffect(() => {
+    if (!(publishVisibleFileKeys && folderId)) {
+      return;
+    }
+    publishVisibleFileKeys(folderId, visibleFileKeys);
+    // Withdraw on unmount: a collapsed section (or a removed root) must stop
+    // asking the indexer for files nobody is looking at.
+    return () => publishVisibleFileKeys(folderId, EMPTY_VISIBLE_FILE_KEYS);
+  }, [folderId, publishVisibleFileKeys, visibleFileKeys]);
 
   const store = metadata?.store;
   useEffect(() => {

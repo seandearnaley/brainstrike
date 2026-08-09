@@ -91,11 +91,16 @@ Windowing and performance:
     Collapse All closes every header via `collapseAllSections` in addition to
     clearing the workspace expansion set. Pinned by
     `forest-section-collapse.test.tsx`.
-  - Expand All / Collapse All render in the `FloatingTreeActions` overlay
-    pinned to the tree area's top-right (`file-explorer-panel.tsx`), keeping
-    their historical `*-button-small` testids; the toolbar cluster hosts only
-    Refresh + the inline scanning indicator. Overlays over the tree must
-    never shift tree rows (same contract as `RestorationStatus`).
+  - Expand All / Collapse All render in the TOOLBAR's LEFT track
+    (`components/tree-expansion-buttons.tsx`), keeping their historical
+    `*-button-small` testids; the right cluster hosts Refresh + the inline
+    scanning indicator. They floated over the tree area's top-right corner
+    until BST-1208 put the tree grid's column header there — the overlay
+    covered the trailing metadata header and INTERCEPTED its clicks, making
+    click-to-sort unreachable by ordinary pointer use at the panel's normal
+    width. **Do not reintroduce a tree-area overlay for them.** The one
+    remaining tree overlay is `RestorationStatus`, which is
+    `pointer-events-none` and must still never shift tree rows.
   - Each forest section computes ONE shared display derivation
     (`RootSectionInner`): view filters + quick filter + visible-file counts
     feed both the header select-all checkbox and the tree pane. The INPUT
@@ -142,8 +147,15 @@ Windowing and performance:
     the background indexer) and reads its tree-shaped sources through
     `indexing/file-row-metadata-source-registry.ts`; each rendered tree
     registers the enumeration for ITS root. A directory the registry cannot
-    enumerate answers with an explicit incomplete subtree — NEVER `null`, which
-    `computeDirectoryRollup` throws on by design.
+    enumerate answers with an explicit incomplete subtree — the type is
+    non-nullable, so "not enumerated yet" and "this key is a file" are one
+    honest partial marker rather than a shared `null`.
+  - The same registry carries each root's VISIBLE file keys, merged for the
+    panel's background token indexer. Deriving that set from the panel's own
+    `useFileExplorer()` tree covers the FOCUSED root only, which left every
+    other forest section's Tokens cells `pending` forever (and its folder Size
+    totals with them, since a rollup goes partial on the first pending
+    descendant). Pinned by `__tests__/explorer-forest-visible-indexing.test.tsx`.
   - Non-values are explicit and distinct: `pending` is a placeholder (never
     `0`), `excluded` is an em dash with the binary tooltip, and a PARTIAL
     directory rollup never renders a number. A row whose composite key cannot
