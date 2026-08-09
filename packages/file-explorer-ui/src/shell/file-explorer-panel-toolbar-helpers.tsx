@@ -1,11 +1,15 @@
 /**
  * Explorer panel toolbar COMPONENTS.
  *
- * Every export here must be a component: Vite's React Fast Refresh plugin only
- * treats a module as a refresh boundary when all of its exports are components,
- * so one plain function or hook export costs the whole panel a full reload on
- * each edit. Pure logic belongs in file-explorer-panel-toolbar-logic.ts, hooks
- * in their own `use-*.ts` module.
+ * Every export here must be a component: Vite's React Fast Refresh plugin keeps
+ * a module as a refresh boundary only while each export either looks like a
+ * component or keeps its identity across the edit — and re-evaluating the
+ * module always gives an exported function a fresh identity, so one plain
+ * function or hook export costs the whole panel a full reload on every edit.
+ * Pure logic belongs in file-explorer-panel-toolbar-logic.ts, hooks in their
+ * own `use-*.ts` module. Exception: the check only walks a module's EXPORTS, so
+ * private logic (resolveExpandAllScanningSource) may stay here rather than be
+ * widened to a public export with no second consumer.
  */
 
 import {
