@@ -7,7 +7,7 @@ import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer
 import type { QueueAdapter } from '@brainstrike/queue';
 import type { useToast } from '@brainstrike/ui';
 import { getActiveEmbeddingSetId } from '@brainstrike/vector-management';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useEnhancedFileImportService } from './enhanced-file-import-service';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
@@ -22,9 +22,6 @@ export interface UseImportFlowOptions {
     tokenTrueSizing: boolean;
     chunkTokenLimit: number;
   };
-  onChunkRepositoryChange?: (
-    repository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null
-  ) => void;
   onImportComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
   resolveActiveCollectionId?: () => string | null;
   toast: ReturnType<typeof useToast>['toast'];
@@ -46,7 +43,6 @@ export function useImportFlow({
   importSettings,
   toast,
   onImportComplete,
-  onChunkRepositoryChange,
   embeddingQueue,
   resolveActiveCollectionId,
 }: UseImportFlowOptions): UseImportFlowResult {
@@ -86,10 +82,6 @@ export function useImportFlow({
       resolveTargetEmbeddingSetId: resolveCollectionId,
       tokenTrueSizing: importSettings.tokenTrueSizing,
     });
-
-  useEffect(() => {
-    onChunkRepositoryChange?.(chunkRepository ?? null);
-  }, [chunkRepository, onChunkRepositoryChange]);
 
   const showDestructiveToast = useCallback(
     (title: string, description: string) => {

@@ -15,6 +15,7 @@ import { useEmbeddingControls } from '@brainstrike/vector-management';
 import { Database } from 'lucide-react';
 import { type ReactElement, type ReactNode, useState } from 'react';
 import { ClearDatabaseDialog } from './components/clear-database-dialog';
+import { CollectionDebugDrawer } from './components/collection-debug-drawer';
 import { CreateCollectionDialog } from './components/create-collection-dialog';
 import { DatabaseDemoCollectionDialogs } from './components/database-demo-collection-dialogs';
 import { DatabaseDemoPrimaryPanel } from './components/database-demo-primary-panel';
@@ -146,6 +147,15 @@ export function DatabaseDemoPanel({
 
   // Use Zustand store directly as single source of truth for collection selection and import state
   const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
+  // The debug drawer refuses a managed workspace-index collection for its
+  // scored preview, and that refusal has to name a reason — so it needs the
+  // role, not just the id.
+  const activeCollectionSystemRole = useVectorStatusUIStore((state) => {
+    const collection = state.cachedCollections.find(
+      (candidate) => candidate.id === activeCollectionId
+    );
+    return collection?.systemRole ?? null;
+  });
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const upsertCachedCollection = useVectorStatusUIStore((s) => s.upsertCachedCollection);
   const isManagedCollection = useIsManagedCollection();
@@ -269,6 +279,20 @@ export function DatabaseDemoPanel({
         setShowSettings={setShowSettings}
         showClearDialog={showClearDialog}
         showSettings={showSettings}
+      />
+
+      {/* Debug affordances preserved from the retired Collection Browser
+          (BST-1214). Collapsed by default and lazily mounted, so this costs a
+          single button until it is opened. It reads the file page the live
+          query above already holds rather than opening a second subscription. */}
+      <CollectionDebugDrawer
+        activeCollectionId={activeCollectionId}
+        activeCollectionSystemRole={activeCollectionSystemRole}
+        chunkRepository={dbChunkRepository}
+        database={dbContext}
+        fileRepository={repository}
+        recordPagination={recordPagination}
+        records={records}
       />
 
       {/* Clear Database dialog - triggered from Import Settings */}

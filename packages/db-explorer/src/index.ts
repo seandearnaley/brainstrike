@@ -6,8 +6,6 @@ export { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-sta
 export * from './components';
 // Context Actions
 export * from './context-actions';
-// Contexts
-export * from './contexts';
 // Utils
 export * from './csv-export-utils';
 export * from './database-demo-panel';
