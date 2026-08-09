@@ -1,6 +1,7 @@
 import type { ExplorerActiveTab } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { FileExplorerPanel } from '@brainstrike/file-explorer-ui/shell';
+import type { QueueAdapter } from '@brainstrike/queue';
 import {
   PANEL_TAB_TRIGGER_CLASS_NAME,
   Tabs,
@@ -9,6 +10,7 @@ import {
   TabsTrigger,
 } from '@brainstrike/ui';
 import { lazy, type ReactElement, Suspense, useCallback, useState } from 'react';
+import { ExplorerImportAction } from './explorer-import-action';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
 
 /**
@@ -53,7 +55,17 @@ function WorkspaceSearchTabContent(): ReactElement {
  * pattern). The Search panel lazy-mounts on first activation and then stays
  * mounted too, preserving its query/results.
  */
-export function ExplorerSearchTabs(): ReactElement {
+interface ExplorerSearchTabsProps {
+  /**
+   * Lazy loader for the app-owned embedding queue, forwarded to the explorer's
+   * collection-import action (the queue the produced chunks are embedded on).
+   */
+  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
+}
+
+export function ExplorerSearchTabs({
+  loadEmbeddingQueue = null,
+}: ExplorerSearchTabsProps = {}): ReactElement {
   const activeTab = useContextExplorerLayoutStore((state) => state.explorerActiveTab);
   const setExplorerActiveTab = useContextExplorerLayoutStore((state) => state.setExplorerActiveTab);
 
@@ -119,7 +131,9 @@ export function ExplorerSearchTabs(): ReactElement {
         hidden={activeTab !== 'explorer'}
         value="explorer"
       >
-        <FileExplorerPanel />
+        <FileExplorerPanel
+          selectionActions={<ExplorerImportAction loadEmbeddingQueue={loadEmbeddingQueue} />}
+        />
       </TabsContent>
 
       <TabsContent

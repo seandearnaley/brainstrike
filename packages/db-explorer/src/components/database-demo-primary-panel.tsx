@@ -13,7 +13,7 @@ import {
   EmbeddingActionsDropdown,
   type useEmbeddingControls,
 } from '@brainstrike/vector-management';
-import { FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
+import { HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
 import type { ComponentProps, ReactElement } from 'react';
 import type { useCollectionDialogs } from '../hooks/use-collection-dialogs';
 import type { useExportHandlers } from '../hooks/use-export-handlers';
@@ -229,37 +229,9 @@ export function DatabaseDemoPrimaryPanel({
               exportHandlers={exportHandlers}
             />
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  aria-label={`Import (${importFlow.selectedFileCount})`}
-                  className="flex h-7 @[420px]:min-w-[5.25rem] items-center gap-1.5 @[420px]:px-3 px-2"
-                  disabled={
-                    importFlow.isImporting ||
-                    !activeCollectionId ||
-                    importFlow.selectedFileCount === 0 ||
-                    isManagedCollection
-                  }
-                  onClick={importFlow.handleImportClick}
-                  size="sm"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span className="@[420px]:inline hidden font-medium">Import</span>
-                  <span className="@[520px]:inline hidden text-[10px] opacity-70">
-                    ({importFlow.selectedFileCount})
-                  </span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {importFlow.selectedFileCount === 0
-                  ? 'Select files to import first'
-                  : isManagedCollection
-                    ? 'Background indexing manages imports for this collection'
-                    : activeCollectionId
-                      ? `Import ${importFlow.selectedFileCount} files to collection`
-                      : 'Select a collection first'}
-              </TooltipContent>
-            </Tooltip>
+            {/* Importing is triggered from the file explorer's selection
+                action bar (BST-1212) — the surface that owns the selection.
+                There is deliberately no second entry point here. */}
 
             <EmbeddingActionsDropdown
               {...dropdownProps}
