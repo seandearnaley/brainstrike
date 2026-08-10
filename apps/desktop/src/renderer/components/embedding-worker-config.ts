@@ -45,9 +45,23 @@ const DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS = 75;
 const DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS = 120;
 const DESKTOP_PIPELINE_SNAPSHOT_CACHE_MS = 500;
 const HIGH_RETAINED_HEAP_RATIO = 0.75;
+// Max time the embedding CLAIM path yields to `foreground-db-pressure` before it
+// proceeds with gentle, constrained claims. Mirrors the app-shell sync bound
+// (workspace-collection-sync-service's FOREGROUND_DB_PRESSURE_STARVATION_MS) and
+// exists for the same reason: every main-window renderer query defaults to
+// `foreground` priority, so an active Explorer/Database surface keeps
+// `foreground-quiet-window` / `foreground-latency` asserted more or less
+// continuously. Without a bound the claim loop sits at ZERO claims for as long
+// as the user keeps the window busy — the queue only grows, `running` stays 0,
+// and a manual backfill's queue-capacity wait becomes unsatisfiable because the
+// only consumer that can free capacity is the one being starved.
+// Genuine `foreground-query` activity is NOT bypassed: the QoS resolver keeps
+// yielding fully for that, which preserves the GPU-exclusivity contract.
+const DESKTOP_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS = 5000;
 
 type PositiveIntegerEmbeddingEnvKey =
   | 'VITE_EMBED_CLAIM_BATCH_SIZE'
+  | 'VITE_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS'
   | 'VITE_EMBED_COMPLETION_OVERLAP_BATCHES'
   | 'VITE_EMBED_CONCURRENCY'
   | 'VITE_EMBED_INTER_BATCH_DELAY_MS'
@@ -291,10 +305,12 @@ function resolveDesktopClaimBatchSize(
   powerSnapshot: WorkspaceIndexingPowerSnapshot | null,
   foregroundQueryActive: boolean,
   pipeline: WorkspaceIndexingQosInputs['pipeline'],
-  observeQosTransition: (policy: WorkspaceIndexingQosPolicy) => void
+  observeQosTransition: (policy: WorkspaceIndexingQosPolicy) => void,
+  starvation: ForegroundDbPressureStarvationTracker
 ): number | null {
   const policy = resolveWorkspaceIndexingQosPolicy({
     dbPressure: toWorkspaceIndexingDatabasePressure(snapshot),
+    foregroundDbPressureStarvationBypass: starvation.isBypassing(),
     foregroundQueryActive,
     idleState: powerSnapshot?.idleState ?? 'active',
     idleTimeMs: powerSnapshot?.idleTimeMs ?? 0,
@@ -309,6 +325,7 @@ function resolveDesktopClaimBatchSize(
     windowVisible: false,
   });
   observeQosTransition(policy);
+  starvation.observePolicy(policy);
   if (!policy.allowNewWork) {
     return null;
   }
@@ -320,6 +337,83 @@ function resolveDesktopClaimBatchSize(
 }
 
 type BackgroundPermit = NonNullable<EmbeddingWorkerOptions['waitForBackgroundPermit']>;
+
+/**
+ * The DB pressure controller accepts an abort signal; the worker-facing permit
+ * contract does not. Keeping the wider shape on the INPUT is what lets the claim
+ * wrapper bound its own wait without widening the worker's option type.
+ */
+type AbortableBackgroundPermit = (options: {
+  readonly label: string;
+  readonly signal?: AbortSignal;
+}) => Promise<void>;
+
+export interface ForegroundDbPressureStarvationTracker {
+  /** True once the claim path has been blocked by foreground DB pressure past the bound. */
+  readonly isBypassing: () => boolean;
+  /** Clears the starvation clock; call when the claim path is admitted without pressure. */
+  readonly noteAdmitted: () => void;
+  /** Starts (or continues) the starvation clock; call when the claim path is held back. */
+  readonly noteBlocked: () => void;
+  /** Latches/clears the clock from the resolved policy, and warns once per episode. */
+  readonly observePolicy: (policy: WorkspaceIndexingQosPolicy) => void;
+  /** Bound, exposed so the permit wait and the policy bypass share ONE deadline. */
+  readonly starvationMs: number;
+}
+
+/**
+ * Bounds how long the embedding claim path yields to foreground DB pressure.
+ *
+ * The clock only advances while the claim path is actually held back by
+ * `foreground-db-pressure`; any admission that did not need the bypass resets
+ * it. That keeps a genuinely quiet system on the full idle claim batch while
+ * guaranteeing a starved worker still claims — at `system-constrained` batch
+ * size 1 — instead of sitting at zero indefinitely.
+ */
+export function createForegroundDbPressureStarvationTracker(options?: {
+  readonly log?: (message: string, meta?: unknown) => void;
+  readonly now?: () => number;
+  readonly starvationMs?: number;
+}): ForegroundDbPressureStarvationTracker {
+  const now = options?.now ?? (() => Date.now());
+  const starvationMs = options?.starvationMs ?? DESKTOP_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS;
+  const log = options?.log ?? ((message, meta) => logger.warn(message, meta));
+  let blockedSince: number | null = null;
+  let warned = false;
+
+  const noteBlocked = (): void => {
+    blockedSince ??= now();
+  };
+  const noteAdmitted = (): void => {
+    blockedSince = null;
+    warned = false;
+  };
+  const isBypassing = (): boolean => blockedSince !== null && now() - blockedSince >= starvationMs;
+
+  return {
+    isBypassing,
+    noteAdmitted,
+    noteBlocked,
+    observePolicy: (policy) => {
+      if (policy.reason !== 'foreground-db-pressure') {
+        // Any other reason (including a full foreground-query yield) is not the
+        // starvation this bound exists for; do not let it accumulate.
+        noteAdmitted();
+        return;
+      }
+      noteBlocked();
+      if (!(isBypassing() && !warned)) {
+        return;
+      }
+      warned = true;
+      log(
+        'Embedding claim path exceeded the foreground-db-pressure starvation bound; proceeding with constrained claims',
+        { starvationMs }
+      );
+    },
+    starvationMs,
+  };
+}
 
 function resolveDesktopPipelineCapacity(
   snapshot: DatabaseWorkSchedulerSnapshot,
@@ -369,19 +463,46 @@ function resolveDesktopPipelineCapacity(
  * Wrap a DB-pressure permit so the worker also yields the GPU to an in-flight
  * foreground query embedding — but ONLY at the claim boundary (never completion),
  * which keeps draining deadlock-free.
+ *
+ * The DB-pressure wait itself is BOUNDED for the claim label. `waitForBackgroundPermit`
+ * polls until pressure clears with no maximum, so a continuously busy main window
+ * parks the claim loop forever — the worker never even reaches claim-size
+ * resolution, `running` stays 0, and anything waiting on queue drain (a manual
+ * backfill) deadlocks against it. Past the bound the claim proceeds and the
+ * starvation tracker downgrades the claim batch to `system-constrained` size
+ * rather than dropping the yield entirely.
+ *
+ * The foreground-query gate is deliberately NOT bounded here: a query embedding
+ * is short-lived, user-visible, and owns the accelerator exclusively by design.
  */
 export function composeClaimPermit(
-  base: BackgroundPermit,
-  gate: ForegroundEmbeddingGate | undefined
+  base: AbortableBackgroundPermit,
+  gate: ForegroundEmbeddingGate | undefined,
+  starvation: ForegroundDbPressureStarvationTracker
 ): BackgroundPermit {
-  if (!gate) {
-    return base;
-  }
   return async (permitOptions) => {
-    await base(permitOptions);
-    if (permitOptions?.label === 'embedding claim') {
-      await gate.waitUntilInactive();
+    if (permitOptions?.label !== 'embedding claim') {
+      await base(permitOptions);
+      return;
     }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, starvation.starvationMs);
+    try {
+      await base({ ...permitOptions, signal: controller.signal });
+      // The starvation clock is owned solely by observePolicy (evaluated on the
+      // very next claim-size read against the same cached snapshot); resolving
+      // the permit is NOT by itself evidence that pressure has cleared.
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        throw error;
+      }
+      starvation.noteBlocked();
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    await gate?.waitUntilInactive();
   };
 }
 
@@ -410,6 +531,14 @@ function createDesktopPressureControls(
   // One tracker per worker config: claim-size reads re-resolve the QoS policy
   // every cycle, and the tracker logs only (state, reason) transitions.
   const observeQosTransition = createWorkspaceIndexingQosTransitionLogger('desktop-host-claim');
+  // One starvation clock shared by the permit wait and the claim-size policy, so
+  // the two admission gates cannot each yield "just under" the bound forever.
+  const starvation = createForegroundDbPressureStarvationTracker({
+    starvationMs: parsePositiveIntegerEnv(
+      'VITE_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS',
+      DESKTOP_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS
+    ),
+  });
   return {
     resolveClaimBatchSize: async () => {
       const snapshot = await snapshotSource.getSnapshot();
@@ -423,7 +552,8 @@ function createDesktopPressureControls(
         foregroundQueryActive || (dbPressure.available && dbPressure.foregroundPressure)
           ? createUnavailablePipelineInputs()
           : await readPipelineInputs(),
-        observeQosTransition
+        observeQosTransition,
+        starvation
       );
     },
     resolvePipelineCapacity: async () => {
@@ -441,7 +571,11 @@ function createDesktopPressureControls(
         observeQosTransition
       );
     },
-    waitForBackgroundPermit: composeClaimPermit(pressureController.waitForBackgroundPermit, gate),
+    waitForBackgroundPermit: composeClaimPermit(
+      pressureController.waitForBackgroundPermit,
+      gate,
+      starvation
+    ),
   };
 }
 
