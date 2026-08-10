@@ -13,7 +13,7 @@
 
 *The text below is preserved as originally written, in the present tense of 2026-08-07.*
 
-You are picking up a fully-scoped efficiency program. The investigation is done; do not redo it. This document gives you the context, the rules, and the work order. Everything else you need is in the four sibling files in this directory and the ten Linear tickets.
+You are picking up a fully-scoped efficiency program. The investigation is done; do not redo it. This document gives you the context, the rules, and the work order. Everything else you need is in the sibling files in this directory and the ten Linear tickets.
 
 ---
 
@@ -40,6 +40,8 @@ BrainStrike's coding agent works but burns tokens. A source-level audit compared
 | `opencode-report.md` | Source study of opencode's tools, file:line-cited (grep/glob formats, 50 KiB spill-to-file, compaction pruning, .txt few-shot descriptions) |
 | `cline-report.md` | Source study of Cline's SDK core (8k per-request re-cap, stale-read rewriting w/ 64 KB batching, middle-truncation, model-aware edit routing) |
 | `hermes-report.md` | Source study of hermes-agent (densified search output, unpadded-gutter A/B, loop-blocking, zero-match probes, 3-layer window-scaled budgets) |
+| `BASELINE.md` | Pre-change baseline figures captured before the first wave landed |
+| `followup-report-2026-08-09.html` | *(added after this handoff)* The re-scored comparison once both waves shipped — outcomes, remaining items, and what review caught. **Read this for current state; the plan below is historical.** |
 
 Repo contract docs (auto-loaded via `.claude/skills/*-contract`, or read directly):
 

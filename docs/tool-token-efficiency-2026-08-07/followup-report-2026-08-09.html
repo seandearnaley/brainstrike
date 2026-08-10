@@ -1,3 +1,5 @@
+<!DOCTYPE html>
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BrainStrike Tool Token-Efficiency — Follow-up: Two Waves Later</title>
@@ -179,11 +181,11 @@
 <header>
   <div class="eyebrow">BrainStrike // Agent Diagnostics — Follow-up</div>
   <h1>Two waves later: the format waste is gone, and context finally has a lifecycle</h1>
-  <p class="subtitle">Follow-up to the 2026-08-07 audit against opencode, Cline, and Hermes. Twenty-three PRs merged across two waves re-ran the comparison in our favor: every format-level finding is fixed, both systemic gaps are closed, and on several dimensions we now hold the strongest position of the four agents.</p>
+  <p class="subtitle">Follow-up to the 2026-08-07 audit against opencode, Cline, and Hermes. Twenty-two PRs merged across two waves re-ran the comparison in our favor: every format-level finding is fixed, both systemic gaps are closed, and on several dimensions we now hold the strongest position of the four agents.</p>
   <div class="meta">
     <span><b>Date</b> 2026-08-09 · <b>revised</b> 2026-08-10</span>
     <span><b>Baseline</b> token-efficiency-report.html (2026-08-07)</span>
-    <span><b>Shipped</b> Wave I #2313–#2334 (14) · Wave II #2339, #2349, #2350, #2352, #2355, #2356, #2373, #2375 (8)</span>
+    <span><b>Shipped</b> 22 PRs — Wave I 13 + #2338 · Wave II 8 (enumerated in the footer)</span>
     <span><b>Remaining</b> BST-1199 measurement report · BST-1204 (evidence-gated)</span>
   </div>
 </header>
@@ -192,19 +194,19 @@
 <section id="verdict">
   <div class="sec-label">01 — Verdict, revisited</div>
   <h2>Both systemic findings from the audit are resolved in code</h2>
-  <p>The audit's core claim was that our budgets were peer-grade but the <em>bytes inside them</em> were not, and that <strong>nothing ever left our context</strong>. As of today: every model-facing projection is compact plain text (grep, reads, shell, symbols), the ~180-char per-match grep envelope is a ≤100-char <em>enforced ratchet</em> with the real figure far lower on typical paths, and context now has three subtractive mechanisms — stale-read rewriting, recency pruning, and agentic conversation compaction — all shipped, all built on one durable overlay seam with rollback.</p>
+  <p>The audit's core claim was that our budgets were peer-grade but the <em>bytes inside them</em> were not, and that <strong>nothing ever left our context</strong>. As of today: every model-facing projection is compact plain text (grep, reads, shell, symbols), the ~180-char per-match grep envelope is down to roughly five characters on the same envelope-only basis the audit used for the peers (with a separate test ratchet bounding the whole projection, source lines included, at 100 chars/match), and context now has three subtractive mechanisms — stale-read rewriting, recency pruning, and agentic conversation compaction — all shipped, all built on one durable overlay seam with rollback.</p>
   <p>Just as important: the follow-through respected the audit's own rulings. We stayed in the small-page lane (window scaling is capped at 2× the anchor), cost accounting still comes exclusively from provider-reported usage, and where Cline <em>guesses</em> chars/3 for estimation we now <em>measure</em> the estimator against provider actuals per run, per model — Hermes' receipts-first habit applied to the one number everyone else hardcodes.</p>
 
   <div class="tiles">
     <div class="tile good">
-      <div class="k">23</div>
+      <div class="k">22</div>
       <div class="lbl">PRs merged from the audit's fix plan — every ticket with buildable scope across both waves</div>
-      <div class="note">Every bot-review thread fixed or reasoned-declined, replied, resolved</div>
+      <div class="note">Enumerated in the footer; every bot-review thread fixed or reasoned-declined, replied, resolved</div>
     </div>
     <div class="tile accent">
-      <div class="k">≤100 <small>chars</small></div>
-      <div class="lbl">Grep envelope per match — now a test-enforced ratchet (was ~180 measured, peers 6–14)</div>
-      <div class="note">Path-grouped format; flags print only when they fire</div>
+      <div class="k">~180 → ~5</div>
+      <div class="lbl">Chars of envelope per grep match, on the peers' envelope-only basis (opencode ~11, Hermes ~6)</div>
+      <div class="note">Derived from the format: <code>N: </code> gutter + newline, one path header per file. A separate ≤100-chars/match test ratchet bounds the whole projection <em>including</em> matched source lines.</div>
     </div>
     <div class="tile good">
       <div class="k">3</div>
@@ -263,8 +265,8 @@ continue: reuse the prior brainstrike.grepSearch input with offset=2</pre>
         <td>Path-grouped, ~11 chars/match</td>
         <td>Flat list</td>
         <td>~6 chars/match</td>
-        <td class="us">Path-grouped, silent happy path, ≤100-char/match <b>enforced ratchet</b>; root names only when multi-root
-          <span class="mini">#2313 #2316 · fixtures pin the format byte-for-byte</span></td>
+        <td class="us">Path-grouped, silent happy path; root names only when multi-root. <b>Envelope ≈5–6 chars/match</b> — the <code>N: </code> gutter plus newline, with one path header amortized across that file's matches
+          <span class="mini">#2313 #2316 · <b>Basis note:</b> the peer figures are envelope-only (non-content formatting per match). Our envelope figure is derived from the format, not measured. The separate ≤100-chars/match test ratchet measures the <em>whole</em> projection <em>including the matched source line</em> — a different, stricter basis, not comparable to 6/11/14. Fixtures pin the format byte-for-byte.</span></td>
         <td><span class="pill neut">parity</span></td>
       </tr>
       <tr>
@@ -497,14 +499,15 @@ continue: reuse the prior brainstrike.grepSearch input with offset=2</pre>
   <div class="sec-label">07 — Number provenance</div>
   <h2>What's measured, what's enforced, what's estimated</h2>
   <ul>
-    <li><strong>Enforced by tests:</strong> the ≤100-char/match grep ratchet; byte-for-byte projection fixtures for grep/read/exec; the ~9,810-token tool-description ceiling (52-token margin at last check); replay-acceptance bounds; the calibration denominator contract.</li>
+    <li><strong>Enforced by tests:</strong> the ≤100-chars/match grep ratchet — note this bounds the <em>whole</em> projection including matched source lines, a stricter and different basis from the envelope-only figures compared against peers; byte-for-byte projection fixtures for grep/read/exec; the ~9,810-token tool-description ceiling (52-token margin at last check); replay-acceptance bounds; the calibration denominator contract.</li>
     <li><strong>Measured in fixtures:</strong> the ≈1,050 → ≈210 char two-match comparison; 54 → 100 rows under the decoded ruler; −66% on the grep-exit-1 shell case.</li>
-    <li><strong>Estimated:</strong> the 4–5× information-per-page multiplier (arithmetic from the formats); peer per-match envelope figures (from their formatters, not live traffic).</li>
+    <li><strong>Derived from the format, not measured:</strong> our ~5-chars/match envelope figure (gutter + newline, plus an amortized per-file path header); the 4–5× information-per-page multiplier.</li>
+    <li><strong>Estimated:</strong> peer per-match envelope figures (read from their formatters, not live traffic).</li>
     <li><strong>Pending:</strong> production deltas — the telemetry lenses have been live since 2026-08-08; the P15 report converts these estimates into measurements around 2026-08-15.</li>
   </ul>
 </section>
 
 <footer>
-  <p>Follow-up to <code>token-efficiency-report.html</code> in this folder; peer facts from the sibling study documents (opencode dev@284214c · cline 8ca3068 · hermes-agent). Shipped work: Wave I PRs #2313, #2314, #2315, #2316, #2317, #2321, #2322, #2323, #2330, #2331, #2332, #2333, #2334 · Wave II PRs #2339, #2349, #2350, #2352, #2355, #2356, #2373, #2375 · plus #2338 (projection pass-through). Linear: "Assistant Tool Token Efficiency" (complete) and "Assistant Tool Token Efficiency II" (buildable scope complete; BST-1199 and BST-1204 gated on the measurement window).</p>
+  <p>Follow-up to <code>token-efficiency-report.html</code> in this folder; peer facts from the sibling study documents (opencode dev@284214c · cline 8ca3068 · hermes-agent). Shipped work, 22 PRs total, all verified merged: Wave I (13) #2313, #2314, #2315, #2316, #2317, #2321, #2322, #2323, #2330, #2331, #2332, #2333, #2334 · #2338 (BST-1189 projection pass-through, landed from a parallel session during Wave I) · Wave II (8) #2339, #2349, #2350, #2352, #2355, #2356, #2373, #2375. Linear: "Assistant Tool Token Efficiency" (complete) and "Assistant Tool Token Efficiency II" (buildable scope complete; BST-1199 and BST-1204 gated on the measurement window).</p>
 </footer>
 </div>
