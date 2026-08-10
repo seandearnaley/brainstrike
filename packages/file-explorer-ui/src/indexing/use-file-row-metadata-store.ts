@@ -25,9 +25,11 @@
  *    would strand a reopened workspace's already-cached counts on `pending`
  *    forever, so it stays; but because `cacheVersion` is debounced at 50ms and
  *    therefore bumps ~20×/s during an index run (once per batch, alongside the
- *    precise calls above), the full pass is COALESCED behind a trailing timer.
- *    An operational transition and FILE_EXPLORER_REFRESH_EVENT reconcile
- *    immediately — both are one-shot and user-visible.
+ *    precise calls above), the full pass is COALESCED behind a trailing timer
+ *    with a `RECONCILE_METADATA_MAX_WAIT_MS` starvation bound. Sustained churn
+ *    therefore forces a pass at least once per max-wait window. An operational
+ *    transition and FILE_EXPLORER_REFRESH_EVENT reconcile immediately — both
+ *    are one-shot and user-visible.
  */
 
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';

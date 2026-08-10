@@ -102,9 +102,19 @@ function collectVisibleFilePathsIfNeeded(
 
 function shouldCollectVisibleFilePaths(
   hasRecursiveSelectAll: boolean,
-  quickFilter: string
+  quickFilter: string,
+  hasQuickFilterSelectAllOverride: boolean
 ): boolean {
-  return !hasRecursiveSelectAll || quickFilter.trim().length > 0;
+  return (
+    !hasRecursiveSelectAll || (quickFilter.trim().length > 0 && !hasQuickFilterSelectAllOverride)
+  );
+}
+
+function hasForestQuickFilterSelectAllOverride(
+  isForestMode: boolean,
+  forestActions: ReturnType<typeof useOptionalForestTreeActions>
+): boolean {
+  return isForestMode && forestActions !== null;
 }
 
 /**
@@ -490,6 +500,16 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
   });
 
+  // Forest sections own their tree enumeration and provide the quick-filter
+  // Select All override through this registry. Resolve that capability before
+  // deciding whether the focused panel must materialize a fallback path list.
+  const forestActions = useOptionalForestTreeActions();
+  const isForestMode = isForestModeActive(rootDirectoryHandles);
+  const hasQuickFilterSelectAllOverride = hasForestQuickFilterSelectAllOverride(
+    isForestMode,
+    forestActions
+  );
+
   // displayedFiles are only needed by the legacy "fallback select-all" path.
   // In desktop, recursive select-all should always be available and this stays false.
   // Keep a runtime capability check so tests and non-desktop adapters can still exercise fallback.
@@ -503,7 +523,8 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   // matches, so retain the walk for that explicit path and for legacy adapters.
   const needsVisibleFilePaths = shouldCollectVisibleFilePaths(
     hasRecursiveSelectAll,
-    deferredQuickFilter
+    deferredQuickFilter,
+    hasQuickFilterSelectAllOverride
   );
   const visibleFilePaths = useMemo(
     () => collectVisibleFilePathsIfNeeded(quickFilteredTree, needsVisibleFilePaths),
@@ -745,12 +766,10 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   // Forest mode: Expand All must run inside EACH root section's own tree
   // context — the legacy path below only expands the focused provider's
   // (invisible) top-level tree when multiple roots are active.
-  const forestActions = useOptionalForestTreeActions();
   // Single source for the forest cancel: the toolbar cluster and the
   // compact-menu yield rule must agree on whether one exists, or the menu could
   // stand down for an operation that renders no cancel.
   const forestCancelExpandAll = forestActions?.cancelExpandAll ?? null;
-  const isForestMode = isForestModeActive(rootDirectoryHandles);
   // Run-boundary signal only — high-frequency progress is subscribed by the
   // PanelTreeActionButtons leaf, never by this panel component.
   const isForestExpandingAll = useForestIsExpandingAll();

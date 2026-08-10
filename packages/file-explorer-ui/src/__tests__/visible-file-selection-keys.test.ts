@@ -45,6 +45,7 @@ describe('collectVisibleFileSelectionKeys path exclusions', () => {
 
     buildFileHandleMap(tree, handleMap);
 
+    expect(visibleKeys.size).toBe(1);
     expect([...visibleKeys]).toEqual([...handleMap.keys()]);
   });
 

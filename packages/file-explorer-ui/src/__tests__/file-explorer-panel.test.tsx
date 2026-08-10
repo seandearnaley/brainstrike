@@ -1421,6 +1421,17 @@ describe('FileExplorerPanel', () => {
       return forestActions;
     }
 
+    it('skips the visible-file walk when forest quick-filter Select All owns selection', () => {
+      arrangeForest();
+      const mockedStore = vi.mocked(useFileExplorerStoreContext)();
+      Object.assign(mockedStore.getState(), { quickFilter: 'dir' });
+
+      renderWithProviders(<FileExplorerPanel />);
+
+      const actionProps = ActionButtonsMock?.mock.calls.at(-1)?.[0];
+      expect(actionProps?.visibleFilePaths).toEqual([]);
+    });
+
     it('stages the multi-root sweep behind a confirmation naming the root count', async () => {
       const user = userEvent.setup();
       const forestActions = arrangeForest();
@@ -1607,6 +1618,11 @@ describe('FileExplorerPanel', () => {
     expect(filteredTree[0].name).toBe('foo.ts');
     expect(filteredTree[1].name).toBe('dir');
     expect(filteredTree[1].children).toHaveLength(1);
+
+    // Recursive select-all is available, but single-root quick-filter Select
+    // All still consumes the displayed path list through the fallback branch.
+    const actionProps = ActionButtonsMock?.mock.calls.at(-1)?.[0];
+    expect(actionProps?.visibleFilePaths).toEqual(['/foo.ts', '/dir/foo-in-dir.ts']);
   });
 
   it('skips the fallback visible-file walk when recursive select-all is available', () => {
