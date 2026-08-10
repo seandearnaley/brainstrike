@@ -164,7 +164,15 @@ describe('useUnseenDiagnosticsCount', () => {
     expect(result.current).toEqual({ error: null, errorCount: 0, warningCount: 0 });
   });
 
-  it.each([null, ''])('fails loud when an aggregate count is %p', (invalidCount) => {
+  it.each([
+    null,
+    '',
+    true,
+    false,
+    [],
+    [2],
+    {},
+  ])('fails loud when an aggregate count is %p', (invalidCount) => {
     usePGliteLiveQueryMock.mockReturnValue({
       error: null,
       loading: false,

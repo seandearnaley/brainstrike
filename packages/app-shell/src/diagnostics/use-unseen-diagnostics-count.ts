@@ -40,10 +40,14 @@ export interface UnseenDiagnosticsCountResult {
 }
 
 function parseAggregateCount(value: unknown): number | null {
-  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+  let parsed: number;
+  if (typeof value === 'number') {
+    parsed = value;
+  } else if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+    parsed = Number(value.trim());
+  } else {
     return null;
   }
-  const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
