@@ -14,6 +14,17 @@ export const MASTRA_MEMORY_TABLES = {
 export const MASTRA_VECTOR_TABLE = 'mastra_vectors';
 export const MASTRA_WORKFLOW_TABLE = TABLE_WORKFLOW_SNAPSHOT;
 
+/**
+ * Assistant-ui's client-owned branch topology layered over Mastra's durable
+ * message content (migration 055). Desktop main writes a root row (BST-1200
+ * M2's compaction summary) via raw SQL against this table name directly —
+ * NOT by importing `@brainstrike/assistant-data`, which is the renderer's
+ * bootstrap/repository package (built ESM-only, no `require` condition, and
+ * per `docs/agents/platform-contracts.md`'s BST-558 lesson, deliberately
+ * fragile to import from anywhere but the renderer's own module graph).
+ */
+export const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
+
 /** Title seeded on a thread before anyone (user or observer) has named it. */
 export const DEFAULT_THREAD_TITLE = 'New Thread';
 
@@ -223,6 +234,14 @@ export const ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE =
   'brainstrike_assistant_tool_projection_rewrites';
 
 /**
+ * Exact-message overlays for durable conversation compaction summaries
+ * (BST-1200 Milestone 2, migration 088 in BOTH runners plus the app-shell
+ * bootstrap mirror). The mirror is required because thread deletion references
+ * every registered sidecar unconditionally, while desktop main owns writes.
+ */
+export const ASSISTANT_COMPACTION_RANGES_TABLE = 'brainstrike_assistant_compaction_ranges';
+
+/**
  * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
  * `thread_id`. All three delete implementations (single CTE, bulk CTE, and
  * the Mastra `MemoryStorage.deleteThread` override) derive their stages from
@@ -232,6 +251,7 @@ export const ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE =
  * ("threadId" OR "lookupKey") and stays inline at each site.
  */
 export const THREAD_DELETE_SIDECAR_TABLES = [
+  { table: ASSISTANT_COMPACTION_RANGES_TABLE, threadColumn: 'thread_id' },
   { table: ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE, threadColumn: 'thread_id' },
   { table: 'brainstrike_canvas_versions', threadColumn: 'thread_id' },
   { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumn: 'thread_id' },

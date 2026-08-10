@@ -11,15 +11,16 @@
  * aui-data part (display refresh only — the renderer never writes child rows,
  * so the two writers can never double-count).
  *
- * TOKEN PROVENANCE HONESTY: subagent figures are provider-exact (the child
- * run's aggregate usage from Mastra's delegation callback); OM figures are
- * LOCAL ESTIMATES (Mastra sizes observer input/output with tokenx, excluding
- * the observer's own system prompt) — `estimated` carries that distinction and
- * the UI must label OM rows as estimates, never present them as billed truth.
+ * TOKEN PROVENANCE HONESTY: subagent and compaction-summary figures are
+ * provider-exact aggregate usage from their Mastra calls; OM figures are LOCAL
+ * ESTIMATES (Mastra sizes observer input/output with tokenx, excluding the
+ * observer's own system prompt) — `estimated` carries that distinction and the
+ * UI must label OM rows as estimates, never present them as billed truth.
  */
 export const ASSISTANT_RUN_USAGE_KINDS = [
   'chat',
   'subagent',
+  'compaction-summary',
   'om-observation',
   'om-reflection',
 ] as const;
@@ -34,7 +35,7 @@ export const CHILD_RUN_USAGE_DATA_NAME = 'brainstrike.child-run-usage';
 export interface AssistantChildRunUsage {
   /**
    * True when the token figures are local estimates (OM cycles), false when
-   * they are provider-reported (subagent aggregate usage).
+   * they are provider-reported (subagent or compaction-summary aggregate usage).
    */
   readonly estimated: boolean;
   readonly inputTokens: number;

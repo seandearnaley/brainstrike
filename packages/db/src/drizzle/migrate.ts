@@ -77,7 +77,9 @@ import { migration084AssistantToolProjectionRewrites } from '../migrations/084-a
 import { migration085ToolCallTelemetryOccurredAtIndex } from '../migrations/085-tool-call-telemetry-occurred-at-index.js';
 import { migration086TokenEstimateCalibration } from '../migrations/086-token-estimate-calibration.js';
 import { migration087ToolProjectionRewriteKinds } from '../migrations/087-tool-projection-rewrite-kinds.js';
+import { migration088AssistantCompactionRanges } from '../migrations/088-assistant-compaction-ranges.js';
 import { migration089TokenEstimateCalibrationResolvedBudgets } from '../migrations/089-token-estimate-calibration-resolved-budgets.js';
+import { migration090CompactionSummaryRunUsageKind } from '../migrations/090-compaction-summary-run-usage-kind.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -281,9 +283,14 @@ const customMigrations: Migration[] = [
     'custom-087-tool-projection-rewrite-kinds',
     migration087ToolProjectionRewriteKinds
   ),
+  customMigration('custom-088-assistant-compaction-ranges', migration088AssistantCompactionRanges),
   customMigration(
     'custom-089-token-estimate-calibration-resolved-budgets',
     migration089TokenEstimateCalibrationResolvedBudgets
+  ),
+  customMigration(
+    'custom-090-compaction-summary-run-usage-kind',
+    migration090CompactionSummaryRunUsageKind
   ),
 ];
 

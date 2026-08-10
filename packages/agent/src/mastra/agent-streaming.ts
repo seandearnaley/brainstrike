@@ -36,6 +36,7 @@ import type { Agent, AgentMemoryOption, DelegationConfig } from '@mastra/core/ag
 import type { MastraMemory } from '@mastra/core/memory';
 import { SkillsProcessor } from '@mastra/core/processors';
 import type { ChunkType } from '@mastra/core/stream';
+import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
   providerSupportsNativeWebSearch,
@@ -54,6 +55,7 @@ import {
   type MastraAgentRuntime,
   type MastraAgentRuntimeOptions,
 } from './agent-runtime';
+import { buildCompactionOverlayInputProcessor } from './compaction-overlay-processor';
 import { buildProviderHistoryCompatInputProcessor } from './error-processors';
 import { isApprovalExemptInternalTool } from './internal-approval-exempt-tools';
 import { createMastraAgentError, isMastraAgentError } from './mastra-agent-error';
@@ -239,7 +241,41 @@ function warnForUnrecognizedMastraStreamPart(
   });
 }
 
-function processMastraStreamPart(
+async function makeRecoveredProviderErrorTermination(
+  part: unknown,
+  error: unknown,
+  lifecycleState: ToolLifecycleState,
+  runtimeData?: RuntimeData
+): Promise<ProcessStreamPartResult> {
+  const providerError = resolveProviderError(error, runtimeData);
+  let detail = providerError.detail;
+  if (
+    isContextOverflowProviderErrorCode(providerError.runError.code) &&
+    runtimeData?.contextOverflowRecovery
+  ) {
+    try {
+      const recovery = await runtimeData.contextOverflowRecovery();
+      if (recovery.applied) {
+        detail =
+          'A deterministic compaction was applied after the provider reported a context overflow. Please resend this message or continue the conversation; the next request now has additional headroom.';
+      }
+    } catch (recoveryError) {
+      logger.warn('Deterministic context-overflow compaction failed', {
+        code: 'deterministic_compaction_failed',
+        error: recoveryError,
+      });
+    }
+  }
+  return makeProviderErrorTermination(
+    detail,
+    lifecycleState,
+    part,
+    runtimeData,
+    providerError.runError
+  );
+}
+
+async function processMastraStreamPart(
   part: unknown,
   toolNames: Map<string, string>,
   lifecycleState: ToolLifecycleState,
@@ -247,7 +283,7 @@ function processMastraStreamPart(
   askTools?: ReadonlyMap<string, PermissionAskToolMetadata>,
   delegationToolPersonas: ReadonlyMap<string, string> = new Map(),
   runtimeData?: RuntimeData
-): ProcessStreamPartResult {
+): Promise<ProcessStreamPartResult> {
   const p = asMastraStreamPart(part);
 
   // Dynamic OM bookkeeping branches before the typed switch: failure variants
@@ -451,13 +487,11 @@ function processMastraStreamPart(
       // we threw here; the throw produced a data-stream error frame that the
       // renderer did not surface, leaving the thread hung on a forever-spinning
       // "Generation step started" (the "large white pause"). See docs/agents/assistant-runtime.md.
-      const providerError = resolveProviderError(p.error ?? p.payload?.error, runtimeData);
-      return makeProviderErrorTermination(
-        providerError.detail,
-        lifecycleState,
+      return makeRecoveredProviderErrorTermination(
         part,
-        runtimeData,
-        providerError.runError
+        p.error ?? p.payload?.error,
+        lifecycleState,
+        runtimeData
       );
     }
     case 'tripwire': {
@@ -918,6 +952,10 @@ function buildToolLoopOptions(
     runtimeData?.toolProjectionRewriteLookup,
     runtimeData?.memory?.threadId
   );
+  const compactionOverlay = buildCompactionOverlayInputProcessor(
+    runtimeData?.compactionOverlayLookup,
+    runtimeData?.memory?.threadId
+  );
   const tokenLimiter = inputTokenLimit
     ? new ProjectionAwareTokenLimiter({
         limit: inputTokenLimit,
@@ -941,6 +979,9 @@ function buildToolLoopOptions(
     toolSearchProcessor,
     toolHistoryFilter,
     toolProjectionRewrite,
+    // Adjacent for readability only: processInputStep always runs before the
+    // rewrite processor's processLLMRequest, independent of array position.
+    compactionOverlay,
     historyCompat,
     openAIToolSearchHistoryCompat,
     openAIDuplicateItemCompat,
@@ -1058,7 +1099,7 @@ async function* streamChunksFromMastra({
       (error) => streamAbortContext.abort(error)
     );
     for await (const part of source) {
-      const { chunks, finished } = processMastraStreamPart(
+      const { chunks, finished } = await processMastraStreamPart(
         part,
         toolNames,
         lifecycleState,

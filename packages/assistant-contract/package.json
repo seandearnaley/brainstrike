@@ -83,6 +83,11 @@
       "import": "./dist/assistant-attachments.js",
       "require": "./dist/assistant-attachments.js"
     },
+    "./compaction-summary": {
+      "types": "./dist/compaction-summary.d.ts",
+      "import": "./dist/compaction-summary.js",
+      "require": "./dist/compaction-summary.js"
+    },
     "./mastra-memory-schema": {
       "types": "./dist/mastra-memory-schema.d.ts",
       "import": "./dist/mastra-memory-schema.js",

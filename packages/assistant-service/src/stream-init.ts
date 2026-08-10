@@ -38,6 +38,12 @@ import {
 import { resolveDesktopObserverUsageTarget } from './memory-model-targets.js';
 import type { AssistantLlmHostManager } from './ports.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
+import type { PreRequestCompactionCapabilityResult } from './stream-init-compaction.js';
+import {
+  runConversationCompactionBeforeStream,
+  trustedCompactionOverlayFields,
+  withCompactionUsageChunk,
+} from './stream-init-compaction.js';
 import type { AgentStreamFailure, AgentStreamResult, DesktopMemoryFeature } from './types.js';
 
 /**
@@ -517,6 +523,19 @@ export interface AgentStreamCapabilities<
       ) => ReturnType<ToolOutputArtifactSettlementStore['store']>;
     };
   };
+  readonly compaction: {
+    readonly createContextOverflowRecovery: (input: {
+      readonly memoryStore: AgentStreamMemoryResult['store'];
+      readonly runtimeData: RuntimeData;
+    }) => NonNullable<RuntimeData['contextOverflowRecovery']>;
+    readonly runPreRequest: (input: {
+      readonly memoryStore: AgentStreamMemoryResult['store'];
+      readonly requestMessages: readonly AgentMessage[];
+      readonly runId: string | undefined;
+      readonly runtimeData: RuntimeData;
+      readonly signal: AbortSignal;
+    }) => Promise<PreRequestCompactionCapabilityResult>;
+  };
   readonly contextInjectors: {
     readonly activatedSkills: (
       messages: AgentMessage[],
@@ -694,6 +713,8 @@ interface AgentStreamHelperDeps<K extends AgentStreamCapabilityKinds> {
 export interface InitializeAgentStreamParams<K extends AgentStreamCapabilityKinds> {
   readonly apiKey: string | undefined;
   readonly capabilities: AgentStreamCapabilities<K>;
+  /** Trusted host-injected compaction overlay lookup; never client supplied. */
+  readonly compactionOverlayLookup?: RuntimeData['compactionOverlayLookup'];
   readonly getDatabase: AgentStreamDatabaseProvider<K['database']>;
   readonly logger: ScopedLogger;
   readonly mcpConfig: McpConfig | undefined;
@@ -732,6 +753,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     toolApprovalAction,
     toolResumeAction,
     toolDependencies,
+    compactionOverlayLookup,
     toolProjectionRewriteLookup,
     getDatabase,
     resolveProviderApiKey,
@@ -792,6 +814,8 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     workspaceSkills: _ignoredClientWorkspaceSkills,
     // Strip any client-supplied overlay lookup. Only the host-injected closure
     // passed as an initializer dependency may reach the agent runtime.
+    compactionOverlayLookup: _ignoredClientCompactionOverlayLookup,
+    contextOverflowRecovery: _ignoredClientContextOverflowRecovery,
     toolProjectionRewriteLookup: _ignoredClientProjectionRewriteLookup,
     // The renderer's persona availability preference; resolved (with the
     // user-persona disk scan) into `runtime.personas` below.
@@ -800,6 +824,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
   } = runtimeData ?? {};
   const trustedRuntimeData: RuntimeData = {
     ...runtimeWithoutMcpConfig,
+    ...trustedCompactionOverlayFields(compactionOverlayLookup),
     ...trustedProjectionRewriteFields(toolProjectionRewriteLookup),
   };
   const permissionPolicy = resolveRequestPermissionPolicy(permissionPolicyRequest);
@@ -992,8 +1017,18 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       };
     }
 
+    const preRequestCompaction = await runConversationCompactionBeforeStream({
+      capabilities,
+      logger,
+      memoryResult,
+      messages: upsGate.messages,
+      runId,
+      runtime,
+      signal,
+    });
+
     initializationStage = 'stream_construction';
-    const stream = await resolveInitialAgentStream({
+    const initialStream = await resolveInitialAgentStream({
       deps,
       memoryOptions,
       messages: upsGate.messages,
@@ -1001,6 +1036,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       toolApprovalAction,
       toolResumeAction,
     });
+    const stream = withCompactionUsageChunk(initialStream, preRequestCompaction);
     logger.info('Assistant stream initialized');
     // Stop (notify-only in v1): fire the terminal Stop hook best-effort when the
     // stream ends (clean/error/abort). Its run events ride the queued sink the

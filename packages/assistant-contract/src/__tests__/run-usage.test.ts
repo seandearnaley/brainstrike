@@ -6,6 +6,7 @@ describe('run-usage contract', () => {
     expect(ASSISTANT_RUN_USAGE_KINDS).toEqual([
       'chat',
       'subagent',
+      'compaction-summary',
       'om-observation',
       'om-reflection',
     ]);
@@ -18,6 +19,16 @@ describe('run-usage contract', () => {
         inputTokens: 24_000,
         outputTokens: 900,
         source: 'om-observation',
+      })
+    ).toBe(true);
+    expect(
+      isAssistantChildRunUsage({
+        estimated: false,
+        inputTokens: 1200,
+        model: 'gpt-5.2',
+        outputTokens: 180,
+        provider: 'openai',
+        source: 'compaction-summary',
       })
     ).toBe(true);
     expect(

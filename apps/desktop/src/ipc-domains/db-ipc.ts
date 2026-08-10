@@ -789,6 +789,9 @@ export function registerDatabaseIpcHandlers(
             // Superseded native-tool projection overlays (migration 084): no
             // FK, so request-build rewrite state is cleared explicitly.
             await clearOptionalRelation(tx, 'brainstrike_assistant_tool_projection_rewrites');
+            // Conversation-compaction ranges (migration 088): no FK, so exact
+            // summarized-message sets are cleared explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_compaction_ranges');
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');

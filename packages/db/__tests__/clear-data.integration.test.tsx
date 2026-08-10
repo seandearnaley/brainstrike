@@ -99,6 +99,10 @@ const SENTINEL_INSERTS = [
   `INSERT INTO brainstrike_assistant_message_tombstones
      (message_id, thread_id, rewind_id)
      VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-rewind')`,
+  // BST-1200: exact-message compaction overlays are durable FK-less state.
+  `INSERT INTO brainstrike_assistant_compaction_ranges
+     (compaction_message_id, thread_id, compacted_message_ids, kind)
+     VALUES ('sentinel-summary', 'sentinel-thread', '["sentinel-message"]'::jsonb, 'agentic')`,
   // BST-1164: shadow-git snapshot ledger rows map threads the clear just
   // destroyed onto shadow commits.
   `INSERT INTO brainstrike_workspace_snapshots
@@ -178,6 +182,7 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_edit_checkpoints')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_parents')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_tombstones')).toBe(0);
+    expect(await countRows('brainstrike_assistant_compaction_ranges')).toBe(0);
     expect(await countRows('brainstrike_canvas_versions')).toBe(0);
     expect(await countRows('brainstrike_tool_call_telemetry')).toBe(0);
     expect(await countRows('brainstrike_token_estimate_calibration')).toBe(0);

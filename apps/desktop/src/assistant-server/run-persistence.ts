@@ -162,8 +162,9 @@ export async function* observeDesktopAssistantRunEvents(
  * recordDesktopAssistantRunEvent — a missing runs row inserts nothing).
  *
  * Attribution rules (honesty over completeness):
- * - subagent rows: chunk-carried model/provider (persona pin ?? parent), with
- *   the runs row as the SQL fallback — the child genuinely ran on one of those.
+ * - subagent and compaction-summary rows: chunk-carried model/provider (persona
+ *   pin ?? parent for subagents), with the runs row as the SQL fallback — the
+ *   auxiliary call genuinely ran on one of those.
  * - OM rows: ONLY the resolved observer target — falling back to the chat
  *   model would mislabel spend to the wrong model. Unattributable → dropped
  *   with a visible warn, never written under a guess.
@@ -184,7 +185,7 @@ export async function* persistDesktopChildRunUsage(
     readonly provider?: string;
     readonly source: string;
   }): Promise<void> => {
-    const isOmRow = value.source !== 'subagent';
+    const isOmRow = value.source === 'om-observation' || value.source === 'om-reflection';
     const model = value.model ?? (isOmRow ? observerTarget?.model : undefined);
     const provider = value.provider ?? (isOmRow ? observerTarget?.provider : undefined);
     if (isOmRow && !(model && provider)) {
