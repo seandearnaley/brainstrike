@@ -28,7 +28,8 @@ import { ExplorerColumnsProvider } from '../shell/explorer-columns-provider';
 import { ExplorerSortProvider } from '../shell/explorer-sort-provider';
 import { EXCLUDED_TOKENS_TITLE } from '../tree/file-tree-metadata-cells';
 import { resetReportedUnidentifiedRowsForTests } from '../tree/file-tree-metadata-diagnostics';
-import OptimizedFileTree, { fileTreeTelemetry } from '../tree/optimized-file-tree';
+import { fileTreeTelemetry } from '../tree/file-tree-telemetry-counters';
+import OptimizedFileTree from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 const ROOT = 'root';

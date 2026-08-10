@@ -24,7 +24,8 @@ import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import { ExplorerColumnsProvider } from '../shell/explorer-columns-provider';
 import { ExplorerSortProvider } from '../shell/explorer-sort-provider';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
-import OptimizedFileTree, { fileTreeTelemetry } from '../tree/optimized-file-tree';
+import { fileTreeTelemetry } from '../tree/file-tree-telemetry-counters';
+import OptimizedFileTree from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 /**
