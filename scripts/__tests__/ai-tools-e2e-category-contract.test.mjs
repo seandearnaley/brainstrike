@@ -129,15 +129,6 @@ function analyzeOptionSelectors(source) {
     return;
   }
 
-  function isSupportedNameValue(value) {
-    return (
-      ts.isIdentifier(value) ||
-      ts.isStringLiteral(value) ||
-      ts.isNoSubstitutionTemplateLiteral(value) ||
-      ts.isRegularExpressionLiteral(value)
-    );
-  }
-
   function isIdentifierNamed(node, name) {
     return ts.isIdentifier(node) && node.text === name;
   }
@@ -167,7 +158,8 @@ function analyzeOptionSelectors(source) {
       ts.isCallExpression(node) &&
       ts.isPropertyAccessExpression(node.expression) &&
       node.expression.name.text === 'getByRole' &&
-      ts.isStringLiteral(node.arguments[0]) &&
+      (ts.isStringLiteral(node.arguments[0]) ||
+        ts.isNoSubstitutionTemplateLiteral(node.arguments[0])) &&
       node.arguments[0].text === 'option'
     ) {
       const options = node.arguments[1];
@@ -179,9 +171,7 @@ function analyzeOptionSelectors(source) {
             (property) =>
               ts.isSpreadAssignment(property) || ts.isComputedPropertyName(property.name)
           ) ||
-          !nameValue ||
-          (ts.isIdentifier(nameValue) && !resolveIdentifier(nameValue)) ||
-          !isSupportedNameValue(nameValue)
+          !nameValue
         ) {
           hasUnsupportedOptionSelector = true;
         }
@@ -273,7 +263,10 @@ function categoryLabelViolations(source) {
   return violations;
 }
 
-for (const hardcodedName of ["'Analysis'", '/retrieval/i']) {
+for (const [hardcodedName, optionRole] of [
+  ["'Analysis'", "'option'"],
+  ['/retrieval/i', '`option`'],
+]) {
   test(`MONEY TEST: a derived selector cannot hide hardcoded ${hardcodedName}`, () => {
     const source = `
     import {
@@ -288,7 +281,7 @@ for (const hardcodedName of ["'Analysis'", '/retrieval/i']) {
       'option',
       { exact: true, name: TOOL_CATEGORY_LABEL }
     ).click();
-    await page.getByRole('option', { exact: true, name: ${hardcodedName} }).click();
+    await page.getByRole(${optionRole}, { exact: true, name: ${hardcodedName} }).click();
   `;
 
     assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
@@ -452,9 +445,11 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
     const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
       NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
     ].label;
+    const provider = { label: 'OpenAI' };
     test('Analysis remains available as unrelated fixture data', async () => {
       await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
       await page.getByRole('option', { exact: true, name: /OpenAI/i }).click();
+      await page.getByRole('option', { name: provider.label }).click();
     });
   `;
 
