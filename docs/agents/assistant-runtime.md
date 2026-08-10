@@ -343,37 +343,90 @@ and typed truncation metadata to their raw result in a private WeakMap before
 projection, so no projected-text parsing or user search data enters telemetry.
 
 At run end, the same diagnostics instance may emit one internal
-`token-estimate-calibration` chunk only for a completed run with at least one
-measured model-visible tool output. The numerator is the chars/4 backstop over
-model-visible tool-output projections plus tool definitions, each counted once.
-The denominator is `finalStepPromptTokens`, the single most recent step's
+`token-estimate-calibration` chunk for a completed run. The numerator,
+`estimatedPromptTokens`, is the chars/4 backstop over model-visible
+tool-output projections plus tool definitions, each counted once. The
+denominator is `finalStepPromptTokens`, the single most recent step's
 prompt-token count; via Mastra's resend behavior that prompt already contains
 every prior tool output exactly once, unlike the cross-step accumulated billing
 total. Both figures therefore use the same final-prompt-content basis.
 Conversation/system-prompt text outside tool outputs and definitions is excluded
 from both. The desktop run-persistence capability consumes the chunk before
-renderer serialization; incomplete runs, missing final-step usage, failed
-measurement, zero measured projections, or missing model/provider attribution
-emit no sample.
+renderer serialization; incomplete runs, failed measurement, or missing
+model/provider attribution emit no sample.
 
-The same chunk also carries `promptBreakdownBaselineTokens` when the run-start
+The chunk also carries `promptBreakdownBaselineTokens` when a run-start
 `promptBreakdown` exists: `systemInstructionsTokens + (taskListTokens ?? 0) +
 (toolDefinitionsTokens ?? 0)`. Desktop persists it as migration 091's nullable
-`prompt_baseline_tokens`; a continuation leg without a prompt breakdown keeps
-the column NULL rather than inventing a baseline. Pre-request conversation
-compaction runs before the next runtime/prompt is assembled, so it reads the
-latest calibration row for that thread and triggers on
-`previousPromptBaseline + conversationMessageTokens >= 0.90 * inputBudget`.
-The deterministic message-side target is
+`prompt_baseline_tokens`. **BST-1232 review: eligibility for this chunk is no
+longer "at least one measured tool-output projection".** That gate would have
+meant an ordinary tool-free chat turn — and, before the companion fix below,
+EVERY resume leg (tool-approval and suspended-tool) — never persisted a
+baseline at all, silently starving the next turn's trigger of the one value
+this migration exists to give it. The chunk is now emitted whenever there is
+SOMETHING new to report: a measured tool-output projection (`
+modelVisibleProjectionCount > 0`), a `promptBreakdown` to source a baseline
+from, or both; it is skipped only when NEITHER is available. Both resume
+iterators (`createToolApprovalIteratorFromRuntime`,
+`createToolResumeIteratorFromRuntime` in `agent-streaming.ts`) now compute
+`promptBreakdown` from the resumed runtime's own `instructionBreakdown` +
+`toolDefinitionContextBreakdown()` (with `messages: []` — a resume sends no
+new messages) so their calibration row carries the same baseline the initial
+turn would have reported, since prompt composition is unchanged across a
+resume. A zero-projection row can therefore still have a positive
+`estimatedPromptTokens` (from the static tool-definition catalog alone) even
+though nothing was actually measured from a live tool output; the
+`estimator-calibration.sql` lens, not the writer, is where the
+`model_visible_projection_count > 0` RATIO-eligibility gate now lives (its
+WHERE clause requires it explicitly — `estimated_prompt_tokens > 0` alone is
+no longer sufficient to exclude these rows).
+
+Pre-request conversation compaction runs before the next runtime/prompt is
+assembled, so it reads the latest thread-scoped calibration row **whose
+`prompt_baseline_tokens` is NOT NULL** (belt-and-braces alongside the write-side
+fix above: a future leg that forgets to thread `promptBreakdown` cannot shadow
+an earlier real baseline with a later NULL-baseline row) and triggers on
+`previousPromptBaseline + conversationMessageTokens >= 0.90 * inputBudget`. The
+deterministic message-side target is
 `max(1024, 0.70 * inputBudget - previousPromptBaseline)`; the 1024-token floor
 preserves a minimally useful recent exchange/tool-result window when message
-deletion alone cannot reach the nominal total target. A missing row or failed
-lookup uses baseline 0 (the pre-091 behavior) and emits debug code
-`conversation_compaction_baseline_unavailable`. If the baseline alone is at or
-above the 70% target, pre-request agentic compaction no-ops with warn code
-`conversation_compaction_baseline_exceeds_target` rather than pruning every
-message toward an unreachable target. Provider context-overflow recovery stays
-enabled and may still perform its deterministic next-turn-headroom compaction.
+deletion alone cannot reach the nominal total target.
+
+The lookup always runs CONCURRENTLY with the unprojected-message load
+(`Promise.all`), never sequenced after it: neither depends on the other's
+result, so sequencing them would add pure latency for no benefit, and
+concurrency also means the lookup's DB round trip still fires even if message
+loading itself later throws (e.g. a missing trusted compaction-overlay
+lookup) — `agent-stream-init-and-memory.integration.test.ts` pins this by
+counting `getDatabase` calls; an earlier "load messages first, then decide
+whether to bother with the lookup" ordering silently regressed it in review.
+A non-negative baseline only pushes the total UP, never pulls it back under,
+so once the conversation-message share alone already clears the 90% trigger
+the (already-fetched, free) baseline cannot change that decision and recency
+pruning starts immediately. Either way, a missing row (no calibration yet — expected on a
+thread's first turn) uses baseline 0 (the pre-091 behavior) and stays at
+`debug` under code `conversation_compaction_baseline_unavailable`; a failed
+DB read or a corrupt/out-of-range persisted value ALSO falls back to 0 but is
+now `warn`-level under its own distinct code
+(`conversation_compaction_baseline_lookup_failed` /
+`conversation_compaction_baseline_corrupt` respectively) — the earlier
+single-debug-code version made either failure silently and invisibly revert
+the trigger to its pre-fix behavior for every later turn on that thread.
+
+If the baseline alone is at or above the 70% target — realistic on small
+context windows with a large tool catalog — recency pruning and the
+deterministic path toward the 1024-token floor STILL run: pruning is entirely
+message-side (it reclaims tool-output bloat) and is completely unaffected by
+a baseline that message deletion structurally cannot reduce, so skipping it
+would just let the thread grow until the provider throws and overflow
+recovery performs the identical pruning one wasted round trip later. Only the
+AGENTIC summarizer is skipped, under warn code
+`conversation_compaction_baseline_exceeds_target` — latched to once per
+thread for the process lifetime so a thread parked in this steady state does
+not repeat the warning every turn — because it chases the same message-side
+reclaim target that a dominant baseline makes structurally unreachable.
+Provider context-overflow recovery (`createContextOverflowRecovery`) is a
+separate path unaffected by any of the above and stays enabled.
 
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before

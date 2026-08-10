@@ -22,15 +22,24 @@ describe('estimator-calibration lens', () => {
     await db.query(
       `INSERT INTO brainstrike_token_estimate_calibration
         (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
-         final_step_prompt_tokens, resolved_domain_budget_tokens,
-         resolved_transport_budget_tokens, occurred_at)
+         final_step_prompt_tokens, model_visible_projection_count,
+         resolved_domain_budget_tokens, resolved_transport_budget_tokens, occurred_at)
        VALUES
-        ('1', 'thread', 'run-1', 'gpt-5.6-terra', 'openai', 50, 100, 1500, 3000, '2026-08-07T10:00:00Z'),
-        ('2', 'thread', 'run-2', 'gpt-5.6-terra', 'openai', 100, 100, 1500, 3000, '2026-08-07T11:00:00Z'),
-        ('3', 'thread', 'run-3', 'gpt-5.6-terra', 'openai', 150, 100, 500, 1000, '2026-08-07T12:00:00Z'),
-        ('4', 'thread', 'run-4', 'claude-sonnet-4-6', 'anthropic', 10, 0, NULL, NULL, '2026-08-07T12:00:00Z'),
-        ('5', 'thread', 'run-5', 'gpt-5.6-terra', 'openai', 999, 100, 1500, 3000, '2026-08-08T12:00:00Z'),
-        ('6', 'thread', 'run-6', 'legacy-zero', 'openai', 0, 100, NULL, NULL, '2026-08-07T12:00:00Z')`
+        ('1', 'thread', 'run-1', 'gpt-5.6-terra', 'openai', 50, 100, 1, 1500, 3000, '2026-08-07T10:00:00Z'),
+        ('2', 'thread', 'run-2', 'gpt-5.6-terra', 'openai', 100, 100, 1, 1500, 3000, '2026-08-07T11:00:00Z'),
+        ('3', 'thread', 'run-3', 'gpt-5.6-terra', 'openai', 150, 100, 1, 500, 1000, '2026-08-07T12:00:00Z'),
+        ('4', 'thread', 'run-4', 'claude-sonnet-4-6', 'anthropic', 10, 0, 1, NULL, NULL, '2026-08-07T12:00:00Z'),
+        ('5', 'thread', 'run-5', 'gpt-5.6-terra', 'openai', 999, 100, 1, 1500, 3000, '2026-08-08T12:00:00Z'),
+        ('6', 'thread', 'run-6', 'legacy-zero', 'openai', 0, 100, 1, NULL, NULL, '2026-08-07T12:00:00Z'),
+        -- BST-1232 regression: a tool-free/resume turn now persists a row
+        -- (so the compaction trigger can read prompt_baseline_tokens), but
+        -- its estimated_prompt_tokens can still be positive from the static
+        -- tool-definition catalog alone (model_visible_projection_count =
+        -- 0). Same model/budget-tier group and inside the query window as
+        -- rows 1+2, with a ratio (0.4) outside their [0.5, 1] range — if the
+        -- lens' eligibility gate regressed, this row would change that
+        -- group's samples count and ratio bounds below.
+        ('7', 'thread', 'run-7', 'gpt-5.6-terra', 'openai', 40, 100, 0, 1500, 3000, '2026-08-07T11:30:00Z')`
     );
   });
 

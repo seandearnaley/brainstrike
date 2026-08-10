@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { recordCompactionRange } from '../../assistant-server/compaction-range-repository';
 import {
   createContextOverflowRecovery,
+  InvalidCompactionBaselineError,
   resolveCompactionInputBudget,
   runPreRequestCompaction,
 } from '../../assistant-server/conversation-compaction';
@@ -276,13 +277,10 @@ describe('pre-request conversation compaction trigger', () => {
     expect(deps.runRecencyPrune).toHaveBeenCalledOnce();
   });
 
-  it.each([
-    ['has no prior calibration row', async () => undefined],
-    ['cannot read the prior calibration row', async () => Promise.reject(new Error('read failed'))],
-  ])('preserves message-only behavior when the baseline %s', async (_label, resolveBaseline) => {
+  it('preserves message-only behavior and stays at debug when there is no prior calibration row', async () => {
     const deps = dependencies({
       estimateVisibleTokens: vi.fn(() => 89),
-      resolvePromptBaselineTokens: vi.fn(resolveBaseline),
+      resolvePromptBaselineTokens: vi.fn(async () => undefined),
     });
 
     await expect(
@@ -305,11 +303,74 @@ describe('pre-request conversation compaction trigger', () => {
     expect(deps.runRecencyPrune).not.toHaveBeenCalled();
     expect(conversationCompactionDebug).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ code: 'conversation_compaction_baseline_unavailable' })
+      expect.objectContaining({
+        code: 'conversation_compaction_baseline_unavailable',
+        reason: 'no_calibration_row',
+      })
     );
   });
 
-  it('warns and avoids agentic compaction thrash when the baseline alone exceeds target', async () => {
+  // BST-1232 review (fix 4): a failed read and a corrupt persisted value used
+  // to collapse into the SAME debug-level `baseline_unavailable` log as the
+  // legitimate "no row yet" case, silently reverting the trigger to its
+  // pre-091 behavior for every later turn with no operator-visible signal.
+  // Each now gets its own warn-level code.
+  it.each([
+    [
+      'cannot read the prior calibration row',
+      async () => Promise.reject(new Error('read failed')),
+      'conversation_compaction_baseline_lookup_failed',
+    ],
+    [
+      'finds a corrupt persisted baseline value',
+      async () => {
+        throw new InvalidCompactionBaselineError('out of range');
+      },
+      'conversation_compaction_baseline_corrupt',
+    ],
+  ] as const)('warns distinctly when the baseline lookup %s', async (_label, resolveBaseline, code) => {
+    const records: LogRecord[] = [];
+    const removeLogListener = addLogListener((record) => records.push(record));
+    const deps = dependencies({
+      estimateVisibleTokens: vi.fn(() => 89),
+      resolvePromptBaselineTokens: vi.fn(resolveBaseline),
+    });
+
+    try {
+      await expect(
+        runPreRequestCompaction(
+          {
+            memoryStore: fakeStore() as never,
+            requestMessages: [],
+            runId: 'run-baseline-failure',
+            runtimeData: {
+              memory: { resourceId: 'resource-1', threadId: 'thread-1' },
+              model: 'gpt-5.2',
+              provider: 'openai',
+            },
+            signal: new AbortController().signal,
+          },
+          { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
+        )
+      ).resolves.toEqual({ kind: 'noop' });
+    } finally {
+      removeLogListener();
+    }
+
+    // Behavior is unchanged (fall back to baseline 0) — only visibility
+    // changed, from debug to warn under a distinct code.
+    expect(deps.runRecencyPrune).not.toHaveBeenCalled();
+    const matches = records.filter((record) =>
+      record.args.some(
+        (arg) =>
+          Boolean(arg && typeof arg === 'object') && (arg as { code?: unknown }).code === code
+      )
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.level).toBe(LogLevel.WARN);
+  });
+
+  it('still runs recency pruning and the deterministic path, but skips only the agentic summarizer, when the baseline alone exceeds target', async () => {
     const records: LogRecord[] = [];
     const removeLogListener = addLogListener((record) => records.push(record));
     const store = fakeStore();
@@ -335,30 +396,74 @@ describe('pre-request conversation compaction trigger', () => {
             },
             { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
           )
-        ).resolves.toEqual({ kind: 'noop' });
+          // Deterministic path toward the floor now runs even though the
+          // baseline dominates — only the agentic summarizer is skipped
+          // (review fix: the old code no-op'd the WHOLE seam here, which
+          // meant recency pruning — pure message-side reclaim, completely
+          // unaffected by a large baseline — never ran either).
+        ).resolves.toEqual({ kind: 'deterministic' });
       }
+
+      const warnings = records.filter((record) =>
+        record.args.some(
+          (arg) =>
+            Boolean(arg && typeof arg === 'object') &&
+            (arg as { code?: unknown }).code === 'conversation_compaction_baseline_exceeds_target'
+        )
+      );
+      // Latched to once per thread across all 3 turns, not once per turn.
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.level).toBe(LogLevel.WARN);
+      expect(warnings[0]?.args).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            inputBudget: 100,
+            promptBaselineTokens: 71,
+            threadId: 'thread-1',
+          }),
+        ])
+      );
+      expect(deps.runRecencyPrune).toHaveBeenCalledTimes(3);
+      expect(deps.generateSummary).not.toHaveBeenCalled();
+      expect(deps.recordRange).toHaveBeenCalledTimes(3);
+      expect(deps.recordRange).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'deterministic' })
+      );
+      expect(store.saveMessages).toHaveBeenCalledTimes(3);
+
+      // The latch is per-thread, not process-global: a different thread in
+      // the same over-target state still warns once for itself.
+      await runPreRequestCompaction(
+        {
+          memoryStore: fakeStore() as never,
+          requestMessages: [],
+          runId: 'run-baseline-over-target-other-thread',
+          runtimeData: {
+            memory: { resourceId: 'resource-2', threadId: 'thread-2' },
+            model: 'gpt-5.2',
+            provider: 'openai',
+          },
+          signal: new AbortController().signal,
+        },
+        { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
+      );
+      const otherThreadWarnings = records.filter(
+        (record) =>
+          record.args.some(
+            (arg) =>
+              Boolean(arg && typeof arg === 'object') &&
+              (arg as { code?: unknown }).code === 'conversation_compaction_baseline_exceeds_target'
+          ) &&
+          record.args.some(
+            (arg) =>
+              Boolean(arg && typeof arg === 'object') &&
+              (arg as { threadId?: unknown }).threadId === 'thread-2'
+          )
+      );
+      expect(otherThreadWarnings).toHaveLength(1);
     } finally {
       removeLogListener();
     }
-
-    const warnings = records.filter((record) =>
-      record.args.some(
-        (arg) =>
-          Boolean(arg && typeof arg === 'object') &&
-          (arg as { code?: unknown }).code === 'conversation_compaction_baseline_exceeds_target'
-      )
-    );
-    expect(warnings).toHaveLength(3);
-    expect(warnings.every((record) => record.level === LogLevel.WARN)).toBe(true);
-    expect(warnings[0]?.args).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ baseline: 71, inputBudget: 100, threadId: 'thread-1' }),
-      ])
-    );
-    expect(deps.runRecencyPrune).not.toHaveBeenCalled();
-    expect(deps.generateSummary).not.toHaveBeenCalled();
-    expect(deps.recordRange).not.toHaveBeenCalled();
-    expect(store.saveMessages).not.toHaveBeenCalled();
   });
 
   it('respects different effective input budgets from two model catalog entries', async () => {
