@@ -234,6 +234,15 @@ same final-prompt-content basis; conversation/system-prompt text outside tool
 outputs and definitions is excluded from both. Only completed runs with at
 least one measured tool output persist a row.
 
+Migration 089 adds nullable positive domain/transport resolved-budget token
+columns. New calibration rows persist the concrete run tier; historical rows
+remain NULL because backfilling an anchor would fabricate evidence. The
+renderer-lazy bootstrap mirrors both the fresh final shape and idempotent
+`ADD COLUMN IF NOT EXISTS` upgrade seam. Its ordinal column order matches the
+migrated path: migration 086's trailing `occurred_at` precedes the two columns
+migration 089 appends. The estimator lens groups by model plus both tier
+columns.
+
 The least-new-mechanism seam is a standalone table modeled on migration 083.
 Both figures already meet in the agent/main-process stream before the existing
 desktop persistence wrapper. Extending
@@ -279,7 +288,7 @@ processor derives liveness from the summary message's presence in Mastra's
 already-tombstone-filtered ID-bearing input-step message list; neither raw
 Mastra content nor rewind state is mutated.
 
-Migration 089 widens `brainstrike_assistant_run_usage.run_kind` to admit
+Migration 090 widens `brainstrike_assistant_run_usage.run_kind` to admit
 `compaction-summary`, the provider-exact auxiliary summarizer call attributed
 under its parent run. Register the constraint replacement in both migration
 runners and keep the renderer-lazy bootstrap CHECK aligned; adding only the

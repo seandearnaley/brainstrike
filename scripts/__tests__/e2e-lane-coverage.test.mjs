@@ -656,9 +656,9 @@ test('REAL REPO: the spec-directory exclusions still match the Playwright config
   // e2e-lane-coverage.mjs skips `__tests__` and web's `performance` dir. Both are
   // config facts, and a config change that invalidates one would silently shrink
   // the sweep, so re-derive them here.
-  const webConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/playwright.config.ts'), 'utf8');
+  const webConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/playwright.config.mts'), 'utf8');
   const desktopConfig = readFileSync(
-    path.join(REPO_ROOT, 'apps/desktop/playwright.config.ts'),
+    path.join(REPO_ROOT, 'apps/desktop/playwright.config.mts'),
     'utf8'
   );
 
@@ -679,10 +679,10 @@ test('REAL REPO: the spec-directory exclusions still match the Playwright config
 
 test('REAL REPO: the modelled project grep filters still match the Playwright configs', () => {
   const desktopConfig = readFileSync(
-    path.join(REPO_ROOT, 'apps/desktop/playwright.config.ts'),
+    path.join(REPO_ROOT, 'apps/desktop/playwright.config.mts'),
     'utf8'
   );
-  const webConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/playwright.config.ts'), 'utf8');
+  const webConfig = readFileSync(path.join(REPO_ROOT, 'apps/web/playwright.config.mts'), 'utf8');
 
   // desktop:regression's grepInvert is the only project filter that changes a
   // verdict — it means a @smoke-titled desktop spec missing from the smoke lane's

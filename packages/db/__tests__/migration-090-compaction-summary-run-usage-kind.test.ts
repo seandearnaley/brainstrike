@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '../src/drizzle/migrate.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 
-describe('migration 089: compaction-summary run usage kind', () => {
+describe('migration 090: compaction-summary run usage kind', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -22,7 +22,7 @@ describe('migration 089: compaction-summary run usage kind', () => {
   afterEach(async () => db.close());
 
   it('accepts compaction-summary and keeps unknown kinds rejected', async () => {
-    const migration = migrations.find((candidate) => candidate.version === 89);
+    const migration = migrations.find((candidate) => candidate.version === 90);
     expect(migration).toBeDefined();
     await runner.runMigration(migration!);
 
@@ -43,7 +43,7 @@ describe('migration 089: compaction-summary run usage kind', () => {
   });
 });
 
-describe('migration 089 in the drizzle runner', () => {
+describe('migration 090 in the drizzle runner', () => {
   let db: PGlite;
 
   beforeEach(() => {

@@ -12,7 +12,7 @@ import {
   TOOL_SUSPEND_DATA_NAME,
   UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND,
 } from '@brainstrike/assistant-contract/tool-suspend';
-import { wasmLoader } from '@brainstrike/db';
+import { MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -2391,33 +2391,77 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   });
 
-  it('bootstraps the migration-086 token-estimate calibration shape for thread deletion', async () => {
-    const dataDir = createPgliteTestDataDir('token-estimate-calibration-bootstrap-shape');
-    const db = await wasmLoader.createPGlite(dataDir);
+  it('keeps the token-estimate calibration bootstrap shape identical to migrations 086 then 089', async () => {
+    const bootstrapDataDir = createPgliteTestDataDir('token-estimate-calibration-bootstrap-shape');
+    const migratedDataDir = createPgliteTestDataDir('token-estimate-calibration-migrated-shape');
+    const bootstrapDb = await wasmLoader.createPGlite(bootstrapDataDir);
+    const migratedDb = await wasmLoader.createPGlite(migratedDataDir);
     try {
-      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
+      const repository = createPgliteAssistantThreadRepository(bootstrapDb as DbHandle);
       await repository.createThread('workspace-a');
 
-      const columns = await db.query<{ column_name: string }>(
-        `SELECT column_name
+      const migration086 = migrations.find((migration) => migration.version === 86);
+      const migration089 = migrations.find((migration) => migration.version === 89);
+      expect(migration086).toBeDefined();
+      expect(migration089).toBeDefined();
+      const runner = new MigrationRunner(migratedDb);
+      await runner.initialize();
+      await runner.runMigration(migration086!);
+      await runner.runMigration(migration089!);
+
+      const bootstrapColumns = await bootstrapDb.query<{
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+      }>(
+        `SELECT column_name, data_type, is_nullable
          FROM information_schema.columns
          WHERE table_name = 'brainstrike_token_estimate_calibration'
          ORDER BY ordinal_position`
       );
-      expect(columns.rows.map((row) => row.column_name)).toEqual([
-        'id',
-        'thread_id',
-        'run_id',
-        'model',
-        'provider',
-        'estimated_prompt_tokens',
-        'final_step_prompt_tokens',
-        'step_count',
-        'model_visible_projection_count',
-        'occurred_at',
+      const migratedColumns = await migratedDb.query<{
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+      }>(
+        `SELECT column_name, data_type, is_nullable
+         FROM information_schema.columns
+         WHERE table_name = 'brainstrike_token_estimate_calibration'
+         ORDER BY ordinal_position`
+      );
+      expect(migratedColumns.rows).toEqual([
+        { column_name: 'id', data_type: 'text', is_nullable: 'NO' },
+        { column_name: 'thread_id', data_type: 'text', is_nullable: 'NO' },
+        { column_name: 'run_id', data_type: 'text', is_nullable: 'NO' },
+        { column_name: 'model', data_type: 'text', is_nullable: 'NO' },
+        { column_name: 'provider', data_type: 'text', is_nullable: 'NO' },
+        { column_name: 'estimated_prompt_tokens', data_type: 'integer', is_nullable: 'NO' },
+        { column_name: 'final_step_prompt_tokens', data_type: 'integer', is_nullable: 'NO' },
+        { column_name: 'step_count', data_type: 'integer', is_nullable: 'NO' },
+        {
+          column_name: 'model_visible_projection_count',
+          data_type: 'integer',
+          is_nullable: 'NO',
+        },
+        {
+          column_name: 'occurred_at',
+          data_type: 'timestamp with time zone',
+          is_nullable: 'NO',
+        },
+        {
+          column_name: 'resolved_domain_budget_tokens',
+          data_type: 'integer',
+          is_nullable: 'YES',
+        },
+        {
+          column_name: 'resolved_transport_budget_tokens',
+          data_type: 'integer',
+          is_nullable: 'YES',
+        },
       ]);
+      expect(bootstrapColumns.rows).toEqual(migratedColumns.rows);
 
-      const indexes = await db.query<{ indexname: string }>(
+      const indexes = await bootstrapDb.query<{ indexname: string }>(
         `SELECT indexname
          FROM pg_indexes
          WHERE tablename = 'brainstrike_token_estimate_calibration'
@@ -2431,7 +2475,8 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         ].sort()
       );
     } finally {
-      await wasmLoader.closeCached(dataDir);
+      await wasmLoader.closeCached(bootstrapDataDir);
+      await wasmLoader.closeCached(migratedDataDir);
     }
   });
 

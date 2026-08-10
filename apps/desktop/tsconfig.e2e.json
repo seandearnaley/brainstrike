@@ -23,7 +23,7 @@
   },
   "include": [
     "e2e/**/*",
-    "playwright.config.ts"
+    "playwright.config.mts"
   ],
   "exclude": [
     "node_modules",

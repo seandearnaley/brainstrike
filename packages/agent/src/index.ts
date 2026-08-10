@@ -239,7 +239,10 @@ export {
   attachToolCallTelemetryMetadata,
   readToolCallTelemetryMetadata,
 } from './mastra/tool-call-telemetry';
-export { applyToolModelOutputProjections } from './mastra/tool-model-output';
+export {
+  applyToolModelOutputProjections,
+  getActiveToolResultBudget,
+} from './mastra/tool-model-output';
 export {
   projectToolOutputArtifactPage,
   type ReadToolOutputArtifactCursorInput,

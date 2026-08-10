@@ -9,20 +9,25 @@ import type {
   McpConfig,
   RuntimeAssistantMemorySettings,
   RuntimeData,
+  ScaledToolResultBudget,
   ScannedWorkspaceSkills,
   ScopedToolOutputArtifactReader,
   StreamChunk,
   ToolOutputArtifactSettlementStore,
 } from '@brainstrike/agent';
 import {
+  getProviderDefaultModel,
+  isSupportedProvider,
   resolveRequestPermissionPolicy,
+  resolveScaledToolResultBudget,
+  resolveToolResultBudgetForModel,
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
+  TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { PgliteMastraMemoryResult } from '@brainstrike/agent/pglite-mastra-memory';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import type { AgentStreamInitializationStage } from '@brainstrike/assistant-wire';
 import type { ScopedLogger } from '@brainstrike/logging';
 import {
@@ -33,6 +38,12 @@ import {
 import { resolveDesktopObserverUsageTarget } from './memory-model-targets.js';
 import type { AssistantLlmHostManager } from './ports.js';
 import { getSecretReadErrorPayload } from './secret-errors.js';
+import type { PreRequestCompactionCapabilityResult } from './stream-init-compaction.js';
+import {
+  runConversationCompactionBeforeStream,
+  trustedCompactionOverlayFields,
+  withCompactionUsageChunk,
+} from './stream-init-compaction.js';
 import type { AgentStreamFailure, AgentStreamResult, DesktopMemoryFeature } from './types.js';
 
 /**
@@ -133,6 +144,31 @@ function withSkillScriptResolver<K extends AgentStreamCapabilityKinds>(
   return { ...dependencies, skillScriptResolver: resolver };
 }
 
+function withResolvedToolResultBudget<K extends AgentStreamCapabilityKinds>(
+  dependencies: AgentStreamToolDependencies<K>,
+  resolvedToolResultBudget: ScaledToolResultBudget
+): AgentStreamToolDependencies<K> {
+  return { ...dependencies, resolvedToolResultBudget };
+}
+
+/** Resolve the producer-side budget from the runtime's provider/model pair. */
+export function resolveToolBuildBudget(
+  runtimeData: Pick<RuntimeData, 'model' | 'provider'> | undefined,
+  logger: Pick<ScopedLogger, 'warn'>
+): ScaledToolResultBudget {
+  const rawProvider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
+  const normalizedProvider = rawProvider.toLowerCase();
+  if (!isSupportedProvider(normalizedProvider)) {
+    logger.warn('Cannot resolve tool-result budget for tool construction; using anchor fallback.', {
+      code: 'tool_result_budget_invalid_provider_fallback',
+      provider: rawProvider || '<unset>',
+    });
+    return resolveScaledToolResultBudget(TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW);
+  }
+  const model = runtimeData?.model || getProviderDefaultModel(normalizedProvider) || '';
+  return resolveToolResultBudgetForModel(normalizedProvider, model);
+}
+
 function buildInitialStreamMemoryOptions(
   memoryResult: AgentStreamMemoryResult | undefined,
   toolOutputArtifactStore: ToolOutputArtifactSettlementStore | undefined,
@@ -149,60 +185,6 @@ function buildInitialStreamMemoryOptions(
         }
       : {}),
   };
-}
-
-async function* prependStreamChunks(
-  chunks: readonly StreamChunk[],
-  source: AsyncIterable<StreamChunk>
-): AsyncIterable<StreamChunk> {
-  for (const chunk of chunks) {
-    yield chunk;
-  }
-  yield* source;
-}
-
-async function runConversationCompactionBeforeStream<K extends AgentStreamCapabilityKinds>(input: {
-  readonly capabilities: AgentStreamCapabilities<K>;
-  readonly logger: ScopedLogger;
-  readonly memoryResult: AgentStreamMemoryResult | undefined;
-  readonly messages: readonly AgentMessage[];
-  readonly runId: string | undefined;
-  readonly runtime: RuntimeData;
-  readonly signal: AbortSignal;
-}): Promise<PreRequestCompactionCapabilityResult | undefined> {
-  if (!input.memoryResult) {
-    return;
-  }
-  input.runtime.contextOverflowRecovery =
-    input.capabilities.compaction.createContextOverflowRecovery({
-      memoryStore: input.memoryResult.store,
-      runtimeData: input.runtime,
-    });
-  try {
-    return await input.capabilities.compaction.runPreRequest({
-      memoryStore: input.memoryResult.store,
-      requestMessages: input.messages,
-      runId: input.runId,
-      runtimeData: input.runtime,
-      signal: input.signal,
-    });
-  } catch (error) {
-    input.logger.warn('Pre-request conversation compaction failed; continuing the user turn.', {
-      code: 'conversation_compaction_pre_request_failed',
-      error,
-    });
-    return;
-  }
-}
-
-function withCompactionUsageChunk(
-  source: AsyncIterable<StreamChunk>,
-  result: { readonly usage?: AssistantChildRunUsage } | undefined
-): AsyncIterable<StreamChunk> {
-  if (!result?.usage) {
-    return source;
-  }
-  return prependStreamChunks([{ type: 'child-run-usage', value: result.usage }], source);
 }
 
 /**
@@ -294,12 +276,6 @@ function trustedProjectionRewriteFields(
   lookup: RuntimeData['toolProjectionRewriteLookup']
 ): Pick<RuntimeData, 'toolProjectionRewriteLookup'> {
   return lookup ? { toolProjectionRewriteLookup: lookup } : {};
-}
-
-function trustedCompactionOverlayFields(
-  lookup: RuntimeData['compactionOverlayLookup']
-): Pick<RuntimeData, 'compactionOverlayLookup'> {
-  return lookup ? { compactionOverlayLookup: lookup } : {};
 }
 
 /**
@@ -508,17 +484,13 @@ export interface AgentStreamCapabilityKinds {
 export interface AgentStreamToolDependencies<K extends AgentStreamCapabilityKinds> {
   readonly embeddingHostManager?: K['embeddingHost'] | null | undefined;
   readonly llmHostManager?: AssistantLlmHostManager | null | undefined;
+  readonly resolvedToolResultBudget?: ScaledToolResultBudget | undefined;
   readonly skillScriptResolver?: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined;
   readonly toolOutputArtifactReader?: ScopedToolOutputArtifactReader | undefined;
 }
 
 /** What `memory.create` yields: the Mastra memory/storage pair for the run. */
 export type AgentStreamMemoryResult = PgliteMastraMemoryResult;
-
-interface PreRequestCompactionCapabilityResult {
-  readonly kind: 'agentic' | 'deterministic' | 'noop';
-  readonly usage?: AssistantChildRunUsage;
-}
 
 /**
  * Host-composed capabilities (BST-972 B4a/B4b): every host-module VALUE edge
@@ -905,15 +877,19 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
       getDatabase,
       deps
     );
+    const resolvedToolResultBudget = resolveToolBuildBudget(trustedRuntimeData, logger);
     initializationStage = 'native_tool_preferences';
     const mastraTools = capabilities.tools.build(
       trustedRuntimeData,
-      withSkillScriptResolver(
-        withToolOutputArtifactReader(
-          toolDependencies,
-          artifactCapabilities.toolOutputArtifactReader
+      withResolvedToolResultBudget(
+        withSkillScriptResolver(
+          withToolOutputArtifactReader(
+            toolDependencies,
+            artifactCapabilities.toolOutputArtifactReader
+          ),
+          skillsRuntimeFields.workspaceSkills
         ),
-        skillsRuntimeFields.workspaceSkills
+        resolvedToolResultBudget
       )
     );
     initializationStage = 'provider_model_bootstrap';
@@ -990,7 +966,10 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     const memoryOptions = buildInitialStreamMemoryOptions(
       memoryResult,
       artifactCapabilities.toolOutputArtifactStore,
-      capabilities.webExtractInlineMaxSerializedChars
+      Math.min(
+        capabilities.webExtractInlineMaxSerializedChars,
+        resolvedToolResultBudget.domainModelResultCharBudget
+      )
     );
 
     // UserPromptSubmit (blocking): only on a FRESH turn (never the approval/

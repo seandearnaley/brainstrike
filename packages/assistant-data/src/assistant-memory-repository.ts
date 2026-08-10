@@ -691,7 +691,7 @@ const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
  * reads: an uninitialized binding there does not throw, it splices the literal
  * string "undefined" into the DDL.
  */
-function buildAssistantThreadRunsSchemaSql(): string {
+export function buildAssistantThreadRunsSchemaSql(): string {
   return `
 ${MASTRA_MEMORY_SCHEMA_SQL}
 
@@ -809,13 +809,15 @@ CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_occurred_at_idx
   ON ${TOOL_CALL_TELEMETRY_TABLE} (occurred_at);
 
 -- Estimator-vs-provider prompt-token reconciliation pairs (BST-1205).
--- Bootstrapped here AND created by migration 086 — keep the shape
+-- Bootstrapped here AND created by migrations 086 + 089 — keep the shape
 -- byte-identical. The numerator is the chars/4 backstop over model-visible tool
 -- outputs plus tool definitions, each counted once. final_step_prompt_tokens is
 -- the latest step prompt, which contains prior tool outputs once via Mastra's
 -- resend behavior—not the cross-step accumulated total. Conversation/system
 -- prompt text outside tool outputs/definitions is excluded from both. Only
--- completed runs with at least one measured tool output are written.
+-- completed runs with at least one measured tool output are written. The
+-- nullable resolved-budget columns segment new samples by their actual run
+-- tier; historical/bootstrap-upgrade rows remain NULL rather than guessed.
 -- Mirrored because thread deletion references every sidecar unconditionally;
 -- only desktop main writes rows during normal operation.
 CREATE TABLE IF NOT EXISTS ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (
@@ -828,8 +830,16 @@ CREATE TABLE IF NOT EXISTS ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (
   final_step_prompt_tokens integer NOT NULL CHECK (final_step_prompt_tokens >= 0),
   step_count integer NOT NULL DEFAULT 1 CHECK (step_count >= 1),
   model_visible_projection_count integer NOT NULL DEFAULT 0 CHECK (model_visible_projection_count >= 0),
-  occurred_at timestamptz NOT NULL DEFAULT NOW()
+  occurred_at timestamptz NOT NULL DEFAULT NOW(),
+  resolved_domain_budget_tokens integer CHECK (resolved_domain_budget_tokens IS NULL OR resolved_domain_budget_tokens > 0),
+  resolved_transport_budget_tokens integer CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0)
 );
+
+ALTER TABLE ${TOKEN_ESTIMATE_CALIBRATION_TABLE}
+  ADD COLUMN IF NOT EXISTS resolved_domain_budget_tokens integer
+    CHECK (resolved_domain_budget_tokens IS NULL OR resolved_domain_budget_tokens > 0),
+  ADD COLUMN IF NOT EXISTS resolved_transport_budget_tokens integer
+    CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0);
 
 CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_thread_idx
   ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (thread_id);
@@ -1040,7 +1050,7 @@ ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
   ADD COLUMN IF NOT EXISTS cache_creation_input_tokens integer CHECK (cache_creation_input_tokens >= 0);
 
 -- Run-kind attribution (BST-953/BST-1200): keep the accepted values aligned
--- with migration 089 while preserving the renderer bootstrap's add-only rule.
+-- with migration 090 while preserving the renderer bootstrap's add-only rule.
 -- 'chat' = parent assistant turn; 'subagent' = persona delegation child;
 -- 'compaction-summary' = pre-request auxiliary summarizer call;
 -- 'om-observation'/'om-reflection' = observational-memory background cycles.
@@ -1048,7 +1058,7 @@ ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
   ADD COLUMN IF NOT EXISTS run_kind text NOT NULL DEFAULT 'chat'
   CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
 
--- Desktop main migration 089 owns widening an existing pre-089 CHECK. This
+-- Desktop main migration 090 owns widening an existing pre-090 CHECK. This
 -- renderer-reachable bootstrap may only install the final constraint when it
 -- is absent; emitting DROP CONSTRAINT here is rejected by db:exec's
 -- destructive-schema guard and prevents the assistant panel from mounting.

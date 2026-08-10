@@ -1,4 +1,5 @@
 import {
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
   formatGrepContentHeader,
   formatGrepContentRow,
   formatGrepProjectionPageRange,
@@ -213,13 +214,14 @@ function fileHeaderLine(
 
 function assertProjectionFits(
   toolName: 'globWorkspace' | 'grepSearch',
-  lines: readonly string[]
+  lines: readonly string[],
+  domainModelResultCharBudget: number
 ): void {
-  if (decodedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) <= domainModelResultCharBudget) {
     return;
   }
   throw new RangeError(
-    `${toolName} model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+    `${toolName} model projection exceeds the ${domainModelResultCharBudget}-character domain budget`
   );
 }
 
@@ -278,7 +280,7 @@ function buildGrepHeader(result: GrepToolResult, kept: number): string {
 
 /** Group key: two roots may share a relative path, so the root participates. */
 function fileGroupKey(item: RootLabelledItem & { path: string }): string {
-  return `${item.rootId ?? ''} ${item.path}`;
+  return `${item.rootId ?? ''}\0${item.path}`;
 }
 
 /**
@@ -407,7 +409,10 @@ function grepContinuation(
   return null;
 }
 
-export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTextModelOutput {
+export function projectGrepSearchModelOutput(
+  output: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): WorkspaceSearchTextModelOutput {
   if (
     isRecord(output) &&
     Object.keys(output).length === 2 &&
@@ -417,9 +422,11 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
       output['value'].startsWith(grepProjectionHeaderPrefix('content')))
   ) {
     const replayed = { type: 'text' as const, value: output['value'] };
-    if (decodedChars([replayed.value]) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (
+      decodedChars([replayed.value]) > CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+    ) {
       throw new RangeError(
-        `grepSearch stored model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+        `grepSearch stored model projection exceeds the ${CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget}-character domain budget`
       );
     }
     return replayed;
@@ -454,7 +461,7 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
       ...warningLines,
       ...(continuation ? [continuation] : []),
     ];
-    if (decodedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > domainModelResultCharBudget) {
       break;
     }
     keptLines = candidateLines;
@@ -469,7 +476,7 @@ export function projectGrepSearchModelOutput(output: unknown): WorkspaceSearchTe
     ...warningLines,
     ...(continuation ? [continuation] : []),
   ];
-  assertProjectionFits('grepSearch', lines);
+  assertProjectionFits('grepSearch', lines, domainModelResultCharBudget);
   return makeTextModelOutput(lines);
 }
 
@@ -509,7 +516,10 @@ function globContinuation(
   return null;
 }
 
-export function projectGlobWorkspaceModelOutput(output: unknown): WorkspaceSearchTextModelOutput {
+export function projectGlobWorkspaceModelOutput(
+  output: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): WorkspaceSearchTextModelOutput {
   const result = parseGlobWorkspaceToolResult(output);
   const rootLabel = buildRootLabelResolver(result, result.matches);
   // BST-1188: same unconditional own-line treatment as grepSearch's
@@ -531,7 +541,7 @@ export function projectGlobWorkspaceModelOutput(output: unknown): WorkspaceSearc
       ...warningLines,
       ...(continuation ? [continuation] : []),
     ];
-    if (decodedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > domainModelResultCharBudget) {
       break;
     }
     keptLines.push(itemLine);
@@ -545,6 +555,6 @@ export function projectGlobWorkspaceModelOutput(output: unknown): WorkspaceSearc
     ...warningLines,
     ...(continuation ? [continuation] : []),
   ];
-  assertProjectionFits('globWorkspace', lines);
+  assertProjectionFits('globWorkspace', lines, domainModelResultCharBudget);
   return makeTextModelOutput(lines);
 }

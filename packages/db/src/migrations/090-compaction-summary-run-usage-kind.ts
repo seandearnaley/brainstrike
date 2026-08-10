@@ -10,7 +10,7 @@ import type { Migration } from './migration-runner';
  * through the renderer SQL guard; only the renderer bootstrap mirror must be
  * non-destructive.
  */
-export const migration089CompactionSummaryRunUsageKind: Migration = {
+export const migration090CompactionSummaryRunUsageKind: Migration = {
   down: `
     ALTER TABLE brainstrike_assistant_run_usage
       DROP CONSTRAINT IF EXISTS brainstrike_assistant_run_usage_run_kind_check;
@@ -26,5 +26,5 @@ export const migration089CompactionSummaryRunUsageKind: Migration = {
       ADD CONSTRAINT brainstrike_assistant_run_usage_run_kind_check
       CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
   `,
-  version: 89,
+  version: 90,
 };

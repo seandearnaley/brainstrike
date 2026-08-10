@@ -337,7 +337,10 @@ function getLiveQuerySurface(db: unknown): PGliteLiveQuerySurface {
   return db as PGliteLiveQuerySurface;
 }
 
-function assertRendererSql(channel: 'db:exec' | 'db:query' | 'db:transaction', sql: string): void {
+export function assertRendererSql(
+  channel: 'db:exec' | 'db:query' | 'db:transaction',
+  sql: string
+): void {
   if (typeof sql !== 'string' || sql.trim().length === 0) {
     throw new Error(`${channel} SQL must be a non-empty string.`);
   }

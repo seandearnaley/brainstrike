@@ -435,6 +435,8 @@ export interface TokenEstimateCalibrationSample {
   readonly modelVisibleProjectionCount: number;
   readonly occurredAt: number;
   readonly provider: string;
+  readonly resolvedDomainBudgetTokens?: number;
+  readonly resolvedTransportBudgetTokens?: number;
   readonly stepCount: number;
 }
 export interface StreamChunkTokenEstimateCalibration {

@@ -1378,6 +1378,8 @@ function* drainTokenEstimateCalibrationChunk(
       modelVisibleProjectionCount: fields['modelVisibleProjectionCount'] as number,
       occurredAt: Date.now(),
       provider,
+      resolvedDomainBudgetTokens: runtime.resolvedToolResultBudget.domainModelResultTokens,
+      resolvedTransportBudgetTokens: runtime.resolvedToolResultBudget.transportResultTokens,
       stepCount: lifecycleState.stepCount,
     },
   };

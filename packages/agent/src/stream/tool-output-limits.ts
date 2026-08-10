@@ -40,7 +40,10 @@ export const MAX_MODEL_TOOL_RESULT_CHAR_BUDGET =
  * {@link resolveScaledToolResultBudget}. Per-run defaults scale linearly from
  * this value, round to the nearest token, and clamp to 500..3000 tokens.
  * Purpose-built domain projections must leave deterministic room for bounded
- * PostToolUse guidance inside the total model-result envelope.
+ * PostToolUse guidance inside the total model-result envelope. BST-1219 also
+ * threads the resolved per-run value into desktop's domain projectors, so this
+ * anchor remains only their backward-compatible default when no run budget is
+ * supplied.
  */
 export const MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS = 1500;
 export const MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET =

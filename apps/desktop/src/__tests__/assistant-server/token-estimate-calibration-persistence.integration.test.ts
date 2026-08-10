@@ -1,7 +1,7 @@
 import type { StreamChunk, TokenEstimateCalibrationSample } from '@brainstrike/agent';
 import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
 import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
-import { wasmLoader } from '@brainstrike/db';
+import { migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';
 import { persistDesktopTokenEstimateCalibration } from '../../assistant-server/run-persistence';
@@ -15,6 +15,8 @@ interface CalibrationRow {
   model_visible_projection_count: number;
   occurred_at: string;
   provider: string;
+  resolved_domain_budget_tokens: number | null;
+  resolved_transport_budget_tokens: number | null;
   run_id: string;
   step_count: number;
   thread_id: string;
@@ -65,6 +67,7 @@ describe('persistDesktopTokenEstimateCalibration against real PGlite', () => {
   it('persists one run-attributed calibration row with no content fields', async () => {
     const db = await wasmLoader.createPGlite(`memory://token-calibration-real-${Date.now()}`);
     try {
+      await migrate(db);
       await seedRun(db, 'run-calibration-1', 'thread-calibration-1');
       const occurredAt = Date.UTC(2026, 7, 8, 12, 0, 0);
 
@@ -75,12 +78,15 @@ describe('persistDesktopTokenEstimateCalibration against real PGlite', () => {
         modelVisibleProjectionCount: 3,
         occurredAt,
         provider: 'openai',
+        resolvedDomainBudgetTokens: 1500,
+        resolvedTransportBudgetTokens: 3000,
         stepCount: 4,
       });
 
       const result = await db.query<CalibrationRow>(
         `SELECT thread_id, run_id, model, provider, estimated_prompt_tokens,
-                final_step_prompt_tokens, step_count, model_visible_projection_count, occurred_at
+                final_step_prompt_tokens, step_count, model_visible_projection_count,
+                resolved_domain_budget_tokens, resolved_transport_budget_tokens, occurred_at
            FROM brainstrike_token_estimate_calibration`
       );
       expect(result.rows).toHaveLength(1);
@@ -90,11 +96,48 @@ describe('persistDesktopTokenEstimateCalibration against real PGlite', () => {
         model: 'gpt-5.6-terra',
         model_visible_projection_count: 3,
         provider: 'openai',
+        resolved_domain_budget_tokens: 1500,
+        resolved_transport_budget_tokens: 3000,
         run_id: 'run-calibration-1',
         step_count: 4,
         thread_id: 'thread-calibration-1',
       });
       expect(new Date(result.rows[0]?.occurred_at ?? '').getTime()).toBe(occurredAt);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('persists NULL budget columns for a backward-compatible sample without tier data', async () => {
+    const db = await wasmLoader.createPGlite(
+      `memory://token-calibration-null-tier-${crypto.randomUUID()}`
+    );
+    try {
+      await migrate(db);
+      await seedRun(db, 'run-calibration-null-tier', 'thread-calibration-null-tier');
+      await drain(db, 'run-calibration-null-tier', {
+        estimatedPromptTokens: 10,
+        finalStepPromptTokens: 20,
+        model: 'legacy-model',
+        modelVisibleProjectionCount: 1,
+        occurredAt: Date.UTC(2026, 7, 8, 13, 0, 0),
+        provider: 'openai',
+        stepCount: 1,
+      });
+
+      const result = await db.query<{
+        resolved_domain_budget_tokens: number | null;
+        resolved_transport_budget_tokens: number | null;
+      }>(
+        `SELECT resolved_domain_budget_tokens, resolved_transport_budget_tokens
+         FROM brainstrike_token_estimate_calibration`
+      );
+      expect(result.rows).toEqual([
+        {
+          resolved_domain_budget_tokens: null,
+          resolved_transport_budget_tokens: null,
+        },
+      ]);
     } finally {
       await db.close();
     }
