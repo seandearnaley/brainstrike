@@ -39,6 +39,14 @@ export interface UnseenDiagnosticsCountResult {
   readonly warningCount: number;
 }
 
+function parseAggregateCount(value: unknown): number | null {
+  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
 export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
   const database = usePGliteDatabase();
   const lastSeenAtMs = useDiagnosticsSeenStore((state) => state.lastSeenAtMs);
@@ -47,7 +55,7 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
   const lastSeenAtIso = useMemo(() => new Date(lastSeenAtMs).toISOString(), [lastSeenAtMs]);
   const params = useMemo(() => [lastSeenAtIso] as const, [lastSeenAtIso]);
 
-  const { error, rows } = usePGliteLiveQuery<UnseenDiagnosticsCountRow>({
+  const { error, loading, rows } = usePGliteLiveQuery<UnseenDiagnosticsCountRow>({
     cacheKey: makeLiveQueryKey('diagnostics-unseen', lastSeenAtIso),
     enabled: database !== null,
     params,
@@ -55,16 +63,13 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
   });
 
   const counts = useMemo(() => {
-    const errorCount = Number(rows[0]?.errorCount ?? 0);
-    const warningCount = Number(rows[0]?.warningCount ?? 0);
-    if (
-      !(
-        Number.isSafeInteger(errorCount) &&
-        errorCount >= 0 &&
-        Number.isSafeInteger(warningCount) &&
-        warningCount >= 0
-      )
-    ) {
+    if (loading) {
+      return { aggregateError: null, errorCount: 0, warningCount: 0 };
+    }
+    const row = rows[0];
+    const errorCount = parseAggregateCount(row?.errorCount);
+    const warningCount = parseAggregateCount(row?.warningCount);
+    if (errorCount === null || warningCount === null) {
       return {
         aggregateError: new Error('Unseen diagnostics query returned invalid aggregate counts'),
         errorCount: 0,
@@ -72,7 +77,7 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
       };
     }
     return { aggregateError: null, errorCount, warningCount };
-  }, [rows]);
+  }, [loading, rows]);
 
   return {
     error: error ?? counts.aggregateError,

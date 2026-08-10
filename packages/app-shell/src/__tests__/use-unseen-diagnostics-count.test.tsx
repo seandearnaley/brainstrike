@@ -144,6 +144,38 @@ describe('useUnseenDiagnosticsCount', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('fails loud when a completed aggregate query returns no row', () => {
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: [],
+    });
+
+    const { result } = renderHook(() => useUnseenDiagnosticsCount());
+
+    expect(result.current).toMatchObject({ errorCount: 0, warningCount: 0 });
+    expect(result.current.error).toEqual(
+      new Error('Unseen diagnostics query returned invalid aggregate counts')
+    );
+  });
+
+  it.each([null, ''])('fails loud when an aggregate count is %p', (invalidCount) => {
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: [{ errorCount: invalidCount, warningCount: '2' }],
+    });
+
+    const { result } = renderHook(() => useUnseenDiagnosticsCount());
+
+    expect(result.current).toMatchObject({ errorCount: 0, warningCount: 0 });
+    expect(result.current.error).toEqual(
+      new Error('Unseen diagnostics query returned invalid aggregate counts')
+    );
+  });
+
   it('surfaces malformed aggregates as unavailable instead of returning NaN counts', () => {
     usePGliteLiveQueryMock.mockReturnValue({
       error: null,
