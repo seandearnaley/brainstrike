@@ -1,3 +1,4 @@
+import * as agent from '@brainstrike/agent';
 import { deriveEffectiveInputBudget } from '@brainstrike/assistant-contract/context-budget';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { recordCompactionRange } from '../../assistant-server/compaction-range-repository';
@@ -30,7 +31,17 @@ function messages() {
   ];
 }
 
-function fakeStore(rows = messages()) {
+interface FakeStoredMessage {
+  readonly content: unknown;
+  readonly createdAt: Date;
+  readonly id: string;
+  readonly resourceId: string;
+  readonly role: string;
+  readonly threadId: string;
+  readonly type: string;
+}
+
+function fakeStore(rows: readonly FakeStoredMessage[] = messages()) {
   return {
     listMessages: vi.fn(async () => ({
       hasMore: false,
@@ -78,6 +89,7 @@ function dependencies(overrides: Record<string, unknown> = {}) {
     listToolProjectionRewrites: vi.fn(async () => new Map()),
     makeId: vi.fn(() => 'summary-1'),
     now: vi.fn(() => new Date('2026-08-09T12:00:00.000Z')),
+    recordMessageParent: vi.fn(async () => undefined),
     recordRange: vi.fn(async (_input: Parameters<typeof recordCompactionRange>[0]) => undefined),
     runRecencyPrune: vi.fn(async () => ({ prunedCount: 0 })),
     ...overrides,
@@ -90,6 +102,7 @@ describe('pre-request conversation compaction trigger', () => {
   it('is a strict no-op below 90 percent', async () => {
     const store = fakeStore();
     const deps = dependencies({ estimateVisibleTokens: vi.fn(() => 89) });
+    const projectionSpy = vi.spyOn(agent, 'projectCompactionMessages');
     const result = await runPreRequestCompaction(
       {
         memoryStore: store as never,
@@ -109,6 +122,39 @@ describe('pre-request conversation compaction trigger', () => {
     expect(deps.runRecencyPrune).not.toHaveBeenCalled();
     expect(deps.generateSummary).not.toHaveBeenCalled();
     expect(deps.recordRange).not.toHaveBeenCalled();
+    expect(projectionSpy).not.toHaveBeenCalled();
+    projectionSpy.mockRestore();
+  });
+
+  it('counts legacy flattened content when deciding whether to trigger', async () => {
+    const store = fakeStore([
+      textMessage('old-user', 'old', 'user', '2026-08-01T00:00:00.000Z'),
+      {
+        ...textMessage('legacy-assistant', '', 'assistant', '2026-08-02T00:00:00.000Z'),
+        content: { content: 'x'.repeat(400) },
+      },
+      textMessage('current-user', 'continue', 'user', '2026-08-03T00:00:00.000Z'),
+    ]);
+    const deps = dependencies({
+      estimateVisibleTokens: agent.estimateCompactionMessageTokens,
+    });
+
+    await runPreRequestCompaction(
+      {
+        memoryStore: store as never,
+        requestMessages: [],
+        runId: 'run-legacy',
+        runtimeData: {
+          memory: { resourceId: 'resource-1', threadId: 'thread-1' },
+          model: 'gpt-5.2',
+          provider: 'openai',
+        },
+        signal: new AbortController().signal,
+      },
+      { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
+    );
+
+    expect(deps.runRecencyPrune).toHaveBeenCalledOnce();
   });
 
   it('fires at exactly 90 percent and runs recency pruning before summarization', async () => {
@@ -143,6 +189,12 @@ describe('pre-request conversation compaction trigger', () => {
 
     expect(result).toMatchObject({ kind: 'agentic', usage: { source: 'compaction-summary' } });
     expect(calls).toEqual(['prune', 'summarize']);
+    expect(deps.recordMessageParent).toHaveBeenCalledWith({
+      messageId: 'summary-1',
+      parentId: null,
+      resourceId: 'resource-1',
+      threadId: 'thread-1',
+    });
     expect(recorder.resetLoopGuards).toHaveBeenCalledOnce();
     expect(recorder.resetFileReads).toHaveBeenCalledOnce();
   });
@@ -183,6 +235,138 @@ describe('pre-request conversation compaction trigger', () => {
         expect(deps.runRecencyPrune).not.toHaveBeenCalled();
       }
     }
+  });
+
+  it('leaves history intact when the summarizer is aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const store = fakeStore();
+    const deps = dependencies({
+      estimateVisibleTokens: vi.fn(() => 100),
+      generateSummary: vi.fn(async () => {
+        throw controller.signal.reason;
+      }),
+    });
+
+    await expect(
+      runPreRequestCompaction(
+        {
+          memoryStore: store as never,
+          requestMessages: [],
+          runId: 'run-1',
+          runtimeData: {
+            memory: { resourceId: 'resource-1', threadId: 'thread-1' },
+            model: 'gpt-5.2',
+            provider: 'openai',
+          },
+          signal: controller.signal,
+        },
+        { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
+      )
+    ).resolves.toEqual({ kind: 'noop' });
+    expect(store.saveMessages).not.toHaveBeenCalled();
+    expect(deps.recordMessageParent).not.toHaveBeenCalled();
+    expect(deps.recordRange).not.toHaveBeenCalled();
+  });
+
+  it('leaves history intact after a transient summarizer provider failure', async () => {
+    const store = fakeStore();
+    const rateLimitError = Object.assign(new Error('Rate limited'), { statusCode: 429 });
+    const deps = dependencies({
+      estimateVisibleTokens: vi.fn(() => 100),
+      generateSummary: vi.fn(async () => {
+        throw rateLimitError;
+      }),
+    });
+
+    await expect(
+      runPreRequestCompaction(
+        {
+          memoryStore: store as never,
+          requestMessages: [],
+          runId: 'run-1',
+          runtimeData: {
+            memory: { resourceId: 'resource-1', threadId: 'thread-1' },
+            model: 'gpt-5.2',
+            provider: 'openai',
+          },
+          signal: new AbortController().signal,
+        },
+        { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
+      )
+    ).resolves.toEqual({ kind: 'noop' });
+    expect(store.saveMessages).not.toHaveBeenCalled();
+    expect(deps.recordRange).not.toHaveBeenCalled();
+  });
+
+  it('commits deterministic fallback for a summarizer schema failure', async () => {
+    const store = fakeStore();
+    const deps = dependencies({
+      estimateVisibleTokens: vi.fn(() => 100),
+      generateSummary: vi.fn(async () => {
+        throw new agent.AgenticCompactionSummarySchemaError({
+          inputTokens: 40,
+          outputTokens: 10,
+        });
+      }),
+    });
+
+    await expect(
+      runPreRequestCompaction(
+        {
+          memoryStore: store as never,
+          requestMessages: [],
+          runId: 'run-1',
+          runtimeData: {
+            memory: { resourceId: 'resource-1', threadId: 'thread-1' },
+            model: 'gpt-5.2',
+            provider: 'openai',
+          },
+          signal: new AbortController().signal,
+        },
+        { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
+      )
+    ).resolves.toMatchObject({
+      kind: 'deterministic',
+      usage: { inputTokens: 40, outputTokens: 10, source: 'compaction-summary' },
+    });
+    expect(store.saveMessages).toHaveBeenCalledOnce();
+    expect(deps.recordRange).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'deterministic' })
+    );
+  });
+
+  it('commits deterministic fallback for a summarizer context-overflow failure', async () => {
+    const store = fakeStore();
+    const deps = dependencies({
+      estimateVisibleTokens: vi.fn(() => 100),
+      generateSummary: vi.fn(async () => {
+        throw Object.assign(new Error('Summary prompt exceeded provider context'), {
+          code: 'context_length_exceeded',
+        });
+      }),
+    });
+
+    await expect(
+      runPreRequestCompaction(
+        {
+          memoryStore: store as never,
+          requestMessages: [],
+          runId: 'run-1',
+          runtimeData: {
+            memory: { resourceId: 'resource-1', threadId: 'thread-1' },
+            model: 'gpt-5.2',
+            provider: 'openai',
+          },
+          signal: new AbortController().signal,
+        },
+        { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
+      )
+    ).resolves.toEqual({ kind: 'deterministic' });
+    expect(store.saveMessages).toHaveBeenCalledOnce();
+    expect(deps.recordRange).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'deterministic' })
+    );
   });
 });
 
@@ -229,5 +413,29 @@ describe('deterministic context-overflow fallback', () => {
       /^Deterministic fallback: dropped \d+ messages spanning .* after a provider context-overflow error; no summarization model ran\.$/
     );
     expect(savedMessage.content.parts[0]?.text).toBe(droppedSummaryLine);
+  });
+
+  it('uses the injected estimator units for deterministic reclaim selection', async () => {
+    const deps = dependencies({
+      estimateVisibleTokens: vi.fn((visibleMessages: readonly unknown[]) =>
+        visibleMessages.length === 1 ? 40 : 100
+      ),
+    });
+    const recover = createContextOverflowRecovery(
+      {
+        memoryStore: fakeStore() as never,
+        runtimeData: {
+          memory: { resourceId: 'resource-1', threadId: 'thread-1' },
+          model: 'gpt-5.2',
+          provider: 'openai',
+        },
+      },
+      { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
+    );
+
+    await expect(recover()).resolves.toEqual({ applied: true });
+    expect(deps.recordRange).toHaveBeenCalledWith(
+      expect.objectContaining({ compactedMessageIds: ['old-1'] })
+    );
   });
 });

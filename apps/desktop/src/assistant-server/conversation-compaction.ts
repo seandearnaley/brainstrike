@@ -5,9 +5,11 @@ import {
   type CompactionMessage,
   type CompactionRangeEntry,
   estimateCompactionMessageTokens,
+  extractProviderRunError,
   filterMessagesByCompactionRanges,
   generateAgenticCompactionSummary,
   getDefaultModel,
+  isContextOverflowProviderErrorCode,
   projectCompactionMessages,
   projectCompactionMessagesForSummarizer,
   type RuntimeData,
@@ -24,7 +26,13 @@ import {
   type ProviderId,
 } from '@brainstrike/assistant-contract/provider-registry';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
+import {
+  createPgliteAssistantThreadRepository,
+  type RecordAssistantMessageParentInput,
+} from '@brainstrike/assistant-data';
+import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
+import { getDatabase } from '../db-main';
 import { recordCompactionRange, selectProtectedMessageIds } from './compaction-range-repository';
 import { runRecencyPruneScan } from './tool-projection-rewrite-repository';
 
@@ -66,6 +74,8 @@ interface ConversationCompactionDependencies {
   ) => Promise<ReadonlyMap<string, ToolProjectionRewriteEntry>>;
   readonly makeId: () => string;
   readonly now: () => Date;
+  readonly projectMessages: typeof projectCompactionMessages;
+  readonly recordMessageParent: (input: RecordAssistantMessageParentInput) => Promise<void>;
   readonly recordRange: typeof recordCompactionRange;
   readonly resolveInputBudget: typeof resolveCompactionInputBudget;
   readonly runRecencyPrune: typeof runRecencyPruneScan;
@@ -73,11 +83,13 @@ interface ConversationCompactionDependencies {
 
 type PartialConversationCompactionDependencies = Partial<ConversationCompactionDependencies>;
 
-interface ProjectedCompactionState {
+interface CompactionMessageState {
   readonly messages: readonly CompactionMessage[];
-  readonly projectedMessages: readonly CompactionMessage[];
-  readonly rewrites: ReadonlyMap<string, ToolProjectionRewriteEntry>;
   readonly usageTokens: number;
+}
+
+interface ProjectedCompactionState extends CompactionMessageState {
+  readonly projectedMessages: readonly CompactionMessage[];
 }
 
 function defaultDependencies(
@@ -102,6 +114,15 @@ function defaultDependencies(
     },
     makeId: randomUUID,
     now: () => new Date(),
+    projectMessages: projectCompactionMessages,
+    recordMessageParent: async (input) => {
+      const database = await getDatabase();
+      const repository = createPgliteAssistantThreadRepository(database as unknown as DbHandle);
+      if (!repository.recordMessageParent) {
+        throw new Error('Conversation compaction requires durable assistant message topology.');
+      }
+      await repository.recordMessageParent(input);
+    },
     recordRange: recordCompactionRange,
     resolveInputBudget: resolveCompactionInputBudget,
     runRecencyPrune: runRecencyPruneScan,
@@ -144,6 +165,58 @@ function isAtTrigger(usageTokens: number, inputBudget: number): boolean {
   return usageTokens >= COMPACTION_TRIGGER_RATIO * inputBudget;
 }
 
+function isNonRetryableSummarizerFailure(error: unknown): boolean {
+  if (error instanceof AgenticCompactionSummarySchemaError) {
+    return true;
+  }
+  return isContextOverflowProviderErrorCode(extractProviderRunError(error).code);
+}
+
+async function loadMessages(
+  input: ConversationCompactionInput,
+  dependencies: ConversationCompactionDependencies,
+  requestMessages: readonly AgentMessage[] = []
+): Promise<readonly CompactionMessage[]> {
+  const context = requireThreadContext(input.runtimeData);
+  if (!context) {
+    return [];
+  }
+  const [listed, ranges] = await Promise.all([
+    input.memoryStore.listMessages({
+      orderBy: { direction: 'ASC', field: 'createdAt' },
+      perPage: false,
+      resourceId: context.resourceId,
+      threadId: context.threadId,
+    }),
+    dependencies.listCompactionRanges(context.threadId, input.runtimeData),
+  ]);
+  const durableMessages = filterMessagesByCompactionRanges(
+    listed.messages,
+    ranges
+  ) as readonly StoredMessage[];
+  const durableIds = new Set(durableMessages.map(({ id }) => id));
+  const messages: CompactionMessage[] = [...durableMessages];
+  for (const message of requestMessages) {
+    if (!durableIds.has(message.id)) {
+      messages.push({
+        content: { format: 2, parts: message.parts },
+        id: message.id,
+        role: message.role,
+      });
+    }
+  }
+  return messages;
+}
+
+async function loadUnprojectedState(
+  input: ConversationCompactionInput,
+  dependencies: ConversationCompactionDependencies,
+  requestMessages: readonly AgentMessage[] = []
+): Promise<CompactionMessageState> {
+  const messages = await loadMessages(input, dependencies, requestMessages);
+  return { messages, usageTokens: dependencies.estimateVisibleTokens(messages) };
+}
+
 async function loadProjectedState(
   input: ConversationCompactionInput,
   dependencies: ConversationCompactionDependencies,
@@ -151,46 +224,29 @@ async function loadProjectedState(
 ): Promise<ProjectedCompactionState> {
   const context = requireThreadContext(input.runtimeData);
   if (!context) {
-    return { messages: [], projectedMessages: [], rewrites: new Map(), usageTokens: 0 };
+    return { messages: [], projectedMessages: [], usageTokens: 0 };
   }
-  const listed = await input.memoryStore.listMessages({
-    orderBy: { direction: 'ASC', field: 'createdAt' },
-    perPage: false,
-    resourceId: context.resourceId,
-    threadId: context.threadId,
-  });
-  const ranges = await dependencies.listCompactionRanges(context.threadId, input.runtimeData);
-  const durableMessages = filterMessagesByCompactionRanges(
-    listed.messages,
-    ranges
-  ) as readonly StoredMessage[];
-  const durableIds = new Set(durableMessages.map(({ id }) => id));
-  const messages: readonly CompactionMessage[] = [
-    ...durableMessages,
-    ...requestMessages
-      .filter(({ id }) => !durableIds.has(id))
-      .map((message) => ({
-        content: { format: 2, parts: message.parts },
-        id: message.id,
-        role: message.role,
-      })),
-  ];
-  const rewrites = await dependencies.listToolProjectionRewrites(
-    context.threadId,
-    input.runtimeData
-  );
-  const projectedMessages = projectCompactionMessages(messages, rewrites);
+  const [messages, rewrites] = await Promise.all([
+    loadMessages(input, dependencies, requestMessages),
+    dependencies.listToolProjectionRewrites(context.threadId, input.runtimeData),
+  ]);
+  const projectedMessages = dependencies.projectMessages(messages, rewrites);
   return {
     messages,
     projectedMessages,
-    rewrites,
     usageTokens: dependencies.estimateVisibleTokens(projectedMessages),
   };
 }
 
 function candidateIds(messages: readonly CompactionMessage[]): Set<string> {
   const protectedIds = selectProtectedMessageIds({ messages });
-  return new Set(messages.filter((message) => !protectedIds.has(message.id)).map(({ id }) => id));
+  const ids = new Set<string>();
+  for (const message of messages) {
+    if (!protectedIds.has(message.id)) {
+      ids.add(message.id);
+    }
+  }
+  return ids;
 }
 
 function orderedProjectedCandidates(
@@ -209,7 +265,8 @@ function requireCreatedAt(message: CompactionMessage): Date {
 
 function selectDeterministicCandidates(
   state: ProjectedCompactionState,
-  inputBudget: number
+  inputBudget: number,
+  dependencies: ConversationCompactionDependencies
 ): readonly CompactionMessage[] {
   const ids = candidateIds(state.messages);
   const candidates = orderedProjectedCandidates(state, ids);
@@ -222,7 +279,7 @@ function selectDeterministicCandidates(
   const selected: CompactionMessage[] = [];
   for (const candidate of candidates) {
     selected.push(candidate);
-    reclaimed += estimateCompactionMessageTokens([candidate]);
+    reclaimed += dependencies.estimateVisibleTokens([candidate]);
     if (reclaimed >= reclaimNeeded) {
       break;
     }
@@ -289,6 +346,12 @@ async function commitSummary(input: {
     type: 'v2',
   };
   await input.memoryStore.saveMessages({ messages: [message] });
+  await input.dependencies.recordMessageParent({
+    messageId: compactionMessageId,
+    parentId: null,
+    resourceId: context.resourceId,
+    threadId: context.threadId,
+  });
   await input.dependencies.recordRange({
     compactedMessageIds: input.candidates.map(({ id }) => id),
     compactionMessageId,
@@ -318,7 +381,11 @@ async function commitDeterministicFallback(input: {
   readonly runtimeData: RuntimeData;
   readonly state: ProjectedCompactionState;
 }): Promise<boolean> {
-  const candidates = selectDeterministicCandidates(input.state, input.inputBudget);
+  const candidates = selectDeterministicCandidates(
+    input.state,
+    input.inputBudget,
+    input.dependencies
+  );
   if (candidates.length === 0) {
     return false;
   }
@@ -345,8 +412,8 @@ export async function runPreRequestCompaction(
   }
   const dependencies = defaultDependencies(dependencyOverrides);
   const inputBudget = dependencies.resolveInputBudget(input.runtimeData);
-  let state = await loadProjectedState(input, dependencies, input.requestMessages);
-  if (!isAtTrigger(state.usageTokens, inputBudget)) {
+  const triggerState = await loadUnprojectedState(input, dependencies, input.requestMessages);
+  if (!isAtTrigger(triggerState.usageTokens, inputBudget)) {
     return { kind: 'noop' };
   }
 
@@ -354,7 +421,7 @@ export async function runPreRequestCompaction(
     { runtimeData: input.runtimeData, threadId: context.threadId },
     {}
   );
-  state = await loadProjectedState(input, dependencies, input.requestMessages);
+  const state = await loadProjectedState(input, dependencies, input.requestMessages);
   if (!isAtTrigger(state.usageTokens, inputBudget)) {
     return { kind: 'noop' };
   }
@@ -381,6 +448,14 @@ export async function runPreRequestCompaction(
     });
     return { kind: 'agentic', usage: usageForSummary(summary, input.runtimeData) };
   } catch (error) {
+    if (input.signal.aborted || !isNonRetryableSummarizerFailure(error)) {
+      logger.warn('Agentic compaction failed; leaving history intact for a later retry', {
+        code: 'agentic_compaction_retryable_failure',
+        error,
+        threadId: context.threadId,
+      });
+      return { kind: 'noop' };
+    }
     logger.warn('Agentic compaction failed; applying deterministic fallback', {
       code: 'agentic_compaction_failed',
       error,

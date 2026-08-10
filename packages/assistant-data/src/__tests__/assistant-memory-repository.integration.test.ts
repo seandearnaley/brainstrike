@@ -2275,6 +2275,8 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     expect(db.exec).toHaveBeenCalledWith(
       expect.stringContaining('CREATE TABLE IF NOT EXISTS brainstrike_assistant_run_usage')
     );
+    const bootstrapSql = String(db.exec.mock.calls[0]?.[0]);
+    expect(bootstrapSql).not.toMatch(/\balter\s+table\b[^;]*\bdrop\s+constraint\b/iu);
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO brainstrike_assistant_run_usage'),
       expect.arrayContaining([
@@ -3404,6 +3406,104 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       expect(summary?.role).toBe('assistant');
       expect(marker).toEqual(payload);
       expect(isCompactionSummaryPayload(marker)).toBe(true);
+    });
+
+    it('hydrates an assistant tool turn and a rooted compaction summary as separate groups', async () => {
+      const { db, repository, threadId } = await seedRewindThread(
+        'assistant-compaction-summary-after-tool-turn'
+      );
+      const payload = {
+        createdAt: '2026-08-09T12:00:00.000Z',
+        fallbackKind: 'agentic',
+        firstCompactedMessageId: 'message-1',
+        lastCompactedMessageId: 'message-3',
+        rewriteId: 'rewrite-tool-turn',
+      } as const;
+      await db.query('DELETE FROM mastra_messages WHERE thread_id = $1', [threadId]);
+      await repository.recordMessageParent?.({
+        messageId: 'assistant-final',
+        parentId: 'user-tool-turn',
+        resourceId: 'workspace-a',
+        threadId,
+      });
+      await repository.recordMessageParent?.({
+        messageId: 'summary-after-tool-turn',
+        parentId: null,
+        resourceId: 'workspace-a',
+        threadId,
+      });
+      for (const row of [
+        {
+          content: { content: 'Inspect the repository.' },
+          createdAt: '2026-08-09T11:59:00Z',
+          id: 'user-tool-turn',
+          role: 'user',
+        },
+        {
+          content: {
+            parts: [
+              {
+                args: { path: 'src/a.ts' },
+                isError: false,
+                result: { content: 'source' },
+                toolCallId: 'call-read',
+                toolName: 'brainstrike.readWorkspaceFile',
+                type: 'tool-call',
+              },
+              { text: 'The repository is ready.', type: 'text' },
+            ],
+          },
+          createdAt: '2026-08-09T11:59:02Z',
+          id: 'assistant-final',
+          role: 'assistant',
+        },
+        {
+          content: {
+            format: 2,
+            metadata: { custom: { [COMPACTION_SUMMARY_METADATA_KEY]: payload } },
+            parts: [{ text: 'Goal:\nContinue the repository work.', type: 'text' }],
+          },
+          createdAt: '2026-08-09T12:00:00Z',
+          id: 'summary-after-tool-turn',
+          role: 'assistant',
+        },
+      ] as const) {
+        await db.query(
+          `INSERT INTO mastra_messages
+            (id, thread_id, content, role, type, "createdAt", "resourceId")
+           VALUES ($1, $2, $3::jsonb, $4, 'v2', $5, 'workspace-a')`,
+          [row.id, threadId, JSON.stringify(row.content), row.role, row.createdAt]
+        );
+      }
+
+      const history = await createAssistantThreadHistoryAdapter({
+        repository: createPgliteAssistantThreadRepository(db as DbHandle),
+        resourceId: 'workspace-a',
+        threadId,
+      }).load();
+      const priorAssistant = history.messages.find(
+        (item) => item.message.id === 'assistant-final'
+      )?.message;
+      const summary = history.messages.find(
+        (item) => item.message.id === 'summary-after-tool-turn'
+      )?.message;
+
+      expect(history.messages.map((item) => item.message.id)).toEqual([
+        'user-tool-turn',
+        'assistant-final',
+        'summary-after-tool-turn',
+      ]);
+      expect(priorAssistant?.content).toEqual([
+        expect.objectContaining({ toolCallId: 'call-read', type: 'tool-call' }),
+        { text: 'The repository is ready.', type: 'text' },
+      ]);
+      expect(summary?.content).toEqual([
+        { text: 'Goal:\nContinue the repository work.', type: 'text' },
+      ]);
+      expect(
+        isCompactionSummaryPayload(summary?.metadata.custom?.[COMPACTION_SUMMARY_METADATA_KEY])
+      ).toBe(true);
+      expect(priorAssistant?.metadata.custom?.[COMPACTION_SUMMARY_METADATA_KEY]).toBeUndefined();
     });
   });
 

@@ -283,7 +283,12 @@ Migration 089 widens `brainstrike_assistant_run_usage.run_kind` to admit
 `compaction-summary`, the provider-exact auxiliary summarizer call attributed
 under its parent run. Register the constraint replacement in both migration
 runners and keep the renderer-lazy bootstrap CHECK aligned; adding only the
-TypeScript union makes real PGlite inserts fail.
+TypeScript union makes real PGlite inserts fail. The numbered migration must
+replace migration 077's existing same-name CHECK and therefore uses
+main-process-only `DROP CONSTRAINT` + `ADD CONSTRAINT`. The renderer-reachable
+bootstrap must never emit that destructive statement: it installs the final
+constraint only when the catalog says it is absent, because `db:exec` rejects
+renderer schema drops.
 
 ## PGLITE EXTENSION INVARIANT
 

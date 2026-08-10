@@ -88,6 +88,23 @@ describe('selectProtectedMessageIds', () => {
     expect(protectedIds.has('current-answer')).toBe(true);
   });
 
+  it('protects hook-injected system context immediately before the current user turn', () => {
+    const messages = [
+      textMessage('old-eligible', 'old'),
+      textMessage('hook-context-123', 'Follow the injected hook instruction.', 'system'),
+      textMessage(
+        'current-user',
+        'x'.repeat(COMPACTION_PROTECT_WINDOW_TOKENS * APPROX_CHARS_PER_TOKEN),
+        'user'
+      ),
+    ];
+
+    const protectedIds = selectProtectedMessageIds({ messages });
+
+    expect(protectedIds.has('hook-context-123')).toBe(true);
+    expect(protectedIds.has('current-user')).toBe(true);
+  });
+
   it('protects submitPlan and askUser suspend-family messages', () => {
     for (const toolName of ['submitPlan', 'askUser']) {
       const planMessage: CompactionSelectionMessage = {
@@ -146,5 +163,63 @@ describe('selectProtectedMessageIds', () => {
     expect(
       selectProtectedMessageIds({ messages: withCandidateOutsideTail(ordinary) }).has(ordinary.id)
     ).toBe(false);
+  });
+
+  it('closes a protected-tail boundary over a tool call and its result', () => {
+    const call: CompactionSelectionMessage = {
+      content: {
+        format: 2,
+        parts: [{ input: {}, toolCallId: 'boundary-call', toolName: 'grep', type: 'tool-call' }],
+      },
+      id: 'call-message',
+      role: 'assistant',
+    };
+    const result: CompactionSelectionMessage = {
+      content: {
+        format: 2,
+        parts: [
+          {
+            output: 'x'.repeat(COMPACTION_PROTECT_WINDOW_TOKENS * APPROX_CHARS_PER_TOKEN),
+            toolCallId: 'boundary-call',
+            type: 'tool-result',
+          },
+        ],
+      },
+      id: 'result-message',
+      role: 'tool',
+    };
+
+    const protectedIds = selectProtectedMessageIds({
+      messages: [call, result, textMessage('current-user', 'continue', 'user')],
+    });
+
+    expect(protectedIds.has(call.id)).toBe(true);
+    expect(protectedIds.has(result.id)).toBe(true);
+  });
+
+  it('leaves a complete old tool call and result pair eligible together', () => {
+    const call: CompactionSelectionMessage = {
+      content: {
+        format: 2,
+        parts: [{ input: {}, toolCallId: 'old-call', toolName: 'grep', type: 'tool-call' }],
+      },
+      id: 'old-call-message',
+      role: 'assistant',
+    };
+    const result: CompactionSelectionMessage = {
+      content: {
+        format: 2,
+        parts: [{ output: 'matches', toolCallId: 'old-call', type: 'tool-result' }],
+      },
+      id: 'old-result-message',
+      role: 'tool',
+    };
+
+    const protectedIds = selectProtectedMessageIds({
+      messages: [call, result, tailBarrier(), textMessage('current-user', 'continue', 'user')],
+    });
+
+    expect(protectedIds.has(call.id)).toBe(false);
+    expect(protectedIds.has(result.id)).toBe(false);
   });
 });

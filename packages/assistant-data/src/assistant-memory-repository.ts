@@ -1039,7 +1039,8 @@ ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
 ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
   ADD COLUMN IF NOT EXISTS cache_creation_input_tokens integer CHECK (cache_creation_input_tokens >= 0);
 
--- Run-kind attribution (BST-953/BST-1200): keep byte-identical to migration 089.
+-- Run-kind attribution (BST-953/BST-1200): keep the accepted values aligned
+-- with migration 089 while preserving the renderer bootstrap's add-only rule.
 -- 'chat' = parent assistant turn; 'subagent' = persona delegation child;
 -- 'compaction-summary' = pre-request auxiliary summarizer call;
 -- 'om-observation'/'om-reflection' = observational-memory background cycles.
@@ -1047,11 +1048,24 @@ ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
   ADD COLUMN IF NOT EXISTS run_kind text NOT NULL DEFAULT 'chat'
   CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
 
-ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-  DROP CONSTRAINT IF EXISTS brainstrike_assistant_run_usage_run_kind_check;
-ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
-  ADD CONSTRAINT brainstrike_assistant_run_usage_run_kind_check
-  CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
+-- Desktop main migration 089 owns widening an existing pre-089 CHECK. This
+-- renderer-reachable bootstrap may only install the final constraint when it
+-- is absent; emitting DROP CONSTRAINT here is rejected by db:exec's
+-- destructive-schema guard and prevents the assistant panel from mounting.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'brainstrike_assistant_run_usage_run_kind_check'
+      AND conrelid = '${ASSISTANT_RUN_USAGE_TABLE}'::regclass
+  ) THEN
+    ALTER TABLE ${ASSISTANT_RUN_USAGE_TABLE}
+      ADD CONSTRAINT brainstrike_assistant_run_usage_run_kind_check
+      CHECK (run_kind IN ('chat', 'subagent', 'compaction-summary', 'om-observation', 'om-reflection'));
+  END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_usage_thread_idx
   ON ${ASSISTANT_RUN_USAGE_TABLE} (thread_id);

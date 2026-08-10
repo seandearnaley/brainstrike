@@ -195,6 +195,7 @@ export {
   AgenticCompactionSummarySchemaError,
   COMPACTION_SUMMARIZER_INSTRUCTIONS,
   type CompactionMessage,
+  collectCompactionToolCallIds,
   estimateCompactionMessageTokens,
   generateAgenticCompactionSummary,
   hasCompactionSummarySchema,
@@ -311,6 +312,7 @@ export {
 } from './message-utils';
 export {
   extractProviderRunError,
+  isContextOverflowProviderErrorCode,
   isLocalRunErrorClassification,
   isProviderRunError,
   LOCAL_RUN_ERROR_FALLBACK_CODE,

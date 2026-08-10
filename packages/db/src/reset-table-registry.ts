@@ -10,7 +10,7 @@
  * web factory reset (the BST-862/BST-844 defect class).
  *
  * The union CANNOT be derived from the Drizzle schema: the 21 `pgTable`
- * exports cover only ~9 of the 33 clearable relations. Every `brainstrike_*`
+ * exports cover only ~9 of the 35 clearable relations. Every `brainstrike_*`
  * assistant table is migration-only raw DDL, the Mastra six live in
  * `@brainstrike/assistant-contract/mastra-memory-schema`, and configuration
  * tables that MUST survive reset (catalog, profile singletons) sit in the same

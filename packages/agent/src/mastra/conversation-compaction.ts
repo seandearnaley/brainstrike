@@ -64,12 +64,16 @@ function contentParts(content: unknown): readonly unknown[] {
   if (Array.isArray(content['parts'])) {
     return content['parts'];
   }
-  return Array.isArray(content['content']) ? content['content'] : [];
+  const flattened = content['content'];
+  if (Array.isArray(flattened)) {
+    return flattened;
+  }
+  return typeof flattened === 'string' ? [{ text: flattened, type: 'text' }] : [];
 }
 
-function collectPresentToolCallIds(messages: readonly CompactionMessage[]): Set<string> {
+export function collectCompactionToolCallIds(content: unknown): Set<string> {
   const present = new Set<string>();
-  const pending: unknown[] = messages.map((message) => message.content);
+  const pending: unknown[] = [content];
   const seen = new Set<object>();
   while (pending.length > 0) {
     const value = pending.pop();
@@ -93,6 +97,16 @@ function collectPresentToolCallIds(messages: readonly CompactionMessage[]): Set<
       present.add(toolCallId);
     }
     pending.push(...Object.values(value));
+  }
+  return present;
+}
+
+function collectPresentToolCallIds(messages: readonly CompactionMessage[]): Set<string> {
+  const present = new Set<string>();
+  for (const message of messages) {
+    for (const toolCallId of collectCompactionToolCallIds(message.content)) {
+      present.add(toolCallId);
+    }
   }
   return present;
 }
@@ -265,15 +279,21 @@ export function estimateCompactionMessageTokens(messages: readonly CompactionMes
 const REQUIRED_SECTION_HEADERS = ['Goal', 'State', 'Decisions', 'Next', 'Files touched'] as const;
 
 export function hasCompactionSummarySchema(text: string): boolean {
-  const headers = [
-    ...text.matchAll(
-      /(?:^|\n)\s*(?:#{1,6}\s*)?(Goal|State|Decisions|Next|Files touched)\s*:?\s*(?=\n|$)/gi
-    ),
-  ].map((match) => match[1]?.toLowerCase());
-  return (
-    headers.length === REQUIRED_SECTION_HEADERS.length &&
-    headers.every((header, index) => header === REQUIRED_SECTION_HEADERS[index]?.toLowerCase())
-  );
+  let expectedIndex = 0;
+  for (const match of text.matchAll(
+    /(?:^|\n)\s*(?:#{1,6}\s*)?(Goal|State|Decisions|Next|Files touched)\s*(?::[^\n]*|(?=\n|$))/gi
+  )) {
+    const header = match[1]?.toLowerCase();
+    const headerIndex = REQUIRED_SECTION_HEADERS.findIndex(
+      (required) => required.toLowerCase() === header
+    );
+    if (headerIndex === expectedIndex) {
+      expectedIndex += 1;
+    } else if (headerIndex > expectedIndex) {
+      return false;
+    }
+  }
+  return expectedIndex === REQUIRED_SECTION_HEADERS.length;
 }
 
 function requireProviderUsage(value: unknown, field: 'inputTokens' | 'outputTokens'): number {

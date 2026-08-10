@@ -2,6 +2,7 @@ import {
   APPROX_CHARS_PER_TOKEN,
   type CompactionRangeEntry,
   type CompactionRangeLookup,
+  collectCompactionToolCallIds,
   decodedTextModelOutputChars,
   type RuntimeData,
   resetFileReadState,
@@ -25,6 +26,7 @@ const COMPACTION_PROTECT_WINDOW_CHARS = COMPACTION_PROTECT_WINDOW_TOKENS * APPRO
 
 /** Narrow future-facing pin marker; no pinning UI or persistence feature exists yet. */
 export const COMPACTION_PINNED_METADATA_KEY = 'brainstrikePinned';
+const HOOK_CONTEXT_MESSAGE_ID_PREFIX = 'hook-context-';
 
 export interface CompactionSelectionMessage {
   readonly content: unknown;
@@ -173,11 +175,53 @@ function protectCurrentTurn(
       break;
     }
   }
-  const firstProtectedIndex = currentTurnStart < 0 ? 0 : currentTurnStart;
+  let firstProtectedIndex = currentTurnStart < 0 ? 0 : currentTurnStart;
+  while (firstProtectedIndex > 0) {
+    const preceding = messages[firstProtectedIndex - 1];
+    if (preceding?.role !== 'system' || !preceding.id.startsWith(HOOK_CONTEXT_MESSAGE_ID_PREFIX)) {
+      break;
+    }
+    firstProtectedIndex -= 1;
+  }
   for (let index = firstProtectedIndex; index < messages.length; index += 1) {
     const message = messages[index];
     if (message) {
       protectedIds.add(message.id);
+    }
+  }
+}
+
+function closeProtectedToolCallPairs(
+  messages: readonly CompactionSelectionMessage[],
+  protectedIds: Set<string>
+): void {
+  const entries = messages.map((message) => ({
+    message,
+    toolCallIds: collectCompactionToolCallIds(message.content),
+  }));
+  const protectedToolCallIds = new Set<string>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const { message, toolCallIds } of entries) {
+      if (!protectedIds.has(message.id)) {
+        continue;
+      }
+      for (const toolCallId of toolCallIds) {
+        if (!protectedToolCallIds.has(toolCallId)) {
+          protectedToolCallIds.add(toolCallId);
+          changed = true;
+        }
+      }
+    }
+    for (const { message, toolCallIds } of entries) {
+      if (
+        !protectedIds.has(message.id) &&
+        [...toolCallIds].some((toolCallId) => protectedToolCallIds.has(toolCallId))
+      ) {
+        protectedIds.add(message.id);
+        changed = true;
+      }
     }
   }
 }
@@ -215,6 +259,7 @@ export function selectProtectedMessageIds(input: {
       protectedIds.add(message.id);
     }
   }
+  closeProtectedToolCallPairs(input.messages, protectedIds);
   return protectedIds;
 }
 

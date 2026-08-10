@@ -1,6 +1,15 @@
 import type { Migration } from './migration-runner';
 
-/** Allow provider-exact auxiliary compaction-summary usage rows (BST-1200 M2). */
+/**
+ * Allow provider-exact auxiliary compaction-summary usage rows (BST-1200 M2).
+ *
+ * Unlike migration 087's new named constraint, this migration must replace
+ * migration 077's existing same-name CHECK to widen it. A catalog-guarded
+ * ADD-only block would see the old constraint and leave compaction-summary
+ * rejected. These numbered migration statements run in desktop main, never
+ * through the renderer SQL guard; only the renderer bootstrap mirror must be
+ * non-destructive.
+ */
 export const migration089CompactionSummaryRunUsageKind: Migration = {
   down: `
     ALTER TABLE brainstrike_assistant_run_usage

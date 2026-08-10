@@ -1252,7 +1252,10 @@ the provider prompt — while leaving every raw message physically unchanged in
   it excises current messages whose IDs occur in `compacted_message_ids` —
   except protected-set messages from that exact set (skill activations,
   plan/submitPlan tool-call messages, pinned messages, prior compaction
-  summaries), which are never excised. The summary message itself is already
+  summaries, hook-injected system context adjacent to the current user turn),
+  which are never excised. Protection is closed to a fixed point over shared
+  tool-call ids, so a call and its result can never straddle the compaction
+  boundary even when one message carries parts for multiple calls. The summary message itself is already
   in the message list as an ordinary message and supplies the condensed
   content; raw `mastra_messages` rows are never mutated or deleted.
 - **Rewind interplay — the load-bearing design decision, settled by directly
@@ -1292,7 +1295,10 @@ the provider prompt — while leaving every raw message physically unchanged in
     later as pure housekeeping, out of scope here).
 - **Reload/hydration:** the summary message hydrates through the existing
   80-row windowing path in `assistant-memory-repository.ts` like any other
-  assistant row — no special-case hydration logic. The renderer recognizes
+  assistant row — no special-case hydration logic. Its producer also writes a
+  `brainstrike_assistant_message_parents` row with `parent_id = NULL`, so it
+  starts a new topology group instead of merging into the preceding assistant
+  turn on reload. The renderer recognizes
   `metadata.custom.brainstrikeCompactionSummary` and renders a labeled
   divider/card (not a chat bubble), following the `approval-action-message.ts`
   render-seam precedent, so raw pre-compaction turns remain visible on
@@ -1331,10 +1337,13 @@ provider/model from the static catalog as
 discovered model may use only the already-resolved positive
 `agentLoop.inputTokenLimit`, never a guessed window. The numerator walks the
 current tombstone-filtered durable messages plus request messages not yet
-persisted, applies active compaction ranges with
-`filterMessagesByCompactionRanges`, applies active Layer 1/2 marker rewrites,
-then counts text, reasoning, tool arguments/results, and bounded attachment
-markers with the shared chars/4 counter. This server-side persisted-message
+persisted and applies active compaction ranges with
+`filterMessagesByCompactionRanges`. The common-case first threshold estimate
+walks those raw messages without materializing the deep projection clone; only
+after that estimate reaches 90% does the prune-first path load Layer 1/2
+rewrites, project the messages, and recompute provider-visible usage. The
+counter includes text, reasoning, tool arguments/results, bounded attachment
+markers, and legacy flattened string content. This server-side persisted-message
 walker is a second implementation of the BST-940 renderer heuristic because
 the renderer walker depends on assistant-ui message utilities; it should move
 to a shared dialect-aware package if those message shapes converge.
@@ -1362,8 +1371,10 @@ The auxiliary call uses `createMastraAgentRuntime` with the current trusted
 provider/model transport but no memory, MCP, tools, personas, permissions,
 hooks, task list, or compaction callbacks, then invokes the installed Mastra
 `Agent.generate()` once with the fixed Goal / State / Decisions / Next / Files
-touched instruction. All five headers must occur exactly once and in order; a
-malformed response is an agentic-path failure and causes deterministic
+touched instruction. The first occurrence of all five headers must appear in
+order; content may begin on the header line after a colon, and later duplicate
+header-shaped prose does not invalidate an otherwise complete summary. A
+missing or out-of-order section is a schema failure and causes deterministic
 fallback. Provider-reported `totalUsage` is required. Its
 `AssistantChildRunUsage` is emitted as a `child-run-usage` chunk with
 `source: 'compaction-summary'`, passes through
@@ -1372,12 +1383,15 @@ Migration 089 and the renderer bootstrap widen the `run_kind` CHECK for that
 value; estimates never enter this cost-accounting path.
 
 On success, desktop saves an ordinary format-2 assistant Mastra message with
-the fixed-section text and `brainstrikeCompactionSummary` payload, then calls
-`recordCompactionRange` with the exact ordered candidate ids. A provider,
-network, or schema failure reuses the already-computed candidate/protected set
-and commits a deterministic summary-shaped message instead. Failures of the
-whole best-effort pre-request compaction facility are logged visibly and do
-not prevent construction of the user's real turn.
+the fixed-section text and `brainstrikeCompactionSummary` payload, records that
+message as a new root topology group, then calls `recordCompactionRange` with
+the exact ordered candidate ids. Only schema validation failure or a stable
+summarizer-side context-overflow code reuses the already-computed
+candidate/protected set and commits a deterministic summary-shaped message.
+Abort, rate limit, authentication, network, and other unclassified failures
+leave history intact and return a no-op so a later turn can retry naturally.
+Failures of the whole best-effort pre-request compaction facility are logged
+visibly and do not prevent construction of the user's real turn.
 
 ### Context-overflow recovery scope
 
