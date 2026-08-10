@@ -64,8 +64,8 @@ const EXCLUDED_SPEC_DIRS = {
  * Project-level `grep`/`grepInvert` from each app's playwright.config.mts.
  *
  * Only `desktop:regression` changes any verdict today (its `grepInvert: /@smoke/`
- * means a `@smoke`-titled desktop spec absent from the smoke lane's file list
- * runs NOWHERE), but every project a lane targets must be modelled: an
+ * means smoke-tagged tests need an explicit smoke/nightly lane), but every
+ * project a lane targets must be modelled: an
  * unmodelled `--project=` throws rather than defaulting to "no filter", which
  * would silently over-report reachability.
  */
