@@ -14,6 +14,7 @@ interface CalibrationRow {
   model: string;
   model_visible_projection_count: number;
   occurred_at: string;
+  prompt_baseline_tokens: number | null;
   provider: string;
   resolved_domain_budget_tokens: number | null;
   resolved_transport_budget_tokens: number | null;
@@ -77,6 +78,7 @@ describe('persistDesktopTokenEstimateCalibration against real PGlite', () => {
         model: 'gpt-5.6-terra',
         modelVisibleProjectionCount: 3,
         occurredAt,
+        promptBreakdownBaselineTokens: 9876,
         provider: 'openai',
         resolvedDomainBudgetTokens: 1500,
         resolvedTransportBudgetTokens: 3000,
@@ -86,7 +88,8 @@ describe('persistDesktopTokenEstimateCalibration against real PGlite', () => {
       const result = await db.query<CalibrationRow>(
         `SELECT thread_id, run_id, model, provider, estimated_prompt_tokens,
                 final_step_prompt_tokens, step_count, model_visible_projection_count,
-                resolved_domain_budget_tokens, resolved_transport_budget_tokens, occurred_at
+                resolved_domain_budget_tokens, resolved_transport_budget_tokens,
+                prompt_baseline_tokens, occurred_at
            FROM brainstrike_token_estimate_calibration`
       );
       expect(result.rows).toHaveLength(1);
@@ -95,6 +98,7 @@ describe('persistDesktopTokenEstimateCalibration against real PGlite', () => {
         final_step_prompt_tokens: 456,
         model: 'gpt-5.6-terra',
         model_visible_projection_count: 3,
+        prompt_baseline_tokens: 9876,
         provider: 'openai',
         resolved_domain_budget_tokens: 1500,
         resolved_transport_budget_tokens: 3000,
@@ -126,14 +130,17 @@ describe('persistDesktopTokenEstimateCalibration against real PGlite', () => {
       });
 
       const result = await db.query<{
+        prompt_baseline_tokens: number | null;
         resolved_domain_budget_tokens: number | null;
         resolved_transport_budget_tokens: number | null;
       }>(
-        `SELECT resolved_domain_budget_tokens, resolved_transport_budget_tokens
+        `SELECT resolved_domain_budget_tokens, resolved_transport_budget_tokens,
+                prompt_baseline_tokens
          FROM brainstrike_token_estimate_calibration`
       );
       expect(result.rows).toEqual([
         {
+          prompt_baseline_tokens: null,
           resolved_domain_budget_tokens: null,
           resolved_transport_budget_tokens: null,
         },

@@ -1130,7 +1130,8 @@ async function* streamChunksFromMastra({
         runtime,
         runtimeData,
         lifecycleState,
-        calibrationState
+        calibrationState,
+        promptBreakdown
       );
       yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
       for (const chunk of chunks) {
@@ -1346,7 +1347,8 @@ function* drainTokenEstimateCalibrationChunk(
   runtime: MastraAgentRuntime,
   runtimeData: RuntimeData | undefined,
   lifecycleState: ToolLifecycleState,
-  state: { emitted: boolean }
+  state: { emitted: boolean },
+  promptBreakdown: AssistantContextBreakdown | undefined
 ): Generator<StreamChunk> {
   if (!(terminal && !state.emitted)) {
     return;
@@ -1359,7 +1361,24 @@ function* drainTokenEstimateCalibrationChunk(
     return;
   }
   const fields = runtime.tokenDiagnostics.toLogFields();
-  if (fields['measurementStatus'] === 'failed' || fields['modelVisibleProjectionCount'] === 0) {
+  if (fields['measurementStatus'] === 'failed') {
+    return;
+  }
+  const modelVisibleProjectionCount = fields['modelVisibleProjectionCount'] as number;
+  // BST-1232 review (P1): a run with zero measured tool-output projections
+  // used to be entirely ineligible for this chunk, which meant an ordinary
+  // tool-free chat turn NEVER persisted `promptBreakdownBaselineTokens` —
+  // silently starving the next turn's compaction trigger of the one value
+  // this migration exists to give it. The estimator-vs-provider RATIO this
+  // chunk also carries (estimatedPromptTokens/finalStepPromptTokens) is
+  // still only meaningful when real tool-output measurement happened
+  // (BST-1205); that eligibility gate now lives in the consuming
+  // `estimator-calibration.sql` lens (`model_visible_projection_count > 0`)
+  // instead of the writer, so a zero-projection row can be written here
+  // without resurrecting a meaningless ratio sample downstream. A row is
+  // still skipped only when there is NOTHING new to report: no measured
+  // tool output AND no prompt breakdown to source a baseline from.
+  if (modelVisibleProjectionCount === 0 && !promptBreakdown) {
     return;
   }
   // Comparable final-prompt basis: the numerator counts model-visible tool
@@ -1375,9 +1394,27 @@ function* drainTokenEstimateCalibrationChunk(
       estimatedPromptTokens,
       finalStepPromptTokens,
       model,
-      modelVisibleProjectionCount: fields['modelVisibleProjectionCount'] as number,
+      modelVisibleProjectionCount,
       occurredAt: Date.now(),
       provider,
+      // BST-1232 review: `taskListTokens` absent genuinely means "no task
+      // list" (0 is honest), but `toolDefinitionsTokens` absent means tool-
+      // definition measurement FAILED for this run (see
+      // `RunTokenDiagnostics.toolDefinitionContextBreakdown()`'s own "absent,
+      // never zero-faked" contract) — folding that to 0 would silently
+      // understate the baseline by roughly the whole tool catalog
+      // (~9.8k tokens) while looking like valid evidence to the next turn's
+      // trigger. Omit the field entirely rather than persist a fabricated
+      // partial sum (no-silent-fallbacks); migration 091's NULL already
+      // means exactly "no trustworthy baseline for this row".
+      ...(promptBreakdown && promptBreakdown.toolDefinitionsTokens !== undefined
+        ? {
+            promptBreakdownBaselineTokens:
+              promptBreakdown.systemInstructionsTokens +
+              (promptBreakdown.taskListTokens ?? 0) +
+              promptBreakdown.toolDefinitionsTokens,
+          }
+        : {}),
       resolvedDomainBudgetTokens: runtime.resolvedToolResultBudget.domainModelResultTokens,
       resolvedTransportBudgetTokens: runtime.resolvedToolResultBudget.transportResultTokens,
       stepCount: lifecycleState.stepCount,
@@ -1640,8 +1677,23 @@ async function createToolApprovalIteratorFromRuntime({
       });
     }
 
+    // BST-1232 review (P2): prompt composition is unchanged across a resume
+    // (same composed instructions, same tool definitions), so the SAME
+    // baseline the initial turn would have reported still applies here — it
+    // was simply never computed on this leg. `messages: []` is honest for a
+    // resume: no new user messages are sent, so the message-side counts this
+    // breakdown also carries (attachmentsCount, and historyMessagesTokens
+    // when not memory-backed) are correctly zero/omitted rather than stale.
+    const promptBreakdown = computePromptBreakdown({
+      instructionBreakdown: runtime.instructionBreakdown,
+      memoryBacked: Boolean(memoryOption),
+      messages: [],
+      toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
+    });
+
     return streamChunksFromMastra({
       ...(delegationUsage ? { delegationUsage } : {}),
+      promptBreakdown,
       runtime,
       stream: fullStream,
       streamAbortContext,
@@ -2189,8 +2241,21 @@ async function createToolResumeIteratorFromRuntime({
       });
     }
 
+    // BST-1232 review (P2): same rationale as the approval-resume leg above —
+    // prompt composition (instructions + tool definitions) is unchanged
+    // across a suspended-tool resume, so the same baseline applies; it was
+    // simply never threaded through on this leg. See the approval-resume
+    // leg's comment for why `messages: []` is the honest choice here.
+    const promptBreakdown = computePromptBreakdown({
+      instructionBreakdown: runtime.instructionBreakdown,
+      memoryBacked: Boolean(memoryOption),
+      messages: [],
+      toolDefinitions: runtime.tokenDiagnostics.toolDefinitionContextBreakdown(),
+    });
+
     return streamChunksFromMastra({
       ...(delegationUsage ? { delegationUsage } : {}),
+      promptBreakdown,
       runtime,
       stream: fullStream,
       streamAbortContext,

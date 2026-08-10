@@ -256,18 +256,52 @@ describe('mastra streaming integration', () => {
           model: 'gpt-5.6-terra',
           modelVisibleProjectionCount: 1,
           occurredAt: expect.any(Number),
+          promptBreakdownBaselineTokens: expect.any(Number),
           provider: 'openai',
           resolvedDomainBudgetTokens: 3000,
           resolvedTransportBudgetTokens: 6000,
           stepCount: 2,
         },
       });
+      const breakdown = chunks.find(
+        (chunk): chunk is { breakdown: Record<string, number>; type: 'context-breakdown' } =>
+          Boolean(
+            chunk &&
+              typeof chunk === 'object' &&
+              (chunk as { type?: unknown }).type === 'context-breakdown'
+          )
+      )?.breakdown;
+      const calibration = chunks.find(
+        (
+          chunk
+        ): chunk is {
+          type: 'token-estimate-calibration';
+          value: { promptBreakdownBaselineTokens: number };
+        } =>
+          Boolean(
+            chunk &&
+              typeof chunk === 'object' &&
+              (chunk as { type?: unknown }).type === 'token-estimate-calibration'
+          )
+      );
+      expect(calibration?.value.promptBreakdownBaselineTokens).toBe(
+        (breakdown?.['systemInstructionsTokens'] ?? 0) +
+          (breakdown?.['taskListTokens'] ?? 0) +
+          (breakdown?.['toolDefinitionsTokens'] ?? 0)
+      );
     } finally {
       fieldsSpy.mockRestore();
     }
   });
 
-  it('omits token-estimate calibration when a completed run has no tool outputs', async () => {
+  // BST-1232 review (P1): a tool-free chat turn used to be entirely
+  // ineligible for this chunk (the old gate required at least one measured
+  // tool-output projection), which meant an ordinary chat thread NEVER
+  // persisted `promptBreakdownBaselineTokens` — silently starving the next
+  // turn's compaction trigger of the one value migration 091 exists to give
+  // it. A zero-projection completed run must still emit the chunk whenever a
+  // run-start `promptBreakdown` exists to source a baseline from.
+  it('still persists a baseline-carrying calibration row when a completed run has no tool outputs', async () => {
     setMockStreamParts([
       { type: 'step-finish', usage: { completionTokens: 1, promptTokens: 7 } },
       { finishReason: 'stop', type: 'finish', usage: { completionTokens: 1, promptTokens: 7 } },
@@ -288,9 +322,20 @@ describe('mastra streaming integration', () => {
       chunks.push(chunk);
     }
 
-    expect(chunks).not.toContainEqual(
-      expect.objectContaining({ type: 'token-estimate-calibration' })
+    const calibration = chunks.find(
+      (chunk): chunk is { type: 'token-estimate-calibration'; value: Record<string, unknown> } =>
+        Boolean(
+          chunk &&
+            typeof chunk === 'object' &&
+            (chunk as { type?: unknown }).type === 'token-estimate-calibration'
+        )
     );
+    expect(calibration).toBeDefined();
+    expect(calibration?.value).toMatchObject({
+      modelVisibleProjectionCount: 0,
+      promptBreakdownBaselineTokens: expect.any(Number),
+    });
+    expect((calibration?.value['promptBreakdownBaselineTokens'] as number) > 0).toBe(true);
   });
 
   it('omits token-estimate calibration when the stream ends without finish', async () => {

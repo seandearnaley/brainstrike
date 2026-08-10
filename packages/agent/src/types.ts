@@ -434,6 +434,8 @@ export interface TokenEstimateCalibrationSample {
   readonly model: string;
   readonly modelVisibleProjectionCount: number;
   readonly occurredAt: number;
+  /** System instructions + task list + tool definitions from this run's prompt breakdown. */
+  readonly promptBreakdownBaselineTokens?: number;
   readonly provider: string;
   readonly resolvedDomainBudgetTokens?: number;
   readonly resolvedTransportBudgetTokens?: number;

@@ -651,6 +651,71 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     });
   });
 
+  // BST-1232 review (P2): the approval-resume leg used to omit
+  // `promptBreakdown` entirely, so a resumed run's calibration row always
+  // persisted a NULL `prompt_baseline_tokens` — even though prompt
+  // composition (instructions + tool definitions) is unchanged across a
+  // resume and the SAME baseline the initial turn would have reported still
+  // applies. Most non-trivial agentic threads pause at least once, so this
+  // meant most threads' NEWEST calibration row was NULL-baseline, starving
+  // the next turn's compaction trigger.
+  it('persists a baseline-carrying calibration row on an approval-resume leg', async () => {
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 3, promptTokens: 42 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 3, promptTokens: 42 } },
+    ]);
+
+    // Reuses the harness's default suspended-run fixture entry
+    // (run-approval-1 / tool-call-1, see mastra-stream-harness.ts) — same
+    // ids the passing 'resumes an approved Mastra tool call...' test above
+    // uses, since `resetMastraStreamHarness()` reseeds it before every test.
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'approve',
+        runId: 'run-approval-1',
+        toolCallId: 'tool-call-1',
+        toolName: 'workspace.writeFile',
+      },
+      {
+        requireToolApproval: true,
+        runtime: {
+          apiKey: 'test-key',
+          model: 'gpt-5.6-terra',
+          provider: 'openai',
+        },
+        storage: { id: 'workflow-storage' } as never,
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const calibration = chunks.find(
+      (chunk): chunk is { type: 'token-estimate-calibration'; value: Record<string, unknown> } =>
+        Boolean(
+          chunk &&
+            typeof chunk === 'object' &&
+            (chunk as { type?: unknown }).type === 'token-estimate-calibration'
+        )
+    );
+    expect(calibration).toBeDefined();
+    expect(calibration?.value['promptBreakdownBaselineTokens']).toEqual(expect.any(Number));
+    expect((calibration?.value['promptBreakdownBaselineTokens'] as number) > 0).toBe(true);
+    // A resume sends no new messages — the context-breakdown chunk this same
+    // promptBreakdown feeds should reflect that honestly (zero attachments).
+    const breakdown = chunks.find(
+      (chunk): chunk is { breakdown: Record<string, unknown>; type: 'context-breakdown' } =>
+        Boolean(
+          chunk &&
+            typeof chunk === 'object' &&
+            (chunk as { type?: unknown }).type === 'context-breakdown'
+        )
+    )?.breakdown;
+    expect(breakdown?.['attachmentsCount']).toBe(0);
+  });
+
   it('re-gates EVERY enforced ask-set tool on the resume leg — run_python included (BST-1097, 1.56+ idiom)', async () => {
     // Since the @mastra/core 1.56 approval rework there is no self-approving
     // exemption: run_python is an ordinary ask-set tool whose Gate A is the
@@ -791,6 +856,65 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(chunks).toContainEqual(
       expect.objectContaining({ finishReason: 'stop', type: 'message-finish' })
     );
+  });
+
+  // BST-1232 review (P2): same rationale as the approval-resume calibration
+  // test above — the suspended-tool resume leg (askUser/submitPlan resumes)
+  // also used to omit `promptBreakdown`, so its calibration row always
+  // persisted a NULL baseline too.
+  it('persists a baseline-carrying calibration row on a suspended-tool resume leg', async () => {
+    setSuspendedRuns([
+      {
+        runId: 'run-suspended-calibration',
+        status: 'suspended',
+        suspendedAt: new Date('2026-07-21T00:00:00Z'),
+        toolCalls: [
+          {
+            args: {},
+            requiresApproval: false,
+            suspendPayload: { question: 'Which city?' },
+            toolCallId: 'tool-call-suspended-calibration',
+            toolName: 'brainstrike_askUser',
+          },
+        ],
+      },
+    ]);
+    setMockStreamParts([
+      { type: 'step-finish', usage: { completionTokens: 2, promptTokens: 33 } },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 33 } },
+    ]);
+
+    const iterator = await streamMastraToolResumeAction(
+      {
+        resumeData: { answer: 'Paris' },
+        runId: 'run-suspended-calibration',
+        toolCallId: 'tool-call-suspended-calibration',
+      },
+      {
+        runtime: {
+          apiKey: 'test-key',
+          model: 'gpt-5.6-terra',
+          provider: 'openai',
+        },
+        storage: { id: 'workflow-storage' } as never,
+      }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    const calibration = chunks.find(
+      (chunk): chunk is { type: 'token-estimate-calibration'; value: Record<string, unknown> } =>
+        Boolean(
+          chunk &&
+            typeof chunk === 'object' &&
+            (chunk as { type?: unknown }).type === 'token-estimate-calibration'
+        )
+    );
+    expect(calibration).toBeDefined();
+    expect((calibration?.value['promptBreakdownBaselineTokens'] as number) > 0).toBe(true);
   });
 
   it("attaches the 1.56+ approved rider to an ask-gated tool's OBJECT resume payload (BST-1097 idiom)", async () => {

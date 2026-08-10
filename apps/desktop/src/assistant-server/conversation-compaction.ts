@@ -21,7 +21,10 @@ import {
   type CompactionSummaryPayload,
 } from '@brainstrike/assistant-contract/compaction-summary';
 import { deriveEffectiveInputBudget } from '@brainstrike/assistant-contract/context-budget';
-import { ASSISTANT_MESSAGE_PARENTS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import {
+  ASSISTANT_MESSAGE_PARENTS_TABLE,
+  TOKEN_ESTIMATE_CALIBRATION_TABLE,
+} from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   findLlmModelDefinition,
   type ProviderId,
@@ -35,6 +38,46 @@ import { runRecencyPruneScan } from './tool-projection-rewrite-repository';
 const logger = createLogger('ConversationCompaction');
 export const COMPACTION_TRIGGER_RATIO = 0.9;
 export const COMPACTION_TARGET_RATIO = 0.7;
+const MIN_COMPACTION_MESSAGE_TARGET_TOKENS = 1024;
+
+/**
+ * Distinguishes a corrupt/out-of-range persisted baseline value (a data
+ * problem worth a warn-level, distinctly-coded log) from an ordinary lookup
+ * failure such as a transient DB error (also warn-level, but a different
+ * code) — see the review-fix split in {@link resolvePromptBaselineTokens}
+ * below. `no calibration row yet` (expected on a thread's first turn) is the
+ * only case that stays at debug.
+ */
+export class InvalidCompactionBaselineError extends Error {}
+
+/**
+ * BST-1232 review (guard-too-broad fix): latches the "baseline alone exceeds
+ * the compaction target" warn to once per thread for the life of this
+ * process, so a thread stuck in that steady state does not log the same
+ * warning on every single turn forever. Intentionally in-memory only (no
+ * persistence, no eviction) — an app restart or a later turn whose baseline
+ * drops back under the target both naturally re-arm it, and the set only
+ * ever holds thread ids that were actually warned about, which is bounded by
+ * real conversation-thread cardinality, not request volume.
+ */
+const warnedBaselineExceedsTargetThreadIds = new Set<string>();
+
+function warnBaselineExceedsTargetOnce(
+  threadId: string,
+  promptBaselineTokens: number,
+  inputBudget: number
+): void {
+  if (warnedBaselineExceedsTargetThreadIds.has(threadId)) {
+    return;
+  }
+  warnedBaselineExceedsTargetThreadIds.add(threadId);
+  logger.warn('Prompt baseline already exceeds the conversation compaction target', {
+    code: 'conversation_compaction_baseline_exceeds_target',
+    inputBudget,
+    promptBaselineTokens,
+    threadId,
+  });
+}
 
 type StoredMessage = Awaited<ReturnType<PgliteMemoryStore['listMessages']>>['messages'][number];
 type MemoryStore = Pick<PgliteMemoryStore, 'listMessages' | 'saveMessages'>;
@@ -88,6 +131,7 @@ interface ConversationCompactionDependencies {
   readonly recordMessageParent: (input: RecordAssistantMessageParentInput) => Promise<void>;
   readonly recordRange: typeof recordCompactionRange;
   readonly resolveInputBudget: typeof resolveCompactionInputBudget;
+  readonly resolvePromptBaselineTokens: (threadId: string) => Promise<number | undefined>;
   readonly runRecencyPrune: typeof runRecencyPruneScan;
 }
 
@@ -151,6 +195,35 @@ function defaultDependencies(
     },
     recordRange: recordCompactionRange,
     resolveInputBudget: resolveCompactionInputBudget,
+    resolvePromptBaselineTokens: async (threadId) => {
+      const database = await getDatabase();
+      // BST-1232 review (P2 belt-and-braces): filter NULLs in the WHERE
+      // clause, not just by reading past them client-side, so "newest row"
+      // means "newest row that actually carries a baseline". A resume leg
+      // that (for any future reason) still writes a NULL-baseline row with a
+      // later occurred_at must not shadow an earlier real baseline — the row
+      // ordering here is the second, independent line of defense alongside
+      // the write-side fix (both resume legs now thread promptBreakdown
+      // through).
+      const result = await database.query<{ promptBaselineTokens: number | null }>(
+        `SELECT prompt_baseline_tokens AS "promptBaselineTokens"
+         FROM ${TOKEN_ESTIMATE_CALIBRATION_TABLE}
+         WHERE thread_id = $1 AND prompt_baseline_tokens IS NOT NULL
+         ORDER BY occurred_at DESC
+         LIMIT 1`,
+        [threadId]
+      );
+      const value = result.rows[0]?.promptBaselineTokens;
+      if (value === null || value === undefined) {
+        return;
+      }
+      if (!(Number.isSafeInteger(value) && value > 0)) {
+        throw new InvalidCompactionBaselineError(
+          `Latest prompt-baseline calibration value (${value}) is out of range.`
+        );
+      }
+      return value;
+    },
     runRecencyPrune: runRecencyPruneScan,
     ...overrides,
   };
@@ -187,8 +260,66 @@ export function resolveCompactionInputBudget(runtimeData: RuntimeData): number {
   return deriveEffectiveInputBudget(definition.contextWindow, definition.maxOutputTokens);
 }
 
-function isAtTrigger(usageTokens: number, inputBudget: number): boolean {
-  return usageTokens >= COMPACTION_TRIGGER_RATIO * inputBudget;
+function isAtTrigger(
+  usageTokens: number,
+  inputBudget: number,
+  promptBaselineTokens: number
+): boolean {
+  return promptBaselineTokens + usageTokens >= COMPACTION_TRIGGER_RATIO * inputBudget;
+}
+
+/**
+ * Resolves the thread's baseline for this turn's trigger math, falling back
+ * to 0 (identical to pre-091 behavior) whenever a real value is unavailable.
+ * The fallback itself is intentional and fine — three DISTINCT reasons can
+ * produce it, and BST-1232 review flagged that collapsing all three into one
+ * `debug`-level log made a failed read or a corrupt persisted value silently
+ * revert the trigger to its old, weaker behavior for EVERY later turn on
+ * that thread, with no operator-visible signal:
+ * - `no_calibration_row` — expected on a thread's first turn; nothing to
+ *   read yet, self-corrects from the next turn. Stays at `debug`.
+ * - `corrupt_value` — a persisted `prompt_baseline_tokens` failed its
+ *   sanity check (non-integer, non-positive). A data problem, not routine.
+ * - `lookup_failed` — the DB read itself threw (e.g. a transient error).
+ * The latter two are `warn`, each under its own code, so either is visible
+ * without reading log bodies.
+ */
+async function resolvePromptBaselineTokens(
+  threadId: string,
+  dependencies: ConversationCompactionDependencies
+): Promise<number> {
+  try {
+    const baseline = await dependencies.resolvePromptBaselineTokens(threadId);
+    if (baseline !== undefined) {
+      return baseline;
+    }
+    logger.debug('Conversation compaction has no prior prompt baseline; using zero', {
+      code: 'conversation_compaction_baseline_unavailable',
+      reason: 'no_calibration_row',
+      threadId,
+    });
+  } catch (error) {
+    if (error instanceof InvalidCompactionBaselineError) {
+      logger.warn(
+        'Conversation compaction found a corrupt persisted prompt baseline; using zero for this turn',
+        {
+          code: 'conversation_compaction_baseline_corrupt',
+          error,
+          threadId,
+        }
+      );
+    } else {
+      logger.warn(
+        'Conversation compaction could not read the prior prompt baseline; using zero for this turn',
+        {
+          code: 'conversation_compaction_baseline_lookup_failed',
+          error,
+          threadId,
+        }
+      );
+    }
+  }
+  return 0;
 }
 
 function isNonRetryableSummarizerFailure(error: unknown): boolean {
@@ -292,6 +423,7 @@ function requireCreatedAt(message: CompactionMessage): Date {
 function selectDeterministicCandidates(
   state: ProjectedCompactionState,
   inputBudget: number,
+  promptBaselineTokens: number,
   dependencies: ConversationCompactionDependencies
 ): readonly CompactionMessage[] {
   const ids = candidateIds(state.messages);
@@ -299,8 +431,15 @@ function selectDeterministicCandidates(
   if (candidates.length === 0) {
     return [];
   }
-  const target = COMPACTION_TARGET_RATIO * inputBudget;
-  const reclaimNeeded = Math.max(1, state.usageTokens - target);
+  // Keep at least ~4 KiB of chars/4-estimated conversation context. When a
+  // large baseline makes the nominal 70% total target unreachable, pruning
+  // below this floor would erase useful recent exchange/tool state to chase a
+  // target that message deletion alone cannot satisfy.
+  const messageTarget = Math.max(
+    MIN_COMPACTION_MESSAGE_TARGET_TOKENS,
+    COMPACTION_TARGET_RATIO * inputBudget - promptBaselineTokens
+  );
+  const reclaimNeeded = Math.max(1, state.usageTokens - messageTarget);
   let reclaimed = 0;
   const selected: CompactionMessage[] = [];
   for (const candidate of candidates) {
@@ -387,9 +526,14 @@ async function commitSummary(input: {
   });
 }
 
+type DeterministicFallbackReason =
+  | 'agentic summarizer failure'
+  | 'prompt baseline exceeds the compaction target'
+  | 'provider context-overflow error';
+
 function deterministicDropLine(
   candidates: readonly CompactionMessage[],
-  reason: 'agentic summarizer failure' | 'provider context-overflow error'
+  reason: DeterministicFallbackReason
 ): string {
   const first = candidates[0];
   const last = candidates.at(-1);
@@ -403,13 +547,15 @@ async function commitDeterministicFallback(input: {
   readonly dependencies: ConversationCompactionDependencies;
   readonly inputBudget: number;
   readonly memoryStore: MemoryStore;
-  readonly reason: 'agentic summarizer failure' | 'provider context-overflow error';
+  readonly promptBaselineTokens: number;
+  readonly reason: DeterministicFallbackReason;
   readonly runtimeData: RuntimeData;
   readonly state: ProjectedCompactionState;
 }): Promise<boolean> {
   const candidates = selectDeterministicCandidates(
     input.state,
     input.inputBudget,
+    input.promptBaselineTokens,
     input.dependencies
   );
   if (candidates.length === 0) {
@@ -428,6 +574,55 @@ async function commitDeterministicFallback(input: {
   return true;
 }
 
+interface PreRequestTriggerResolution {
+  readonly promptBaselineTokens: number;
+  readonly recencyPruneRan: boolean;
+}
+
+/**
+ * Decides whether this turn should proceed past the initial trigger check
+ * and, if so, resolves the baseline the rest of the flow needs — extracted
+ * from {@link runPreRequestCompaction} to keep that function's cognitive
+ * complexity under the repo's Biome ceiling.
+ *
+ * The prompt-baseline lookup is a per-request DB round trip on this
+ * latency-critical pre-request seam. It runs CONCURRENTLY with the
+ * (also-unavoidable) unprojected-message load via `Promise.all` rather than
+ * sequenced after it: neither depends on the other's result, so sequencing
+ * them would add pure latency for nothing. Concurrency also preserves a
+ * pre-existing property that a naive "load messages first, then decide
+ * whether to bother with the lookup" ordering would silently regress: the
+ * lookup fires (and its DB round trip happens) EVEN IF message loading
+ * itself later throws (e.g. a missing trusted compaction-overlay lookup on
+ * this runtimeData) — `agent-stream-init-and-memory.integration.test.ts`
+ * pins exactly this by counting `getDatabase` calls. A non-negative baseline
+ * only pushes the trigger total UP, never pulls it back under (see
+ * {@link isAtTrigger}), so once the message share alone already clears the
+ * trigger ratio the (already-fetched, at no extra latency cost) baseline
+ * cannot change this decision — recency pruning starts immediately rather
+ * than re-deriving that same conclusion through `isAtTrigger`. Returns
+ * `undefined` when the turn should noop.
+ */
+async function resolvePreRequestTrigger(
+  input: PreRequestCompactionInput,
+  inputBudget: number,
+  threadId: string,
+  dependencies: ConversationCompactionDependencies
+): Promise<PreRequestTriggerResolution | undefined> {
+  const [triggerState, promptBaselineTokens] = await Promise.all([
+    loadUnprojectedState(input, dependencies, input.requestMessages),
+    resolvePromptBaselineTokens(threadId, dependencies),
+  ]);
+  if (triggerState.usageTokens >= COMPACTION_TRIGGER_RATIO * inputBudget) {
+    await dependencies.runRecencyPrune({ runtimeData: input.runtimeData, threadId }, {});
+    return { promptBaselineTokens, recencyPruneRan: true };
+  }
+  if (!isAtTrigger(triggerState.usageTokens, inputBudget, promptBaselineTokens)) {
+    return;
+  }
+  return { promptBaselineTokens, recencyPruneRan: false };
+}
+
 export async function runPreRequestCompaction(
   input: PreRequestCompactionInput,
   dependencyOverrides: PartialConversationCompactionDependencies = {}
@@ -438,18 +633,56 @@ export async function runPreRequestCompaction(
   }
   const dependencies = defaultDependencies(dependencyOverrides);
   const inputBudget = dependencies.resolveInputBudget(input.runtimeData);
-  const triggerState = await loadUnprojectedState(input, dependencies, input.requestMessages);
-  if (!isAtTrigger(triggerState.usageTokens, inputBudget)) {
+  const resolution = await resolvePreRequestTrigger(
+    input,
+    inputBudget,
+    context.threadId,
+    dependencies
+  );
+  if (!resolution) {
+    return { kind: 'noop' };
+  }
+  const { promptBaselineTokens, recencyPruneRan } = resolution;
+
+  // Baseline-dominates guard (BST-1232 review): recency pruning is entirely
+  // message-side — it reclaims tool-output bloat — and is completely
+  // unaffected by a baseline that structurally cannot be reduced by pruning
+  // messages, so it must still run here rather than being skipped along with
+  // everything else: it is the single most valuable lever precisely in the
+  // small-context-window/large-tool-catalog case this branch targets. Only
+  // the AGENTIC summarizer is skipped below, because it chases the same
+  // message-side reclaim target that a dominant baseline makes structurally
+  // unreachable — paying for a model call whose target it cannot hit. The
+  // deterministic path toward the floor still runs, so the thread does not
+  // simply grow until the provider throws and overflow recovery performs the
+  // identical pruning one wasted round trip later.
+  const baselineExceedsTarget = promptBaselineTokens >= COMPACTION_TARGET_RATIO * inputBudget;
+  if (baselineExceedsTarget) {
+    warnBaselineExceedsTargetOnce(context.threadId, promptBaselineTokens, inputBudget);
+  }
+
+  if (!recencyPruneRan) {
+    await dependencies.runRecencyPrune(
+      { runtimeData: input.runtimeData, threadId: context.threadId },
+      {}
+    );
+  }
+  const state = await loadProjectedState(input, dependencies, input.requestMessages);
+  if (!isAtTrigger(state.usageTokens, inputBudget, promptBaselineTokens)) {
     return { kind: 'noop' };
   }
 
-  await dependencies.runRecencyPrune(
-    { runtimeData: input.runtimeData, threadId: context.threadId },
-    {}
-  );
-  const state = await loadProjectedState(input, dependencies, input.requestMessages);
-  if (!isAtTrigger(state.usageTokens, inputBudget)) {
-    return { kind: 'noop' };
+  if (baselineExceedsTarget) {
+    const applied = await commitDeterministicFallback({
+      dependencies,
+      inputBudget,
+      memoryStore: input.memoryStore,
+      promptBaselineTokens,
+      reason: 'prompt baseline exceeds the compaction target',
+      runtimeData: input.runtimeData,
+      state,
+    });
+    return applied ? { kind: 'deterministic' } : { kind: 'noop' };
   }
 
   const ids = candidateIds(state.messages);
@@ -495,6 +728,7 @@ export async function runPreRequestCompaction(
       dependencies,
       inputBudget,
       memoryStore: input.memoryStore,
+      promptBaselineTokens,
       reason: 'agentic summarizer failure',
       runtimeData: input.runtimeData,
       state,
@@ -510,11 +744,16 @@ export function createContextOverflowRecovery(
   const dependencies = defaultDependencies(dependencyOverrides);
   return async () => {
     const inputBudget = dependencies.resolveInputBudget(input.runtimeData);
+    const context = requireThreadContext(input.runtimeData);
+    const promptBaselineTokens = context
+      ? await resolvePromptBaselineTokens(context.threadId, dependencies)
+      : 0;
     const state = await loadProjectedState(input, dependencies);
     const applied = await commitDeterministicFallback({
       dependencies,
       inputBudget,
       memoryStore: input.memoryStore,
+      promptBaselineTokens,
       reason: 'provider context-overflow error',
       runtimeData: input.runtimeData,
       state,

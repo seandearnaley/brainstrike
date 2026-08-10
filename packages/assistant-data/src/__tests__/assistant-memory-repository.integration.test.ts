@@ -2391,7 +2391,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   });
 
-  it('keeps the token-estimate calibration bootstrap shape identical to migrations 086 then 089', async () => {
+  it('keeps the token-estimate calibration bootstrap shape identical to migrations 086, 089, then 091', async () => {
     const bootstrapDataDir = createPgliteTestDataDir('token-estimate-calibration-bootstrap-shape');
     const migratedDataDir = createPgliteTestDataDir('token-estimate-calibration-migrated-shape');
     const bootstrapDb = await wasmLoader.createPGlite(bootstrapDataDir);
@@ -2402,12 +2402,15 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
 
       const migration086 = migrations.find((migration) => migration.version === 86);
       const migration089 = migrations.find((migration) => migration.version === 89);
+      const migration091 = migrations.find((migration) => migration.version === 91);
       expect(migration086).toBeDefined();
       expect(migration089).toBeDefined();
+      expect(migration091).toBeDefined();
       const runner = new MigrationRunner(migratedDb);
       await runner.initialize();
       await runner.runMigration(migration086!);
       await runner.runMigration(migration089!);
+      await runner.runMigration(migration091!);
 
       const bootstrapColumns = await bootstrapDb.query<{
         column_name: string;
@@ -2455,6 +2458,11 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         },
         {
           column_name: 'resolved_transport_budget_tokens',
+          data_type: 'integer',
+          is_nullable: 'YES',
+        },
+        {
+          column_name: 'prompt_baseline_tokens',
           data_type: 'integer',
           is_nullable: 'YES',
         },

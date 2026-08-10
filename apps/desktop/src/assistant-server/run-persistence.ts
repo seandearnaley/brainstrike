@@ -376,8 +376,9 @@ export async function* persistDesktopTokenEstimateCalibration(
         `INSERT INTO ${TOKEN_ESTIMATE_CALIBRATION_TABLE}
           (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
            final_step_prompt_tokens, step_count, model_visible_projection_count,
-           resolved_domain_budget_tokens, resolved_transport_budget_tokens, occurred_at)
-         SELECT $1, runs.thread_id, runs.id, $3, $4, $5, $6, $7, $8, $9, $10, $11
+           resolved_domain_budget_tokens, resolved_transport_budget_tokens,
+           prompt_baseline_tokens, occurred_at)
+         SELECT $1, runs.thread_id, runs.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
          FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
          WHERE runs.id = $2
          RETURNING id`,
@@ -392,6 +393,7 @@ export async function* persistDesktopTokenEstimateCalibration(
           chunk.value.modelVisibleProjectionCount,
           chunk.value.resolvedDomainBudgetTokens ?? null,
           chunk.value.resolvedTransportBudgetTokens ?? null,
+          chunk.value.promptBreakdownBaselineTokens ?? null,
           new Date(chunk.value.occurredAt).toISOString(),
         ]
       );
