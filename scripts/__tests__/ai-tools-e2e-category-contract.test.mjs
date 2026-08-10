@@ -88,17 +88,31 @@ function analyzeOptionSelectors(source) {
           if (ts.isIdentifier(element.name)) {
             const selectedName = element.propertyName?.getText(sourceFile) ?? element.name.text;
             registerDeclaration(scope, element.name.text, {
-              initializer: propertyValue(node.initializer, selectedName),
+              initializer: propertyValue(node.initializer, selectedName) ?? element.initializer,
               pos: element.pos,
             });
           }
         }
       }
     }
-    if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
+    if (ts.isParameter(node)) {
       const body = node.parent.body;
       const scope = body && ts.isBlock(body) ? body : enclosingScope(node.parent);
-      registerDeclaration(scope, node.name.text, { pos: node.pos });
+      if (ts.isIdentifier(node.name)) {
+        registerDeclaration(scope, node.name.text, {
+          initializer: node.initializer,
+          pos: node.pos,
+        });
+      } else if (ts.isObjectBindingPattern(node.name)) {
+        for (const element of node.name.elements) {
+          if (ts.isIdentifier(element.name)) {
+            registerDeclaration(scope, element.name.text, {
+              initializer: element.initializer,
+              pos: element.pos,
+            });
+          }
+        }
+      }
     }
     ts.forEachChild(node, collectVariableDeclarations);
   }
@@ -494,7 +508,7 @@ test('MONEY TEST: a destructured hardcoded name cannot bypass the selector guard
       NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
     ].label;
     await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
-    const { label } = { label: 'Retrieval' };
+    const { label = 'Retrieval' }: { label?: string } = {};
     await page.getByRole('option', { exact: true, name: label }).click();
   `;
 
@@ -578,7 +592,7 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
     const fixture = { provider: { category: 'Analysis', label: 'OpenAI' } };
     const provider = page.getByTestId('provider');
     const label = 'Analysis';
-    function choose(label) {
+    function choose({ label }: { label: string }) {
       return provider.getByRole('option', { name: label });
     }
     test('Analysis remains available as unrelated fixture data', async () => {
@@ -586,7 +600,7 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
       await page.getByRole('option', { exact: true, name: /OpenAI/i }).click();
       await page.getByRole('option', { name: fixture.provider.label }).click();
       await provider.getByRole('option', { name: /^.+$/ }).click();
-      await choose('OpenAI').click();
+      await choose({ label: 'OpenAI' }).click();
     });
   `;
 
