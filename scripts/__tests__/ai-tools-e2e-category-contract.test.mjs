@@ -91,13 +91,9 @@ function analyzeOptionSelectors(source) {
       hardcodedLabels.push(node.text);
     } else if (ts.isRegularExpressionLiteral(node)) {
       const closingSlash = node.text.lastIndexOf('/');
-      const matcher = new RegExp(
-        node.text.slice(1, closingSlash),
-        node.text.slice(closingSlash + 1)
-      );
+      const pattern = node.text.slice(1, closingSlash).toLocaleLowerCase('en-US');
       for (const label of FORBIDDEN_CATEGORY_LABELS) {
-        matcher.lastIndex = 0;
-        if (matcher.test(label)) {
+        if (pattern.includes(label.toLocaleLowerCase('en-US'))) {
           hardcodedLabels.push(label);
         }
       }
@@ -473,6 +469,7 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
       await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
       await page.getByRole('option', { exact: true, name: /OpenAI/i }).click();
       await page.getByRole('option', { name: provider.label }).click();
+      await provider.getByRole('option', { name: /^.+$/ }).click();
     });
   `;
 
