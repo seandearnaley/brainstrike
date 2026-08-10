@@ -44,6 +44,17 @@ function analyzeOptionSelectors(source) {
     return;
   }
 
+  function registerDeclaration(scope, name, declaration) {
+    if (!scope) {
+      return;
+    }
+    const declarations = declarationsByScope.get(scope) ?? new Map();
+    const namedDeclarations = declarations.get(name) ?? [];
+    namedDeclarations.push(declaration);
+    declarations.set(name, namedDeclarations);
+    declarationsByScope.set(scope, declarations);
+  }
+
   function collectVariableDeclarations(node) {
     if (
       ts.isImportDeclaration(node) &&
@@ -57,15 +68,29 @@ function analyzeOptionSelectors(source) {
     ) {
       importsToolCategories = true;
     }
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+    if (ts.isVariableDeclaration(node) && node.initializer) {
       const scope = enclosingScope(node.parent);
-      if (scope) {
-        const declarations = declarationsByScope.get(scope) ?? new Map();
-        const namedDeclarations = declarations.get(node.name.text) ?? [];
-        namedDeclarations.push(node);
-        declarations.set(node.name.text, namedDeclarations);
-        declarationsByScope.set(scope, declarations);
+      if (ts.isIdentifier(node.name)) {
+        registerDeclaration(scope, node.name.text, node);
+      } else if (
+        ts.isObjectBindingPattern(node.name) &&
+        ts.isObjectLiteralExpression(node.initializer)
+      ) {
+        for (const element of node.name.elements) {
+          if (ts.isIdentifier(element.name)) {
+            const selectedName = element.propertyName?.getText(sourceFile) ?? element.name.text;
+            registerDeclaration(scope, element.name.text, {
+              initializer: propertyValue(node.initializer, selectedName),
+              pos: element.pos,
+            });
+          }
+        }
       }
+    }
+    if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
+      const body = node.parent.body;
+      const scope = body && ts.isBlock(body) ? body : enclosingScope(node.parent);
+      registerDeclaration(scope, node.name.text, { pos: node.pos });
     }
     ts.forEachChild(node, collectVariableDeclarations);
   }
@@ -126,7 +151,10 @@ function analyzeOptionSelectors(source) {
       }
     } else if (ts.isRegularExpressionLiteral(node)) {
       const closingSlash = node.text.lastIndexOf('/');
-      const pattern = node.text.slice(1, closingSlash).toLocaleLowerCase('en-US');
+      const pattern = node.text
+        .slice(1, closingSlash)
+        .replaceAll(/[^a-z]/gi, '')
+        .toLocaleLowerCase('en-US');
       for (const label of FORBIDDEN_CATEGORY_LABELS) {
         if (pattern.includes(label.toLocaleLowerCase('en-US'))) {
           hardcodedLabels.push(label);
@@ -304,7 +332,7 @@ function categoryLabelViolations(source) {
 
 for (const [hardcodedName, optionRole] of [
   ["'Analysis'", "'option'"],
-  ['/retrieval/i', '`option`'],
+  ['/retriev(?:al)/i', '`option`'],
 ]) {
   test(`MONEY TEST: a derived selector cannot hide hardcoded ${hardcodedName}`, () => {
     const source = `
@@ -447,6 +475,24 @@ test('MONEY TEST: a shorthand hardcoded name cannot bypass the selector guard', 
   assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
 });
 
+test('MONEY TEST: a destructured hardcoded name cannot bypass the selector guard', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
+      NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    ].label;
+    await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+    const { label } = { label: 'Retrieval' };
+    await page.getByRole('option', { exact: true, name: label }).click();
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
+});
+
 test('MONEY TEST: same-named aliases resolve through their lexical scopes', () => {
   const source = `
     import {
@@ -503,11 +549,16 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
     ].label;
     const fixture = { provider: { category: 'Analysis', label: 'OpenAI' } };
     const provider = page.getByTestId('provider');
+    const label = 'Analysis';
+    function choose(label) {
+      return provider.getByRole('option', { name: label });
+    }
     test('Analysis remains available as unrelated fixture data', async () => {
       await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
       await page.getByRole('option', { exact: true, name: /OpenAI/i }).click();
       await page.getByRole('option', { name: fixture.provider.label }).click();
       await provider.getByRole('option', { name: /^.+$/ }).click();
+      await choose('OpenAI').click();
     });
   `;
 
