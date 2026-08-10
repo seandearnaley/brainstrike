@@ -136,7 +136,10 @@ function analyzeOptionSelectors(source) {
       if (declaration?.initializer && !resolvingDeclarations.has(declaration)) {
         const nextResolvingDeclarations = new Set(resolvingDeclarations);
         nextResolvingDeclarations.add(declaration);
-        return resolveLocalValue(declaration.initializer, nextResolvingDeclarations);
+        return (
+          resolveLocalValue(declaration.initializer, nextResolvingDeclarations) ??
+          declaration.initializer
+        );
       }
       return;
     }
@@ -160,18 +163,39 @@ function analyzeOptionSelectors(source) {
     return;
   }
 
-  function collectLabels(node, resolvingDeclarations = new Set(), exactMatch = false) {
-    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      for (const label of FORBIDDEN_CATEGORY_LABELS) {
-        if (
-          exactMatch
-            ? node.text === label
-            : label.toLocaleLowerCase('en-US').includes(node.text.toLocaleLowerCase('en-US'))
-        ) {
-          hardcodedLabels.push(label);
-        }
+  function recordStringSelector(selectorName, exactMatch) {
+    for (const label of FORBIDDEN_CATEGORY_LABELS) {
+      if (
+        exactMatch
+          ? selectorName === label
+          : label.toLocaleLowerCase('en-US').includes(selectorName.toLocaleLowerCase('en-US'))
+      ) {
+        hardcodedLabels.push(label);
       }
-    } else if (ts.isRegularExpressionLiteral(node)) {
+    }
+  }
+
+  function evaluateStaticString(node) {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      return node.text;
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = evaluateStaticString(node.left);
+      const right = evaluateStaticString(node.right);
+      if (left !== undefined && right !== undefined) {
+        return `${left}${right}`;
+      }
+    }
+    return;
+  }
+
+  function collectLabels(node, resolvingDeclarations = new Set(), exactMatch = false) {
+    const staticString = evaluateStaticString(node);
+    if (staticString !== undefined) {
+      recordStringSelector(staticString, exactMatch);
+      return;
+    }
+    if (ts.isRegularExpressionLiteral(node)) {
       const closingSlash = node.text.lastIndexOf('/');
       const pattern = node.text
         .slice(1, closingSlash)
@@ -255,6 +279,10 @@ function analyzeOptionSelectors(source) {
       if (options && ts.isObjectLiteralExpression(options)) {
         const nameValue = propertyValue(options, 'name');
         const exactValue = propertyValue(options, 'exact');
+        const resolvedExactValue = exactValue
+          ? (resolveLocalValue(exactValue) ?? exactValue)
+          : undefined;
+        const exactMatch = resolvedExactValue?.kind === ts.SyntaxKind.TrueKeyword;
         if (
           options.properties.some(
             (property) =>
@@ -265,7 +293,7 @@ function analyzeOptionSelectors(source) {
           hasUnsupportedOptionSelector = true;
         }
         if (nameValue) {
-          collectLabels(nameValue, new Set(), exactValue?.kind === ts.SyntaxKind.TrueKeyword);
+          collectLabels(nameValue, new Set(), exactMatch);
           const categoryDeclaration =
             ts.isIdentifier(nameValue) && nameValue.text === 'TOOL_CATEGORY_LABEL'
               ? resolveIdentifier(nameValue)
@@ -277,7 +305,7 @@ function analyzeOptionSelectors(source) {
           if (isCanonicalDerivedSelector) {
             hasCanonicalDerivedLabel = true;
           }
-          if (isCanonicalDerivedSelector && exactValue?.kind === ts.SyntaxKind.TrueKeyword) {
+          if (isCanonicalDerivedSelector && exactMatch) {
             hasExactDerivedSelector = true;
           }
         }
@@ -388,6 +416,7 @@ test('MONEY TEST: non-exact string matching catches case-insensitive category su
       NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
     ].label;
     await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+    await page.getByRole('option', { exact: true, name: 'Retriev' + 'al' }).click();
     await page.getByRole('option', { name: 'retriev' }).click();
   `;
 
@@ -415,6 +444,23 @@ test('MONEY TEST: the metadata-derived option selector must retain exact matchin
   assert.deepEqual(categoryLabelViolations(source), [
     'does not select the category option through exact TOOL_CATEGORY_LABEL matching',
   ]);
+});
+
+test('MONEY TEST: a shorthand exact binding preserves the category contract', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
+      NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    ].label;
+    const exact = true;
+    await page.getByRole('option', { exact, name: TOOL_CATEGORY_LABEL }).click();
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), []);
 });
 
 test('MONEY TEST: an unused metadata expression cannot hide a hardcoded label initializer', () => {
