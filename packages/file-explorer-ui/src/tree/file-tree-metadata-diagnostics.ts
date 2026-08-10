@@ -1,3 +1,11 @@
+/**
+ * Bounded, once-per-row diagnostics for metadata cells without a composite key.
+ *
+ * This ledger lives outside the component module so tests can reset it without
+ * adding a non-component export beside Fast Refresh components. The logger
+ * deliberately retains the `FileTreeMetadataCells` scope for log continuity
+ * and because these diagnostics still describe that rendering boundary.
+ */
 import { createLogger } from '@brainstrike/logging';
 
 const logger = createLogger('FileTreeMetadataCells');

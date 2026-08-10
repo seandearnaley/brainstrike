@@ -153,6 +153,38 @@ function useStableColumnIds(
 }
 
 /**
+ * Content-address the render-width projection so a fresh source-map identity
+ * cannot repaint consumers when every column still resolves to the same pixel.
+ */
+function serializeColumnWidths(widths: Record<string, number>): string {
+  return Object.entries(widths)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([columnId, width]) => `${encodeURIComponent(columnId)}:${width}`)
+    .join('|');
+}
+
+/** Rebuild an identity-stable width map from the validated internal key. */
+function deserializeColumnWidths(contentKey: string): Record<string, number> {
+  if (contentKey === '') {
+    return EMPTY_COLUMN_WIDTHS;
+  }
+  const widths: Record<string, number> = {};
+  for (const entry of contentKey.split('|')) {
+    const separatorIndex = entry.lastIndexOf(':');
+    if (separatorIndex <= 0) {
+      throw new Error(`Malformed Explorer column-width key: ${entry}`);
+    }
+    const columnId = decodeURIComponent(entry.slice(0, separatorIndex));
+    const width = Number(entry.slice(separatorIndex + 1));
+    if (!Number.isFinite(width)) {
+      throw new Error(`Malformed Explorer column width for "${columnId}": ${width}`);
+    }
+    widths[columnId] = width;
+  }
+  return widths;
+}
+
+/**
  * Shrink the persisted widths so the grid always fits the panel.
  *
  * This is a RENDER-TIME projection, never a mutation: the store keeps the width
@@ -276,18 +308,9 @@ export function useExplorerColumnsValue(
   );
   // A sub-pixel ResizeObserver change can recompute the projection without
   // changing any rendered integer width. Retain the map (and therefore the
-  // complete context value) when its three observable answers are identical.
-  const resolvedSizeWidth = resolvedColumnWidths['size'];
-  const resolvedTokensWidth = resolvedColumnWidths['tokens'];
-  const resolvedTypeWidth = resolvedColumnWidths['type'];
-  const columnWidths = useMemo(
-    () => ({
-      ...(resolvedSizeWidth === undefined ? {} : { size: resolvedSizeWidth }),
-      ...(resolvedTokensWidth === undefined ? {} : { tokens: resolvedTokensWidth }),
-      ...(resolvedTypeWidth === undefined ? {} : { type: resolvedTypeWidth }),
-    }),
-    [resolvedSizeWidth, resolvedTokensWidth, resolvedTypeWidth]
-  );
+  // complete context value) when every observable answer is identical.
+  const widthsContentKey = serializeColumnWidths(resolvedColumnWidths);
+  const columnWidths = useMemo(() => deserializeColumnWidths(widthsContentKey), [widthsContentKey]);
 
   return useMemo(
     () => ({ areMetadataColumnsSuppressed, columnWidths, visibleMetadataColumnIds }),

@@ -165,9 +165,11 @@ Windowing and performance:
     composite key at error level (once per key) while an unregistered root —
     legitimate and transient — stays quiet.
   - Folder rollups refuse subtrees above `DIRECTORY_ROLLUP_MAX_FILES`, reported
-    honestly as "not fully enumerated", AND the first read of any rollup is
-    deferred off the paint path: it answers "not enumerated yet", resolves the
-    batch one task later, and invalidates just those keys. Measured
+    honestly as unavailable / "not fully enumerated". The first read of any
+    rollup is deferred off the paint path and is separately tagged
+    `recomputing`: it resolves the queued batch one task later and invalidates
+    just those keys. Never apply in-progress copy to the capped, unloaded, or
+    failed `not-enumerated` state. Measured
     justification lives in `__tests__/explorer-directory-rollup-cost.test.ts`
     (30 capped directory rows = 21-29ms of synchronous aggregation). Do not
     make the first read compute inline again.

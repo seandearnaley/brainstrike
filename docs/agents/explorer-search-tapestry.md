@@ -535,13 +535,16 @@ fallback.
   `@[300px]/explorer-toolbar:contents` wrapper, before Refresh/View Filters, so
   the documented three-control geometry at 236px is unchanged. 300px is ALSO
   the width below which the tree grid suppresses its metadata columns
-  (`METADATA_COLUMNS_MIN_WIDTH` in `shell/explorer-columns-context.ts`) — the
+  (`METADATA_COLUMNS_MIN_WIDTH` in
+  `packages/file-explorer-ui/src/shell/explorer-columns-context.ts`) — the
   two are tied on purpose so the grid never shows a column the user has no way
   to hide. Render-time width projection reserves 120px for Name and apportions
-  the remaining whole pixels with a largest-remainder allocation: the metadata
-  widths must never collectively exceed the panel budget. Output-identical
-  projections retain their map/context identity so sub-pixel ResizeObserver
-  churn does not repaint every consumer. Pinned by
+  the remaining whole pixels with a largest-remainder allocation. On the
+  proportional-shrink path, metadata widths never collectively exceed the
+  panel budget; when even the columns' minimums do not fit, their declared
+  minimums intentionally win. Output-identical projections retain their
+  map/context identity so sub-pixel ResizeObserver churn does not repaint every
+  consumer. Pinned by `shell/explorer-columns-context.ts`,
   `file-explorer-toolbar.test.tsx` and `explorer-column-header.test.tsx`.
 - **The cancel affordance is never width-gated.** The inline scanning
   indicator's Cancel (X) is the ONLY way to abort a running expand-all sweep —

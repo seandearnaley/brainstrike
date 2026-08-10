@@ -7,8 +7,7 @@
  * (expand, lazy child load, node add/remove): the effect used to CLEAR the
  * deferral cache and then call `invalidateAll` synchronously, flipping every
  * settled `complete` rollup to PARTIAL for one macrotask — a visible blink
- * behind a tooltip ("this folder is not fully enumerated") that was momentarily
- * untrue.
+ * behind a recomputing tooltip that was momentarily untrue.
  *
  * Contract: a revision bump whose subtree content did not actually move must
  * notify NOBODY, before or after the deferred refresh lands; a bump whose
