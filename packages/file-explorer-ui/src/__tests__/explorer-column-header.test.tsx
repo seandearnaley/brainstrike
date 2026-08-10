@@ -350,6 +350,30 @@ describe('metadata sort on a surface without the seam', () => {
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
+
+  it('preserves the persisted metadata sort while a mounted root id is not ready', async () => {
+    const warn = vi
+      .spyOn(createLogger('OptimizedFileTree'), 'warn')
+      .mockImplementation(() => undefined);
+    const persistedSort = { direction: 'asc', field: 'tokens' } as const;
+    useExplorerSortStateStore.getState().setSortState(persistedSort);
+
+    await act(async () =>
+      render(
+        <FileExplorerTestWrapper>
+          <ExplorerSortProvider>
+            <SeamProvider>
+              <OptimizedFileTree fileTree={SECTION_TREE} folderId="" loadingFiles={new Set()} />
+            </SeamProvider>
+          </ExplorerSortProvider>
+        </FileExplorerTestWrapper>
+      )
+    );
+
+    expect(useExplorerSortStateStore.getState().sortState).toEqual(persistedSort);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
 });
 
 describe('explorer column width clamping', () => {

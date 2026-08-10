@@ -15,11 +15,13 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   TOKEN_INDEXER_BATCH_YIELD_MS,
+  TOKEN_INDEXER_IO_BATCH_SIZE,
   VISIBLE_FILE_INDEXING_DEBOUNCE_MS,
   VISIBLE_FILE_INDEXING_MAX_PER_PASS,
 } from '../constants';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
+import { shouldRearmVisibleFileIndexing } from '../indexing/use-visible-file-token-indexing';
 
 const indexFilesMock = vi.fn<(files: FileToIndex[]) => Promise<void>>(async () => {});
 const mockBackgroundIndexer = {
@@ -144,7 +146,8 @@ async function drainOnePass(): Promise<void> {
       await Promise.resolve();
     });
   }
-  const yieldsPerPass = 30;
+  const yieldsPerPass =
+    Math.ceil(VISIBLE_FILE_INDEXING_MAX_PER_PASS / TOKEN_INDEXER_IO_BATCH_SIZE) - 1;
   for (let step = 0; step < yieldsPerPass; step += 1) {
     await act(async () => {
       vi.advanceTimersByTime(TOKEN_INDEXER_BATCH_YIELD_MS);
@@ -190,6 +193,16 @@ describe('useBackgroundTokenIndexerIntegration visible-file trigger', () => {
     vi.useFakeTimers();
     getTokenCountMock.mockReturnValue(null);
     mutableTokenCacheContext.isPersisted = true;
+  });
+
+  it('never re-arms a completed pass after its effect was cancelled', () => {
+    expect(
+      shouldRearmVisibleFileIndexing({
+        cancelled: true,
+        candidateCount: 500,
+        remainingCount: 20,
+      })
+    ).toBe(false);
   });
 
   it('indexes visible files that were never selected', async () => {

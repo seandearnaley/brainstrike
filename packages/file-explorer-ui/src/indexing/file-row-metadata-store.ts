@@ -54,18 +54,27 @@ export type FileRowTokenExclusionReason = 'binary' | 'too-large';
  */
 export type FileRowTokenState = number | 'excluded' | 'pending';
 
-export interface FileRowMetadata {
-  /**
-   * Set exactly when `tokens === 'excluded'`, so the cell can distinguish
-   * "excluded — binary" from "excluded — too large to count".
-   */
-  readonly exclusionReason?: FileRowTokenExclusionReason;
+interface FileRowMetadataCommon {
   /** Bytes. Absent when neither the tree node nor the token cache knows it. */
   readonly size?: number;
-  readonly tokens: FileRowTokenState;
   /** Lowercase, dot-free extension; `''` when the name has none. */
   readonly type: string;
 }
+
+/**
+ * Structurally enforces the no-silent-state contract: an excluded row always
+ * names the planner retirement that caused it, while countable rows cannot
+ * carry a stale exclusion reason.
+ */
+export type FileRowMetadata =
+  | (FileRowMetadataCommon & {
+      readonly exclusionReason: FileRowTokenExclusionReason;
+      readonly tokens: 'excluded';
+    })
+  | (FileRowMetadataCommon & {
+      readonly exclusionReason?: never;
+      readonly tokens: number | 'pending';
+    });
 
 /**
  * Aggregate for a directory row. `partial` is deliberately value-free: a sum
@@ -338,14 +347,16 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     // the full path is a valid argument — no basename allocation needed.
     const size = sources.getNodeSize(compositeKey) ?? sources.getCachedSize(compositeKey);
     const exclusionReason = resolveExclusionReason(path, size);
-    return {
-      ...(exclusionReason === null ? {} : { exclusionReason }),
+    const common = {
       ...(size === undefined ? {} : { size }),
-      tokens:
-        exclusionReason === null
-          ? (sources.getTokenCount(compositeKey) ?? 'pending')
-          : ('excluded' as const),
       type: getFileExtension(path),
+    };
+    if (exclusionReason !== null) {
+      return { ...common, exclusionReason, tokens: 'excluded' };
+    }
+    return {
+      ...common,
+      tokens: sources.getTokenCount(compositeKey) ?? 'pending',
     };
   };
 

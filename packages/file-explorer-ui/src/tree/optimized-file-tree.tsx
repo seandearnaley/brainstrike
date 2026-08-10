@@ -57,6 +57,7 @@ import {
   FileTreeSelectionContext,
   type FileTreeSelectionContextValue,
 } from './file-tree-selection-context';
+import { createFileTreeSortMetadataReader } from './file-tree-sort-metadata';
 import {
   applyDirectorySelectionMutation,
   applyFileSelectionMutation,
@@ -512,14 +513,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const sortState = explorerSort?.sortState ?? null;
     const rowMetadata = useOptionalFileRowMetadata();
     // The seam is optional by design (file-row-metadata-context): a surface
-    // without it renders Name only. Ordering by Type/Tokens/Size is therefore a
-    // CAPABILITY, not a guarantee — an empty folderId is treated identically,
-    // since a root with no id has no composite keys to read either.
-    const canReadSortMetadata = Boolean(rowMetadata) && folderId !== '';
+    // without it renders Name only. That is a CAPABILITY failure and resets an
+    // unsupported persisted metadata sort. An empty folderId is different: the
+    // capability exists but this root is not READY to build composite keys yet,
+    // so sorting pauses without destroying the user's persisted preference.
+    const hasSortMetadataCapability = rowMetadata !== null;
+    const canReadSortMetadata = hasSortMetadataCapability && folderId !== '';
     const setExplorerSortState = explorerSort?.setSortState;
     const hasWarnedAboutMissingSeamRef = useRef(false);
     useEffect(() => {
-      if (canReadSortMetadata) {
+      if (hasSortMetadataCapability) {
         return;
       }
       if (!(sortState && setExplorerSortState)) {
@@ -538,7 +541,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         );
       }
       setExplorerSortState(null);
-    }, [canReadSortMetadata, setExplorerSortState, sortState]);
+    }, [hasSortMetadataCapability, setExplorerSortState, sortState]);
     const tracksMetadataRevision = sortState?.field === 'size' || sortState?.field === 'tokens';
     const subscribeToSortedMetadata = useCallback(
       (listener: () => void): (() => void) => {
@@ -562,9 +565,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       getSortedMetadataRevision
     );
 
+    const sortMetadataReader = useMemo(
+      () =>
+        rowMetadata && folderId
+          ? createFileTreeSortMetadataReader(folderId, rowMetadata.store)
+          : null,
+      [folderId, rowMetadata]
+    );
     const getSortMetadata = useCallback(
       (node: IFileNode): FileTreeSortMetadata => {
-        if (!(rowMetadata && folderId)) {
+        if (!sortMetadataReader) {
           // Unreachable: `sortOptions` below refuses to build a metadata sort
           // without the seam, so no comparator can call this. Kept as an
           // assertion rather than a fallback — inventing metadata here would
@@ -573,36 +583,19 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             `Explorer sort field "${sortState?.field ?? 'unknown'}" requires the file-row metadata seam`
           );
         }
-        const compositeKey = encodeFileSelection(folderId, node.path);
-        if (node.type === 'directory') {
-          const rollup = rowMetadata.store.getDirectorySnapshot(compositeKey);
-          return {
-            size: rollup.status === 'complete' ? rollup.size : 'pending',
-            tokens: rollup.status === 'complete' ? rollup.tokens : 'pending',
-            type: '',
-          };
-        }
-        // peek, not get: the comparator sweeps every projected row, and caching
-        // that sweep would grow the store past the subscribed rows and switch
-        // its eviction off (BST-1209 review, important finding 2).
-        const metadata = rowMetadata.store.peekSnapshot(compositeKey);
-        return {
-          size: metadata.size ?? 'pending',
-          tokens: metadata.tokens,
-          type: metadata.type,
-        };
+        return sortMetadataReader(node);
       },
-      [folderId, rowMetadata, sortState?.field]
+      [sortMetadataReader, sortState?.field]
     );
     const sortOptions = useMemo<FileTreeSortOptions | undefined>(() => {
       if (!sortState) {
         return;
       }
       if (isExplorerMetadataSortField(sortState.field) && !canReadSortMetadata) {
-        // Capability gating: this surface has no metadata seam, so it cannot
-        // serve this sort. Fall back to the loader's default order — the
-        // persisted state is reset (with a warn) by the effect above, so this
-        // is the one render before that lands, not a silent permanent no-op.
+        // Either this surface lacks the seam (the effect visibly resets the
+        // preference) or the mounted root id is not ready yet (the preference
+        // is preserved). In both cases this render uses loader order because no
+        // honest composite metadata key can be built.
         return;
       }
       return {

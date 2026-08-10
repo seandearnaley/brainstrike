@@ -1,9 +1,10 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   createFileRowMetadataStore,
   type FileRowDirectorySubtree,
+  type FileRowMetadata,
   type FileRowMetadataSources,
 } from '../indexing/file-row-metadata-store';
 
@@ -42,6 +43,15 @@ function sources({
 }
 
 describe('createFileRowMetadataStore file snapshots', () => {
+  it('requires every excluded token state to carry its retirement reason', () => {
+    expectTypeOf({ tokens: 'excluded' as const, type: 'ts' }).not.toMatchTypeOf<FileRowMetadata>();
+    expectTypeOf({
+      exclusionReason: 'binary' as const,
+      tokens: 'excluded' as const,
+      type: 'png',
+    }).toMatchTypeOf<FileRowMetadata>();
+  });
+
   it('reports the counted token total, node size, and derived type', () => {
     const store = createFileRowMetadataStore(
       sources({

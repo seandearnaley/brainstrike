@@ -292,6 +292,11 @@ binary/size exclusions and the indexed/in-flight de-duplication are shared:
    re-arms for the remainder — but ONLY when the previous pass consumed
    something, so a set that can never be consumed (every key parked for a
    missing handle) cannot spin. Nothing is dropped; it is deferred.
+   Cooperative-yield counts in tests are derived from
+   `VISIBLE_FILE_INDEXING_MAX_PER_PASS / TOKEN_INDEXER_IO_BATCH_SIZE`; do not
+   copy a stale window count. Effect cleanup cancels both the debounce and the
+   async continuation's re-arm, so a completed dispatch cannot set state after
+   its tree unmounts or its visible set is replaced.
    It is **throttled** by a `VISIBLE_FILE_INDEXING_DEBOUNCE_MS` floor set to 2×
    the selection trigger's longest adaptive delay. The two debounces are
    independent, so this is a strong bias toward selection-first, NOT a
@@ -308,7 +313,9 @@ read through `FileRowMetadataStore`
 (`packages/file-explorer-ui/src/indexing/file-row-metadata-store.ts`), a
 per-composite-key external store. Rules that must hold: an uncounted file reads
 `pending`; a file the planner permanently retires reads `excluded` with an
-`exclusionReason`, and that set must stay in sync with
+`exclusionReason`. `FileRowMetadata` is a discriminated union that requires the
+reason exactly when `tokens === 'excluded'`; do not weaken it back to an
+optional sibling property. The reason set must stay in sync with
 `planTokenIndexingDispatch` — today `'binary'` (`isBinaryFile`) and
 `'too-large'` (over the shared `DEFAULT_MAX_FILE_SIZE`), both of which the
 planner pushes into `indexedKeysToAdd` so their count never arrives. Adding a
@@ -323,6 +330,14 @@ unloaded/capped/failed enumeration with neutral unavailable copy, and
 `pending-metadata` means descendant counts have not landed. Do not label an
 inert or permanently capped subtree as recomputing. A count landing for one key
 must not re-render any other row.
+
+Metadata sorting distinguishes capability from readiness. A missing
+`FileRowMetadataProvider` means the surface cannot serve a persisted metadata
+sort, so it warns and resets to loader order. A mounted provider with an empty
+root id is only temporarily unready: skip the sort for that render but preserve
+the user's persisted preference. Production and the 10k-row performance test
+must both use `createFileTreeSortMetadataReader`; never copy its closure into a
+test.
 
 `getDirectorySubtree` is TOTAL: anything the caller cannot enumerate answers
 an `isComplete: false` subtree with `incompleteReason: 'not-enumerated'`

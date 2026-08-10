@@ -79,6 +79,21 @@ export interface UseVisibleFileTokenIndexingParams {
   visibleFiles: ReadonlySet<string> | undefined;
 }
 
+export interface ShouldRearmVisibleFileIndexingParams {
+  cancelled: boolean;
+  candidateCount: number;
+  remainingCount: number;
+}
+
+/** Pure decision seam for the async effect's post-dispatch continuation. */
+export function shouldRearmVisibleFileIndexing({
+  cancelled,
+  candidateCount,
+  remainingCount,
+}: ShouldRearmVisibleFileIndexingParams): boolean {
+  return !cancelled && remainingCount > 0 && remainingCount < candidateCount;
+}
+
 export function useVisibleFileTokenIndexing({
   fileHandleMapRef,
   fileHandleMapSize,
@@ -170,18 +185,30 @@ export function useVisibleFileTokenIndexing({
     }
 
     const batch = candidates.slice(0, VISIBLE_FILE_INDEXING_MAX_PER_PASS);
+    let cancelled = false;
     const timeoutId = setTimeout(() => {
       void indexVisibleFiles(batch).then(() => {
         const remaining = Array.from(visibleFiles).filter(isUnconsumed).length;
         // Re-arm on PROGRESS only. A pass that consumed nothing — every key
-        // parked for a missing handle, say — must not reschedule itself.
-        if (remaining > 0 && remaining < candidates.length) {
+        // parked for a missing handle, say — must not reschedule itself. An
+        // unmounted/replaced effect must not enqueue a stale state update after
+        // its in-flight dispatch resolves either.
+        if (
+          shouldRearmVisibleFileIndexing({
+            cancelled,
+            candidateCount: candidates.length,
+            remainingCount: remaining,
+          })
+        ) {
           setPassCursor((cursor) => cursor + 1);
         }
       });
     }, VISIBLE_FILE_INDEXING_DEBOUNCE_MS);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [
     visibleFiles,
     indexVisibleFiles,

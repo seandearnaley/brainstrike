@@ -12,13 +12,13 @@
  */
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { IFileNode } from '@brainstrike/types';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { UNENUMERATED_DIRECTORY_SUBTREE } from '../indexing/file-row-metadata-source-registry';
 import {
   createFileRowMetadataStore,
   type FileRowDirectorySubtree,
 } from '../indexing/file-row-metadata-store';
-import type { FileTreeSortMetadata } from '../tree/optimized-file-tree-model';
+import { createFileTreeSortMetadataReader } from '../tree/file-tree-sort-metadata';
 import { buildFileTreeRows, createFileTreeRowReuseCache } from '../tree/optimized-file-tree-model';
 
 const FOLDER = 'root';
@@ -96,26 +96,9 @@ describe('Explorer sort-change performance', () => {
       getTokenCount: (compositeKey) => tokensByKey.get(compositeKey),
     });
 
-    let metadataReadCount = 0;
-    // Byte-for-byte the production closure from `optimized-file-tree.tsx`.
-    const getMetadata = (node: IFileNode): FileTreeSortMetadata => {
-      metadataReadCount += 1;
-      const compositeKey = encodeFileSelection(FOLDER, node.path);
-      if (node.type === 'directory') {
-        const rollup = store.getDirectorySnapshot(compositeKey);
-        return {
-          size: rollup.status === 'complete' ? rollup.size : 'pending',
-          tokens: rollup.status === 'complete' ? rollup.tokens : 'pending',
-          type: '',
-        };
-      }
-      const metadata = store.peekSnapshot(compositeKey);
-      return {
-        size: metadata.size ?? 'pending',
-        tokens: metadata.tokens,
-        type: metadata.type,
-      };
-    };
+    const getDirectorySnapshot = vi.spyOn(store, 'getDirectorySnapshot');
+    const peekSnapshot = vi.spyOn(store, 'peekSnapshot');
+    const getMetadata = createFileTreeSortMetadataReader(FOLDER, store);
 
     const common = {
       expandedDirectoryPaths: expanded,
@@ -136,7 +119,8 @@ describe('Explorer sort-change performance', () => {
       })
     );
     const sortChangeMs = performance.now() - sortStartedAt;
-    const readsAfterRebuild = metadataReadCount;
+    const readsAfterRebuild =
+      getDirectorySnapshot.mock.calls.length + peekSnapshot.mock.calls.length;
 
     let frameChecksum = 0;
     for (let frame = 0; frame < 120; frame += 1) {
@@ -148,13 +132,15 @@ describe('Explorer sort-change performance', () => {
     // Schwartzian: ONE seam read per row. Reading inside the comparator instead
     // costs 2 per comparison — an order of magnitude more at this size.
     expect(readsAfterRebuild).toBe(TOTAL_ROWS);
-    expect(metadataReadCount).toBe(readsAfterRebuild);
+    expect(getDirectorySnapshot.mock.calls.length + peekSnapshot.mock.calls.length).toBe(
+      readsAfterRebuild
+    );
     expect(frameChecksum).toBe(TOTAL_ROWS * 120);
     const baselineById = new Map(baselineRows.map((row) => [row.id, row]));
     expect(sortedRows.every((row) => row === baselineById.get(row.id))).toBe(true);
 
     console.info(
-      `BST-1209 sort telemetry: nodes=${TOTAL_ROWS} baselineMs=${baselineMs.toFixed(3)} sortChangeMs=${sortChangeMs.toFixed(3)} metadataReads=${metadataReadCount} frameReads=120 postFrameMetadataReads=${metadataReadCount}`
+      `BST-1209 sort telemetry: nodes=${TOTAL_ROWS} baselineMs=${baselineMs.toFixed(3)} sortChangeMs=${sortChangeMs.toFixed(3)} metadataReads=${readsAfterRebuild} frameReads=120 postFrameMetadataReads=${readsAfterRebuild}`
     );
   });
 });
