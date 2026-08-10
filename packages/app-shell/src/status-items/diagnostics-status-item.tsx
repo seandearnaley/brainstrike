@@ -29,8 +29,27 @@ import { useUnseenDiagnosticsCount } from '../diagnostics/use-unseen-diagnostics
 
 const AMBER_TONE_CLASSNAME = 'text-amber-800 dark:text-amber-300';
 
-function formatCountLabel(count: number): string {
-  return `${count.toLocaleString()} ${count === 1 ? 'error' : 'errors'}`;
+function formatCountLabel(count: number, singular: 'error' | 'warning'): string {
+  return `${count.toLocaleString()} ${count === 1 ? singular : `${singular}s`}`;
+}
+
+interface FormattedDiagnosticsLabels {
+  readonly announced: string;
+  readonly visible: string;
+}
+
+function formatDiagnosticsLabels(
+  errorCount: number,
+  warningCount: number
+): FormattedDiagnosticsLabels {
+  const labels = [
+    errorCount > 0 ? formatCountLabel(errorCount, 'error') : null,
+    warningCount > 0 ? formatCountLabel(warningCount, 'warning') : null,
+  ].filter((label): label is string => label !== null);
+  return {
+    announced: labels.join(' and '),
+    visible: labels.join(', '),
+  };
 }
 
 interface DiagnosticsChipDisplay {
@@ -40,7 +59,8 @@ interface DiagnosticsChipDisplay {
 }
 
 function getDisplay(
-  count: number,
+  errorCount: number,
+  warningCount: number,
   error: Error | null,
   sinkDisabledReason: string | null
 ): DiagnosticsChipDisplay | null {
@@ -58,19 +78,19 @@ function getDisplay(
       visibleLabel: 'Diagnostics unavailable',
     };
   }
-  if (count === 0) {
+  if (errorCount === 0 && warningCount === 0) {
     return null;
   }
-  const countLabel = formatCountLabel(count);
+  const labels = formatDiagnosticsLabels(errorCount, warningCount);
   return {
-    announcement: `Diagnostics status: ${countLabel} recorded`,
-    ariaLabel: `${countLabel} recorded since launch. Open logging settings`,
-    visibleLabel: countLabel,
+    announcement: `Diagnostics status: ${labels.announced} recorded`,
+    ariaLabel: `${labels.announced} recorded since launch. Open logging settings`,
+    visibleLabel: labels.visible,
   };
 }
 
 export function DiagnosticsStatusItem() {
-  const { count, error } = useUnseenDiagnosticsCount();
+  const { error, errorCount, warningCount } = useUnseenDiagnosticsCount();
   const sinkDisabledReason = useDiagnosticSinkHealthStore((state) => state.disabledReason);
   const markAllSeen = useDiagnosticsSeenStore((state) => state.markAllSeen);
   const openSettings = usePanelLayoutStore((state) => state.openSettings);
@@ -83,7 +103,7 @@ export function DiagnosticsStatusItem() {
     }
   }, [markAllSeen, openSettings]);
 
-  const display = getDisplay(count, error, sinkDisabledReason);
+  const display = getDisplay(errorCount, warningCount, error, sinkDisabledReason);
   if (!display) {
     return null;
   }
