@@ -78,10 +78,10 @@ import FileExplorerSidebar from './file-explorer-sidebar';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { FileFilterBar } from './file-filter-bar';
 import {
-  ForestTreeActionsProvider,
   useForestIsExpandingAll,
   useOptionalForestTreeActions,
 } from './forest-tree-actions-context';
+import { ForestTreeActionsProvider } from './forest-tree-actions-provider';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useForestExpandConfirm } from './use-forest-expand-confirm';
 import { useSelectionManager } from './use-selection-manager-context';

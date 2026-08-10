@@ -77,8 +77,9 @@ Windowing and performance:
   `forest-tree-actions-context.test.tsx`, `forest-section-filtering.test.tsx`,
   and the `filteredPathSet`-skip tests in
   `optimized-file-tree-filtered-selection.test.tsx`):
-  - The forest registry (`forest-tree-actions-context.tsx`) is split: the
-    actions value is identity-stable for the provider's lifetime, and the
+  - The forest registry (`forest-tree-actions-provider.tsx` plus
+    `forest-tree-actions-context.ts`) is split: the actions value is
+    identity-stable for the provider's lifetime, and the
     expand-all progress aggregate is an external store read only through
     `useForestExpandAllProgress` (a toolbar leaf), never through the actions
     context. Progress reports aggregate by per-section delta and publish at

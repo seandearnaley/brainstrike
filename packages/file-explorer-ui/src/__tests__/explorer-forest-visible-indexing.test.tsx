@@ -24,7 +24,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { useExplorerRowMetadata } from '../indexing/file-row-metadata-context';
 import { FileRowMetadataProvider } from '../indexing/file-row-metadata-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
-import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-context';
+import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-provider';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';
