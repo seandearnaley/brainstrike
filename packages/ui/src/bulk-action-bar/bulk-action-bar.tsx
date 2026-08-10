@@ -2,9 +2,9 @@
  * BulkActionBar Component
  *
  * A floating action bar that appears when multiple items are selected in a
- * tree surface. Shared primitive: the file explorer's context-preview panel
- * renders it over its selection overlay to offer bulk operations on the
- * current selection.
+ * selection surface. Shared primitive: the Explorer tree and the context
+ * preview's Tapestry gallery both render it over a selection overlay to offer
+ * bulk operations on the current selection.
  */
 
 import type * as React from 'react';

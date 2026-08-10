@@ -14,7 +14,6 @@ import {
 } from '../stores/explorer-column-sizes-store';
 import {
   EXPLORER_METADATA_COLUMN_IDS,
-  getDefaultExplorerColumnVisibility,
   sanitizeExplorerColumnVisibility,
   useExplorerColumnVisibilityStore,
 } from '../stores/explorer-column-visibility-store';
@@ -54,7 +53,15 @@ describe('explorer column sizes store', () => {
 
 describe('explorer column visibility store', () => {
   it('ships Tokens visible and Type/Size opt-in (decision D1)', () => {
-    expect(getDefaultExplorerColumnVisibility()).toEqual({
+    // Projected through EXPLORER_METADATA_COLUMN_IDS and compared with toEqual,
+    // not toMatchObject against live store state: a new metadata column must
+    // fail this test rather than default itself in unnoticed.
+    const state = useExplorerColumnVisibilityStore.getState();
+    const shippedDefaults = Object.fromEntries(
+      EXPLORER_METADATA_COLUMN_IDS.map((columnId) => [columnId, state[columnId]])
+    );
+
+    expect(shippedDefaults).toEqual({
       size: false,
       tokens: true,
       type: false,
@@ -81,7 +88,11 @@ describe('explorer column visibility store', () => {
       tokens: true,
       type: true,
     });
-    expect(sanitizeExplorerColumnVisibility(null)).toEqual(getDefaultExplorerColumnVisibility());
+    expect(sanitizeExplorerColumnVisibility(null)).toEqual({
+      size: false,
+      tokens: true,
+      type: false,
+    });
   });
 });
 

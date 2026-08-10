@@ -22,25 +22,31 @@ import { FileTreeSizeCell, FileTreeTokensCell, FileTreeTypeCell } from './file-t
 import { FileTreeNameCell } from './file-tree-name-cell';
 import type { FileTreeRowData } from './optimized-file-tree-model';
 
-export type ExplorerColumnId = 'name' | ExplorerMetadataColumnId;
-
-export interface ExplorerColumnConfig {
+/**
+ * The public column shape: one hideable metadata column. `id` is narrowed to
+ * `ExplorerMetadataColumnId` so consumers iterating
+ * `EXPLORER_METADATA_COLUMN_CONFIGS` index the sizing/visibility maps directly
+ * instead of re-asserting `id as ExplorerMetadataColumnId` at every call site.
+ */
+export interface ExplorerMetadataColumnConfig {
   /** Metadata values are numeric or badge-like and read better trailing. */
   align: 'left' | 'right';
-  id: ExplorerColumnId;
+  id: ExplorerMetadataColumnId;
   label: string;
 }
 
 /**
- * A config narrowed to a metadata column. Exported so consumers iterating
- * `EXPLORER_METADATA_COLUMN_CONFIGS` index the sizing/visibility maps directly
- * instead of re-asserting `id as ExplorerMetadataColumnId` at every call site.
+ * Widened to include the pinned `name` tree column. Internal: only the full
+ * `EXPLORER_COLUMN_CONFIGS` list below needs it, and nothing outside this
+ * module consumes that list — so this stays unexported rather than becoming a
+ * base class consumers can see extended but cannot name.
  */
-export interface ExplorerMetadataColumnConfig extends ExplorerColumnConfig {
-  id: ExplorerMetadataColumnId;
+interface ExplorerColumnConfig extends Omit<ExplorerMetadataColumnConfig, 'id'> {
+  id: 'name' | ExplorerMetadataColumnId;
 }
 
-export const EXPLORER_COLUMN_CONFIGS: readonly ExplorerColumnConfig[] = [
+/** Every column, name first. Only the metadata slice below is exported. */
+const EXPLORER_COLUMN_CONFIGS: readonly ExplorerColumnConfig[] = [
   { align: 'left', id: 'name', label: 'Name' },
   { align: 'left', id: 'type', label: 'Type' },
   { align: 'right', id: 'tokens', label: 'Tokens' },
@@ -74,13 +80,13 @@ export const EXPLORER_METADATA_CELL_CLASS = 'px-2 py-0';
 export const EXPLORER_METADATA_HEADER_CLASS = 'h-7 px-2 py-0 font-medium text-[11px]';
 export const EXPLORER_NAME_HEADER_CLASS = 'h-7 py-0 pr-2 pl-1.5 font-medium text-[11px]';
 
-function metadataCellClassName(align: ExplorerColumnConfig['align']): string {
+function metadataCellClassName(align: ExplorerMetadataColumnConfig['align']): string {
   return align === 'right'
     ? `${EXPLORER_METADATA_CELL_CLASS} text-right`
     : EXPLORER_METADATA_CELL_CLASS;
 }
 
-function metadataHeaderContentClassName(align: ExplorerColumnConfig['align']): string {
+function metadataHeaderContentClassName(align: ExplorerMetadataColumnConfig['align']): string {
   return align === 'right' ? 'justify-end' : '';
 }
 

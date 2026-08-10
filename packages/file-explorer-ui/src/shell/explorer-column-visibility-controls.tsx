@@ -1,7 +1,7 @@
 /**
  * Explorer toolbar control for tree-grid column visibility (BST-1208).
  *
- * Ported from `preview/preview-column-visibility-controls.tsx` — same popover,
+ * Ported from the retired context-preview column controls — same popover,
  * same "customized" dot — with two differences the Explorer forces:
  *
  * - Name is the tree column. It is not listed at all, rather than listed and

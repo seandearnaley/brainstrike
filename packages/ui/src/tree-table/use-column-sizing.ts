@@ -164,9 +164,9 @@ export function useColumnSizing<T>({
       if (current === clamped) {
         return;
       }
-      // Preserve persisted widths for columns that are not currently rendered
-      // (e.g., columns
-      // hidden by visibility toggles in preview-table). Starting from
+      // Preserve persisted widths for columns that are not currently
+      // rendered (e.g. an Explorer metadata column hidden by its visibility
+      // toggle). Starting from
       // `controlledSizes` rather than `resolvedSizes` keeps those entries
       // intact so the downstream persistence store doesn't wipe them when it
       // sanitizes the next map back into storage. Uncontrolled mode falls

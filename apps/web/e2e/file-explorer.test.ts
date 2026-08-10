@@ -490,149 +490,6 @@ test.describe('File Explorer', () => {
       expect(Math.abs(geometry.revealHeaderBottomGap)).toBeLessThanOrEqual(1);
     });
 
-    test('uses one bottom-anchored scrollport with sticky table headers', async ({ page }) => {
-      explorer = await bootstrapFileExplorer(page, {
-        resetSettings: true,
-        tree: Object.fromEntries(
-          Array.from({ length: 24 }, (_, index) => [
-            `long-context-file-name-${String(index).padStart(2, '0')}.ts`,
-            `export const value${index} = ${index};`,
-          ])
-        ),
-      });
-
-      await explorer.selectRoot();
-      await setMaxSelectionCount(page, 50);
-      await explorer.selectAllButton.click();
-      await expect(page.getByTestId('selection-count')).toHaveText('24', { timeout: 15_000 });
-
-      const previewTable = page.getByTestId('preview-table');
-      const contextTree = page.getByRole('treegrid', { name: 'Context explorer table' });
-      await expect(previewTable).toBeVisible();
-      await expect(contextTree).toBeVisible();
-
-      const geometry = await previewTable.evaluate(async (previewElement) => {
-        const treegrid = previewElement.querySelector<HTMLElement>('[role="treegrid"]');
-        if (!treegrid) {
-          throw new Error('Context explorer treegrid is missing');
-        }
-
-        const scrollOwners: HTMLElement[] = [];
-        let ancestor = treegrid.parentElement;
-        while (ancestor && previewElement.contains(ancestor)) {
-          const style = getComputedStyle(ancestor);
-          if (
-            style.overflowX === 'auto' ||
-            style.overflowX === 'scroll' ||
-            style.overflowY === 'auto' ||
-            style.overflowY === 'scroll'
-          ) {
-            scrollOwners.push(ancestor);
-          }
-          ancestor = ancestor.parentElement;
-        }
-
-        const owner = scrollOwners[0];
-        const header = treegrid.querySelector<HTMLElement>('thead');
-        const firstHeader = treegrid.querySelector<HTMLElement>('th');
-        const firstBodyCell = treegrid.querySelector<HTMLElement>('tbody td');
-        const firstBodyRow = treegrid.querySelector<HTMLElement>('tbody tr');
-        if (!(owner && header && firstHeader && firstBodyCell && firstBodyRow)) {
-          throw new Error('Expected a complete scrollable table surface');
-        }
-
-        const previewRect = previewElement.getBoundingClientRect();
-        const ownerRect = owner.getBoundingClientRect();
-        const initialHeaderRect = header.getBoundingClientRect();
-        const initialHeaderCellRect = firstHeader.getBoundingClientRect();
-        const initialBodyCellRect = firstBodyCell.getBoundingClientRect();
-        const initialBodyRowRect = firstBodyRow.getBoundingClientRect();
-        const targetScrollTop = Math.min(96, owner.scrollHeight - owner.clientHeight);
-        const targetScrollLeft = Math.min(80, owner.scrollWidth - owner.clientWidth);
-
-        owner.scrollTo({ left: targetScrollLeft, top: targetScrollTop });
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        });
-
-        const scrolledOwnerRect = owner.getBoundingClientRect();
-        const scrolledHeaderRect = header.getBoundingClientRect();
-        const scrolledHeaderCellRect = firstHeader.getBoundingClientRect();
-        const scrolledBodyCellRect = firstBodyCell.getBoundingClientRect();
-        const scrolledBodyRowRect = firstBodyRow.getBoundingClientRect();
-
-        return {
-          bodyCellDeltaX: scrolledBodyCellRect.left - initialBodyCellRect.left,
-          bodyRowDeltaY: scrolledBodyRowRect.top - initialBodyRowRect.top,
-          headerCellDeltaX: scrolledHeaderCellRect.left - initialHeaderCellRect.left,
-          headerTopAfterScroll: scrolledHeaderRect.top,
-          headerTopBeforeScroll: initialHeaderRect.top,
-          horizontalOverflow: owner.scrollWidth - owner.clientWidth,
-          ownerBottom: ownerRect.bottom,
-          ownerTopAfterScroll: scrolledOwnerRect.top,
-          previewBottom: previewRect.bottom,
-          scrollLeft: owner.scrollLeft,
-          scrollOwnerCount: scrollOwners.length,
-          scrollTop: owner.scrollTop,
-          verticalOverflow: owner.scrollHeight - owner.clientHeight,
-        };
-      });
-
-      expect(geometry.scrollOwnerCount).toBe(1);
-      expect(geometry.horizontalOverflow).toBeGreaterThan(0);
-      expect(geometry.verticalOverflow).toBeGreaterThan(0);
-      expect(Math.abs(geometry.ownerBottom - geometry.previewBottom)).toBeLessThanOrEqual(1);
-      expect(geometry.scrollTop).toBeGreaterThan(0);
-      expect(geometry.bodyRowDeltaY).toBeLessThan(-1);
-      expect(
-        Math.abs(geometry.headerTopAfterScroll - geometry.ownerTopAfterScroll)
-      ).toBeLessThanOrEqual(1);
-      expect(
-        Math.abs(geometry.headerTopAfterScroll - geometry.headerTopBeforeScroll)
-      ).toBeLessThanOrEqual(1);
-      expect(geometry.scrollLeft).toBeGreaterThan(0);
-      expect(geometry.headerCellDeltaX).toBeLessThan(-1);
-      expect(Math.abs(geometry.headerCellDeltaX - geometry.bodyCellDeltaX)).toBeLessThanOrEqual(1);
-
-      await contextTree.locator('tbody').getByRole('checkbox').first().click();
-      const clearContextSelection = page.getByRole('button', { name: 'Clear context selection' });
-      await expect(clearContextSelection).toBeVisible();
-
-      const bulkActionGeometry = await clearContextSelection.evaluate(async (button) => {
-        const bar = button.parentElement;
-        const preview = document.querySelector<HTMLElement>('[data-testid="preview-table"]');
-        const treegrid = preview?.querySelector<HTMLElement>('[role="treegrid"]');
-        const owner = treegrid?.parentElement;
-        const lastRow = treegrid?.querySelector<HTMLElement>('tbody tr:last-child');
-        if (!(bar && preview && owner && lastRow)) {
-          throw new Error('Expected complete context bulk-action geometry');
-        }
-
-        owner.scrollTop = owner.scrollHeight;
-        await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        });
-
-        return {
-          barTop: bar.getBoundingClientRect().top,
-          lastRowBottom: lastRow.getBoundingClientRect().bottom,
-          layoutHasPadding: preview.classList.contains('pb-20'),
-          ownerBottom: owner.getBoundingClientRect().bottom,
-          ownerHasPadding: owner.classList.contains('pb-20'),
-          ownerPaddingBottom: getComputedStyle(owner).paddingBottom,
-          previewBottom: preview.getBoundingClientRect().bottom,
-        };
-      });
-
-      expect(bulkActionGeometry.layoutHasPadding).toBe(false);
-      expect(bulkActionGeometry.ownerHasPadding).toBe(true);
-      expect(bulkActionGeometry.ownerPaddingBottom).toBe('80px');
-      expect(
-        Math.abs(bulkActionGeometry.ownerBottom - bulkActionGeometry.previewBottom)
-      ).toBeLessThanOrEqual(1);
-      expect(bulkActionGeometry.lastRowBottom).toBeLessThanOrEqual(bulkActionGeometry.barTop + 1);
-    });
-
     test('renders no focused-root badge or separate current-directory row in the toolbar', async ({
       page,
     }) => {
@@ -645,7 +502,10 @@ test.describe('File Explorer', () => {
       await expect(page.getByText(/current directory/i)).toHaveCount(0);
     });
 
-    test('uses the table toolbar and a compact spatial dock for tapestry', {
+    // BST-1211: the Table View and its `preview-view-toolbar` are gone. The
+    // compact spatial dock is the preview's ONLY chrome, and it carries the
+    // group-by and multi-select controls the retired toolbar used to own.
+    test('presents the tapestry dock as the only preview chrome', {
       tag: '@web-smoke',
     }, async ({ page }) => {
       await explorer.selectRoot();
@@ -657,30 +517,28 @@ test.describe('File Explorer', () => {
         force: true,
       });
 
-      const previewToolbar = page.getByTestId('preview-view-toolbar');
-      await expect(previewToolbar).toBeVisible();
-      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
-      await expect(
-        previewToolbar.getByRole('button', { name: 'Toggle multi-select' })
-      ).toBeVisible();
-      await expect(previewToolbar.getByRole('button', { name: 'Group by' })).toBeVisible();
-      await expect(
-        previewToolbar.getByRole('button', { name: 'Select visible columns' })
-      ).toBeVisible();
-
-      await page.getByRole('tab', { name: 'Tapestry View' }).click();
-      await expect(previewToolbar).toHaveCount(0);
+      await expect(page.getByTestId('preview-view-toolbar')).toHaveCount(0);
+      await expect(page.getByRole('tab', { name: 'Table View' })).toHaveCount(0);
+      await expect(page.getByRole('tab', { name: 'Tapestry View' })).toHaveCount(0);
 
       const tapestryDock = page.getByTestId('tapestry-command-dock');
       await expect(tapestryDock).toBeVisible();
       await expect(tapestryDock.getByRole('slider', { name: 'Gallery scale' })).toBeVisible();
       await expect(tapestryDock.getByRole('button', { name: 'Toggle code lens' })).toBeVisible();
+
+      // Selection controls are enabled on mount, so the page select-all is live.
+      const pageSelectAll = page.getByLabel('Select all files on current page');
+      await expect(pageSelectAll).toBeVisible();
+
       await tapestryDock.getByRole('button', { name: 'View options' }).click();
-      await expect(
-        page.getByRole('menuitemcheckbox', { name: 'File selection controls' })
-      ).toBeVisible();
+      const selectionControlsItem = page.getByRole('menuitemcheckbox', {
+        name: 'File selection controls',
+      });
+      await expect(selectionControlsItem).toBeVisible();
       await expect(page.getByRole('menuitemradio', { name: 'By Directory' })).toBeVisible();
-      await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
+
+      await selectionControlsItem.click();
+      await expect(pageSelectAll).toHaveCount(0);
     });
 
     test('reflects a grouped per-group select-all on the group heading checkbox', async ({
@@ -697,30 +555,19 @@ test.describe('File Explorer', () => {
         .getByRole('checkbox', { name: 'Select test2.ts' })
         .click({ force: true });
 
-      const previewToolbar = page.getByTestId('preview-view-toolbar');
-      await expect(previewToolbar).toBeVisible();
-
-      // Ensure the checkbox column is ON, then group by directory. Selection
-      // controls are enabled by default (resolveColumnVisibility pins
-      // checkbox: true), so a blind toggle click would turn them OFF and the
-      // group heading checkbox this test exists to cover would never render.
-      const multiSelectToggle = previewToolbar.getByRole('button', {
-        name: 'Toggle multi-select',
-      });
-      if ((await multiSelectToggle.getAttribute('aria-pressed')) !== 'true') {
-        await multiSelectToggle.click();
-      }
-      await expect(multiSelectToggle).toHaveAttribute('aria-pressed', 'true');
-      await previewToolbar.getByRole('button', { name: 'Group by' }).click();
+      // Selection controls are enabled on mount, so the group heading checkbox
+      // this test covers renders as soon as grouping is on.
+      const tapestryDock = page.getByTestId('tapestry-command-dock');
+      await expect(tapestryDock).toBeVisible();
+      await expect(page.getByLabel('Select all files on current page')).toBeVisible();
+      await tapestryDock.getByRole('button', { name: 'View options' }).click();
       await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
 
       // Regression (multi-root): clicking a group's heading checkbox selected the
       // files but the heading checkbox stayed unchecked because the memoized
-      // TreeTable rows never re-rendered. It must now reflect checked.
-      // Trailing space targets the per-group heading ("…in group <id>/…"), not
-      // the header "Select all files in grouped results".
+      // rows never re-rendered. It must now reflect checked.
       const groupHeadingCheckbox = page
-        .getByRole('checkbox', { name: /^Select all files in group / })
+        .getByRole('checkbox', { name: /^Select all items in group / })
         .first();
       await expect(groupHeadingCheckbox).not.toBeChecked();
 
@@ -729,7 +576,7 @@ test.describe('File Explorer', () => {
       await expect(groupHeadingCheckbox).toBeChecked();
     });
 
-    test('renders the summary mode controls above the tabs without footer resize chrome', async ({
+    test('renders the summary mode controls above the preview surface without footer resize chrome', async ({
       page,
     }) => {
       await explorer.selectRoot();
@@ -739,10 +586,12 @@ test.describe('File Explorer', () => {
       });
 
       const compactModeButton = page.getByRole('button', { name: 'Compact summary mode' });
-      const tableTab = page.getByRole('tab', { name: 'Table View' });
+      // BST-1211: the tab strip is gone, so the dock is now the first thing
+      // below the footer. The invariant is unchanged — summary chrome on top.
+      const tapestryDock = page.getByTestId('tapestry-command-dock');
 
       await expect(compactModeButton).toBeVisible();
-      await expect(tableTab).toBeVisible();
+      await expect(tapestryDock).toBeVisible();
       await expect(page.getByRole('button', { name: 'Balanced summary mode' })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Insights summary mode' })).toBeVisible();
       await expect(
@@ -752,11 +601,11 @@ test.describe('File Explorer', () => {
       await expect(page.getByRole('button', { name: /expand footer/i })).toHaveCount(0);
 
       const compactBox = await compactModeButton.boundingBox();
-      const tableTabBox = await tableTab.boundingBox();
+      const dockBox = await tapestryDock.boundingBox();
       expect(compactBox).not.toBeNull();
-      expect(tableTabBox).not.toBeNull();
+      expect(dockBox).not.toBeNull();
       expect((compactBox?.y ?? Number.POSITIVE_INFINITY) + (compactBox?.height ?? 0)).toBeLessThan(
-        tableTabBox?.y ?? Number.NEGATIVE_INFINITY
+        dockBox?.y ?? Number.NEGATIVE_INFINITY
       );
     });
 
@@ -772,85 +621,30 @@ test.describe('File Explorer', () => {
         force: true,
       });
 
-      const previewToolbar = page.getByTestId('preview-view-toolbar');
-      await expect(previewToolbar).toBeVisible();
-      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
-      await previewToolbar.getByRole('button', { name: 'Group by' }).click();
+      const tapestryDock = page.getByTestId('tapestry-command-dock');
+      const openViewOptions = async () => {
+        await tapestryDock.getByRole('button', { name: 'View options' }).click();
+      };
+      const toggleSelectionControls = async () => {
+        await openViewOptions();
+        await page.getByRole('menuitemcheckbox', { name: 'File selection controls' }).click();
+      };
+
+      await expect(tapestryDock).toBeVisible();
+      await openViewOptions();
       await page.getByRole('menuitemradio', { name: 'By Directory' }).click();
 
       const groupedSelectionCheckboxes = page.getByRole('checkbox', {
-        name: /^Select all files in group /i,
+        name: /^Select all items in group /i,
       });
-      await expect(groupedSelectionCheckboxes).toHaveCount(0);
-      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
       await expect(groupedSelectionCheckboxes).toHaveCount(1);
 
-      await previewToolbar.getByRole('button', { name: 'Toggle multi-select' }).click();
-
+      await toggleSelectionControls();
       await expect(groupedSelectionCheckboxes).toHaveCount(0);
       await expect(page.getByLabel('Select all files on current page')).toHaveCount(0);
-    });
 
-    test('renders non-folder group headers in the folder column for size grouping', async ({
-      page,
-    }) => {
-      explorer = await bootstrapFileExplorer(page, {
-        resetSettings: true,
-        tree: {
-          'medium.ts': `export const medium = "${'x'.repeat(1400)}";`,
-          'tiny.json': '{}',
-        },
-      });
-
-      await explorer.selectRoot();
-      await explorer.selectAllButton.click();
-
-      // Two anchors guard the multi-step interaction below from racing with async work:
-      //
-      //   1. Selection actually applied. Persistence/restore on the first render after
-      //      `resetSettings: true` can race with the Select All click and leave the
-      //      selection count at 0. If this assertion times out, the failure is
-      //      "Select All didn't take effect" — not a flake, a real bug.
-      //
-      //   2. Row sizes resolved. `data-rows-ready` flips to "true" only when every
-      //      visible row has a defined `size` (FileSystem-adapter cache populated). If
-      //      this assertion times out after #1 passed, the failure is "size metadata
-      //      didn't resolve" — also a real bug. If both pass, downstream Group-by
-      //      assertions can run on a deterministic state.
-      await expect(page.getByTestId('selection-count')).toHaveText('2', { timeout: 15_000 });
-
-      const previewTable = page.getByTestId('preview-table');
-      await expect(previewTable).toHaveAttribute('data-rows-ready', 'true', { timeout: 15_000 });
-
-      const previewToolbar = page.getByTestId('preview-view-toolbar');
-      await expect(previewToolbar).toBeVisible();
-      await previewToolbar.getByRole('button', { name: 'Group by' }).click();
-      await page.getByRole('menuitemradio', { name: 'By Size Range' }).click();
-
-      const contextTree = page.getByRole('treegrid', { name: 'Context explorer table' });
-      const groupRow = contextTree
-        .getByRole('row')
-        .filter({ has: page.getByRole('button', { name: 'Collapse' }) })
-        .first();
-      await expect(groupRow).toBeVisible();
-
-      const folderHeader = page.getByRole('button', { name: 'Sort by Folder' });
-      const pathHeader = page.getByRole('button', { name: 'Sort by File Path' });
-      const spanningFolderCell = groupRow.locator('[role="gridcell"][colspan="2"]').first();
-      await expect(spanningFolderCell).toContainText('Small');
-
-      const [folderBox, pathBox, spanningCellBox] = await Promise.all([
-        folderHeader.boundingBox(),
-        pathHeader.boundingBox(),
-        spanningFolderCell.boundingBox(),
-      ]);
-
-      if (!(folderBox && pathBox && spanningCellBox)) {
-        throw new Error('Expected grouped size row geometry to be measurable');
-      }
-
-      expect(spanningCellBox.x).toBeLessThan(pathBox.x);
-      expect(spanningCellBox.x).toBeLessThan(folderBox.x + folderBox.width);
+      await toggleSelectionControls();
+      await expect(groupedSelectionCheckboxes).toHaveCount(1);
     });
 
     test('should allow downloading context with multiple file selections', async ({ page }) => {

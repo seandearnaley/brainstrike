@@ -87,10 +87,6 @@
       "types": "./dist/stores/context-explorer-layout-store.d.ts",
       "import": "./dist/stores/context-explorer-layout-store.js"
     },
-    "./stores/context-preview-column-sizes-store": {
-      "types": "./dist/stores/context-preview-column-sizes-store.d.ts",
-      "import": "./dist/stores/context-preview-column-sizes-store.js"
-    },
     "./stores/database-status-store": {
       "types": "./dist/stores/database-status-store.d.ts",
       "import": "./dist/stores/database-status-store.js"

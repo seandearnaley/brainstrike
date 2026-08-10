@@ -7,7 +7,6 @@ export * from './contexts/markdown-preview-capabilities';
 export { default as FileExplorerErrorBoundary } from './file-explorer-error-boundary';
 export { default as FileRow } from './file-row';
 export * from './folder-badge';
-export { default as FolderHeaderRow } from './folder-header-row';
 export { default as FolderSummaryThresholdSetting } from './folder-summary-threshold-setting';
 export * from './hooks';
 export { default as IncludeProjectTreeSetting } from './include-project-tree-setting';
