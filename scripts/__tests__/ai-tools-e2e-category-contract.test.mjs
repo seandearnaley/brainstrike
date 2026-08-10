@@ -31,6 +31,7 @@ function analyzeOptionSelectors(source) {
   const declarationsByScope = new Map();
   const hardcodedLabels = [];
   let hasExactDerivedSelector = false;
+  let hasUnsupportedOptionSelector = false;
 
   function enclosingScope(node) {
     for (let current = node; current; current = current.parent) {
@@ -75,18 +76,7 @@ function analyzeOptionSelectors(source) {
     ) {
       hardcodedLabels.push(node.text);
     } else if (ts.isRegularExpressionLiteral(node)) {
-      const closingSlash = node.text.lastIndexOf('/');
-      const pattern = node.text.slice(1, closingSlash);
-      const flags = node.text.slice(closingSlash + 1);
-      for (const label of FORBIDDEN_CATEGORY_LABELS) {
-        if (
-          flags.includes('i')
-            ? pattern.toLocaleLowerCase('en-US').includes(label.toLocaleLowerCase('en-US'))
-            : pattern.includes(label)
-        ) {
-          hardcodedLabels.push(label);
-        }
-      }
+      hardcodedLabels.push(node.text);
     } else if (ts.isIdentifier(node)) {
       const declaration = resolveIdentifier(node);
       if (declaration?.initializer && !resolvingDeclarations.has(declaration)) {
@@ -115,27 +105,50 @@ function analyzeOptionSelectors(source) {
     return;
   }
 
+  function isSupportedNameValue(value) {
+    return (
+      ts.isIdentifier(value) ||
+      ts.isStringLiteral(value) ||
+      ts.isNoSubstitutionTemplateLiteral(value) ||
+      ts.isRegularExpressionLiteral(value)
+    );
+  }
+
   function inspectOptionSelectors(node) {
     if (
       ts.isCallExpression(node) &&
       ts.isPropertyAccessExpression(node.expression) &&
       node.expression.name.text === 'getByRole' &&
       ts.isStringLiteral(node.arguments[0]) &&
-      node.arguments[0].text === 'option' &&
-      node.arguments[1] &&
-      ts.isObjectLiteralExpression(node.arguments[1])
+      node.arguments[0].text === 'option'
     ) {
-      const nameValue = propertyValue(node.arguments[1], 'name');
-      const exactValue = propertyValue(node.arguments[1], 'exact');
-      if (nameValue) {
-        collectLabels(nameValue);
+      const options = node.arguments[1];
+      if (options && ts.isObjectLiteralExpression(options)) {
+        const nameValue = propertyValue(options, 'name');
+        const exactValue = propertyValue(options, 'exact');
         if (
-          ts.isIdentifier(nameValue) &&
-          nameValue.text === 'TOOL_CATEGORY_LABEL' &&
-          exactValue?.kind === ts.SyntaxKind.TrueKeyword
+          options.properties.some(
+            (property) =>
+              ts.isSpreadAssignment(property) || ts.isComputedPropertyName(property.name)
+          ) ||
+          !nameValue ||
+          (ts.isIdentifier(nameValue) && !resolveIdentifier(nameValue)) ||
+          !isSupportedNameValue(nameValue)
         ) {
-          hasExactDerivedSelector = true;
+          hasUnsupportedOptionSelector = true;
         }
+        if (nameValue) {
+          collectLabels(nameValue);
+          if (
+            ts.isIdentifier(nameValue) &&
+            nameValue.text === 'TOOL_CATEGORY_LABEL' &&
+            exactValue?.kind === ts.SyntaxKind.TrueKeyword
+          ) {
+            hasExactDerivedSelector = true;
+          }
+        }
+      } else {
+        hasUnsupportedOptionSelector = true;
       }
     }
     ts.forEachChild(node, inspectOptionSelectors);
@@ -143,7 +156,7 @@ function analyzeOptionSelectors(source) {
 
   collectVariableDeclarations(sourceFile);
   inspectOptionSelectors(sourceFile);
-  return { hardcodedLabels, hasExactDerivedSelector };
+  return { hardcodedLabels, hasExactDerivedSelector, hasUnsupportedOptionSelector };
 }
 
 function collectE2eSpecs(relativeDirectory) {
@@ -199,6 +212,9 @@ function categoryLabelViolations(source) {
   }
   if (selectorAnalysis.hardcodedLabels.length > 0) {
     violations.push('hardcodes an option presentation label');
+  }
+  if (selectorAnalysis.hasUnsupportedOptionSelector) {
+    violations.push('uses an option selector shape that cannot be verified statically');
   }
 
   return violations;
