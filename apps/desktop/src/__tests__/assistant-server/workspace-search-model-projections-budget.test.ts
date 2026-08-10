@@ -1,5 +1,10 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
-import { expect, it } from 'vitest';
+import {
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
+} from '@brainstrike/agent';
+import { describe, expect, it } from 'vitest';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
 import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
 
 it('fits nearly twice as many newline-dense grep rows with the decoded ruler', () => {
@@ -65,4 +70,70 @@ it('fits nearly twice as many newline-dense grep rows with the decoded ruler', (
   expect(oldSerializedRulerRows).toBe(54);
   expect(decodedRulerRows).toBe(100);
   expect(decodedRulerRows / oldSerializedRulerRows).toBeGreaterThan(1.8);
+});
+
+describe('resolved per-run grep projection budgets', () => {
+  it('fits smaller, byte-identical anchor, and larger pages across tiers', () => {
+    const matches = Array.from({ length: 500 }, (_, index) => ({
+      after: [],
+      before: [],
+      line: index + 1,
+      lineText: `match-${index}-${'x'.repeat(80)}`,
+      path: '/src/tiered.ts',
+      rootId: 'root-a',
+      rootName: 'alpha',
+      source: 'both' as const,
+    }));
+    const raw = {
+      candidatesTruncated: false,
+      liveEngine: 'ripgrep',
+      matches,
+      offset: 0,
+      outputMode: 'content',
+      scanLimited: false,
+      skippedMissingLineMetadata: 0,
+      totalMatches: matches.length,
+      truncated: false,
+    };
+    const floorBudget = resolveScaledToolResultBudget(8192);
+    const anchorBudget = resolveScaledToolResultBudget(131_072);
+    const ceilingBudget = resolveScaledToolResultBudget(262_144);
+
+    const floor = projectGrepSearchModelOutput(raw, floorBudget.domainModelResultCharBudget);
+    const anchor = projectGrepSearchModelOutput(raw, anchorBudget.domainModelResultCharBudget);
+    const defaultAnchor = projectGrepSearchModelOutput(raw);
+    const ceiling = projectGrepSearchModelOutput(raw, ceilingBudget.domainModelResultCharBudget);
+
+    expect(anchor).toEqual(defaultAnchor);
+    expect(floor.value.length).toBeLessThan(anchor.value.length);
+    expect(ceiling.value.length).toBeGreaterThan(anchor.value.length);
+  });
+
+  it('replays a stored projection above the resolved floor budget but below the ceiling', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192).domainModelResultCharBudget;
+    const storedModelOutput = {
+      type: 'text' as const,
+      value: `grep files ${'x'.repeat(8000)}`,
+    };
+
+    expect(decodedChars([storedModelOutput.value])).toBeGreaterThan(floorBudget);
+    expect(decodedChars([storedModelOutput.value])).toBeLessThanOrEqual(
+      CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+    );
+    expect(projectGrepSearchModelOutput(storedModelOutput, floorBudget)).toEqual(storedModelOutput);
+  });
+
+  it('rejects a stored projection above the fixed replay ceiling', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192).domainModelResultCharBudget;
+    const storedModelOutput = {
+      type: 'text' as const,
+      value: `grep content ${'x'.repeat(
+        CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+      )}`,
+    };
+
+    expect(() => projectGrepSearchModelOutput(storedModelOutput, floorBudget)).toThrow(
+      `stored model projection exceeds the ${CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget}-character domain budget`
+    );
+  });
 });

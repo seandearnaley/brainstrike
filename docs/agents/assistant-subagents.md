@@ -106,7 +106,11 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   and **no `memory`** (Mastra injects the parent's memory and scopes writes to a
   fresh delegation thread). The child `Agent` id EQUALS the persona id — Mastra
   sets `DelegationStartContext.primitiveId = agent.id`, and the caps resolve the
-  persona by that id.
+  persona by that id. Because the selected tools are the SAME parent-owned
+  objects, the outer model-projection wrapper installs the child's resolved
+  budget only for the synchronous custom-projector call and restores the prior
+  value in `finally`; desktop producers therefore narrow or widen per pinned
+  child instead of retaining their construction-time parent budget.
 - **Safety rails:** `packages/agent/src/mastra/subagent-delegation.ts`
   (`createDelegationConfig`): per-run `DelegationConfig` closure —
   `MAX_CONCURRENT_DELEGATIONS = 2`, `MAX_DELEGATIONS_PER_RUN = 8`, persona

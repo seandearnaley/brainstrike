@@ -33,7 +33,7 @@ async function openToolsSettings(page: import('@playwright/test').Page): Promise
   return settings;
 }
 
-test.describe('AI Tools and System Diagnostics settings (web)', () => {
+test.describe('AI Tools and System Diagnostics settings (web)', { tag: '@web-smoke' }, () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await resetAppState(page);

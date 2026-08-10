@@ -248,12 +248,16 @@ function semanticScores(result: SemanticResult): string | null {
     .join(',')}`;
 }
 
-function fitSemanticContext(result: SemanticResult, fixed: readonly string[]): string[] {
+function fitSemanticContext(
+  result: SemanticResult,
+  fixed: readonly string[],
+  domainModelResultCharBudget: number
+): string[] {
   if (result.context.length === 0) {
     return [...fixed];
   }
   const full = [...fixed, ...result.context.split('\n')];
-  if (decodedChars(full) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(full) <= domainModelResultCharBudget) {
     return full;
   }
   const codePoints = Array.from(result.context);
@@ -269,7 +273,7 @@ function fitSemanticContext(result: SemanticResult, fixed: readonly string[]): s
       `projection_omitted_context_chars=${codePoints.length - midpoint}`,
       refinement,
     ];
-    if (decodedChars(candidate) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) <= domainModelResultCharBudget) {
       low = midpoint;
     } else {
       high = midpoint - 1;
@@ -281,13 +285,16 @@ function fitSemanticContext(result: SemanticResult, fixed: readonly string[]): s
     `projection_omitted_context_chars=${codePoints.length - low}`,
     refinement,
   ];
-  if (decodedChars(fitted) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(fitted) > domainModelResultCharBudget) {
     throw new RangeError('queryEmbeddingSpace model projection cannot fit required metadata');
   }
   return fitted;
 }
 
-function projectUnavailable(result: UnavailableResult): WorkspaceRetrievalTextModelOutput {
+function projectUnavailable(
+  result: UnavailableResult,
+  domainModelResultCharBudget: number
+): WorkspaceRetrievalTextModelOutput {
   const index = result.workspaceIndex;
   const lines = [
     `semantic | status=unavailable | reason=${result.reason}` +
@@ -305,21 +312,28 @@ function projectUnavailable(result: UnavailableResult): WorkspaceRetrievalTextMo
         ]
       : []),
   ];
-  if (decodedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > domainModelResultCharBudget) {
     throw new RangeError('queryEmbeddingSpace unavailable projection exceeds its budget');
   }
   return output(lines);
 }
 
 export function projectQueryEmbeddingSpaceModelOutput(
-  raw: unknown
+  raw: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
 ): WorkspaceRetrievalTextModelOutput {
   const result = parseSemanticResult(raw);
   if ('status' in result) {
-    return projectUnavailable(result);
+    return projectUnavailable(result, domainModelResultCharBudget);
   }
   const scores = semanticScores(result);
-  return output(fitSemanticContext(result, [semanticHeader(result), ...(scores ? [scores] : [])]));
+  return output(
+    fitSemanticContext(
+      result,
+      [semanticHeader(result), ...(scores ? [scores] : [])],
+      domainModelResultCharBudget
+    )
+  );
 }
 
 function hybridHeader(result: HybridResult, kept: number): string {
@@ -360,21 +374,24 @@ function buildHybridLines(
   ];
 }
 
-export function projectHybridSearchModelOutput(raw: unknown): WorkspaceRetrievalTextModelOutput {
+export function projectHybridSearchModelOutput(
+  raw: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): WorkspaceRetrievalTextModelOutput {
   const result = parseHybridResult(raw);
   const keptLines: string[] = [];
   let kept = 0;
   for (const item of result.results) {
     const itemLines = hybridItemLines(item);
     const candidate = buildHybridLines(result, [...keptLines, ...itemLines], kept + 1);
-    if (decodedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > domainModelResultCharBudget) {
       break;
     }
     keptLines.push(...itemLines);
     kept += 1;
   }
   const lines = buildHybridLines(result, keptLines, kept);
-  if (decodedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > domainModelResultCharBudget) {
     throw new RangeError('hybridSearch model projection cannot fit required metadata');
   }
   return output(lines);

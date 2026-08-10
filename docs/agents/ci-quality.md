@@ -24,6 +24,25 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+The AI Tools settings specs are deliberately part of both required PR smoke
+lanes. Their tool category/loading-tier assertions follow the shared assistant
+contract and previously drifted while every PR check stayed green. Web selects
+`settings-tools-and-diagnostics.test.ts` through its suite-level `@web-smoke`
+tag; desktop requires both the suite-level `@smoke` tag and the explicit
+`tools-settings.desktop.test.ts` allowlist entry. Both suites also remain in
+nightly regression: the web broad pass includes the suite, while desktop's
+regression project excludes `@smoke` and therefore chains the dedicated
+`test:e2e:lane:tools-settings-nightly` lane after its broad pass. That lane has a
+two-minute Playwright budget, and the scheduled workflow has a 40-minute job
+budget (30-minute broad cap plus lane and setup/build headroom). The measured
+incremental local cost when this ruling was made was about 5 seconds for web and
+28 seconds for desktop; the first Linux CI run after admission completed the
+entire desktop smoke step in 149 seconds against its 300-second Playwright
+budget. `ai-tools-e2e-pr-gate-contract.test.mjs` verifies every title has
+statically resolved tags, the desktop file remains PR-allowlisted and
+nightly-routed, and the pull-request E2E jobs still invoke both smoke scripts
+without PR-excluding conditions.
+
 ### The package-boundary gate runs first in Static (BST-967)
 
 The `Static` job runs `pnpm exec turbo boundaries` as its first substantive
@@ -799,7 +818,7 @@ What holds it honest:
   scripts' real-repo verdicts are unchanged — but they are now correct for that
   shape rather than accidentally unexercised.
 - **Only CI-invoked lanes supply coverage.** A lane is CI-invoked if a scoped
-  workflow runs it or the `full-regression` `&&` chain reaches it. Detached
+  workflow runs it or the `full-regression` aggregate runner references it. Detached
   package scripts cannot mark a spec covered merely by existing.
 - **`LANE_WORKFLOW_FILES` is explicit, and that is the safe direction.** The
   `@desktop-embedding-*` lane is written inline in `desktop-e2e.yml` rather than
@@ -825,23 +844,28 @@ What holds it honest:
   control-tested against the pre-fix per-file logic and goes red there, which the
   other fixtures do not.
 
-**Chain position: the two rescued web lanes run LAST, deliberately.** Head
-position was tried and reverted on review. The tail-is-starved-first argument is
-real in isolation, but it loses to the budget: `web-e2e.yml` caps the job at
-`timeout-minutes: 45`, every lane restarts `webServer` from scratch
-(`reuseExistingServer: false`), and `production-csp` sets
-`test.setTimeout(180_000)` for a real local embedding. These two lanes have never
-executed in CI even once, so at the head one first-run flake blinds the eight
-downstream lanes that currently work; at the tail a failure costs only itself,
-and they run 0% of the time today, so tail is still a strict improvement.
-Revisit once they have a green track record. The position is pinned by a test
-whose message carries this reasoning.
+**Full-regression execution is fail-late, not shell-short-circuited (BST-1059).**
+`apps/web` names the broad pass and ten serialized stateful/destructive lanes as
+separate package scripts. `scripts/run-e2e-lane-sequence.mjs` invokes every one,
+records each result, and exits non-zero after the final lane if any failed. A
+failure in the broad or middle lanes therefore cannot starve tail lanes. The
+runner also appends a unique `--output=test-results/<lane>` argument to every
+Playwright invocation; later lanes may clean their own subdirectory but cannot
+erase an earlier failure's traces, and the workflow uploads the parent
+`test-results/` tree recursively.
 
-**What a green does NOT prove:** that a spec ran. `full-regression` is an
-`&&`-sequential chain, so a failing lane short-circuits every lane after it —
-the BST-1032 blind-window class. A spec at the tail of that chain is statically
-"covered" while never executing. That is why the two rescued lanes are chained
-FIRST. Detecting non-execution needs a run-artifact diff and is out of scope.
+The workflow remains bounded: lane-level Playwright global timeouts total 130
+minutes, eleven fresh web-server starts are capped at one minute each, and
+`web-e2e.yml` allows 165 minutes total, leaving 24 minutes for install/build
+overhead. Do not replace the runner with an `&&` chain or reduce the workflow
+timeout below the aggregate lane and startup budgets. The runner contract test
+derives that inequality from every invoked lane's declared timeout and the
+job-scoped workflow timeout.
+
+**What a green does NOT prove:** that an externally cancelled or job-timed-out
+run completed. The aggregate runner closes the ordinary lane-failure blind
+window and prints per-lane START/PASS/FAIL plus a final failure summary, but a
+static reachability verdict is not a run-artifact audit.
 
 ### The `__vitest_worker__` mutation guard (was: @vitest/runner teardown patch)
 

@@ -30,7 +30,7 @@ async function openToolsSettings(
   await settingsPage.openCategory(/AI Tools/i, 'ai-tools');
 }
 
-test.describe('AI Tools settings (desktop)', () => {
+test.describe('AI Tools settings (desktop)', { tag: '@smoke' }, () => {
   test('supports search, category/tier filters, and native bulk toggles', async ({
     window,
     homePage,
