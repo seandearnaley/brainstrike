@@ -83,6 +83,36 @@ function analyzeOptionSelectors(source) {
     return;
   }
 
+  function resolveLocalValue(node, resolvingDeclarations = new Set()) {
+    if (ts.isIdentifier(node)) {
+      const declaration = resolveIdentifier(node);
+      if (declaration?.initializer && !resolvingDeclarations.has(declaration)) {
+        const nextResolvingDeclarations = new Set(resolvingDeclarations);
+        nextResolvingDeclarations.add(declaration);
+        return resolveLocalValue(declaration.initializer, nextResolvingDeclarations);
+      }
+      return;
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      return node;
+    }
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const objectValue = resolveLocalValue(node.expression, resolvingDeclarations);
+      const selectedName = ts.isPropertyAccessExpression(node)
+        ? node.name.text
+        : node.argumentExpression && ts.isStringLiteral(node.argumentExpression)
+          ? node.argumentExpression.text
+          : undefined;
+      if (selectedName && objectValue && ts.isObjectLiteralExpression(objectValue)) {
+        const selectedValue = propertyValue(objectValue, selectedName);
+        return selectedValue
+          ? (resolveLocalValue(selectedValue, resolvingDeclarations) ?? selectedValue)
+          : undefined;
+      }
+    }
+    return;
+  }
+
   function collectLabels(node, resolvingDeclarations = new Set()) {
     if (
       (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
@@ -97,25 +127,10 @@ function analyzeOptionSelectors(source) {
           hardcodedLabels.push(label);
         }
       }
-    } else if (
-      (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
-      ts.isIdentifier(node.expression)
-    ) {
-      const declaration = resolveIdentifier(node.expression);
-      const selectedName = ts.isPropertyAccessExpression(node)
-        ? node.name.text
-        : node.argumentExpression && ts.isStringLiteral(node.argumentExpression)
-          ? node.argumentExpression.text
-          : undefined;
-      if (
-        selectedName &&
-        declaration?.initializer &&
-        ts.isObjectLiteralExpression(declaration.initializer)
-      ) {
-        const selectedValue = propertyValue(declaration.initializer, selectedName);
-        if (selectedValue) {
-          collectLabels(selectedValue, resolvingDeclarations);
-        }
+    } else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const selectedValue = resolveLocalValue(node, resolvingDeclarations);
+      if (selectedValue) {
+        collectLabels(selectedValue, resolvingDeclarations);
         return;
       }
       ts.forEachChild(node, (child) => collectLabels(child, resolvingDeclarations));
@@ -464,11 +479,12 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
     const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
       NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
     ].label;
-    const provider = { category: 'Analysis', label: 'OpenAI' };
+    const fixture = { provider: { category: 'Analysis', label: 'OpenAI' } };
+    const provider = page.getByTestId('provider');
     test('Analysis remains available as unrelated fixture data', async () => {
       await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
       await page.getByRole('option', { exact: true, name: /OpenAI/i }).click();
-      await page.getByRole('option', { name: provider.label }).click();
+      await page.getByRole('option', { name: fixture.provider.label }).click();
       await provider.getByRole('option', { name: /^.+$/ }).click();
     });
   `;
