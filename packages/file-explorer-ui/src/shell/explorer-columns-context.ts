@@ -153,6 +153,38 @@ function useStableColumnIds(
 }
 
 /**
+ * Content-address the render-width projection so a fresh source-map identity
+ * cannot repaint consumers when every column still resolves to the same pixel.
+ */
+function serializeColumnWidths(widths: Record<string, number>): string {
+  return Object.entries(widths)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([columnId, width]) => `${encodeURIComponent(columnId)}:${width}`)
+    .join('|');
+}
+
+/** Rebuild an identity-stable width map from the validated internal key. */
+function deserializeColumnWidths(contentKey: string): Record<string, number> {
+  if (contentKey === '') {
+    return EMPTY_COLUMN_WIDTHS;
+  }
+  const widths: Record<string, number> = {};
+  for (const entry of contentKey.split('|')) {
+    const separatorIndex = entry.lastIndexOf(':');
+    if (separatorIndex <= 0) {
+      throw new Error(`Malformed Explorer column-width key: ${entry}`);
+    }
+    const columnId = decodeURIComponent(entry.slice(0, separatorIndex));
+    const width = Number(entry.slice(separatorIndex + 1));
+    if (!Number.isFinite(width)) {
+      throw new Error(`Malformed Explorer column width for "${columnId}": ${width}`);
+    }
+    widths[columnId] = width;
+  }
+  return widths;
+}
+
+/**
  * Shrink the persisted widths so the grid always fits the panel.
  *
  * This is a RENDER-TIME projection, never a mutation: the store keeps the width
@@ -203,15 +235,30 @@ export function resolveExplorerColumnWidths(args: {
   }
 
   // Distribute the shrink across the slack each column has above its minimum,
-  // so a column already near its floor gives up proportionally less.
+  // so a column already near its floor gives up proportionally less. Floor the
+  // individual targets first, then hand the remaining whole pixels to the
+  // largest fractional remainders. Independent Math.round calls can all round
+  // upward and exceed the shared panel budget.
   const slackTotal = desiredTotal - minimumTotal;
   const overflow = desiredTotal - budget;
-  for (const column of desired) {
+  const targets = desired.map((column, index) => {
     const slack = column.width - column.minWidth;
-    next[column.columnId] = Math.max(
-      column.minWidth,
-      Math.round(column.width - (overflow * slack) / slackTotal)
-    );
+    const exactWidth = Math.max(column.minWidth, column.width - (overflow * slack) / slackTotal);
+    const flooredWidth = Math.floor(exactWidth);
+    next[column.columnId] = flooredWidth;
+    return {
+      columnId: column.columnId,
+      fractionalRemainder: exactWidth - flooredWidth,
+      index,
+    };
+  });
+  const flooredTotal = targets.reduce((total, target) => total + (next[target.columnId] ?? 0), 0);
+  const remainingPixels = Math.max(0, Math.floor(budget - flooredTotal));
+  const largestRemainders = [...targets].sort(
+    (a, b) => b.fractionalRemainder - a.fractionalRemainder || a.index - b.index
+  );
+  for (const target of largestRemainders.slice(0, remainingPixels)) {
+    next[target.columnId] = (next[target.columnId] ?? 0) + 1;
   }
   return next;
 }
@@ -250,7 +297,7 @@ export function useExplorerColumnsValue(
       visibility: { size, tokens, type },
     })
   );
-  const columnWidths = useMemo(
+  const resolvedColumnWidths = useMemo(
     () =>
       resolveExplorerColumnWidths({
         availableWidth: containerWidth,
@@ -259,6 +306,11 @@ export function useExplorerColumnsValue(
       }),
     [containerWidth, sizes, visibleMetadataColumnIds]
   );
+  // A sub-pixel ResizeObserver change can recompute the projection without
+  // changing any rendered integer width. Retain the map (and therefore the
+  // complete context value) when every observable answer is identical.
+  const widthsContentKey = serializeColumnWidths(resolvedColumnWidths);
+  const columnWidths = useMemo(() => deserializeColumnWidths(widthsContentKey), [widthsContentKey]);
 
   return useMemo(
     () => ({ areMetadataColumnsSuppressed, columnWidths, visibleMetadataColumnIds }),

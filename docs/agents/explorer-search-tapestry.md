@@ -317,16 +317,22 @@ those rows on `pending` forever AND pins every ancestor rollup to `partial`.
 A directory rollup is only `complete` when the subtree is fully enumerated AND
 every descendant's metadata has landed, otherwise it is an explicit `partial`
 marker; excluded files contribute zero tokens and their real size without
-blocking completeness. A count landing for one key must not re-render any other
-row.
+blocking completeness. Partial reasons are explicit: `recomputing` is reserved
+for deferred rollup work that is actually queued, `incomplete-subtree` covers
+unloaded/capped/failed enumeration with neutral unavailable copy, and
+`pending-metadata` means descendant counts have not landed. Do not label an
+inert or permanently capped subtree as recomputing. A count landing for one key
+must not re-render any other row.
 
 `getDirectorySubtree` is TOTAL: anything the caller cannot enumerate answers
-`{ fileKeys: [], isComplete: false }` rather than nothing, so a cell can never
-throw mid-render and "this is a file" is not confused with "this directory is
-not enumerated yet". Because rollups are cached and the store cannot see the
-tree, the caller MUST call `invalidateAll()` whenever the tree SHAPE changes
-(expand, collapse, filter, refresh, root switch) — `use-file-tree-metadata-source`
-does this off the row-model identity.
+an `isComplete: false` subtree with `incompleteReason: 'not-enumerated'`
+rather than nothing, so a cell can never throw mid-render and "this is a file"
+is not confused with "this directory is not enumerated yet". Only the deferred
+controller returns `incompleteReason: 'recomputing'`, and only after it has
+queued the path. Because rollups are cached and the store cannot see the tree,
+the caller MUST call `invalidateAll()` whenever the tree SHAPE changes (expand,
+collapse, filter, refresh, root switch) — `use-file-tree-metadata-source` does
+this off the row-model identity.
 
 Invalidation has two paths and the split is load-bearing. `useFileRowMetadataStore`
 returns an `onTokenResolved` that MUST be passed to
@@ -529,9 +535,17 @@ fallback.
   `@[300px]/explorer-toolbar:contents` wrapper, before Refresh/View Filters, so
   the documented three-control geometry at 236px is unchanged. 300px is ALSO
   the width below which the tree grid suppresses its metadata columns
-  (`METADATA_COLUMNS_MIN_WIDTH` in `shell/explorer-columns-context.ts`) — the
+  (`METADATA_COLUMNS_MIN_WIDTH` in
+  `packages/file-explorer-ui/src/shell/explorer-columns-context.ts`) — the
   two are tied on purpose so the grid never shows a column the user has no way
-  to hide. Pinned by `file-explorer-toolbar.test.tsx`.
+  to hide. Render-time width projection reserves 120px for Name and apportions
+  the remaining whole pixels with a largest-remainder allocation. On the
+  proportional-shrink path, metadata widths never collectively exceed the
+  panel budget; when even the columns' minimums do not fit, their declared
+  minimums intentionally win. Output-identical projections retain their
+  map/context identity so sub-pixel ResizeObserver churn does not repaint every
+  consumer. Pinned by `shell/explorer-columns-context.ts`,
+  `file-explorer-toolbar.test.tsx` and `explorer-column-header.test.tsx`.
 - **The cancel affordance is never width-gated.** The inline scanning
   indicator's Cancel (X) is the ONLY way to abort a running expand-all sweep —
   Refresh is disabled for the duration and the compact menu has never carried a

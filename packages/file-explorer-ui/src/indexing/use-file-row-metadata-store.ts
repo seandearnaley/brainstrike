@@ -46,8 +46,9 @@ import { useOptionalTokenCacheContext } from './token-cache-context';
 export interface UseFileRowMetadataStoreParams {
   /**
    * Enumerated subtree for a directory composite key. TOTAL by contract —
-   * answer `{ fileKeys: [], isComplete: false }` for anything you cannot
-   * enumerate rather than returning nothing; `isComplete` must mirror the
+   * answer an `isComplete: false` subtree with `incompleteReason:
+   * 'not-enumerated'` for anything you cannot enumerate rather than returning
+   * nothing; `isComplete` must mirror the
    * tree's `hasIncompleteDescendants` guard so rollups never sum a partial
    * subtree.
    *

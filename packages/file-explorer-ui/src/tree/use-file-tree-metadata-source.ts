@@ -29,6 +29,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useOptionalFileRowMetadata } from '../indexing/file-row-metadata-context';
 import {
   type FileRowMetadataSource,
+  RECOMPUTING_DIRECTORY_SUBTREE,
   UNENUMERATED_DIRECTORY_SUBTREE,
 } from '../indexing/file-row-metadata-source-registry';
 import type {
@@ -302,7 +303,7 @@ export function createDeferredRollupController({
       }
       state.pending.add(path);
       schedule();
-      return UNENUMERATED_DIRECTORY_SUBTREE;
+      return RECOMPUTING_DIRECTORY_SUBTREE;
     },
     refreshAll: () => {
       if (state.cache.size === 0) {

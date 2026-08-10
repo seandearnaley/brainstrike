@@ -75,20 +75,23 @@ export interface FileRowMetadata {
 export type FileRowDirectoryRollup =
   | { readonly size: number; readonly status: 'complete'; readonly tokens: number }
   | {
-      readonly reason: 'incomplete-subtree' | 'pending-metadata';
+      readonly reason: 'incomplete-subtree' | 'pending-metadata' | 'recomputing';
       readonly status: 'partial';
     };
 
-export interface FileRowDirectorySubtree {
-  /** Composite keys of every file currently enumerated under the directory. */
-  readonly fileKeys: readonly string[];
-  /**
-   * False when any directory in the subtree is not fully loaded — the same
-   * guard as `FileTreeRowData.hasIncompleteDescendants`, which is what stops
-   * the tri-state checkbox from rendering "all selected" over a partial tree.
-   */
-  readonly isComplete: boolean;
-}
+export type FileRowDirectorySubtree =
+  | {
+      /** Composite keys of every file currently enumerated under the directory. */
+      readonly fileKeys: readonly string[];
+      readonly incompleteReason?: never;
+      readonly isComplete: true;
+    }
+  | {
+      readonly fileKeys: readonly string[];
+      /** Distinguishes queued work from a permanent/inert incomplete subtree. */
+      readonly incompleteReason: 'not-enumerated' | 'recomputing';
+      readonly isComplete: false;
+    };
 
 export interface FileRowMetadataSources {
   /** `file_token_cache.file_size`; the fallback when the node has no size. */
@@ -96,7 +99,8 @@ export interface FileRowMetadataSources {
   /**
    * Enumerated subtree for a directory key. TOTAL by contract: a key the caller
    * knows nothing about — an unexpanded directory, an unregistered key, or a
-   * FILE key reached by mistake — answers `{ fileKeys: [], isComplete: false }`,
+   * FILE key reached by mistake — answers an incomplete subtree with the
+   * explicit `not-enumerated` reason,
    * which reads as `partial`. Returning a sentinel rather than `null` is what
    * keeps a cell from throwing mid-render, and it removes the old ambiguity
    * where "this is a file" and "this directory is not enumerated yet" were the
@@ -255,6 +259,10 @@ const PARTIAL_INCOMPLETE_SUBTREE: FileRowDirectoryRollup = {
   reason: 'incomplete-subtree',
   status: 'partial',
 };
+const PARTIAL_RECOMPUTING: FileRowDirectoryRollup = {
+  reason: 'recomputing',
+  status: 'partial',
+};
 const PARTIAL_PENDING_METADATA: FileRowDirectoryRollup = {
   reason: 'pending-metadata',
   status: 'partial',
@@ -366,7 +374,9 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
   const computeDirectoryRollup = (compositeKey: string): FileRowDirectoryRollup => {
     const subtree = sources.getDirectorySubtree(compositeKey);
     if (!subtree.isComplete) {
-      return PARTIAL_INCOMPLETE_SUBTREE;
+      return subtree.incompleteReason === 'recomputing'
+        ? PARTIAL_RECOMPUTING
+        : PARTIAL_INCOMPLETE_SUBTREE;
     }
 
     let size = 0;

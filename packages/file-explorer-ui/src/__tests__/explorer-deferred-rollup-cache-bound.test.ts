@@ -77,6 +77,20 @@ async function macrotask(): Promise<void> {
 }
 
 describe('deferred rollup cache bound', () => {
+  it('labels only the queued window as recomputing', async () => {
+    const { controller } = createHarness();
+
+    expect(controller.read('/queued')).toMatchObject({
+      incompleteReason: 'recomputing',
+      isComplete: false,
+    });
+    await macrotask();
+    expect(controller.read('/queued')).toMatchObject({
+      incompleteReason: 'not-enumerated',
+      isComplete: false,
+    });
+  });
+
   it('drops entries nothing has read since the previous refresh', async () => {
     const { controller, invalidateDirectories, resolvedPaths } = createHarness();
     const expanded = directoryPaths(50);

@@ -41,6 +41,14 @@ const logger = createLogger('FileRowMetadataSourceRegistry');
  */
 export const UNENUMERATED_DIRECTORY_SUBTREE: FileRowDirectorySubtree = Object.freeze({
   fileKeys: Object.freeze([] as string[]),
+  incompleteReason: 'not-enumerated',
+  isComplete: false,
+});
+
+/** A subtree whose deferred aggregation has been queued for the next task. */
+export const RECOMPUTING_DIRECTORY_SUBTREE: FileRowDirectorySubtree = Object.freeze({
+  fileKeys: Object.freeze([] as string[]),
+  incompleteReason: 'recomputing',
   isComplete: false,
 });
 
@@ -48,8 +56,9 @@ export const UNENUMERATED_DIRECTORY_SUBTREE: FileRowDirectorySubtree = Object.fr
 export interface FileRowMetadataSource {
   /**
    * Enumerated file subtree under `path`. Must return
-   * `UNENUMERATED_DIRECTORY_SUBTREE` (or any `isComplete: false` value) rather
-   * than guessing when the subtree is not fully loaded or is too large to walk.
+   * `UNENUMERATED_DIRECTORY_SUBTREE` rather than guessing when the subtree is
+   * not fully loaded or is too large to walk. Use
+   * `RECOMPUTING_DIRECTORY_SUBTREE` only when work is actually queued.
    */
   getDirectorySubtree: (path: string) => FileRowDirectorySubtree;
   getNodeSize: (path: string) => number | undefined;

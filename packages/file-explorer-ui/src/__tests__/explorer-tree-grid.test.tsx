@@ -13,6 +13,7 @@
  */
 
 import { useExplorerSortStateStore } from '@brainstrike/app-state/stores/explorer-sort-state-store';
+import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { useEffect } from 'react';
@@ -26,6 +27,7 @@ import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import { ExplorerColumnsProvider } from '../shell/explorer-columns-provider';
 import { ExplorerSortProvider } from '../shell/explorer-sort-provider';
 import { EXCLUDED_TOKENS_TITLE } from '../tree/file-tree-metadata-cells';
+import { resetReportedUnidentifiedRowsForTests } from '../tree/file-tree-metadata-diagnostics';
 import OptimizedFileTree, { fileTreeTelemetry } from '../tree/optimized-file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
@@ -91,9 +93,11 @@ const UNENUMERATED_TREE: IFileNode[] = [directory('/lazy', [], false)];
 
 function Harness({
   fileTree,
+  folderId = ROOT,
   onReady,
 }: {
   fileTree: IFileNode[];
+  folderId?: string;
   onReady?: ((metadata: ExplorerRowMetadata) => void) | undefined;
 }) {
   const rowMetadata = useExplorerRowMetadata();
@@ -114,7 +118,7 @@ function Harness({
         >
           <OptimizedFileTree
             fileTree={fileTree}
-            folderId={ROOT}
+            folderId={folderId}
             loadingFiles={new Set()}
             showColumnHeader={true}
           />
@@ -159,6 +163,7 @@ function rowFor(name: string): HTMLElement {
 describe('Explorer tree grid', () => {
   beforeEach(() => {
     cacheState = { isOperational: true, tokens: {} };
+    resetReportedUnidentifiedRowsForTests();
     useExplorerSortStateStore.getState().reset();
   });
 
@@ -216,6 +221,28 @@ describe('Explorer tree grid', () => {
     const row = rowFor('logo.png');
     expect(within(row).getByTitle(EXCLUDED_TOKENS_TITLE)).toBeInTheDocument();
     expect(within(row).queryByTitle('Token count pending')).not.toBeInTheDocument();
+  });
+
+  it('renders malformed row metadata as unavailable and reports the row only once', async () => {
+    const error = vi
+      .spyOn(createLogger('FileTreeMetadataCells'), 'error')
+      .mockImplementation(() => {});
+    const unidentified = file('/unidentified.ts', 42);
+    unidentified.rootFolderId = '';
+
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <Harness fileTree={[unidentified]} folderId="" />
+        </FileExplorerTestWrapper>
+      );
+    });
+
+    const row = rowFor('unidentified.ts');
+    expect(
+      within(row).getAllByTitle('Metadata unavailable — this row has no workspace identity')
+    ).toHaveLength(2);
+    expect(error).toHaveBeenCalledTimes(1);
   });
 
   it('rolls a fully counted, fully loaded folder up to a total', async () => {
@@ -282,7 +309,7 @@ describe('Explorer tree grid', () => {
 
       expect(
         within(rowFor('src')).getAllByTitle(
-          'Folder total unavailable — this folder is not fully enumerated'
+          'Folder total recomputing — this folder is still being enumerated'
         ).length
       ).toBeGreaterThan(0);
 

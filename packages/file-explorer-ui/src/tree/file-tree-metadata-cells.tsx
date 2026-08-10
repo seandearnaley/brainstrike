@@ -24,7 +24,6 @@
  */
 
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import { createLogger } from '@brainstrike/logging';
 import { getFileExtension } from '@brainstrike/utils/file-utils';
 import { memo, useCallback, useMemo, useSyncExternalStore } from 'react';
 import { ExtensionBadge } from '../extension-badge';
@@ -36,16 +35,19 @@ import type {
 } from '../indexing/file-row-metadata-store';
 import { formatTokenCount } from '../preview/use-preview-panel-state';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
+import { reportUnidentifiedRow } from './file-tree-metadata-diagnostics';
 import { useFileTreeSelection } from './file-tree-selection-context';
 import type { FileTreeRowData } from './optimized-file-tree-model';
 
-const logger = createLogger('FileTreeMetadataCells');
-
 export const EXCLUDED_TOKENS_TITLE = 'binary file excluded from token counts';
 
-const PARTIAL_ROLLUP_TITLE: Record<'incomplete-subtree' | 'pending-metadata', string> = {
+const PARTIAL_ROLLUP_TITLE: Record<
+  'incomplete-subtree' | 'pending-metadata' | 'recomputing',
+  string
+> = {
   'incomplete-subtree': 'Folder total unavailable — this folder is not fully enumerated',
   'pending-metadata': 'Folder total unavailable — some files are still being counted',
+  recomputing: 'Folder total recomputing — this folder is still being enumerated',
 };
 
 interface MetadataCellProps {
@@ -88,31 +90,6 @@ function NumericValue({ children, title }: { children: string; title: string }) 
  * with an error tooltip, and the cause is logged once per row.
  */
 const UNIDENTIFIED_ROW_TITLE = 'Metadata unavailable — this row has no workspace identity';
-
-const reportedUnidentifiedRows = new Set<string>();
-const MAX_REPORTED_UNIDENTIFIED_ROWS = 100;
-
-function reportUnidentifiedRow(path: string, error?: unknown): void {
-  if (reportedUnidentifiedRows.has(path)) {
-    return;
-  }
-  // EVICT the oldest rather than refusing to record: a full set that stops
-  // admitting keys makes every path past the cap log on every recompute, and a
-  // virtualized tree remounts these cells constantly — the cap would cause the
-  // flood it exists to prevent. Set iteration is insertion-ordered, so the
-  // first key is the oldest.
-  if (reportedUnidentifiedRows.size >= MAX_REPORTED_UNIDENTIFIED_ROWS) {
-    const oldest = reportedUnidentifiedRows.values().next();
-    if (!oldest.done) {
-      reportedUnidentifiedRows.delete(oldest.value);
-    }
-  }
-  reportedUnidentifiedRows.add(path);
-  logger.error('Tree row has no resolvable composite key; metadata cannot be read', {
-    ...(error === undefined ? {} : { error }),
-    path,
-  });
-}
 
 /**
  * Composite key for a row. Prefers the node's OWN root identity — in forest

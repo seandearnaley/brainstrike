@@ -9,7 +9,11 @@ import {
 
 const ROOT = 'root-id';
 /** `getDirectorySubtree` is total: anything unknown answers "not enumerated". */
-const UNKNOWN_SUBTREE: FileRowDirectorySubtree = { fileKeys: [], isComplete: false };
+const UNKNOWN_SUBTREE: FileRowDirectorySubtree = {
+  fileKeys: [],
+  incompleteReason: 'not-enumerated',
+  isComplete: false,
+};
 const OVER_MAX_FILE_SIZE = DEFAULT_MAX_FILE_SIZE + 1;
 
 function key(path: string): string {
@@ -389,7 +393,13 @@ describe('createFileRowMetadataStore directory rollups', () => {
   it('returns an explicit partial marker when the subtree is not fully enumerated', () => {
     const store = directoryStore({
       nodeSizes: { [key('src/a.ts')]: 100 },
-      subtrees: { [dirKey]: { fileKeys: [key('src/a.ts')], isComplete: false } },
+      subtrees: {
+        [dirKey]: {
+          fileKeys: [key('src/a.ts')],
+          incompleteReason: 'not-enumerated',
+          isComplete: false,
+        },
+      },
       tokens: { [key('src/a.ts')]: 10 },
     });
 

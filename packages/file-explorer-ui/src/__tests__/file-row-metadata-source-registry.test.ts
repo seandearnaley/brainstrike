@@ -79,6 +79,7 @@ describe('file row metadata source registry', () => {
     const registry = createFileRowMetadataSourceRegistry();
     expect(registry.getDirectorySubtree(encodeFileSelection(ROOT_A, 'src'))).toEqual({
       fileKeys: [],
+      incompleteReason: 'not-enumerated',
       isComplete: false,
     });
     expect(errorSpy).not.toHaveBeenCalled();
@@ -88,6 +89,7 @@ describe('file row metadata source registry', () => {
     const registry = createFileRowMetadataSourceRegistry();
     expect(registry.getDirectorySubtree('not-a-composite-key')).toEqual({
       fileKeys: [],
+      incompleteReason: 'not-enumerated',
       isComplete: false,
     });
     expect(registry.getNodeSize('not-a-composite-key')).toBeUndefined();
