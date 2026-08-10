@@ -101,6 +101,29 @@ function analyzeOptionSelectors(source) {
           hardcodedLabels.push(label);
         }
       }
+    } else if (
+      (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+      ts.isIdentifier(node.expression)
+    ) {
+      const declaration = resolveIdentifier(node.expression);
+      const selectedName = ts.isPropertyAccessExpression(node)
+        ? node.name.text
+        : node.argumentExpression && ts.isStringLiteral(node.argumentExpression)
+          ? node.argumentExpression.text
+          : undefined;
+      if (
+        selectedName &&
+        declaration?.initializer &&
+        ts.isObjectLiteralExpression(declaration.initializer)
+      ) {
+        const selectedValue = propertyValue(declaration.initializer, selectedName);
+        if (selectedValue) {
+          collectLabels(selectedValue, resolvingDeclarations);
+        }
+        return;
+      }
+      ts.forEachChild(node, (child) => collectLabels(child, resolvingDeclarations));
+      return;
     } else if (ts.isIdentifier(node)) {
       const declaration = resolveIdentifier(node);
       if (declaration?.initializer && !resolvingDeclarations.has(declaration)) {
@@ -445,7 +468,7 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
     const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
       NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
     ].label;
-    const provider = { label: 'OpenAI' };
+    const provider = { category: 'Analysis', label: 'OpenAI' };
     test('Analysis remains available as unrelated fixture data', async () => {
       await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
       await page.getByRole('option', { exact: true, name: /OpenAI/i }).click();
