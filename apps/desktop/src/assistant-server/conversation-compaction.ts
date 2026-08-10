@@ -21,16 +21,12 @@ import {
   type CompactionSummaryPayload,
 } from '@brainstrike/assistant-contract/compaction-summary';
 import { deriveEffectiveInputBudget } from '@brainstrike/assistant-contract/context-budget';
+import { ASSISTANT_MESSAGE_PARENTS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   findLlmModelDefinition,
   type ProviderId,
 } from '@brainstrike/assistant-contract/provider-registry';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
-import {
-  createPgliteAssistantThreadRepository,
-  type RecordAssistantMessageParentInput,
-} from '@brainstrike/assistant-data';
-import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
 import { recordCompactionRange, selectProtectedMessageIds } from './compaction-range-repository';
@@ -42,6 +38,20 @@ export const COMPACTION_TARGET_RATIO = 0.7;
 
 type StoredMessage = Awaited<ReturnType<PgliteMemoryStore['listMessages']>>['messages'][number];
 type MemoryStore = Pick<PgliteMemoryStore, 'listMessages' | 'saveMessages'>;
+
+/**
+ * Mirrors `@brainstrike/assistant-data`'s `RecordAssistantMessageParentInput`
+ * shape locally rather than importing it — see the
+ * `ASSISTANT_MESSAGE_PARENTS_TABLE` doc comment in
+ * `@brainstrike/assistant-contract/mastra-memory-schema` for why desktop main
+ * must never depend on that renderer-only package.
+ */
+interface RecordAssistantMessageParentInput {
+  readonly messageId: string;
+  readonly parentId: string | null;
+  readonly resourceId: string;
+  readonly threadId: string;
+}
 
 export interface ConversationCompactionInput {
   readonly memoryStore: MemoryStore;
@@ -115,13 +125,29 @@ function defaultDependencies(
     makeId: randomUUID,
     now: () => new Date(),
     projectMessages: projectCompactionMessages,
+    // Raw SQL against the shared table name, NOT `@brainstrike/assistant-data`'s
+    // `recordMessageParent` — see `RecordAssistantMessageParentInput`'s doc
+    // comment above. Mirrors that method's INSERT ... ON CONFLICT shape
+    // exactly (packages/assistant-data/src/assistant-memory-repository.ts)
+    // so the two writers stay behaviorally identical.
     recordMessageParent: async (input) => {
       const database = await getDatabase();
-      const repository = createPgliteAssistantThreadRepository(database as unknown as DbHandle);
-      if (!repository.recordMessageParent) {
-        throw new Error('Conversation compaction requires durable assistant message topology.');
+      const now = new Date();
+      const result = await database.query<{ messageId: string }>(
+        `INSERT INTO ${ASSISTANT_MESSAGE_PARENTS_TABLE}
+          (message_id, thread_id, resource_id, parent_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $5)
+         ON CONFLICT (message_id) DO UPDATE
+           SET updated_at = EXCLUDED.updated_at
+           WHERE ${ASSISTANT_MESSAGE_PARENTS_TABLE}.thread_id = EXCLUDED.thread_id
+             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.resource_id = EXCLUDED.resource_id
+             AND ${ASSISTANT_MESSAGE_PARENTS_TABLE}.parent_id IS NOT DISTINCT FROM EXCLUDED.parent_id
+         RETURNING message_id AS "messageId"`,
+        [input.messageId, input.threadId, input.resourceId, input.parentId, now]
+      );
+      if (result.rows.length !== 1) {
+        throw new Error(`Assistant message ${input.messageId} has conflicting branch topology.`);
       }
-      await repository.recordMessageParent(input);
     },
     recordRange: recordCompactionRange,
     resolveInputBudget: resolveCompactionInputBudget,

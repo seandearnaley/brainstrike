@@ -14,6 +14,17 @@ export const MASTRA_MEMORY_TABLES = {
 export const MASTRA_VECTOR_TABLE = 'mastra_vectors';
 export const MASTRA_WORKFLOW_TABLE = TABLE_WORKFLOW_SNAPSHOT;
 
+/**
+ * Assistant-ui's client-owned branch topology layered over Mastra's durable
+ * message content (migration 055). Desktop main writes a root row (BST-1200
+ * M2's compaction summary) via raw SQL against this table name directly —
+ * NOT by importing `@brainstrike/assistant-data`, which is the renderer's
+ * bootstrap/repository package (built ESM-only, no `require` condition, and
+ * per `docs/agents/platform-contracts.md`'s BST-558 lesson, deliberately
+ * fragile to import from anywhere but the renderer's own module graph).
+ */
+export const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
+
 /** Title seeded on a thread before anyone (user or observer) has named it. */
 export const DEFAULT_THREAD_TITLE = 'New Thread';
 
