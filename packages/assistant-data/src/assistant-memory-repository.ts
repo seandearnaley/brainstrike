@@ -809,7 +809,7 @@ CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_occurred_at_idx
   ON ${TOOL_CALL_TELEMETRY_TABLE} (occurred_at);
 
 -- Estimator-vs-provider prompt-token reconciliation pairs (BST-1205).
--- Bootstrapped here AND created by migrations 086 + 089 — keep the shape
+-- Bootstrapped here AND created by migrations 086 + 089 + 091 — keep the shape
 -- byte-identical. The numerator is the chars/4 backstop over model-visible tool
 -- outputs plus tool definitions, each counted once. final_step_prompt_tokens is
 -- the latest step prompt, which contains prior tool outputs once via Mastra's
@@ -817,7 +817,10 @@ CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_occurred_at_idx
 -- prompt text outside tool outputs/definitions is excluded from both. Only
 -- completed runs with at least one measured tool output are written. The
 -- nullable resolved-budget columns segment new samples by their actual run
--- tier; historical/bootstrap-upgrade rows remain NULL rather than guessed.
+-- tier. prompt_baseline_tokens records system instructions + task list + tool
+-- definitions for the same run, so the next turn's compaction trigger can
+-- account for prompt content unavailable at its pre-request seam. Historical/
+-- bootstrap-upgrade rows remain NULL rather than guessed.
 -- Mirrored because thread deletion references every sidecar unconditionally;
 -- only desktop main writes rows during normal operation.
 CREATE TABLE IF NOT EXISTS ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (
@@ -832,14 +835,17 @@ CREATE TABLE IF NOT EXISTS ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (
   model_visible_projection_count integer NOT NULL DEFAULT 0 CHECK (model_visible_projection_count >= 0),
   occurred_at timestamptz NOT NULL DEFAULT NOW(),
   resolved_domain_budget_tokens integer CHECK (resolved_domain_budget_tokens IS NULL OR resolved_domain_budget_tokens > 0),
-  resolved_transport_budget_tokens integer CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0)
+  resolved_transport_budget_tokens integer CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0),
+  prompt_baseline_tokens integer CHECK (prompt_baseline_tokens IS NULL OR prompt_baseline_tokens > 0)
 );
 
 ALTER TABLE ${TOKEN_ESTIMATE_CALIBRATION_TABLE}
   ADD COLUMN IF NOT EXISTS resolved_domain_budget_tokens integer
     CHECK (resolved_domain_budget_tokens IS NULL OR resolved_domain_budget_tokens > 0),
   ADD COLUMN IF NOT EXISTS resolved_transport_budget_tokens integer
-    CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0);
+    CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0),
+  ADD COLUMN IF NOT EXISTS prompt_baseline_tokens integer
+    CHECK (prompt_baseline_tokens IS NULL OR prompt_baseline_tokens > 0);
 
 CREATE INDEX IF NOT EXISTS brainstrike_token_estimate_calibration_thread_idx
   ON ${TOKEN_ESTIMATE_CALIBRATION_TABLE} (thread_id);

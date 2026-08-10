@@ -125,6 +125,9 @@ describe('database IPC domain', () => {
   it('accepts the assistant thread renderer bootstrap SQL', () => {
     const bootstrapSql = buildAssistantThreadRunsSchemaSql();
 
+    expect(bootstrapSql).toMatch(
+      /ADD COLUMN IF NOT EXISTS prompt_baseline_tokens integer\s+CHECK \(prompt_baseline_tokens IS NULL OR prompt_baseline_tokens > 0\)/u
+    );
     expect(() => assertRendererSql('db:exec', bootstrapSql)).not.toThrow();
   });
 

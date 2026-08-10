@@ -21,7 +21,10 @@ import {
   type CompactionSummaryPayload,
 } from '@brainstrike/assistant-contract/compaction-summary';
 import { deriveEffectiveInputBudget } from '@brainstrike/assistant-contract/context-budget';
-import { ASSISTANT_MESSAGE_PARENTS_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import {
+  ASSISTANT_MESSAGE_PARENTS_TABLE,
+  TOKEN_ESTIMATE_CALIBRATION_TABLE,
+} from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   findLlmModelDefinition,
   type ProviderId,
@@ -35,6 +38,7 @@ import { runRecencyPruneScan } from './tool-projection-rewrite-repository';
 const logger = createLogger('ConversationCompaction');
 export const COMPACTION_TRIGGER_RATIO = 0.9;
 export const COMPACTION_TARGET_RATIO = 0.7;
+const MIN_COMPACTION_MESSAGE_TARGET_TOKENS = 1024;
 
 type StoredMessage = Awaited<ReturnType<PgliteMemoryStore['listMessages']>>['messages'][number];
 type MemoryStore = Pick<PgliteMemoryStore, 'listMessages' | 'saveMessages'>;
@@ -88,6 +92,7 @@ interface ConversationCompactionDependencies {
   readonly recordMessageParent: (input: RecordAssistantMessageParentInput) => Promise<void>;
   readonly recordRange: typeof recordCompactionRange;
   readonly resolveInputBudget: typeof resolveCompactionInputBudget;
+  readonly resolvePromptBaselineTokens: (threadId: string) => Promise<number | undefined>;
   readonly runRecencyPrune: typeof runRecencyPruneScan;
 }
 
@@ -151,6 +156,25 @@ function defaultDependencies(
     },
     recordRange: recordCompactionRange,
     resolveInputBudget: resolveCompactionInputBudget,
+    resolvePromptBaselineTokens: async (threadId) => {
+      const database = await getDatabase();
+      const result = await database.query<{ promptBaselineTokens: number | null }>(
+        `SELECT prompt_baseline_tokens AS "promptBaselineTokens"
+         FROM ${TOKEN_ESTIMATE_CALIBRATION_TABLE}
+         WHERE thread_id = $1
+         ORDER BY occurred_at DESC
+         LIMIT 1`,
+        [threadId]
+      );
+      const value = result.rows[0]?.promptBaselineTokens;
+      if (value === null || value === undefined) {
+        return;
+      }
+      if (!(Number.isSafeInteger(value) && value > 0)) {
+        throw new Error('Latest prompt-baseline calibration value is invalid.');
+      }
+      return value;
+    },
     runRecencyPrune: runRecencyPruneScan,
     ...overrides,
   };
@@ -187,8 +211,37 @@ export function resolveCompactionInputBudget(runtimeData: RuntimeData): number {
   return deriveEffectiveInputBudget(definition.contextWindow, definition.maxOutputTokens);
 }
 
-function isAtTrigger(usageTokens: number, inputBudget: number): boolean {
-  return usageTokens >= COMPACTION_TRIGGER_RATIO * inputBudget;
+function isAtTrigger(
+  usageTokens: number,
+  inputBudget: number,
+  promptBaselineTokens: number
+): boolean {
+  return promptBaselineTokens + usageTokens >= COMPACTION_TRIGGER_RATIO * inputBudget;
+}
+
+async function resolvePromptBaselineTokens(
+  threadId: string,
+  dependencies: ConversationCompactionDependencies
+): Promise<number> {
+  try {
+    const baseline = await dependencies.resolvePromptBaselineTokens(threadId);
+    if (baseline !== undefined) {
+      return baseline;
+    }
+    logger.debug('Conversation compaction has no prior prompt baseline; using zero', {
+      code: 'conversation_compaction_baseline_unavailable',
+      reason: 'no_calibration_row',
+      threadId,
+    });
+  } catch (error) {
+    logger.debug('Conversation compaction could not read the prior prompt baseline; using zero', {
+      code: 'conversation_compaction_baseline_unavailable',
+      error,
+      reason: 'lookup_failed',
+      threadId,
+    });
+  }
+  return 0;
 }
 
 function isNonRetryableSummarizerFailure(error: unknown): boolean {
@@ -292,6 +345,7 @@ function requireCreatedAt(message: CompactionMessage): Date {
 function selectDeterministicCandidates(
   state: ProjectedCompactionState,
   inputBudget: number,
+  promptBaselineTokens: number,
   dependencies: ConversationCompactionDependencies
 ): readonly CompactionMessage[] {
   const ids = candidateIds(state.messages);
@@ -299,8 +353,15 @@ function selectDeterministicCandidates(
   if (candidates.length === 0) {
     return [];
   }
-  const target = COMPACTION_TARGET_RATIO * inputBudget;
-  const reclaimNeeded = Math.max(1, state.usageTokens - target);
+  // Keep at least ~4 KiB of chars/4-estimated conversation context. When a
+  // large baseline makes the nominal 70% total target unreachable, pruning
+  // below this floor would erase useful recent exchange/tool state to chase a
+  // target that message deletion alone cannot satisfy.
+  const messageTarget = Math.max(
+    MIN_COMPACTION_MESSAGE_TARGET_TOKENS,
+    COMPACTION_TARGET_RATIO * inputBudget - promptBaselineTokens
+  );
+  const reclaimNeeded = Math.max(1, state.usageTokens - messageTarget);
   let reclaimed = 0;
   const selected: CompactionMessage[] = [];
   for (const candidate of candidates) {
@@ -403,6 +464,7 @@ async function commitDeterministicFallback(input: {
   readonly dependencies: ConversationCompactionDependencies;
   readonly inputBudget: number;
   readonly memoryStore: MemoryStore;
+  readonly promptBaselineTokens: number;
   readonly reason: 'agentic summarizer failure' | 'provider context-overflow error';
   readonly runtimeData: RuntimeData;
   readonly state: ProjectedCompactionState;
@@ -410,6 +472,7 @@ async function commitDeterministicFallback(input: {
   const candidates = selectDeterministicCandidates(
     input.state,
     input.inputBudget,
+    input.promptBaselineTokens,
     input.dependencies
   );
   if (candidates.length === 0) {
@@ -438,8 +501,18 @@ export async function runPreRequestCompaction(
   }
   const dependencies = defaultDependencies(dependencyOverrides);
   const inputBudget = dependencies.resolveInputBudget(input.runtimeData);
+  const promptBaselineTokens = await resolvePromptBaselineTokens(context.threadId, dependencies);
+  if (promptBaselineTokens >= COMPACTION_TARGET_RATIO * inputBudget) {
+    logger.warn('Prompt baseline already exceeds the conversation compaction target', {
+      baseline: promptBaselineTokens,
+      code: 'conversation_compaction_baseline_exceeds_target',
+      inputBudget,
+      threadId: context.threadId,
+    });
+    return { kind: 'noop' };
+  }
   const triggerState = await loadUnprojectedState(input, dependencies, input.requestMessages);
-  if (!isAtTrigger(triggerState.usageTokens, inputBudget)) {
+  if (!isAtTrigger(triggerState.usageTokens, inputBudget, promptBaselineTokens)) {
     return { kind: 'noop' };
   }
 
@@ -448,7 +521,7 @@ export async function runPreRequestCompaction(
     {}
   );
   const state = await loadProjectedState(input, dependencies, input.requestMessages);
-  if (!isAtTrigger(state.usageTokens, inputBudget)) {
+  if (!isAtTrigger(state.usageTokens, inputBudget, promptBaselineTokens)) {
     return { kind: 'noop' };
   }
 
@@ -495,6 +568,7 @@ export async function runPreRequestCompaction(
       dependencies,
       inputBudget,
       memoryStore: input.memoryStore,
+      promptBaselineTokens,
       reason: 'agentic summarizer failure',
       runtimeData: input.runtimeData,
       state,
@@ -510,11 +584,16 @@ export function createContextOverflowRecovery(
   const dependencies = defaultDependencies(dependencyOverrides);
   return async () => {
     const inputBudget = dependencies.resolveInputBudget(input.runtimeData);
+    const context = requireThreadContext(input.runtimeData);
+    const promptBaselineTokens = context
+      ? await resolvePromptBaselineTokens(context.threadId, dependencies)
+      : 0;
     const state = await loadProjectedState(input, dependencies);
     const applied = await commitDeterministicFallback({
       dependencies,
       inputBudget,
       memoryStore: input.memoryStore,
+      promptBaselineTokens,
       reason: 'provider context-overflow error',
       runtimeData: input.runtimeData,
       state,

@@ -1130,7 +1130,8 @@ async function* streamChunksFromMastra({
         runtime,
         runtimeData,
         lifecycleState,
-        calibrationState
+        calibrationState,
+        promptBreakdown
       );
       yield* drainToolCallTelemetryChunks(finished, runtime, toolCallTelemetryState);
       for (const chunk of chunks) {
@@ -1346,7 +1347,8 @@ function* drainTokenEstimateCalibrationChunk(
   runtime: MastraAgentRuntime,
   runtimeData: RuntimeData | undefined,
   lifecycleState: ToolLifecycleState,
-  state: { emitted: boolean }
+  state: { emitted: boolean },
+  promptBreakdown: AssistantContextBreakdown | undefined
 ): Generator<StreamChunk> {
   if (!(terminal && !state.emitted)) {
     return;
@@ -1378,6 +1380,14 @@ function* drainTokenEstimateCalibrationChunk(
       modelVisibleProjectionCount: fields['modelVisibleProjectionCount'] as number,
       occurredAt: Date.now(),
       provider,
+      ...(promptBreakdown
+        ? {
+            promptBreakdownBaselineTokens:
+              promptBreakdown.systemInstructionsTokens +
+              (promptBreakdown.taskListTokens ?? 0) +
+              (promptBreakdown.toolDefinitionsTokens ?? 0),
+          }
+        : {}),
       resolvedDomainBudgetTokens: runtime.resolvedToolResultBudget.domainModelResultTokens,
       resolvedTransportBudgetTokens: runtime.resolvedToolResultBudget.transportResultTokens,
       stepCount: lifecycleState.stepCount,

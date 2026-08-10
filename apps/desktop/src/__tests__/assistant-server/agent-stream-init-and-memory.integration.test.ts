@@ -601,8 +601,13 @@ describe('agent-stream-init runtime composition and memory', () => {
 
     const { createLanguageModelProvider } = await import('@brainstrike/agent');
 
-    // Once for workspace-roots enrichment, once for PGlite Mastra memory init.
-    expect(getDatabase).toHaveBeenCalledTimes(2);
+    // Once each for workspace-roots enrichment, the previous-run prompt-baseline
+    // lookup, and PGlite Mastra memory initialization.
+    expect(getDatabase).toHaveBeenCalledTimes(3);
+    expect(mockDesktopDatabase.query).toHaveBeenCalledWith(
+      expect.stringContaining('prompt_baseline_tokens'),
+      ['thread-1']
+    );
     expect(createLanguageModelProvider).toHaveBeenCalledWith(
       'anthropic',
       'test-api-key',

@@ -1214,15 +1214,22 @@ Milestone 2 introduces a durable **compaction summary message** and a
 the provider prompt — while leaving every raw message physically unchanged in
 `mastra_messages` and fully visible in thread history/scrollback.
 
-- **Trigger:** before each request, the same `deriveEffectiveInputBudget` /
-  `resolveDisplayedContextUsage` figures the context-usage meter (BST-940)
-  already computes are checked against a 90% threshold. Milestone 1's recency
+- **Trigger:** before each request, the previous run's durable prompt baseline
+  (`systemInstructionsTokens + taskListTokens + toolDefinitionsTokens`) is
+  added to the current conversation-message estimate and checked against 90%
+  of the same `deriveEffectiveInputBudget` denominator the context-usage meter
+  (BST-940) uses. Milestone 1's recency
   pruning runs first (it already fires at its own trigger points); compaction
   only proceeds if usage is STILL ≥ 90% of the effective input budget after
   pruning has had a chance to reclaim. Target is ~70% of the same budget. Both
   percentages are computed against the identical
   `agentLoopSettings.inputTokenLimit` denominator the meter uses, so a
-  90%-trigger never disagrees with what the ring shows the user.
+  90%-trigger accounts for the same prompt categories the streaming ring adds.
+  No previous calibration row, or a failed lookup, uses baseline 0 with an
+  observable debug log and therefore preserves the pre-091 first-turn
+  behavior. A baseline already at/above the 70% target warns and no-ops the
+  agentic path for that turn to avoid repeated pruning toward an unreachable
+  target; deterministic provider-overflow recovery remains available.
 - **Persistence — no new enum, a metadata marker (matches the
   `approval-action-message.ts` precedent):** the summary is an ordinary
   `role: 'assistant'` Mastra message whose `metadata.custom` carries a
@@ -1348,14 +1355,19 @@ walker is a second implementation of the BST-940 renderer heuristic because
 the renderer walker depends on assistant-ui message utilities; it should move
 to a shared dialect-aware package if those message shapes converge.
 
-Below `0.90 * effectiveInputBudget` the trigger is a strict no-op: no recency
-scan, write, or trigger log. At or above it, desktop calls the extracted
+Below `previousPromptBaseline + messageTokens < 0.90 * effectiveInputBudget`
+the trigger is a strict no-op: no recency scan or write. At or above it,
+desktop calls the extracted
 `runRecencyPruneScan({ threadId, runtimeData })`, then re-reads both rewrite
 overlays and messages and recomputes provider-visible usage. If pruning brought
-usage below 90%, the turn proceeds. Otherwise compaction commits candidates
-outside `selectProtectedMessageIds` and aims to leave approximately
-`0.70 * effectiveInputBudget`; protected messages can make that target
-unreachable and are never sacrificed.
+usage below 90% after the same baseline is added, the turn proceeds. Otherwise
+compaction commits candidates outside `selectProtectedMessageIds` and aims to
+leave message-side usage at
+`max(1024, 0.70 * effectiveInputBudget - previousPromptBaseline)`; protected
+messages can make that target unreachable and are never sacrificed. The fixed
+1024-token floor prevents deterministic pruning from erasing useful recent
+state merely because baseline prompt content consumes most of a small model's
+target.
 
 ### Agentic summary call, projection, persistence, and metering
 
@@ -1507,8 +1519,8 @@ correlation key.
 
 ## TOKEN-ESTIMATE CALIBRATION PAIRS (BST-1205)
 
-`brainstrike_token_estimate_calibration` (migration 086 plus additive migration
-089 in BOTH runners)
+`brainstrike_token_estimate_calibration` (migration 086 plus additive migrations
+089 and 091 in BOTH runners)
 stores one attributable run-end pair: the chars/4 estimate measured by
 `RunTokenDiagnostics` and `final_step_prompt_tokens`, the single most recent
 step's prompt-token count. The internal `token-estimate-calibration` stream
@@ -1520,6 +1532,10 @@ only ids, token counts, model/provider strings, and a timestamp. Migration 089
 adds nullable positive `resolved_domain_budget_tokens` and
 `resolved_transport_budget_tokens`: new runtime-produced samples populate both,
 while historical rows remain NULL rather than receiving a guessed tier.
+Migration 091 adds nullable positive `prompt_baseline_tokens`, the same run's
+system-instructions + task-list + tool-definition total used by the next turn's
+baseline-aware compaction trigger. Historical rows and continuation chunks
+without a prompt breakdown remain NULL rather than receiving a guessed value.
 
 The numerator is `modelVisibleProjectionBackstopTokens +
 (toolDefinitionBackstopTokens ?? 0)`: chars/4 over model-visible tool-output

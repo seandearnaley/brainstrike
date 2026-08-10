@@ -243,6 +243,18 @@ migrated path: migration 086's trailing `occurred_at` precedes the two columns
 migration 089 appends. The estimator lens groups by model plus both tier
 columns.
 
+Migration 091 adds nullable positive `prompt_baseline_tokens`, the same run's
+prompt-composition total of system instructions, task list, and tool
+definitions. The next turn's pre-request compaction trigger reads the newest
+thread-scoped calibration row because that baseline is not yet available when
+compaction runs. Historical rows remain NULL rather than receiving fabricated
+prompt evidence. This is an additive FK-less ledger extension registered in
+both migration runners and mirrored in the renderer-lazy bootstrap's fresh
+table shape plus its idempotent `ADD COLUMN IF NOT EXISTS` upgrade seam. It
+inherits the calibration table's existing 60-day retention and
+`occurred_at`-leading maintenance path; no new retention logic or privacy
+surface is introduced.
+
 The least-new-mechanism seam is a standalone table modeled on migration 083.
 Both figures already meet in the agent/main-process stream before the existing
 desktop persistence wrapper. Extending

@@ -356,6 +356,25 @@ renderer serialization; incomplete runs, missing final-step usage, failed
 measurement, zero measured projections, or missing model/provider attribution
 emit no sample.
 
+The same chunk also carries `promptBreakdownBaselineTokens` when the run-start
+`promptBreakdown` exists: `systemInstructionsTokens + (taskListTokens ?? 0) +
+(toolDefinitionsTokens ?? 0)`. Desktop persists it as migration 091's nullable
+`prompt_baseline_tokens`; a continuation leg without a prompt breakdown keeps
+the column NULL rather than inventing a baseline. Pre-request conversation
+compaction runs before the next runtime/prompt is assembled, so it reads the
+latest calibration row for that thread and triggers on
+`previousPromptBaseline + conversationMessageTokens >= 0.90 * inputBudget`.
+The deterministic message-side target is
+`max(1024, 0.70 * inputBudget - previousPromptBaseline)`; the 1024-token floor
+preserves a minimally useful recent exchange/tool-result window when message
+deletion alone cannot reach the nominal total target. A missing row or failed
+lookup uses baseline 0 (the pre-091 behavior) and emits debug code
+`conversation_compaction_baseline_unavailable`. If the baseline alone is at or
+above the 70% target, pre-request agentic compaction no-ops with warn code
+`conversation_compaction_baseline_exceeds_target` rather than pruning every
+message toward an unreachable target. Provider context-overflow recovery stays
+enabled and may still perform its deterministic next-turn-headroom compaction.
+
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
 `toModelOutput`. Non-media results above 12,000 UTF-8 bytes are fully retained

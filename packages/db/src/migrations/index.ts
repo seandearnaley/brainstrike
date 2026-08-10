@@ -89,6 +89,7 @@ import { migration087ToolProjectionRewriteKinds } from './087-tool-projection-re
 import { migration088AssistantCompactionRanges } from './088-assistant-compaction-ranges.js';
 import { migration089TokenEstimateCalibrationResolvedBudgets } from './089-token-estimate-calibration-resolved-budgets.js';
 import { migration090CompactionSummaryRunUsageKind } from './090-compaction-summary-run-usage-kind.js';
+import { migration091TokenEstimateCalibrationPromptBaseline } from './091-token-estimate-calibration-prompt-baseline.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -184,6 +185,7 @@ export const migrations: Migration[] = [
   migration088AssistantCompactionRanges,
   migration089TokenEstimateCalibrationResolvedBudgets,
   migration090CompactionSummaryRunUsageKind,
+  migration091TokenEstimateCalibrationPromptBaseline,
 ];
 
 // Export base migrations (without chunks table) for test environments

@@ -256,12 +256,39 @@ describe('mastra streaming integration', () => {
           model: 'gpt-5.6-terra',
           modelVisibleProjectionCount: 1,
           occurredAt: expect.any(Number),
+          promptBreakdownBaselineTokens: expect.any(Number),
           provider: 'openai',
           resolvedDomainBudgetTokens: 3000,
           resolvedTransportBudgetTokens: 6000,
           stepCount: 2,
         },
       });
+      const breakdown = chunks.find(
+        (chunk): chunk is { breakdown: Record<string, number>; type: 'context-breakdown' } =>
+          Boolean(
+            chunk &&
+              typeof chunk === 'object' &&
+              (chunk as { type?: unknown }).type === 'context-breakdown'
+          )
+      )?.breakdown;
+      const calibration = chunks.find(
+        (
+          chunk
+        ): chunk is {
+          type: 'token-estimate-calibration';
+          value: { promptBreakdownBaselineTokens: number };
+        } =>
+          Boolean(
+            chunk &&
+              typeof chunk === 'object' &&
+              (chunk as { type?: unknown }).type === 'token-estimate-calibration'
+          )
+      );
+      expect(calibration?.value.promptBreakdownBaselineTokens).toBe(
+        (breakdown?.['systemInstructionsTokens'] ?? 0) +
+          (breakdown?.['taskListTokens'] ?? 0) +
+          (breakdown?.['toolDefinitionsTokens'] ?? 0)
+      );
     } finally {
       fieldsSpy.mockRestore();
     }
