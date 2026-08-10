@@ -277,9 +277,12 @@ export function useExplorerColumnsValue(
   // A sub-pixel ResizeObserver change can recompute the projection without
   // changing any rendered integer width. Retain the map (and therefore the
   // complete context value) when its three observable answers are identical.
+  const resolvedSizeWidth = resolvedColumnWidths['size'];
+  const resolvedTokensWidth = resolvedColumnWidths['tokens'];
+  const resolvedTypeWidth = resolvedColumnWidths['type'];
   const columnWidths = useMemo(
     () => resolvedColumnWidths,
-    [resolvedColumnWidths['size'], resolvedColumnWidths['tokens'], resolvedColumnWidths['type']]
+    [resolvedSizeWidth, resolvedTokensWidth, resolvedTypeWidth]
   );
 
   return useMemo(
