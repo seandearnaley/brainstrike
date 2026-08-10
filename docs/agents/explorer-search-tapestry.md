@@ -317,8 +317,10 @@ those rows on `pending` forever AND pins every ancestor rollup to `partial`.
 A directory rollup is only `complete` when the subtree is fully enumerated AND
 every descendant's metadata has landed, otherwise it is an explicit `partial`
 marker; excluded files contribute zero tokens and their real size without
-blocking completeness. A count landing for one key must not re-render any other
-row.
+blocking completeness. While lazy enumeration or deferred rollup work is still
+running, the partial marker announces that the total is recomputing; it must not
+describe the transient state as permanently incomplete. A count landing for one
+key must not re-render any other row.
 
 `getDirectorySubtree` is TOTAL: anything the caller cannot enumerate answers
 `{ fileKeys: [], isComplete: false }` rather than nothing, so a cell can never
@@ -531,7 +533,12 @@ fallback.
   the width below which the tree grid suppresses its metadata columns
   (`METADATA_COLUMNS_MIN_WIDTH` in `shell/explorer-columns-context.ts`) — the
   two are tied on purpose so the grid never shows a column the user has no way
-  to hide. Pinned by `file-explorer-toolbar.test.tsx`.
+  to hide. Render-time width projection reserves 120px for Name and apportions
+  the remaining whole pixels with a largest-remainder allocation: the metadata
+  widths must never collectively exceed the panel budget. Output-identical
+  projections retain their map/context identity so sub-pixel ResizeObserver
+  churn does not repaint every consumer. Pinned by
+  `file-explorer-toolbar.test.tsx` and `explorer-column-header.test.tsx`.
 - **The cancel affordance is never width-gated.** The inline scanning
   indicator's Cancel (X) is the ONLY way to abort a running expand-all sweep —
   Refresh is disabled for the duration and the compact menu has never carried a

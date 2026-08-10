@@ -203,15 +203,30 @@ export function resolveExplorerColumnWidths(args: {
   }
 
   // Distribute the shrink across the slack each column has above its minimum,
-  // so a column already near its floor gives up proportionally less.
+  // so a column already near its floor gives up proportionally less. Floor the
+  // individual targets first, then hand the remaining whole pixels to the
+  // largest fractional remainders. Independent Math.round calls can all round
+  // upward and exceed the shared panel budget.
   const slackTotal = desiredTotal - minimumTotal;
   const overflow = desiredTotal - budget;
-  for (const column of desired) {
+  const targets = desired.map((column, index) => {
     const slack = column.width - column.minWidth;
-    next[column.columnId] = Math.max(
-      column.minWidth,
-      Math.round(column.width - (overflow * slack) / slackTotal)
-    );
+    const exactWidth = Math.max(column.minWidth, column.width - (overflow * slack) / slackTotal);
+    const flooredWidth = Math.floor(exactWidth);
+    next[column.columnId] = flooredWidth;
+    return {
+      columnId: column.columnId,
+      fractionalRemainder: exactWidth - flooredWidth,
+      index,
+    };
+  });
+  const flooredTotal = targets.reduce((total, target) => total + (next[target.columnId] ?? 0), 0);
+  const remainingPixels = Math.max(0, Math.floor(budget - flooredTotal));
+  const largestRemainders = [...targets].sort(
+    (a, b) => b.fractionalRemainder - a.fractionalRemainder || a.index - b.index
+  );
+  for (const target of largestRemainders.slice(0, remainingPixels)) {
+    next[target.columnId] = (next[target.columnId] ?? 0) + 1;
   }
   return next;
 }
@@ -250,7 +265,7 @@ export function useExplorerColumnsValue(
       visibility: { size, tokens, type },
     })
   );
-  const columnWidths = useMemo(
+  const resolvedColumnWidths = useMemo(
     () =>
       resolveExplorerColumnWidths({
         availableWidth: containerWidth,
@@ -258,6 +273,13 @@ export function useExplorerColumnsValue(
         visibleMetadataColumnIds,
       }),
     [containerWidth, sizes, visibleMetadataColumnIds]
+  );
+  // A sub-pixel ResizeObserver change can recompute the projection without
+  // changing any rendered integer width. Retain the map (and therefore the
+  // complete context value) when its three observable answers are identical.
+  const columnWidths = useMemo(
+    () => resolvedColumnWidths,
+    [resolvedColumnWidths['size'], resolvedColumnWidths['tokens'], resolvedColumnWidths['type']]
   );
 
   return useMemo(

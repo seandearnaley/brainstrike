@@ -44,7 +44,7 @@ const logger = createLogger('FileTreeMetadataCells');
 export const EXCLUDED_TOKENS_TITLE = 'binary file excluded from token counts';
 
 const PARTIAL_ROLLUP_TITLE: Record<'incomplete-subtree' | 'pending-metadata', string> = {
-  'incomplete-subtree': 'Folder total unavailable — this folder is not fully enumerated',
+  'incomplete-subtree': 'Folder total recomputing — this folder is still being enumerated',
   'pending-metadata': 'Folder total unavailable — some files are still being counted',
 };
 
@@ -91,6 +91,11 @@ const UNIDENTIFIED_ROW_TITLE = 'Metadata unavailable — this row has no workspa
 
 const reportedUnidentifiedRows = new Set<string>();
 const MAX_REPORTED_UNIDENTIFIED_ROWS = 100;
+
+/** Reset the module-scoped once-per-row diagnostic ledger between tests. */
+export function resetReportedUnidentifiedRowsForTests(): void {
+  reportedUnidentifiedRows.clear();
+}
 
 function reportUnidentifiedRow(path: string, error?: unknown): void {
   if (reportedUnidentifiedRows.has(path)) {

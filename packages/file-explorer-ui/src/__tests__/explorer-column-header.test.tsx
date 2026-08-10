@@ -396,6 +396,17 @@ describe('explorer column width clamping', () => {
     }
   });
 
+  it('never overshoots the pixel budget when proportional targets round upward together', () => {
+    const next = resolveExplorerColumnWidths({
+      availableWidth: 353,
+      sizes: MAXED,
+      visibleMetadataColumnIds: ALL_METADATA,
+    });
+    const total = ALL_METADATA.reduce((sum, id) => sum + (next[id] as number), 0);
+
+    expect(total).toBe(353 - 120);
+  });
+
   it('falls back to the column minimums when even those do not fit', () => {
     const next = resolveExplorerColumnWidths({
       availableWidth: 200,
@@ -498,6 +509,23 @@ describe('column id identity stability', () => {
     rerender({ width: 780 });
     rerender({ width: 761 });
     expect(result.current.visibleMetadataColumnIds).toBe(first);
+  });
+
+  it('keeps the complete context identity when a resize resolves to identical pixel widths', () => {
+    const columnIds = ['type', 'tokens', 'size'] as const;
+    act(() => {
+      for (const id of columnIds) {
+        useExplorerColumnVisibilityStore.getState().setColumnVisible(id, true);
+        useExplorerColumnSizesStore.getState().setColumn(id, EXPLORER_COLUMN_BOUNDS[id].maxWidth);
+      }
+    });
+    const { result, rerender } = renderColumns(353);
+    const first = result.current;
+
+    rerender({ width: 353.4 });
+
+    expect(result.current.columnWidths).toEqual(first.columnWidths);
+    expect(result.current).toBe(first);
   });
 
   it('DOES mint a new identity when the visible set actually changes', () => {
