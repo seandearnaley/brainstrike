@@ -143,6 +143,11 @@
       "import": "./dist/runtime-data.js",
       "require": "./dist/runtime-data.js"
     },
+    "./approval-action-message": {
+      "types": "./dist/approval-action-message.d.ts",
+      "import": "./dist/approval-action-message.js",
+      "require": "./dist/approval-action-message.js"
+    },
     "./tool-approval": {
       "types": "./dist/tool-approval.d.ts",
       "import": "./dist/tool-approval.js",

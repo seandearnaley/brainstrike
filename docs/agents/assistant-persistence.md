@@ -184,6 +184,32 @@ contracts keep reloaded threads identical to live ones:
    would invert pre-topology history.
    Conflicting edges for the same message id throw — branch corruption is never
    silently rewritten. Factory reset clears the companion table explicitly.
+   **DURABLE-PARENT INVARIANT (BST-1243, 4th recurrence of the
+   hydration-siblings class — enforce at the adapter, not per flow):** every
+   persisted edge must reference a durable (Mastra-persisted) message id or
+   null. Approval/suspend flows append UI-transient messages — the action
+   echo, the post-resume leg, and the synthetic rediscovered-pause notices
+   (`suspended-approval:*` / `suspended-pause:*`) — that Mastra never
+   persists; before this ruling the adapter persisted their edges verbatim
+   and the NEXT user message chained onto a ghost, so reload re-rooted it
+   into a phantom root carousel sibling (one new sibling per approval turn).
+   `createAssistantThreadHistoryAdapter` therefore keeps a per-instance
+   transient-alias map: action echoes (recognized by the SAME strict guard
+   the transport exclusion uses, now shared from
+   `@brainstrike/assistant-contract/approval-action-message`) and assistant
+   messages whose parent resolves through an alias (resume legs) are never
+   persisted and alias to their nearest durable ancestor; `load()` seeds
+   aliases for the synthetic pause ids. Because suspension prevents the
+   suspended assistant message's own runEnd history append, the echo append
+   backfills that durable edge (hydrated graph parent when known, else the
+   live session tail) so the reload group keys to the ALIGNED assistant id
+   rather than a snapshot row id. Invalid action markers remain ordinary
+   prompts and keep their edges (strict-guard symmetry with the wire).
+   Read-side hydration is deliberately untouched: re-rooting and the
+   conflicting-edge throw stay as-is — fix producers, never coerce at read.
+   Paired tests: packages/assistant-data
+   `assistant-approval-topology.integration.test.ts` and the desktop E2E
+   `assistant-approval-reload-linearity.desktop.test.ts`.
    The UI transport preserves each assistant-ui user message id through the
    generic-message conversion, and the desktop request parser preserves
    assistant-ui's `unstable_assistantMessageId`; the stream session and Mastra
