@@ -151,6 +151,10 @@
       "types": "./dist/stores/secrets-store.d.ts",
       "import": "./dist/stores/secrets-store.js"
     },
+    "./stores/self-improvement-signal-preferences-store": {
+      "types": "./dist/stores/self-improvement-signal-preferences-store.d.ts",
+      "import": "./dist/stores/self-improvement-signal-preferences-store.js"
+    },
     "./stores/skills-preferences-store": {
       "types": "./dist/stores/skills-preferences-store.d.ts",
       "import": "./dist/stores/skills-preferences-store.js"

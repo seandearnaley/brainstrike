@@ -69,6 +69,7 @@ import {
   recordDesktopAssistantHookRunOutcome,
   recordDesktopAssistantThreadRunStatus,
 } from './assistant-server/run-persistence';
+import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
 import type { AssistantServerOptions } from './assistant-server/server-options';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
 import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
@@ -151,6 +152,7 @@ export const desktopAgentStreamCapabilities: AgentStreamCapabilities<DesktopAgen
   contextInjectors: {
     activatedSkills: injectActivatedSkillsContext,
     referencedFiles: injectReferencedFilesContext,
+    selfImprovementSignal: injectSelfImprovementSignalContext,
     workspaceInstructions: injectWorkspaceInstructionsContext,
   },
   hooks: {

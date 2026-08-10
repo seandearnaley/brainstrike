@@ -736,6 +736,18 @@ describe('assistant runtime helpers', () => {
     expect(
       buildAssistantRequestData({ ...baseArgs, skillsPreference })['skillsPreference']
     ).toEqual(skillsPreference);
+
+    // Self-improvement signal preference rides the same desktop-only request
+    // attachment seam: absent on web/non-data-stream, exact snapshot when opted in.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty(
+      'selfImprovementSignalPreference'
+    );
+    const selfImprovementSignalPreference = { enabled: true };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, selfImprovementSignalPreference })[
+        'selfImprovementSignalPreference'
+      ]
+    ).toEqual(selfImprovementSignalPreference);
   });
 
   it('attaches mainRootId/mainRootPath only when provided (multi-root main declaration)', () => {

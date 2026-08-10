@@ -48,6 +48,8 @@ interface UseAssistantThreadRequestDataArgs {
     readonly filePaths: string[];
     readonly folderId: string | null | undefined;
   };
+  /** Desktop-only opt-in self-improvement signal preference. */
+  readonly selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   readonly semanticRecallSettings: RuntimeAssistantSemanticRecallSettings;
   /**
    * Opt-in Agent Skills preference; only set on the desktop data-stream
@@ -97,6 +99,7 @@ export function useAssistantThreadRequestData({
   selectedMemoryThreadId,
   selectionData,
   semanticRecallSettings,
+  selfImprovementSignalPreference,
   skillsPreference,
   subagentPersonasRequest,
   workspaceInstructionsPreference,
@@ -130,6 +133,7 @@ export function useAssistantThreadRequestData({
         providerOptions,
         selectedMemoryThreadId,
         selectionData,
+        ...(selfImprovementSignalPreference ? { selfImprovementSignalPreference } : {}),
         workspaceContext: runtimeWorkspaceContext,
         ...(skillsPreference ? { skillsPreference } : {}),
         ...(subagentPersonasRequest ? { subagentPersonasRequest } : {}),
@@ -155,6 +159,7 @@ export function useAssistantThreadRequestData({
       selectedMemoryThreadId,
       selectionData,
       runtimeWorkspaceContext,
+      selfImprovementSignalPreference,
       skillsPreference,
       subagentPersonasRequest,
       workspaceInstructionsPreference,
