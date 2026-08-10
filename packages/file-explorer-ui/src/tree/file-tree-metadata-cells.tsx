@@ -153,7 +153,7 @@ export const FileTreeTypeCell = memo(function FileTreeTypeCellComponent({
   }
   const extension = getFileExtension(name);
   if (!extension) {
-    return null;
+    return <span className="text-muted-foreground text-xs">File</span>;
   }
   return <ExtensionBadge extension={extension} size="compact" />;
 });
