@@ -116,7 +116,15 @@ export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn
   usePreviewPanelState: vi.fn(),
 });
 
-export const createUiModuleMock = () => ({
+/**
+ * Mocked `@brainstrike/ui`. Layout CONSTANTS come from the real module via
+ * `importActual` rather than being re-spelled here — a mock that hardcodes
+ * `pb-20` would keep passing after the real constant changed.
+ */
+export const createUiModuleMock = async () => ({
+  ...(await vi.importActual<{ SELECTION_BAR_SCROLL_PADDING: string }>(
+    '@brainstrike/ui/selection-bar-layout'
+  )),
   ActionContextMenu: ({ children }: MockComponentProps) => <>{children}</>,
   Badge: ({ children, ...props }: MockComponentProps) => (
     <div data-testid="badge" {...props}>

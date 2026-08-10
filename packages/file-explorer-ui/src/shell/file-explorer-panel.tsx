@@ -2,7 +2,7 @@ import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
-import { cn, LoadingFallback } from '@brainstrike/ui';
+import { cn, LoadingFallback, SELECTION_BAR_SCROLL_PADDING } from '@brainstrike/ui';
 import type { StoreApi } from 'zustand';
 import { shallow } from 'zustand/shallow';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
@@ -87,11 +87,6 @@ import { useForestExpandConfirm } from './use-forest-expand-confirm';
 import { useSelectionManager } from './use-selection-manager-context';
 
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
-/**
- * Bottom breathing room for the floating selection bar. Applied to the scroll
- * owner (never to the tree) so the last rows stay reachable while the bar is up.
- */
-const SELECTION_BAR_SCROLL_PADDING = 'pb-20';
 
 /**
  * The bar is up whenever there is a selection OR an injected action has pinned

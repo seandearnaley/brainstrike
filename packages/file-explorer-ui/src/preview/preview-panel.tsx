@@ -193,8 +193,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     fileContents,
     fileSizes,
     loadingFiles,
-    onSelectionChange,
-    performUndoableAction,
     selectedFiles,
     tokenCounting,
   });

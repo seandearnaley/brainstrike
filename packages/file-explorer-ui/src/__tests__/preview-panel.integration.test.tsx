@@ -67,10 +67,6 @@ const createMockProps = (fileCount = 100): ComponentProps<typeof PreviewPanel> =
 });
 
 const createMockState = (fileCount = 100) => ({
-  batchSelectedFiles: new Set<string>(),
-  collapseAllFolders: vi.fn(),
-  collapsedFolders: new Set<string>(),
-  expandAllFolders: vi.fn(),
   flatListItems: Array.from({ length: fileCount }, (_, index) => ({
     compositeKey: `file${index}`,
     folderId: `folder-${Math.floor(index / 10)}`,
@@ -79,15 +75,7 @@ const createMockState = (fileCount = 100) => ({
     tokens: 200 + index * 5,
     type: 'file' as const,
   })),
-  formatFileSize: vi.fn((bytes?: number) => (bytes === undefined ? 'Unknown' : `${bytes} B`)),
-  handleBatchRemove: vi.fn(),
-  handleDeselectAll: vi.fn(),
-  handleRemoveFile: vi.fn(),
-  handleSelectAll: vi.fn(),
-  isAllFilesSelected: false,
   loadingFiles: new Set<string>(),
-  toggleFileSelection: vi.fn(),
-  toggleFolderCollapse: vi.fn(),
   totalStats: {
     pendingCount: 0,
     totalFiles: fileCount,

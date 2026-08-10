@@ -1,4 +1,11 @@
-import { Checkbox, cn, EmptyState, TablePagination, TooltipProvider } from '@brainstrike/ui';
+import {
+  Checkbox,
+  cn,
+  EmptyState,
+  SELECTION_BAR_SCROLL_PADDING,
+  TablePagination,
+  TooltipProvider,
+} from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, FileX2 } from 'lucide-react';
 import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatTokenCount } from '../preview/use-preview-panel-state';
@@ -1000,7 +1007,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
           <div
             className={cn(
               'scrollbar-thin flex-1 overflow-y-auto p-3',
-              selectionActionBar && 'pb-20'
+              selectionActionBar && SELECTION_BAR_SCROLL_PADDING
             )}
           >
             <div className="flex w-full flex-col gap-3">

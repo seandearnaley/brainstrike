@@ -57,20 +57,8 @@ const buildItem = (index: number, overrides: Partial<TestFileItem> = {}): TestFi
 });
 
 const buildState = (items: TestFileItem[]) => ({
-  batchSelectedFiles: new Set<string>(),
-  collapseAllFolders: vi.fn(),
-  collapsedFolders: new Set<string>(),
-  expandAllFolders: vi.fn(),
   flatListItems: items,
-  formatFileSize: vi.fn((bytes?: number) => (bytes === undefined ? 'Unknown' : `${bytes} B`)),
-  handleBatchRemove: vi.fn(),
-  handleDeselectAll: vi.fn(),
-  handleRemoveFile: vi.fn(),
-  handleSelectAll: vi.fn(),
-  isAllFilesSelected: false,
   loadingFiles: new Set<string>(),
-  toggleFileSelection: vi.fn(),
-  toggleFolderCollapse: vi.fn(),
   totalStats: {
     pendingCount: 0,
     totalFiles: items.length,
@@ -393,6 +381,42 @@ describe('PreviewPanel', () => {
       expect(screen.getByLabelText('Select path/to/file3.txt')).not.toBeChecked();
     });
 
+    // The grouped branch of `getVisibleFilesOnPage` has its own index walk (it
+    // counts group headers as page slots), and it is the path the desktop e2e
+    // hook reads `renderedFilePaths` from. Ungrouped page select-all above does
+    // NOT exercise it.
+    it('selects every file on the current page across groups', () => {
+      const items = [
+        buildItem(1, { folderId: 'root-a' }),
+        buildItem(2, { folderId: 'root-b' }),
+        buildItem(3, { folderId: 'root-b' }),
+      ];
+      renderWithItems(items, {
+        decodeFileSelection: vi.fn((key: string) => ({
+          folderId: key === 'file1' ? 'root-a' : 'root-b',
+          path: `path/to/${key}.txt`,
+        })),
+      });
+      selectGroupingOption('By Root Folder');
+      expect(screen.getAllByTestId('tapestry-group-header')).toHaveLength(2);
+
+      fireEvent.click(screen.getByLabelText('Select all files on current page'));
+
+      for (const name of ['file1', 'file2', 'file3']) {
+        expect(screen.getByLabelText(`Select path/to/${name}.txt`)).toBeChecked();
+      }
+      // Both group headings reflect the page-wide selection, not just the one
+      // that happened to own the first slot.
+      const groupCheckboxes = screen.getAllByRole('checkbox', {
+        name: /^Select all items in group /,
+      });
+      expect(groupCheckboxes).toHaveLength(2);
+      for (const checkbox of groupCheckboxes) {
+        expect(checkbox).toBeChecked();
+      }
+      expect(within(screen.getByTestId('bulk-action-bar')).getByText('3 selected')).toBeVisible();
+    });
+
     it('deselects one file after selecting the page and reports the remaining selection', () => {
       render(<PreviewPanel {...baseProps} />);
 
@@ -677,10 +701,15 @@ describe('PreviewPanel', () => {
 
       selectGroupingOption(label);
 
-      const headers = screen.getAllByTestId('tapestry-group-header');
+      // Exactly-one, not `.some(...)`: a membership check passes just as happily
+      // with a duplicated band or a third unexpected group.
+      const headerLabels = screen
+        .getAllByTestId('tapestry-group-header')
+        .map((header) => header.textContent ?? '');
       for (const expectedGroup of expectedGroups) {
-        expect(headers.some((header) => header.textContent?.includes(expectedGroup))).toBe(true);
+        expect(headerLabels.filter((label) => label.includes(expectedGroup))).toHaveLength(1);
       }
+      expect(headerLabels).toHaveLength(expectedGroups.length);
     });
 
     it('collapses and expands an individual group', () => {
