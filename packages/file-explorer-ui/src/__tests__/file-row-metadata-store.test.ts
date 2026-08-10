@@ -129,9 +129,9 @@ describe('createFileRowMetadataStore file snapshots', () => {
     expect(store.getSnapshot(key('src/a.ts')).tokens).toBe('pending');
   });
 
-  it('derives an empty type for extensionless files', () => {
+  it('uses the shared fallback type for extensionless files', () => {
     const store = createFileRowMetadataStore(sources());
-    expect(store.getSnapshot(key('src/Makefile')).type).toBe('');
+    expect(store.getSnapshot(key('src/Makefile')).type).toBe('file');
   });
 });
 

@@ -48,14 +48,17 @@ describe('FileTreeTypeCell', () => {
   it.each(['LICENSE', '.env'])('renders a stable file label for %s', (name) => {
     render(<FileTreeTypeCell rowData={createFileRowData(name)} />);
 
-    expect(screen.getByText('File')).toBeInTheDocument();
+    expect(screen.getByTitle('file')).toHaveTextContent('file');
   });
 
-  it('keeps rendering extension badges for files with extensions', () => {
-    render(<FileTreeTypeCell rowData={createFileRowData('index.ts')} />);
+  it.each([
+    ['index.ts', 'ts'],
+    ['.env.local', 'local'],
+  ])('keeps rendering extension badges for %s', (name, extension) => {
+    render(<FileTreeTypeCell rowData={createFileRowData(name)} />);
 
-    expect(screen.getByTitle('ts')).toHaveTextContent('ts');
-    expect(screen.queryByText('File')).not.toBeInTheDocument();
+    expect(screen.getByTitle(extension)).toHaveTextContent(extension);
+    expect(screen.queryByTitle('file')).not.toBeInTheDocument();
   });
 
   it('keeps directory type cells empty', () => {

@@ -576,6 +576,9 @@ A second surface that only needs to DISPLAY collections must:
 
 Reference implementation:
 `packages/db-explorer/src/components/explorer-collection-picker.tsx`.
+The sanctioned synchronization write path for that secondary surface is
+`packages/db-explorer/src/hooks/use-collection-cache-sync.ts`; it implements
+the seed-and-event flow above without mounting another `useCollections` owner.
 
 ---
 
