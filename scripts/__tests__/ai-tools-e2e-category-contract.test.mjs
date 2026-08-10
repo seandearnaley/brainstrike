@@ -113,12 +113,17 @@ function analyzeOptionSelectors(source) {
     return;
   }
 
-  function collectLabels(node, resolvingDeclarations = new Set()) {
-    if (
-      (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
-      FORBIDDEN_CATEGORY_LABELS.has(node.text)
-    ) {
-      hardcodedLabels.push(node.text);
+  function collectLabels(node, resolvingDeclarations = new Set(), exactMatch = false) {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      const selectorName = node.text.toLocaleLowerCase('en-US');
+      for (const label of FORBIDDEN_CATEGORY_LABELS) {
+        const normalizedLabel = label.toLocaleLowerCase('en-US');
+        if (
+          exactMatch ? selectorName === normalizedLabel : normalizedLabel.includes(selectorName)
+        ) {
+          hardcodedLabels.push(label);
+        }
+      }
     } else if (ts.isRegularExpressionLiteral(node)) {
       const closingSlash = node.text.lastIndexOf('/');
       const pattern = node.text.slice(1, closingSlash).toLocaleLowerCase('en-US');
@@ -130,21 +135,21 @@ function analyzeOptionSelectors(source) {
     } else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
       const selectedValue = resolveLocalValue(node, resolvingDeclarations);
       if (selectedValue) {
-        collectLabels(selectedValue, resolvingDeclarations);
+        collectLabels(selectedValue, resolvingDeclarations, exactMatch);
         return;
       }
-      ts.forEachChild(node, (child) => collectLabels(child, resolvingDeclarations));
+      ts.forEachChild(node, (child) => collectLabels(child, resolvingDeclarations, exactMatch));
       return;
     } else if (ts.isIdentifier(node)) {
       const declaration = resolveIdentifier(node);
       if (declaration?.initializer && !resolvingDeclarations.has(declaration)) {
         const nextResolvingDeclarations = new Set(resolvingDeclarations);
         nextResolvingDeclarations.add(declaration);
-        collectLabels(declaration.initializer, nextResolvingDeclarations);
+        collectLabels(declaration.initializer, nextResolvingDeclarations, exactMatch);
       }
       return;
     }
-    ts.forEachChild(node, (child) => collectLabels(child, resolvingDeclarations));
+    ts.forEachChild(node, (child) => collectLabels(child, resolvingDeclarations, exactMatch));
   }
 
   function propertyValue(object, name) {
@@ -210,7 +215,7 @@ function analyzeOptionSelectors(source) {
           hasUnsupportedOptionSelector = true;
         }
         if (nameValue) {
-          collectLabels(nameValue);
+          collectLabels(nameValue, new Set(), exactValue?.kind === ts.SyntaxKind.TrueKeyword);
           const categoryDeclaration =
             ts.isIdentifier(nameValue) && nameValue.text === 'TOOL_CATEGORY_LABEL'
               ? resolveIdentifier(nameValue)
@@ -321,6 +326,23 @@ for (const [hardcodedName, optionRole] of [
     assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
   });
 }
+
+test('MONEY TEST: non-exact string matching catches case-insensitive category substrings', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
+      NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    ].label;
+    await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+    await page.getByRole('option', { name: 'retriev' }).click();
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
+});
 
 test('MONEY TEST: the metadata-derived option selector must retain exact matching', () => {
   const source = `
