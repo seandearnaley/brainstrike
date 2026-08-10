@@ -110,6 +110,9 @@ export function ExplorerImportAction({
    * enabled for the whole import.
    */
   const importRunTargetRef = useRef<string | null>(null);
+  // Render-facing mirror of the same pin: rules-of-hooks forbid reading a ref
+  // during render, and the picker's mutation gating renders from this value.
+  const [importRunTargetId, setImportRunTargetId] = useState<string | null>(null);
 
   const handleImportComplete = useCallback(
     async (results: EnhancedImportResult[]) => {
@@ -177,6 +180,7 @@ export function ExplorerImportAction({
     // Pin the target before handing off, so completion refreshes the collection
     // this run imported into rather than whatever is active when it lands.
     importRunTargetRef.current = activeCollectionId;
+    setImportRunTargetId(activeCollectionId);
     setPickerOpen(false);
     importFlow.handleImportClick();
   }, [activeCollectionId, importFlow.handleImportClick]);
@@ -193,7 +197,7 @@ export function ExplorerImportAction({
   // pinned at hand-off and outlives `activeCollectionId` changes, so this stays
   // correct if the user re-picks mid-run. Null once the run settles, which
   // re-enables the controls.
-  const inFlightImportCollectionId = importFlow.isImporting ? importRunTargetRef.current : null;
+  const inFlightImportCollectionId = importFlow.isImporting ? importRunTargetId : null;
 
   const importFailed = (importFlow.progress?.errors.length ?? 0) > 0;
   const awaitingImportAcknowledgement = importFlow.showImportProgress && importFailed;
