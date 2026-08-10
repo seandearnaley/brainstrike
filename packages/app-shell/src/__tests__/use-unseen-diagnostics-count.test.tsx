@@ -165,14 +165,14 @@ describe('useUnseenDiagnosticsCount', () => {
   });
 
   it.each([
-    null,
-    '',
-    true,
-    false,
-    [],
-    [2],
-    {},
-  ])('fails loud when an aggregate count is %p', (invalidCount) => {
+    ['null', null],
+    ['blank string', ''],
+    ['boolean true', true],
+    ['boolean false', false],
+    ['empty array', []],
+    ['array of one number', [2]],
+    ['plain object', {}],
+  ])('fails loud when an aggregate count is %s', (_label, invalidCount) => {
     usePGliteLiveQueryMock.mockReturnValue({
       error: null,
       loading: false,

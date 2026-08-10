@@ -1305,9 +1305,11 @@ visibly and `N errors and M warnings` to assistive technology. The chip renders
 not-knowing classes outrank the counts, because
 this is the only always-visible diagnostics surface: a live-query error
 renders "Diagnostics unavailable" rather than the honest-looking `0`.
-Present aggregate values are validated strictly: null, blank, non-integer,
-negative, or otherwise unsafe counts also render "Diagnostics unavailable"
-rather than being coerced to 0. A non-null `disabledReason` renders
+Present aggregate values are validated strictly: only a non-negative safe-integer
+number or decimal-digit string is accepted. Null, blank, non-integer, negative,
+boolean, array, object, non-decimal, or otherwise unsafe values render
+"Diagnostics unavailable" rather than being coerced via `Number()`. A non-null
+`disabledReason` renders
 "Diagnostics not recording" — outranking
 even non-zero counts, since those counts are frozen and stale once the sink is
 dead. Without the latter, a disabled sink writes no rows, both counts sit at 0
