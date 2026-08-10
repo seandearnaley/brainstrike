@@ -1,5 +1,6 @@
 import {
   NATIVE_TOOL_DEFAULTS,
+  TOOL_CATEGORIES,
   TOOL_LOADING_TIERS,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { expect, test } from './fixtures/web-fixture';
@@ -11,6 +12,7 @@ const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
 // A retrieval peer that sits in a *different* loading tier, so filtering by one
 // tier must hide the other. Used as the negative half of the tier assertion.
 const PEER_TOOL_ID = 'brainstrike.readWorkspaceFile';
+const NON_RETRIEVAL_TOOL_ID = 'brainstrike.askUser';
 
 // Derive the filter labels from the canonical contract rather than hardcoding
 // them: the tier partition is owned by tool-discovery-contract.test.ts, and a
@@ -20,6 +22,7 @@ const tierLabelFor = (toolId: typeof NATIVE_TOOL_ID | typeof PEER_TOOL_ID): stri
 
 const TOOL_TIER_LABEL = tierLabelFor(NATIVE_TOOL_ID);
 const PEER_TIER_LABEL = tierLabelFor(PEER_TOOL_ID);
+const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category].label;
 
 async function openToolsSettings(page: import('@playwright/test').Page): Promise<SettingsPage> {
   const home = new HomePage(page);
@@ -41,6 +44,9 @@ test.describe('AI Tools and System Diagnostics settings (web)', { tag: '@web-smo
     // Guard the premise of the tier assertions below: if both tools ever land in
     // the same tier the negative assertion would silently stop discriminating.
     expect(TOOL_TIER_LABEL).not.toBe(PEER_TIER_LABEL);
+    expect(NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category).not.toBe(
+      NATIVE_TOOL_DEFAULTS[NON_RETRIEVAL_TOOL_ID].category
+    );
 
     await openToolsSettings(page);
 
@@ -54,10 +60,12 @@ test.describe('AI Tools and System Diagnostics settings (web)', { tag: '@web-smo
     ).toHaveCount(0);
 
     await page.getByTestId('reset-filters').click();
+    await expect(page.getByTestId(`tool-row-${NON_RETRIEVAL_TOOL_ID}`)).toBeVisible();
     await page.getByTestId('category-filter').click();
-    await page.getByRole('option', { name: 'Retrieval' }).click();
+    await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
     await expect(page.getByTestId(`tool-row-${NATIVE_TOOL_ID}`)).toBeVisible();
     await expect(page.getByTestId(`tool-row-${PEER_TOOL_ID}`)).toBeVisible();
+    await expect(page.getByTestId(`tool-row-${NON_RETRIEVAL_TOOL_ID}`)).toHaveCount(0);
 
     // Both rows survive the category filter, so narrowing to one tier must keep
     // this tool and drop its differently-tiered peer.
