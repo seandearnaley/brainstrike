@@ -1,0 +1,641 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrainStrike Tool Token-Efficiency — Diagnostic &amp; Comparison</title>
+<style>
+  :root {
+    --bg: #F7F8F9;
+    --surface: #FFFFFF;
+    --surface-2: #EFF1F3;
+    --ink: #1C2127;
+    --ink-2: #4B535D;
+    --ink-3: #7A828C;
+    --line: #DDE1E5;
+    --accent: #B45309;
+    --accent-soft: #FDF0E3;
+    --good: #1A7F4B;
+    --warn: #A16207;
+    --crit: #B42318;
+    --good-soft: #E7F4EC;
+    --warn-soft: #FBF3DE;
+    --crit-soft: #FBEAE8;
+    --bar-us: #B45309;
+    --bar-peer: #8794A3;
+    --bar-val-on: #FFFFFF;
+    --code-bg: #21262D;
+    --code-ink: #D6DBE1;
+    --code-dim: #8A93A0;
+    --code-hl: #F0A84B;
+    --code-good: #7CC08F;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171B;
+      --surface: #1B1F25;
+      --surface-2: #22272E;
+      --ink: #E8EAEC;
+      --ink-2: #AEB6BF;
+      --ink-3: #7E8790;
+      --line: #303740;
+      --accent: #F0A84B;
+      --accent-soft: #33291B;
+      --good: #5DBE85;
+      --warn: #E0B84E;
+      --crit: #E5766A;
+      --good-soft: #1D2E24;
+      --warn-soft: #302B1B;
+      --crit-soft: #33211F;
+      --bar-us: #F0A84B;
+      --bar-peer: #5B6673;
+      --bar-val-on: #14171B;
+      --code-bg: #10131700;
+      --code-ink: #CDD3DA;
+      --code-dim: #79828D;
+      --code-hl: #F0A84B;
+      --code-good: #7CC08F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171B; --surface: #1B1F25; --surface-2: #22272E;
+    --ink: #E8EAEC; --ink-2: #AEB6BF; --ink-3: #7E8790; --line: #303740;
+    --accent: #F0A84B; --accent-soft: #33291B;
+    --good: #5DBE85; --warn: #E0B84E; --crit: #E5766A;
+    --good-soft: #1D2E24; --warn-soft: #302B1B; --crit-soft: #33211F;
+    --bar-us: #F0A84B; --bar-peer: #5B6673; --bar-val-on: #14171B;
+    --code-bg: #10131700; --code-ink: #CDD3DA; --code-dim: #79828D;
+    --code-hl: #F0A84B; --code-good: #7CC08F;
+  }
+  :root[data-theme="light"] {
+    --bg: #F7F8F9; --surface: #FFFFFF; --surface-2: #EFF1F3;
+    --ink: #1C2127; --ink-2: #4B535D; --ink-3: #7A828C; --line: #DDE1E5;
+    --accent: #B45309; --accent-soft: #FDF0E3;
+    --good: #1A7F4B; --warn: #A16207; --crit: #B42318;
+    --good-soft: #E7F4EC; --warn-soft: #FBF3DE; --crit-soft: #FBEAE8;
+    --bar-us: #B45309; --bar-peer: #8794A3; --bar-val-on: #FFFFFF;
+    --code-bg: #21262D; --code-ink: #D6DBE1; --code-dim: #8A93A0;
+    --code-hl: #F0A84B; --code-good: #7CC08F;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 28px 96px; }
+  code, pre, .mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; }
+
+  /* ---------- header ---------- */
+  header { padding: 56px 0 8px; }
+  .eyebrow {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 14px;
+  }
+  h1 {
+    font-size: clamp(28px, 4.4vw, 42px); line-height: 1.12; margin: 0 0 14px;
+    letter-spacing: -.015em; text-wrap: balance; font-weight: 750;
+  }
+  .subtitle { color: var(--ink-2); max-width: 62ch; margin: 0 0 20px; font-size: 17px; }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 8px 22px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--ink-3);
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    padding: 10px 0; margin-bottom: 40px;
+  }
+  .meta b { color: var(--ink-2); font-weight: 600; }
+
+  /* ---------- sections ---------- */
+  section { margin-top: 64px; }
+  .sec-label {
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;
+  }
+  h2 { font-size: 26px; margin: 0 0 14px; letter-spacing: -.012em; text-wrap: balance; }
+  h3 { font-size: 18.5px; margin: 30px 0 10px; letter-spacing: -.008em; }
+  p { max-width: 72ch; margin: 0 0 14px; color: var(--ink-2); }
+  p strong, li strong { color: var(--ink); }
+  ul { margin: 0 0 14px; padding-left: 22px; color: var(--ink-2); }
+  li { margin-bottom: 6px; max-width: 70ch; }
+  a { color: var(--accent); }
+
+  /* ---------- stat tiles ---------- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 26px 0 8px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px 16px; }
+  .tile .k {
+    font-size: 30px; font-weight: 750; letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums; line-height: 1.1;
+  }
+  .tile .k small { font-size: 16px; font-weight: 600; color: var(--ink-3); }
+  .tile .lbl { font-size: 13px; color: var(--ink-2); margin-top: 6px; line-height: 1.45; }
+  .tile.accent .k { color: var(--accent); }
+  .tile .note { font-size: 11.5px; color: var(--ink-3); margin-top: 8px; }
+
+  /* ---------- code blocks ---------- */
+  .codewrap { margin: 16px 0 22px; }
+  .codehead {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+    color: var(--ink-3); padding: 0 2px 6px;
+  }
+  .codehead .cost { font-variant-numeric: tabular-nums; }
+  .cost.bad { color: var(--crit); }
+  .cost.good { color: var(--good); }
+  pre {
+    margin: 0; background: var(--code-bg); color: var(--code-ink);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; font-size: 12.75px; line-height: 1.62;
+    overflow-x: auto; white-space: pre;
+  }
+  :root[data-theme="dark"] pre, .darkpre pre { background: #101317; }
+  @media (prefers-color-scheme: dark) { pre { background: #101317; } }
+  pre .dim { color: var(--code-dim); }
+  pre .hl { color: var(--code-hl); }
+  pre .ok { color: var(--code-good); }
+  pre em { font-style: normal; background: rgba(240,168,75,.16); border-radius: 3px; padding: 0 1px; }
+
+  /* ---------- tables ---------- */
+  .tablewrap { overflow-x: auto; margin: 18px 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  tbody tr:last-child td { border-bottom: 0; }
+  th {
+    font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-3); font-weight: 600;
+    background: var(--surface-2); position: sticky; top: 0;
+  }
+  td { color: var(--ink-2); }
+  td:first-child { color: var(--ink); font-weight: 600; min-width: 150px; }
+  td.us { background: var(--accent-soft); }
+  .tbl-note { font-size: 12px; color: var(--ink-3); margin: 8px 2px 0; }
+  td .mini { display:block; font-size: 11.5px; color: var(--ink-3); margin-top: 3px; font-weight: 400; }
+
+  /* ---------- pills ---------- */
+  .pill {
+    display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+    letter-spacing: .04em; border-radius: 99px; padding: 2px 9px; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .pill.good { color: var(--good); background: var(--good-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.crit { color: var(--crit); background: var(--crit-soft); }
+  .pill.neut { color: var(--ink-2); background: var(--surface-2); }
+
+  /* ---------- bar comparisons ---------- */
+  .bars { margin: 20px 0 6px; display: grid; gap: 9px; }
+  .bar-row { display: grid; grid-template-columns: 118px 1fr; align-items: center; gap: 12px; }
+  .bar-row .who { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--ink-2); text-align: right; }
+  .bar-row .who.us { color: var(--accent); font-weight: 700; }
+  .bar-track { position: relative; height: 22px; }
+  .bar-fill {
+    position: absolute; inset: 0 auto 0 0; border-radius: 4px;
+    background: var(--bar-peer); min-width: 2px;
+  }
+  .bar-fill.us { background: var(--bar-us); }
+  .bar-val {
+    position: absolute; left: calc(var(--w) + 8px); top: 50%; transform: translateY(-50%);
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--ink-2);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .chart-title { font-size: 14px; font-weight: 650; color: var(--ink); margin: 26px 0 2px; }
+  .chart-sub { font-size: 12.5px; color: var(--ink-3); margin: 0 0 4px; }
+
+  /* ---------- cards ---------- */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin: 20px 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; }
+  .card h4 { margin: 0 0 4px; font-size: 16px; }
+  .card .src { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--ink-3); margin-bottom: 12px; }
+  .card ul { padding-left: 18px; margin-bottom: 0; }
+  .card li { font-size: 13.5px; margin-bottom: 7px; }
+
+  /* ---------- proposals ---------- */
+  .prop { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; margin: 14px 0; }
+  .prop-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .prop-id {
+    font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 13px;
+    color: var(--accent); letter-spacing: .04em;
+  }
+  .prop h4 { margin: 0; font-size: 16.5px; flex: 1 1 auto; }
+  .prop p { font-size: 14px; margin-bottom: 10px; }
+  .prop .from { font-size: 12.5px; color: var(--ink-3); }
+  .prop .from b { color: var(--ink-2); font-weight: 600; }
+
+  footer { margin-top: 80px; border-top: 1px solid var(--line); padding-top: 18px;
+    font-size: 12.5px; color: var(--ink-3); }
+  footer p { font-size: 12.5px; color: var(--ink-3); }
+
+  @media (max-width: 640px) {
+    .bar-row { grid-template-columns: 84px 1fr; }
+    .wrap { padding: 0 18px 72px; }
+  }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">BrainStrike // Agent Diagnostics</div>
+  <h1>Where our tool tokens go — and how opencode, Cline, and Hermes spend theirs</h1>
+  <p class="subtitle">A source-level teardown of the coding agent's tool-output formats against three popular open-source agents, with ranked fixes. The core finding: our budgets and guardrails are peer-grade or better — the <em>format inside</em> the budget is where the waste is.</p>
+  <div class="meta">
+    <span><b>Date</b> 2026-08-07</span>
+    <span><b>Ours</b> apps/desktop/assistant-server + packages/agent</span>
+    <span><b>Studied</b> opencode (dev@284214c) · cline (8ca3068) · hermes-agent</span>
+    <span><b>Method</b> direct source reads; all limits cited from code</span>
+  </div>
+</header>
+
+<!-- ================= VERDICT ================= -->
+<section id="verdict">
+  <div class="sec-label">01 — Verdict</div>
+  <h2>The budget machinery is fine. The bytes inside it are not.</h2>
+  <p>BrainStrike already has things the three open-source agents mostly lack: deterministic token-denominated budgets enforced on every result, a projection layer that converts raw JSON to text for search tools, offset pagination with mandatory continuation hints (a limited result without guidance <em>fails the run</em> — BST-951), and a durable artifact reader for oversized outputs. Nobody we studied enforces truncation honesty that strictly.</p>
+  <p>But inside the budget, our grep projection spends roughly <strong>180 characters of envelope per match</strong> — a <code>read_args=</code> JSON blob with a 36-char root UUID, a repeated root name, and a per-row <code>source=</code> diagnostic — where opencode spends ~11 and Hermes ~6. Our headers announce four false alarms (<code>candidates_truncated=false | scan_limited=false | …</code>) on every healthy call. Our file reads ship as JSON envelopes, so every newline in file content costs two characters and eleven metadata keys ride along on each page. The result: a 6,000-char grep page holds ~18 matches where a compact format holds ~75, which multiplies tool calls — and every extra call replays the entire conversation. As Cline's own source puts it: <em>"oversized outputs cost quadratically over the remaining run."</em></p>
+  <p>The second systemic gap: <strong>nothing ever leaves our context.</strong> All three peers prune, rewrite, or compact old tool results (opencode clears results beyond a 40k-token window; Cline rewrites superseded file reads to a 40-char placeholder and re-caps every result to 8k chars on every request; Hermes summarizes old tool turns to one line before compaction). We replay every stored projection at full size forever.</p>
+
+  <div class="tiles">
+    <div class="tile accent">
+      <div class="k">~180 <small>chars</small></div>
+      <div class="lbl">Envelope overhead per grep match in our content mode (peers: 6–14 chars)</div>
+      <div class="note">Estimated from the projection format with a real path + UUID root</div>
+    </div>
+    <div class="tile accent">
+      <div class="k">~4–5×</div>
+      <div class="lbl">More matches per page after a compact, path-grouped format — fewer follow-up calls for the same information</div>
+      <div class="note">~18 → ~75 matches inside the same 6,000-char budget</div>
+    </div>
+    <div class="tile">
+      <div class="k">120 <small>chars</small></div>
+      <div class="lbl">Happy-path header flags repeated on every grep result that could be silent</div>
+      <div class="note">candidates_truncated=false, scan_limited=false, skipped…=0, live=ripgrep</div>
+    </div>
+    <div class="tile">
+      <div class="k">0</div>
+      <div class="lbl">Mechanisms that ever remove or shrink an old tool result from our context</div>
+      <div class="note">All three peers have at least one (pruning, stale-read rewrite, or compaction)</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ANATOMY ================= -->
+<section id="anatomy">
+  <div class="sec-label">02 — Anatomy of the waste</div>
+  <h2>The same two grep matches, four ways</h2>
+  <p>This is the model-facing text for a content-mode search hitting two lines in one file. Ours is real output shape from <code>workspace-search-model-projections.ts</code>; the others are the exact formats their formatters emit.</p>
+
+  <div class="codewrap">
+    <div class="codehead"><span>BrainStrike today — grepSearch content mode, contextLines default 1</span><span class="cost bad">≈ 1,050 chars for 2 matches</span></div>
+    <pre><span class="dim">grep content | page=1-2/61 | live=ripgrep | </span><em>candidates_truncated=false | scan_limited=false | skipped_missing_line_metadata=0</em>
+<em>read_args={"path":"packages/agent/src/stream/tool-output-limits.ts","root":"0198a2b4-7c31-7f4e-9a12-3d5e6f7a8b9c","startLine":17} | root_name="brainstrike" | source=both</em>
+<span class="dim">before: */</span>
+match: export const MAX_TOOL_RESULT_TOKENS = 3000;
+<span class="dim">after: /** Default ceiling for the compact value repeated into the next model step. */</span>
+<em>read_args={"path":"packages/agent/src/stream/tool-output-limits.ts","root":"0198a2b4-7c31-7f4e-9a12-3d5e6f7a8b9c","startLine":19} | root_name="brainstrike" | source=both</em>
+<span class="dim">before: export const MAX_TOOL_RESULT_TOKENS = 3000;</span>
+match: export const MAX_MODEL_TOOL_RESULT_TOKENS = 2000;
+<span class="dim">after: export const MAX_MODEL_TOOL_RESULT_CHAR_BUDGET =</span>
+continue: reuse the prior brainstrike.grepSearch input with offset=2</pre>
+  </div>
+  <p>Highlighted spans are pure envelope: the full path + 36-char root UUID + root name repeat on <strong>every row</strong>, and the header reports three "nothing is wrong" flags. The <code>source=both</code> label is an internal engine diagnostic the model has no use for row-by-row.</p>
+
+  <div class="codewrap">
+    <div class="codehead"><span>opencode — grep.ts formatter (no context lines exist at all)</span><span class="cost good">≈ 200 chars</span></div>
+    <pre>Found 2 matches
+
+<span class="ok">packages/agent/src/stream/tool-output-limits.ts:</span>
+  Line 17: export const MAX_TOOL_RESULT_TOKENS = 3000;
+  Line 19: export const MAX_MODEL_TOOL_RESULT_TOKENS = 2000;</pre>
+  </div>
+
+  <div class="codewrap">
+    <div class="codehead"><span>Hermes — densified path-grouped block (kicks in at ≥5 matches)</span><span class="cost good">≈ 170 chars</span></div>
+    <pre><span class="ok">packages/agent/src/stream/tool-output-limits.ts</span>
+  17: export const MAX_TOOL_RESULT_TOKENS = 3000;
+  19: export const MAX_MODEL_TOOL_RESULT_TOKENS = 2000;</pre>
+  </div>
+
+  <div class="codewrap">
+    <div class="codehead"><span>Cline — search_codebase (context 2, max one match per file at the ripgrep level)</span><span class="cost good">≈ 330 chars</span></div>
+    <pre>Found 2 results for pattern: MAX_.*_TOKENS
+
+<span class="ok">packages/agent/src/stream/tool-output-limits.ts:17:14</span>
+  16:  */
+&gt; 17: export const MAX_TOOL_RESULT_TOKENS = 3000;
+  18: /** Default ceiling for the compact value... */
+&gt; 19: export const MAX_MODEL_TOOL_RESULT_TOKENS = 2000;</pre>
+  </div>
+
+  <h3>What a compact BrainStrike format could look like</h3>
+  <p>Keeping everything our contract requires — pagination, multi-root disambiguation, the freshness signal, mandatory hints on limited results — but paying for it once per result instead of once per row:</p>
+  <div class="codewrap">
+    <div class="codehead"><span>Proposed — same information, BST-951 invariants intact</span><span class="cost good">≈ 220 chars (−79%)</span></div>
+    <pre>grep content 1-2/61
+<span class="ok">brainstrike:packages/agent/src/stream/tool-output-limits.ts</span>
+  17: export const MAX_TOOL_RESULT_TOKENS = 3000;
+  19: export const MAX_MODEL_TOOL_RESULT_TOKENS = 2000;
+<span class="dim">continue: offset=2</span></pre>
+  </div>
+  <p>Root disambiguation becomes a <code>rootName:</code> prefix on the file header (only when multiple roots are open); the read-args recipe moves to the tool description once instead of shipping per row; engine/flag diagnostics appear only when they are actually true (e.g. a single <code>note: index-only results; live pass skipped</code> line when freshness is actually in question).</p>
+
+  <div class="chart-title">Model-facing envelope overhead per search match</div>
+  <p class="chart-sub">Characters of non-content formatting each agent pays per matching line (single-file case, estimates from the formatters above)</p>
+  <div class="bars" role="img" aria-label="Bar chart: envelope overhead per match. BrainStrike 180 characters, Cline 14, opencode 11, Hermes 6.">
+    <div class="bar-row"><span class="who us">BrainStrike</span><div class="bar-track"><div class="bar-fill us" style="width:100%; --w:100%"></div><span class="bar-val" style="left:auto; right:8px; color:var(--bar-val-on);">~180</span></div></div>
+    <div class="bar-row"><span class="who">Cline</span><div class="bar-track" style="--w:7.8%"><div class="bar-fill" style="width:7.8%"></div><span class="bar-val" style="left:calc(7.8% + 8px)">~14</span></div></div>
+    <div class="bar-row"><span class="who">opencode</span><div class="bar-track" style="--w:6.1%"><div class="bar-fill" style="width:6.1%"></div><span class="bar-val" style="left:calc(6.1% + 8px)">~11</span></div></div>
+    <div class="bar-row"><span class="who">Hermes</span><div class="bar-track" style="--w:3.3%"><div class="bar-fill" style="width:3.3%"></div><span class="bar-val" style="left:calc(3.3% + 8px)">~6</span></div></div>
+  </div>
+
+  <h3>The read tool has the same disease</h3>
+  <p><code>readWorkspaceFile</code> returns <code>{type:'json'}</code> to the model: file content as a JSON string plus eleven metadata keys (<code>content, endLine, nextCursor, omittedChars, path, rootName, size, startLine, tokenCount, totalLines, truncated</code> — including a permanently-null <code>tokenCount</code>). Inside a JSON string every newline is <code>\n</code> (2 chars) and every quote is escaped — a ~2–5% tax on all file content plus the envelope, inside a 6,000-char page. All three peers return plain text with a one-line header/footer. Our unpadded <code>N: </code> line gutter, on the other hand, is exactly what Hermes A/B-measured as optimal (padding cost 16–48% more gutter tokens with zero accuracy gain) — keep it.</p>
+</section>
+
+<!-- ================= MATRIX ================= -->
+<section id="matrix">
+  <div class="sec-label">03 — Comparison matrix</div>
+  <h2>Technique by technique</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr>
+      <th>Dimension</th><th>BrainStrike</th><th>opencode</th><th>Cline</th><th>Hermes</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td>Search output format</td>
+        <td class="us"><span class="pill crit">per-row JSON envelope</span><span class="mini">read_args + root UUID + source label every row</span></td>
+        <td>Path grouped, <code>Line N: text</code></td>
+        <td><code>file:line:col</code> + <code>&gt;</code>-marked context</td>
+        <td>Path-grouped densified block at ≥5 matches</td>
+      </tr>
+      <tr>
+        <td>Happy-path status noise</td>
+        <td class="us"><span class="pill crit">4+ flags always</span><span class="mini">flags printed even when false/0</span></td>
+        <td>"Found N matches" only</td>
+        <td>"Found N results" only</td>
+        <td><code>total_count</code> only</td>
+      </tr>
+      <tr>
+        <td>Context lines</td>
+        <td class="us">Default 1, labeled before/after rows</td>
+        <td><span class="pill neut">none exist</span></td>
+        <td>2, prefix-marked; <code>--max-count=1</code> per file</td>
+        <td>0 default, opt-in <code>-C</code></td>
+      </tr>
+      <tr>
+        <td>Search caps</td>
+        <td class="us">50/page (content), 2,000 internal, 200/file rg</td>
+        <td>100 hard, 2,000-char lines</td>
+        <td>100 + 1 per file, 5s timeout</td>
+        <td>50/page, 500-char matches</td>
+      </tr>
+      <tr>
+        <td>Pagination</td>
+        <td class="us"><span class="pill good">offset + mandatory hints</span><span class="mini">limited result without hint fails the run</span></td>
+        <td>None — narrow instead</td>
+        <td>None — narrow instead</td>
+        <td>Offset + hint on truncation</td>
+      </tr>
+      <tr>
+        <td>Model-facing page budget</td>
+        <td class="us">6,000 chars (1,500 tok) for search/read pages</td>
+        <td>50 KiB + spill file</td>
+        <td>48k executor → <b>8k re-cap every request</b></td>
+        <td>100k chars → persist to /tmp over threshold</td>
+      </tr>
+      <tr>
+        <td>Oversized-output strategy</td>
+        <td class="us"><span class="pill good">trim + hint + artifact-reader tool</span></td>
+        <td>Spill to file; "delegate, don't read it yourself"</td>
+        <td>Middle-truncation w/ char count + guidance</td>
+        <td>Persist + 1,500-char preview; 3-layer budget</td>
+      </tr>
+      <tr>
+        <td>Shell output retention</td>
+        <td class="us">Tail only, budget-fitted (1 MB raw cap)</td>
+        <td>Tail 50 KiB/2,000 lines + spill file</td>
+        <td>Middle-truncate 48k, rolling head+tail buffer</td>
+        <td><b>40% head / 60% tail</b> + spill file</td>
+      </tr>
+      <tr>
+        <td>Read result shape</td>
+        <td class="us"><span class="pill crit">JSON envelope, 11 keys</span><span class="mini">newlines escaped; tokenCount always null</span></td>
+        <td>Plain text, <code>N: </code> lines, 50 KiB/call</td>
+        <td>Plain text, padded gutter, 48k/call → 8k</td>
+        <td>Plain text, unpadded <code>N|</code> (A/B-measured)</td>
+      </tr>
+      <tr>
+        <td>Edit confirmation</td>
+        <td class="us"><span class="pill good">compact JSON + LSP delta</span><span class="mini">bytesWritten / replaced; no file echo</span></td>
+        <td>"Edit applied successfully." + ≤20 LSP errors</td>
+        <td>Trimmed diff snippet ≤200 lines</td>
+        <td>Unified diff / sha256 <code>verified:true</code> + "do NOT re-read"</td>
+      </tr>
+      <tr>
+        <td>Old-result lifecycle</td>
+        <td class="us"><span class="pill crit">replayed at full size forever</span></td>
+        <td>Cleared beyond 40k-tok window + compaction</td>
+        <td>Stale-read rewrite + 8k re-cap + compaction 90→70%</td>
+        <td>1-line tool summaries + window-scaled compaction</td>
+      </tr>
+      <tr>
+        <td>Loop / re-read guards</td>
+        <td class="us"><span class="pill crit">none</span></td>
+        <td>None</td>
+        <td>Defensive arg repair (malformed calls fixed, not failed)</td>
+        <td><span class="pill good">warn @3, block @4</span> + unchanged-file read stubs</td>
+      </tr>
+      <tr>
+        <td>Zero-match help</td>
+        <td class="us">Hint only when limits were hit</td>
+        <td>"No files found"</td>
+        <td>"Searched N files" count</td>
+        <td><span class="pill good">3 diagnostic probes</span><span class="mini">case / hidden-file / literal-vs-regex; 13.9% of searches hit zero</span></td>
+      </tr>
+      <tr>
+        <td>Tool descriptions</td>
+        <td class="us"><span class="pill good">lean one-liners (~1.7k tok total)</span></td>
+        <td>.txt files w/ few-shot examples, good/bad blocks</td>
+        <td>Schema-only; ~2k-char system prompt</td>
+        <td>Inline w/ anti-patterns + "use X not shell Y" routing</td>
+      </tr>
+      <tr>
+        <td>Tool surface control</td>
+        <td class="us">~30 native tools registered</td>
+        <td>Filtered by model/client/flags (~15)</td>
+        <td>Mode presets (act/plan/search/minimal, ~10)</td>
+        <td>85 tools; 3-tier progressive disclosure for MCP</td>
+      </tr>
+      <tr>
+        <td>Parallel-call nudges</td>
+        <td class="us"><span class="pill warn">not found</span></td>
+        <td>In glob/read/shell descriptions</td>
+        <td>In every batchable tool + system prompt</td>
+        <td>n/a (single-call design)</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="tbl-note">Sources: our column from apps/desktop/src/assistant-server/* and packages/agent/src/stream/tool-output-limits.ts; peers from the cited files in each study report (opencode packages/opencode/src/tool/*, cline sdk/packages/core/src/extensions/*, hermes tools/*).</p>
+</section>
+
+<!-- ================= WHAT EACH DOES BEST ================= -->
+<section id="best">
+  <div class="sec-label">04 — What each agent does best</div>
+  <h2>The ideas worth stealing (and the ones we already have)</h2>
+  <div class="cards">
+    <div class="card">
+      <h4>opencode — spill &amp; delegate</h4>
+      <div class="src">packages/opencode/src/tool · packages/core</div>
+      <ul>
+        <li><strong>Save-don't-send:</strong> anything over 50 KiB/2,000 lines goes to a managed file; the model gets a bounded preview plus "grep the saved file — or delegate to an explore agent, do NOT read it yourself."</li>
+        <li><strong>History pruning:</strong> tool results beyond the newest ~40k estimated tokens are replaced with <code>[Old tool result content cleared]</code>.</li>
+        <li><strong>Few-shot .txt descriptions:</strong> read teaches its own output format; edit teaches recovery from ambiguous matches; shell has good/bad example blocks.</li>
+        <li><strong>Narrowing over paging:</strong> a 100-result cap and one sentence of advice; no cursor machinery at all.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Cline — quadratic-cost thinking</h4>
+      <div class="src">sdk/packages/core/src/extensions</div>
+      <ul>
+        <li><strong>Stale-read rewriting:</strong> once a file is re-read, the older copy in history becomes <code>[outdated - see the latest file content]</code> — batched at 64 KB reclaimed to protect provider prefix caches.</li>
+        <li><strong>Unconditional 8k re-cap</strong> on every tool result on every request build — catches MCP/custom tools uniformly.</li>
+        <li><strong>Middle-truncation everywhere,</strong> never silent, always with "which tool/parameter gets you the rest."</li>
+        <li><strong>Command-echo dedup:</strong> result echoes only 200 chars of the command — "the full command is already in the tool call input."</li>
+        <li><strong>Model-aware edit routing:</strong> GPT/Codex models get apply_patch; others get editor — fewer malformed-edit retries.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Hermes — measure, then optimize</h4>
+      <div class="src">tools/*.py</div>
+      <ul>
+        <li><strong>Empirical receipts:</strong> the unpadded gutter cites a measured 16–48% saving; zero-match probes cite a 13.9% production zero-match rate; cwd echo cites "60% of calls carry a defensive cd."</li>
+        <li><strong>Loop-breaking:</strong> identical reads/searches warn at 3, hard-block at 4: "You already have this information. STOP."</li>
+        <li><strong>Zero-match probes:</strong> case-insensitive / hidden-file / literal-string retries turn a dead "0 results" into a steer.</li>
+        <li><strong>Window-scaled budgets:</strong> per-result 15% and per-turn 30% of the actual model context, floored and ceilinged.</li>
+        <li><strong>Anti-verification loops:</strong> write returns sha256 <code>verified:true</code> — "do NOT re-read the file to check."</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>BrainStrike — already ahead on</h4>
+      <div class="src">assistant-server · packages/agent</div>
+      <ul>
+        <li><strong>Truncation honesty as an invariant:</strong> a limited result without a continuation hint throws (BST-951) — no peer enforces this.</li>
+        <li><strong>Deterministic token-denominated budgets</strong> with binary-search fitting, per-tool overrides, and a skill-activation carve-out.</li>
+        <li><strong>Durable artifact reader</strong> with opaque cursors for oversized results — stronger than /tmp spill files.</li>
+        <li><strong>Hybrid fresh+indexed grep</strong> — peers' index-free searches can't go stale; ours can, and the live pass already solves it.</li>
+        <li><strong>Lean tool descriptions</strong> — the whole catalog costs ~1.7k tokens.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= PROPOSALS ================= -->
+<section id="proposals">
+  <div class="sec-label">05 — Proposals</div>
+  <h2>Ranked fixes</h2>
+  <p>Ordered by estimated token impact per unit of effort. P1–P4 are the canonical convergence — every studied agent independently arrived there. P6–P8 are the innovation-token spends.</p>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">P1</span><h4>Path-grouped compact grep projection</h4><span class="pill crit">impact: very high</span><span class="pill neut">effort: M</span></div>
+    <p>Rewrite <code>projectGrepSearchModelOutput</code> to group matches by file: one <code>rootName:path</code> header per file (root prefix only when &gt;1 root is open), then <code>&nbsp;&nbsp;line: text</code> rows. Drop the per-row <code>read_args=</code> envelope and move the "how to read this file" recipe into the tool description once. Same treatment for files mode (<code>path (N matches)</code> per line) and glob. Keep offsets, keep mandatory hints — the BST-951 projector invariants and replay path don't change, only the row renderer. Estimated ~75 matches per 6k page vs ~18 today; proportionally fewer grep calls per task.</p>
+    <div class="from">From: <b>all three</b> — this is the canonical format (opencode grep.ts:85, hermes _densify_matches, cline search.ts:350).</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">P2</span><h4>Silent happy path — flags only when they fire</h4><span class="pill warn">impact: high</span><span class="pill neut">effort: S</span></div>
+    <p>Emit <code>candidates_truncated / scan_limited / skipped_missing_line_metadata / liveEngine / source</code> only when true, non-zero, or degraded. Healthy result header becomes <code>grep content 1-50/61</code>. Replace per-row <code>source=</code> with one result-level note only when it matters (e.g. <code>note: live pass skipped — results may be stale</code>). ~120–150 chars saved on every search call, and the model stops reading noise.</p>
+    <div class="from">From: <b>all three</b> — every peer's healthy output is "Found N matches" and nothing else.</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">P3</span><h4>Plain-text projection for readWorkspaceFile</h4><span class="pill warn">impact: high</span><span class="pill neut">effort: M</span></div>
+    <p>Replace the <code>{type:'json'}</code> read result with a text projection: one header line (<code>read root:path lines 40-120/540</code>), the numbered content verbatim (keep the unpadded <code>N: </code> gutter — Hermes proved it), and a <code>continue: cursor=…</code> line when truncated. Kills JSON newline/quote escaping (~2–5% of all file content), eleven metadata keys, and the always-null <code>tokenCount</code>. The cursor system stays; it just rides in one footer line.</p>
+    <div class="from">From: <b>all three</b> — every peer returns plain text pages with a header/footer.</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">P4</span><h4>contextLines default 0 in content mode</h4><span class="pill warn">impact: medium-high</span><span class="pill neut">effort: S</span></div>
+    <p>Today each content match defaults to 3 content lines (before/match/after). opencode ships no context at all; Hermes defaults to 0; Cline uses 2 but caps at one match per file. Default to 0 and let the model opt in — the matching line plus a cheap targeted read beats paying 3× on every match of every search. With P1's grouped format, adjacent matches also stop duplicating each other's context.</p>
+    <div class="from">From: <b>opencode</b> (no option exists), <b>hermes</b> (default 0).</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">P5</span><h4>Parallel-call nudges + "use the bounded tool" routing</h4><span class="pill warn">impact: medium</span><span class="pill neut">effort: S</span></div>
+    <p>Add one system-prompt rule and per-description phrases: batch independent reads/searches in one turn (fewer turns = the whole history replayed fewer times), and route shell away from <code>cat/grep/find/ls</code> toward the budgeted tools (Hermes: "Do NOT use cat/head/tail (use read_file)…"). Add Hermes' anti-verification line to our write/edit tools: the result already carries <code>bytesWritten</code>/<code>replaced</code> — say "do not re-read to verify."</p>
+    <div class="from">From: <b>cline</b> (every description + system prompt), <b>hermes</b> (terminal description).</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">P6</span><h4>Old-result lifecycle: prune and rewrite history</h4><span class="pill crit">impact: very high (long threads)</span><span class="pill neut">effort: L</span></div>
+    <p>The biggest systemic win and the right place for an innovation token. Two composable layers: <strong>(a)</strong> opencode-style pruning — beyond a protected recent window (~40k tokens of tool output), replace old tool-result projections with a one-line marker; <strong>(b)</strong> Cline-style stale-read rewriting — when a file is re-read or edited, rewrite the superseded read/grep projection to <code>[outdated — see latest read]</code>, batched (Cline uses 64 KB reclaimed) to protect prompt-prefix caches. We're unusually well-positioned: model projections are already stored separately from raw results and already have a replay path, so this is a persistence-layer rewrite pass, not a stream change. Our estimator-v2 usage meter gives the trigger signal.</p>
+    <div class="from">From: <b>opencode</b> (compaction.ts: 40k protect / 20k min-prune), <b>cline</b> (message-builder.ts: OUTDATED_FILE_CONTENT, 64 KB batch).</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">P7</span><h4>Loop guards: repeated-call blocking + unchanged-read stubs</h4><span class="pill warn">impact: medium-high</span><span class="pill neut">effort: S–M</span></div>
+    <p>Track (tool, args) per thread: identical consecutive grep/read calls get a warning at the 3rd and a hard block at the 4th ("results have NOT changed — you already have this"). For reads, mtime-key the page: an unchanged re-read returns a ~40-token stub instead of the page. Cheap, mechanical, and it caps the classic failure mode where a young agent burns thousands of tokens re-confirming what it already saw. Pairs with P6: after pruning, the dedup cache must reset (Hermes does exactly this).</p>
+    <div class="from">From: <b>hermes</b> (file_tools.py warn@3/block@4, read-dedup stubs, escalating patch-failure hints).</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">P8</span><h4>Zero-match probes on the index</h4><span class="pill neut">impact: medium</span><span class="pill neut">effort: S–M</span></div>
+    <p>When a content search returns zero matches, run up to three bounded probes and report the first that hits: case-insensitive variant, literal-string variant (regex metacharacters that needed escaping), and excluded/hidden-path variant. Hermes measured 13.9% of production searches returning zero — each one currently gives our model nothing to steer by. Our trigram index makes the probes nearly free; the live rg pass covers the excluded-path probe.</p>
+    <div class="from">From: <b>hermes</b> (_zero_match_probe, file_operations.py:2299).</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">P9</span><h4>Shell: 40/60 head-tail split + command-echo dedup</h4><span class="pill neut">impact: low-medium</span><span class="pill neut">effort: S</span></div>
+    <p>Our executeCommand keeps only the tail; Hermes keeps 40% head / 60% tail because compiler and stack-trace errors surface early, and Cline middle-truncates for the same reason. Adopt head+tail retention within the existing budget, and stop echoing long commands back in results (Cline caps the echo at 200 chars — the full command is already in the tool-call input we replay).</p>
+    <div class="from">From: <b>hermes</b> (terminal_tool.py:3155), <b>cline</b> (RUN_COMMAND_QUERY_PREVIEW_LIMIT).</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">P10</span><h4>Instrument before and after</h4><span class="pill neut">impact: enabling</span><span class="pill neut">effort: S</span></div>
+    <p>Hermes' habit is the meta-lesson: every optimization above cites a measurement. Before landing P1–P4, add per-tool telemetry to the durable diagnostics store: model-facing chars per call, calls per thread by tool, zero-match rate, and pages-per-search. Re-run the same eval tasks after each change. querySelf can already aggregate this — it just needs the counters written.</p>
+    <div class="from">From: <b>hermes</b> (measured-decision docstrings throughout).</div>
+  </div>
+</section>
+
+<!-- ================= STRATEGY ================= -->
+<section id="strategy">
+  <div class="sec-label">06 — Overall recommendation</div>
+  <h2>Pick the aggressive-page lane, then make history mortal</h2>
+  <p>On page size the field splits into two coherent strategies: <strong>big pages + spill files</strong> (opencode 50 KiB, Hermes 100k chars — fewer calls, bigger single results) and <strong>small pages + history hygiene</strong> (Cline's 8k re-cap, made viable by stale-read rewriting and compaction). Our 6k-char pages put us in Cline's lane — but without the history hygiene that makes that lane work, we currently get the downside of both: many round trips <em>and</em> immortal results.</p>
+  <p>Recommendation: <strong>stay in the small-page lane and complete it.</strong> Land the format fixes first (P1–P4 — they make every page 4–5× denser, which is equivalent to a budget raise without touching budgets), add the behavioral nudges (P5), then spend the innovation tokens on P6+P7, which no budget constant can substitute for. Sequence:</p>
+  <ul>
+    <li><strong>Wave 1 (format, ~days):</strong> P1 + P2 + P4 in one grep-projection PR with before/after fixture snapshots; P3 as a sibling PR. P10 counters land first so the win is quantified.</li>
+    <li><strong>Wave 2 (behavior, ~days):</strong> P5 description/system-prompt pass; P8 zero-match probes; P9 shell tweaks.</li>
+    <li><strong>Wave 3 (lifecycle, the innovation spend):</strong> P7 loop guards, then P6 pruning + stale-read rewriting driven by the estimator-v2 meter. This is the one that compounds with thread length — the longer the session, the bigger the save.</li>
+  </ul>
+  <p>One caution from the field: Cline batches its history rewrites (64 KB minimum reclaim) specifically because rewriting bytes mid-transcript invalidates provider prefix caches from that point on. Any P6 implementation should inherit that batching from day one.</p>
+</section>
+
+<!-- ================= APPENDIX ================= -->
+<section id="appendix">
+  <div class="sec-label">07 — Appendix</div>
+  <h2>Key constants, side by side</h2>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Limit</th><th>BrainStrike</th><th>opencode</th><th>Cline</th><th>Hermes</th></tr></thead>
+    <tbody>
+      <tr><td>Transport tool-result cap</td><td class="us">3,000 tok (12k chars)</td><td>50 KiB / 2,000 lines</td><td>48k chars (executor)</td><td>100k chars → persist</td></tr>
+      <tr><td>Model-facing / per-request cap</td><td class="us">2,000 tok; domain projections 1,500 tok</td><td>same as transport</td><td>8,000 chars, every build</td><td>window-scaled: 15% per result</td></tr>
+      <tr><td>Search page / cap</td><td class="us">50 default, 2,000 internal</td><td>100 hard</td><td>100, max 1/file</td><td>50 default</td></tr>
+      <tr><td>Search line clip</td><td class="us">600 chars (+600 ctx, 800 path)</td><td>2,000 chars</td><td>2,000 chars</td><td>500 chars</td></tr>
+      <tr><td>Read page</td><td class="us">12k chars requested → 6k-char model page</td><td>2,000 lines / 50 KiB</td><td>2,000 lines / 48k chars</td><td>2,000 lines / 100k chars</td></tr>
+      <tr><td>Per-line clip (read)</td><td class="us">— (page-level fitting)</td><td>2,000 chars</td><td>2,000 chars</td><td>2,000 chars</td></tr>
+      <tr><td>Shell capture / model</td><td class="us">1 MB raw / budget-fitted tail</td><td>tail 50 KiB + spill</td><td>rolling 48k head+tail</td><td>50k, 40/60 head-tail + spill</td></tr>
+      <tr><td>Compaction trigger</td><td class="us"><span class="pill crit">none</span></td><td>usable-context threshold; protect 40k tool-tok</td><td>90% → target 70%; protect 20k tok tail</td><td>%-of-window per model; 1-line pre-summaries</td></tr>
+      <tr><td>Chars/token heuristic</td><td class="us">4</td><td>—</td><td>3 (deliberately conservative)</td><td>4</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Method &amp; sources</h3>
+  <p>BrainStrike figures read directly from source this session: <code>grep-search-tool.ts</code>, <code>grep-search-result-contract.ts</code>, <code>workspace-search-model-projections.ts</code>, <code>tool-output-limits.ts</code>, <code>read-workspace-file-tool.ts</code>, <code>execute-command-tool.ts</code>, <code>live-grep.ts</code>, <code>tool-descriptions.ts</code>, <code>default-instructions.ts</code>, plus projection test fixtures. Peer figures from three commissioned source studies (full reports with file:line citations saved alongside this document: <code>opencode-report.md</code>, <code>cline-report.md</code>, <code>hermes-report.md</code>). Character counts marked "≈" are estimated from the formatters' exact output shapes with representative paths, not from live traffic — P10 exists to replace those estimates with measurements.</p>
+</section>
+
+<footer>
+  <p>BrainStrike internal engineering diagnostic · 2026-08-07 · Formats and constants verified against source at the commits noted in the header; peer repos are local snapshots and may drift upstream.</p>
+</footer>
+</div>
