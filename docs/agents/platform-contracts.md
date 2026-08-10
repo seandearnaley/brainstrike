@@ -804,7 +804,7 @@ context; when the timing clock is unusable, the failed state remains latched
 instead of claiming an idle collector. Do not write routine performance samples
 into
 `brainstrike_diagnostic_events`: that table is CHECK-constrained to warn+
-failure signals, drives the unseen-error chip, and is the wrong cardinality and
+failure signals, drives the unseen-diagnostics chip, and is the wrong cardinality and
 severity model for continuous performance measurements.
 
 **Table**: `brainstrike_diagnostic_events` (migration 073, numbered runner
