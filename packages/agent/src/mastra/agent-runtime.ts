@@ -9,7 +9,10 @@ import type { MastraCompositeStore } from '@mastra/core/storage';
 import type { AssistantResilienceConfig } from '../config/resilience-config';
 import type { McpConfig } from '../mcp/config';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
-import { resolveToolResultBudgetForModel } from '../stream/tool-output-limits';
+import {
+  resolveToolResultBudgetForModel,
+  type ScaledToolResultBudget,
+} from '../stream/tool-output-limits';
 import type { AgentHookRunner } from '../tools/hook-runner';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData } from '../types';
@@ -143,6 +146,8 @@ export interface MastraAgentRuntime {
   /** Persona id → definition for the registered delegation tools (delegation caps). */
   personasById: ReadonlyMap<string, AssistantPersonaDefinition>;
   resilienceConfig: AssistantResilienceConfig;
+  /** Per-run budget shared by fresh producers and runtime projection guards. */
+  resolvedToolResultBudget: ScaledToolResultBudget;
   /** Bounded, content-free token measurements for this concrete run/tool map. */
   tokenDiagnostics: RunTokenDiagnostics;
   /** Content-free discovery surface metadata for traces, tests, and diagnostics. */
@@ -573,6 +578,7 @@ export async function createMastraAgentRuntime(
     permissionEnforced: permissionSnapshot !== undefined,
     personasById,
     resilienceConfig,
+    resolvedToolResultBudget,
     tokenDiagnostics,
     ...(discoverySurface ? { toolDiscovery: discoverySurface.metadata } : {}),
     toolHistoryFilter,

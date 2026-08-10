@@ -576,6 +576,7 @@ export interface ReadWorkspaceFileResult {
 }
 
 export interface ReadWorkspaceFileLoopGuardOptions {
+  readonly domainModelResultCharBudget?: number;
   readonly threadScope: string;
 }
 
@@ -584,6 +585,7 @@ function fitReadWorkspaceFileResult(args: {
   readonly effectiveEndLine: number;
   readonly file: ReadWorkspaceFileScan;
   readonly fitsResultBudgets: (result: ReadWorkspaceFileResult) => boolean;
+  readonly domainModelResultCharBudget: number;
   readonly maxChars: number;
   readonly startPosition: ReadWorkspaceFilePosition;
 }): { readonly page: ReadWorkspaceFilePage; readonly result: ReadWorkspaceFileResult } {
@@ -616,10 +618,10 @@ function fitReadWorkspaceFileResult(args: {
   if (
     decodedWorkspaceTextModelOutputChars([
       buildReadWorkspaceFileProjectionText(emptyResult).value,
-    ]) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    ]) > args.domainModelResultCharBudget
   ) {
     throw new RangeError(
-      `readWorkspaceFile metadata exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character model projection budget`
+      `readWorkspaceFile metadata exceeds the ${args.domainModelResultCharBudget}-character model projection budget`
     );
   }
 
@@ -674,6 +676,8 @@ export async function runReadWorkspaceFile(
   cursorRegistry: ReadWorkspaceFileCursorRegistry | null,
   loopGuard?: ReadWorkspaceFileLoopGuardOptions
 ): Promise<ReadWorkspaceFileResult | LoopGuardRefusalResult> {
+  const domainModelResultCharBudget =
+    loopGuard?.domainModelResultCharBudget ?? MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
   const cursorScope = input.cursor ? requireReadWorkspaceFileCursorScope(runtimeData) : null;
   if (input.cursor && !cursorRegistry) {
     throw new Error('readWorkspaceFile continuation handles are unavailable in this read mode.');
@@ -739,7 +743,7 @@ export async function runReadWorkspaceFile(
     const fitsResultBudgets = (result: ReturnType<typeof buildResult>): boolean =>
       JSON.stringify(result).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET &&
       decodedWorkspaceTextModelOutputChars([buildReadWorkspaceFileProjectionText(result).value]) <=
-        MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
+        domainModelResultCharBudget;
     const finishSuccessfulRead = (
       page: ReadWorkspaceFilePage,
       result: ReturnType<typeof buildResult>
@@ -770,6 +774,7 @@ export async function runReadWorkspaceFile(
 
     const selected = fitReadWorkspaceFileResult({
       buildResult,
+      domainModelResultCharBudget,
       effectiveEndLine,
       file,
       fitsResultBudgets,

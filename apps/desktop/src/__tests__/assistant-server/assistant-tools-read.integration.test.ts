@@ -9,6 +9,7 @@ import {
   NATIVE_TOOL_RESULT_CHAR_BUDGET,
   type RuntimeData,
   resetFileReadState,
+  resolveScaledToolResultBudget,
   ToolProjectionInputRejectedError,
   withFileLock,
 } from '@brainstrike/agent';
@@ -184,6 +185,47 @@ describe('assistant-tools read tools', () => {
       clearWindowRoleByWebContentsId(id);
     }
     trackedWindowIds.length = 0;
+  });
+
+  it('fits read pages at floor, byte-identical anchor, and ceiling tiers', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    await fsPromises.writeFile(
+      path.join(workspaceRootPath, 'src', 'tiered.ts'),
+      'x'.repeat(30_000),
+      'utf8'
+    );
+    const runAt = async (
+      contextWindow: number,
+      threadId: string
+    ): Promise<ReadWorkspaceFileResult> => {
+      const resolvedToolResultBudget = resolveScaledToolResultBudget(contextWindow);
+      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath, threadId), {
+        resolvedToolResultBudget,
+      });
+      return await requireToolExecute<ReadWorkspaceFileResult>(
+        tools,
+        'brainstrike.readWorkspaceFile'
+      )({ path: '/src/tiered.ts' });
+    };
+
+    try {
+      const floor = await runAt(8192, 'thread-tier-floor');
+      const anchor = await runAt(131_072, 'thread-tier-anchor');
+      const ceiling = await runAt(262_144, 'thread-tier-ceiling');
+      const defaultTools = buildDesktopAssistantTools(
+        workspaceRuntime(workspaceRootPath, 'thread-tier-default')
+      );
+      const defaultAnchor = await requireToolExecute<ReadWorkspaceFileResult>(
+        defaultTools,
+        'brainstrike.readWorkspaceFile'
+      )({ path: '/src/tiered.ts' });
+
+      expect(anchor.content).toBe(defaultAnchor.content);
+      expect(floor.content.length).toBeLessThan(anchor.content.length);
+      expect(ceiling.content.length).toBeGreaterThan(anchor.content.length);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
   });
 
   it('reads a line-numbered workspace file page with a short continuation handle', async () => {

@@ -220,7 +220,10 @@ function buildLines(
   ];
 }
 
-export function projectWebSearchModelOutput(raw: unknown): WebSearchTextModelOutput {
+export function projectWebSearchModelOutput(
+  raw: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): WebSearchTextModelOutput {
   const result = parseWebSearchResult(raw);
   const projectedItems: string[] = [];
   let kept = 0;
@@ -228,7 +231,7 @@ export function projectWebSearchModelOutput(raw: unknown): WebSearchTextModelOut
   for (const [index, item] of result.results.entries()) {
     const nextItem = itemLines(item, index + 1);
     const candidate = buildLines(result, [...projectedItems, ...nextItem], kept + 1);
-    if (decodedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > domainModelResultCharBudget) {
       break;
     }
     projectedItems.push(...nextItem);
@@ -236,7 +239,7 @@ export function projectWebSearchModelOutput(raw: unknown): WebSearchTextModelOut
   }
 
   const lines = buildLines(result, projectedItems, kept);
-  if (decodedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > domainModelResultCharBudget) {
     throw new RangeError('webSearch model projection cannot fit required metadata');
   }
   return output(lines);

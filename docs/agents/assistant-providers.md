@@ -830,7 +830,10 @@ result lists via `fitItemsToCharBudget`. Purpose-built domain projections
 `findWorkspaceSymbol`/`lspInspect`, workspace-context, and
 workspace-retrieval, plus `webSearch` and `webExtract`) use decoded text length
 for their self-fit contract. `MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET` is the
-6000-character 128k anchor definition, not a universal per-run value.
+6000-character 128k anchor definition, not a universal per-run value. Desktop
+projectors now self-fit against the run's resolved domain value; the fixed
+constant remains the backward-compatible fallback only when no resolved budget
+was threaded by a harness or nonstandard host.
 `decodedWorkspaceTextModelOutputChars` counts code points in the value the
 model actually reads and adds the small fixed
 `PROJECTION_ENVELOPE_RESERVE_CHARS` reserve; it does not measure
@@ -935,7 +938,29 @@ misconfiguration (a registered entry with an invalid `contextWindow`) still
 throws through `resolveScaledToolResultBudget`'s own validation rather than
 being swallowed as "unknown model". The plain resolved carrier is threaded
 through MCP inline bounding, the core and deferred discovery surfaces, persona
-projections, and `RunTokenDiagnostics`; no mutable module-global budget exists.
+projections, and `RunTokenDiagnostics`. The sole module-scoped context is the
+save/restore `activeToolResultBudget` around one synchronous custom-projector
+call: it is not run state, is never held across a Promise, and exists because
+Mastra's `toModelOutput(output)` signature cannot carry the per-call budget
+when a persona re-projects a parent-owned tool object.
+
+BST-1219 (done; follow-up to PR #2349) closes the producer/guard seam for fresh
+desktop projections. `packages/assistant-service/src/stream-init.ts` normalizes
+the trusted provider, applies the same default-model fallback, resolves the
+budget before `capabilities.tools.build`, and carries it in
+`AgentStreamToolDependencies.resolvedToolResultBudget`.
+`buildDesktopAssistantTools` captures its domain-character value in every
+purpose-built projector only as a fallback for direct callers and in
+`readWorkspaceFile`'s page fitter. Wrapped parent/persona projection calls read
+the active resolved carrier synchronously, so the SAME desktop tool object can
+narrow or widen for a pinned child's own budget. `readToolOutputArtifact` uses
+that seam too; its page and search projectors self-fit against the passed
+domain budget instead of the fixed 6000-character anchor. The later
+Mastra runtime independently resolves the same provider/model pair once for
+its guard and transport pipeline; `stream-init-tool-budget.test.ts` pins parity
+between those two resolutions. Invalid providers remain a visible anchor
+fallback at the earlier construction seam and still fail normally at runtime
+configuration; an unknown model retains the resolver's single documented warn.
 
 The anchor is 131,072 context tokens. Defaults scale linearly and round to the
 nearest token: domain is `round(1500 * contextWindow / 131072)` clamped to
@@ -980,7 +1005,9 @@ Because that total envelope never scales, replay's newly-composed hook context
 8000-character ceiling whether the stored domain payload came from a
 huge-window run or the current run's own resolved tier — a known, documented
 tradeoff, not yet fixed; see `docs/agents/assistant-runtime.md`'s replay
-section for the full reasoning and the deferred (BST-1219-paired) follow-up.
+section for the full reasoning. BST-1219 widened budget context only for FRESH
+desktop producers; the replay hook-context/total-envelope tradeoff remains a
+separate deferred follow-up and was not changed.
 The file-read staleness tracker is updated only after cursor validation and
 page construction succeed inside the per-file lock; a rejected stale cursor
 must not mark externally changed bytes as fresh for a later write.
