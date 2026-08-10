@@ -96,7 +96,10 @@ function assertExactLaneCommand(command, expectedCommand, label) {
 
 function assertBlockingStep(step, label) {
   assert.equal(step.if, undefined, `${label} must be unconditional`);
-  assert.notEqual(step['continue-on-error'], true, `${label} must fail its job when tests fail`);
+  assert.ok(
+    step['continue-on-error'] === undefined || step['continue-on-error'] === false,
+    `${label} must fail its job when tests fail`
+  );
 }
 
 function untaggedTitles(source, fileName, tag) {
@@ -151,10 +154,18 @@ test('MONEY TEST: package smoke lanes reject no-op wrappers and failure swallowi
 });
 
 test('MONEY TEST: guarded workflow steps cannot swallow test failures', () => {
-  assert.throws(
-    () => assertBlockingStep({ 'continue-on-error': true }, 'fixture'),
-    /must fail its job/
-  );
+  const actionsExpression = (body) => `$${body}`;
+  for (const continueOnError of [
+    true,
+    actionsExpression('{{ true }}'),
+    actionsExpression("{{ github.event_name == 'pull_request' }}"),
+  ]) {
+    assert.throws(
+      () => assertBlockingStep({ 'continue-on-error': continueOnError }, 'fixture'),
+      /must fail its job/
+    );
+  }
+  assert.doesNotThrow(() => assertBlockingStep({ 'continue-on-error': false }, 'fixture'));
 });
 
 test('REAL REPO: every web AI Tools settings title is selected by Web E2E smoke', () => {
