@@ -100,6 +100,31 @@ export const useDatabaseDemoStore = create<DatabaseDemoStore>()(
   )
 );
 
+/**
+ * Production resetter for the factory-reset pipeline (FACTORY RESET CONTRACT).
+ *
+ * `localStorage.clear()` wipes the PERSISTED slice, but this store is a mounted
+ * singleton: without this, a reset left `debugDrawerOpen` true on the live
+ * instance, so the collection debug drawer stayed open — and kept querying —
+ * against the database the reset had just emptied. Registered from app-shell
+ * (`register-factory-reset-session-stores.ts`), which composes both packages;
+ * app-state cannot import db-explorer.
+ *
+ * Distinct from `__resetDatabaseDemoStoreForTests`, which additionally drops
+ * the persisted payload via `persist.clearStorage()`.
+ */
+export function resetDatabaseDemoStoreToDefault(): void {
+  useDatabaseDemoStore.setState({
+    debugDrawerOpen: false,
+    expandedFileIds: [],
+    recordPage: 0,
+    recordPageSize: 50,
+    searchQuery: '',
+    searchThreshold: 0.5,
+    showSettings: false,
+  });
+}
+
 export const databaseDemoSelectors = {
   expanded: (s: DatabaseDemoStore) => s.expandedFileIds,
   pagination: (s: DatabaseDemoStore) => [s.recordPage, s.recordPageSize] as const,

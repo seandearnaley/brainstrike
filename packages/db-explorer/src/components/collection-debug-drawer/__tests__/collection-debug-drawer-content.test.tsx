@@ -1,6 +1,6 @@
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { ActionRegistryProvider, type SemanticSearchResult } from '@brainstrike/ui';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectionActions } from '../../../context-actions/collection-actions';
@@ -143,15 +143,16 @@ function makeDatabase() {
 }
 
 function renderContent(overrides: { systemRole?: 'workspace-index' | null } = {}): {
+  rerenderWithCollection: (collectionId: string | null) => void;
   rerenderWithRecords: (next: DatabaseFileRecordSummary[]) => void;
   writtenTexts: string[];
 } {
   const { registry, writtenTexts } = createTestActionRegistry({ actions: collectionActions });
   const database = makeDatabase();
-  const tree = (records: DatabaseFileRecordSummary[]) => (
+  const tree = (records: DatabaseFileRecordSummary[], collectionId: string | null = 'col-1') => (
     <ActionRegistryProvider registry={registry}>
       <CollectionDebugDrawerContent
-        activeCollectionId="col-1"
+        activeCollectionId={collectionId}
         activeCollectionSystemRole={overrides.systemRole ?? null}
         chunkRepository={null}
         database={database}
@@ -163,9 +164,43 @@ function renderContent(overrides: { systemRole?: 'workspace-index' | null } = {}
   );
   const { rerender } = render(tree(RECORDS));
   return {
+    rerenderWithCollection: (collectionId) => rerender(tree(RECORDS, collectionId)),
     rerenderWithRecords: (next) => rerender(tree(next)),
     writtenTexts,
   };
+}
+
+/**
+ * Renders with the incomplete-files query left permanently pending, so the
+ * failed-embeddings section is genuinely mid-load.
+ */
+function renderContentWithPendingFailedList(): {
+  rerenderWithCollection: (collectionId: string | null) => void;
+} {
+  const { registry } = createTestActionRegistry({ actions: collectionActions });
+  const database = {
+    query: vi.fn((sql: string) => {
+      if (sql.includes('scoped_files')) {
+        return new Promise(() => undefined);
+      }
+      return Promise.resolve({ rows: CHUNK_ROWS });
+    }),
+  };
+  const tree = (collectionId: string | null) => (
+    <ActionRegistryProvider registry={registry}>
+      <CollectionDebugDrawerContent
+        activeCollectionId={collectionId}
+        activeCollectionSystemRole={null}
+        chunkRepository={null}
+        database={database}
+        fileRepository={null}
+        recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 2, totalRecords: 4 }}
+        records={RECORDS}
+      />
+    </ActionRegistryProvider>
+  );
+  const { rerender } = render(tree('col-1'));
+  return { rerenderWithCollection: (collectionId) => rerender(tree(collectionId)) };
 }
 
 /** A second Files page: none of the round-0 file ids appear here. */
@@ -443,6 +478,80 @@ describe('collection debug drawer content', () => {
       await waitFor(() => {
         expect(writtenTexts).toContain('the quick brown fox');
       });
+    });
+  });
+
+  describe('collection switching (PR #2381 review)', () => {
+    const RESULT = {
+      chunkId: 'chunk-1',
+      content: 'the quick brown fox',
+      fileName: 'alpha.md',
+      filePath: 'docs/alpha.md',
+      fileRecordId: 'file-1',
+      nodeId: 'chunk-chunk-1',
+      similarity: 0.8,
+    };
+
+    it('drops retrieval results when the active collection changes', async () => {
+      const user = userEvent.setup();
+      executeSearch.mockResolvedValue([RESULT]);
+      const { rerenderWithCollection } = renderContent();
+
+      await user.type(screen.getByLabelText('Retrieval preview query'), 'fox');
+      await user.click(screen.getByRole('button', { name: /^Run$/ }));
+      expect(await screen.findByTestId('collection-debug-retrieval-results')).toBeInTheDocument();
+
+      rerenderWithCollection('col-2');
+
+      // Stale scored chunks must not render under the new collection's
+      // heading — each row also claims a `chunk` context target, so Copy ID /
+      // Copy Content would otherwise hand out the OLD collection's chunk.
+      await waitFor(() => {
+        expect(screen.queryByTestId('collection-debug-retrieval-results')).not.toBeInTheDocument();
+      });
+    });
+
+    it('discards a run that was still in flight when the collection changed', async () => {
+      const user = userEvent.setup();
+      let settle: (value: (typeof RESULT)[]) => void = () => undefined;
+      executeSearch.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            settle = resolve;
+          })
+      );
+      const { rerenderWithCollection } = renderContent();
+
+      await user.type(screen.getByLabelText('Retrieval preview query'), 'fox');
+      await user.click(screen.getByRole('button', { name: /^Run$/ }));
+
+      rerenderWithCollection('col-2');
+      // The old collection's run lands AFTER the switch.
+      await act(async () => {
+        settle([RESULT]);
+        await Promise.resolve();
+      });
+
+      expect(screen.queryByTestId('collection-debug-retrieval-results')).not.toBeInTheDocument();
+    });
+
+    it('leaves no stuck loading state when the collection drops to null mid-load', async () => {
+      // The incomplete-files read must still be PENDING when the collection
+      // goes null: its own isCurrent() guard then suppresses the response, so
+      // nothing else would ever clear `loading` and "Loading…" latched in place
+      // of the no-selection message.
+      const { rerenderWithCollection } = renderContentWithPendingFailedList();
+
+      expect(screen.getByTestId('collection-debug-failed')).toHaveTextContent(/Loading…/);
+
+      rerenderWithCollection(null);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('collection-debug-failed')).toHaveTextContent(
+          /select a collection to list files that need attention/i
+        );
+      });
+      expect(screen.getByTestId('collection-debug-failed')).not.toHaveTextContent(/Loading…/);
     });
   });
 

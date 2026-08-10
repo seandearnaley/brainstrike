@@ -1,4 +1,5 @@
 import type { QueueAdapter } from '@brainstrike/queue';
+import { Button } from '@brainstrike/ui';
 import type { ComponentType, ReactElement } from 'react';
 import { createRetryableLazyModuleLoader } from './retryable-lazy-module-loader';
 import { useLazyComponentWithEmbeddingQueue } from './use-lazy-component-with-embedding-queue';
@@ -42,6 +43,7 @@ export function DatabaseTab({ loadEmbeddingQueue = null }: DatabaseTabProps): Re
     embeddingQueue,
     loadError,
     ready,
+    retry,
   } = useLazyComponentWithEmbeddingQueue<LoadedDatabaseTabProps>({
     initialComponent: databaseTabChunkComponent,
     label: 'database tab',
@@ -53,11 +55,15 @@ export function DatabaseTab({ loadEmbeddingQueue = null }: DatabaseTabProps): Re
   if (loadError) {
     content = (
       <div
-        className="flex h-full min-h-0 flex-1 items-center justify-center p-4 text-destructive text-sm"
+        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 p-4 text-destructive text-sm"
         data-testid="database-tab-load-error"
         role="alert"
       >
-        Failed to load database tools: {loadError.message}
+        <span>Failed to load database tools: {loadError.message}</span>
+        {/* The failure stays visible; it just stops being terminal. */}
+        <Button data-testid="database-tab-load-retry" onClick={retry} size="sm" variant="outline">
+          Retry
+        </Button>
       </div>
     );
   } else if (ready && resolvedComponent) {

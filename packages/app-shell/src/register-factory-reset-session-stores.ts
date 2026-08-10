@@ -3,6 +3,7 @@ import { useAssistantThreadGroupsStore } from '@brainstrike/assistant-data';
 import { resetContextUsageStore } from '@brainstrike/assistant-ui/context-usage-store';
 import { resetFollowUpQueueStore } from '@brainstrike/assistant-ui/follow-up-queue-store';
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
+import { resetDatabaseDemoStoreToDefault } from '@brainstrike/db-explorer/database-demo-store';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
@@ -131,4 +132,13 @@ registerFactoryResetSessionStore(() => {
   // this clears the renderer's stale copy of that list so the pane starts
   // empty in the fresh profile.
   useBrowserTabsStore.getState().reset();
+});
+
+registerFactoryResetSessionStore(() => {
+  // The Database tab's panel store is persisted, but it is also a mounted
+  // singleton: `localStorage.clear()` drops the saved slice while the live
+  // instance keeps `debugDrawerOpen` true, so the collection debug drawer
+  // stayed open — and kept issuing chunk/coverage queries — against the
+  // database the reset had just emptied.
+  resetDatabaseDemoStoreToDefault();
 });

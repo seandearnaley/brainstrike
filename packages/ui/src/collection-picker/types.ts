@@ -39,6 +39,13 @@ export interface CollectionPickerCollection {
   modelId: string;
   /** Full model key (e.g., "openai::text-embedding-3-small") */
   modelKey: string;
+  /**
+   * Why destructive mutations (edit/delete) are temporarily unavailable, e.g.
+   * an import is writing into this collection right now. Distinct from
+   * `disabledReason`, which blocks SELECTION: a busy collection stays
+   * selectable, it just must not be renamed or deleted mid-write.
+   */
+  mutationBlockedReason?: string | null;
   /** User-friendly name (optional) */
   name: string | null;
   /** Whether this row is managed by Brainstrike rather than the user. */

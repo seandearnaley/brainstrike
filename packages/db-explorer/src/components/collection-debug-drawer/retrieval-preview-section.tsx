@@ -20,7 +20,7 @@ import {
   type SemanticSearchResult,
 } from '@brainstrike/ui';
 import { AlertTriangle, Search, Settings2 } from 'lucide-react';
-import { type FormEvent, useCallback, useState } from 'react';
+import { type FormEvent, useCallback, useRef, useState } from 'react';
 import { useSemanticSearchExecutor } from '../../hooks/use-semantic-search-executor';
 import {
   canUseCollectionForRetrievalPreview,
@@ -57,6 +57,30 @@ export function RetrievalPreviewSection({
 
   const executor = useSemanticSearchExecutor({ chunkRepository, fileRepository });
 
+  /**
+   * The collection the current run belongs to. Results are DERIVED against it
+   * rather than cleared through an effect, so switching collections invalidates
+   * them during render — no extra pass, no chained state update.
+   *
+   * Without this, the previous collection's scored chunks rendered under the
+   * new one's heading, and since each result row claims a `chunk` context
+   * target, Copy ID / Copy Content would have handed out the OLD collection's
+   * chunk.
+   */
+  const [runCollectionId, setRunCollectionId] = useState<string | null>(null);
+
+  /**
+   * Generation counter for in-flight runs, mirroring `FailedEmbeddingsSection`.
+   * Guards a slower earlier run from overwriting a newer one, and stops a run
+   * that was in flight across a collection switch from committing at all.
+   */
+  const runRef = useRef(0);
+
+  const isRunCurrent = runCollectionId === activeCollectionId;
+  const visibleResults = isRunCurrent ? results : null;
+  const visibleError = isRunCurrent ? error : null;
+  const isRunning = isRunCurrent && running;
+
   const gateReason = getRetrievalDisabledReason(activeCollectionId, activeCollectionSystemRole);
   const allowed = canUseCollectionForRetrievalPreview(
     activeCollectionId,
@@ -76,17 +100,29 @@ export function RetrievalPreviewSection({
       if (!(allowed && executor) || trimmed.length === 0) {
         return;
       }
+      runRef.current += 1;
+      const runId = runRef.current;
+      const isCurrent = () => runRef.current === runId;
+      setRunCollectionId(activeCollectionId);
       setRunning(true);
       setError(null);
       executor(trimmed, config, activeCollectionId)
         .then((next) => {
-          setResults(next);
+          if (isCurrent()) {
+            setResults(next);
+          }
         })
         .catch((cause: unknown) => {
-          setResults(null);
-          setError(cause instanceof Error ? cause.message : String(cause));
+          if (isCurrent()) {
+            setResults(null);
+            setError(cause instanceof Error ? cause.message : String(cause));
+          }
         })
-        .finally(() => setRunning(false));
+        .finally(() => {
+          if (isCurrent()) {
+            setRunning(false);
+          }
+        });
     },
     [activeCollectionId, allowed, config, executor, query]
   );
@@ -134,35 +170,35 @@ export function RetrievalPreviewSection({
         </Popover>
         <Button
           className="h-7 gap-1 px-2 text-xs"
-          disabled={refusal !== null || running || query.trim().length === 0}
+          disabled={refusal !== null || isRunning || query.trim().length === 0}
           size="sm"
           type="submit"
           variant="secondary"
         >
           <Search className="size-3.5" />
-          {running ? 'Running…' : 'Run'}
+          {isRunning ? 'Running…' : 'Run'}
         </Button>
       </form>
 
-      {error ? (
+      {visibleError ? (
         <div
           className="mt-1.5 flex items-start gap-1.5 text-destructive text-xs"
           data-testid="collection-debug-retrieval-error"
           role="alert"
         >
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-          <span className="break-all">{error}</span>
+          <span className="break-all">{visibleError}</span>
         </div>
       ) : null}
 
-      {results ? (
+      {visibleResults ? (
         <ol className="mt-2 space-y-1" data-testid="collection-debug-retrieval-results">
-          {results.length === 0 ? (
+          {visibleResults.length === 0 ? (
             <li className="px-2 py-1 text-muted-foreground text-xs">
               No chunks scored above the current threshold.
             </li>
           ) : null}
-          {results.map((result) => {
+          {visibleResults.map((result) => {
             const score = formatSimilarityScore(result.similarity);
             return (
               <li key={result.chunkId}>

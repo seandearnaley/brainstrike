@@ -15,6 +15,7 @@ export {
   dispatchEmbeddingSetUpdated,
   fetchCollectionsSnapshot,
   formatCollectionLabel,
+  toCanonicalTimestamp,
   useCollections,
 } from './collection-select/index.js';
 // Embedding actions dropdown (split button for backfill/retry/clear/wipe)

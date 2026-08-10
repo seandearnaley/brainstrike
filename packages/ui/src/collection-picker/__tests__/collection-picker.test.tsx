@@ -386,3 +386,92 @@ describe('collection color helpers', () => {
     });
   });
 });
+
+describe('mutationBlockedReason (PR #2381 review)', () => {
+  /**
+   * Deleting the collection an import is CURRENTLY writing into orphans every
+   * chunk the run writes after the delete — `file_chunks.embedding_set_id`
+   * carries no foreign key. The controls must therefore refuse, and refuse
+   * VISIBLY: hiding them would read as "this collection was never editable".
+   */
+  const BLOCKED = 'An import is writing into this collection — finish or cancel it first';
+
+  function renderWithBlocked(blockedId: string | null) {
+    const onDelete = vi.fn();
+    const onEdit = vi.fn();
+    render(
+      <TooltipProvider>
+        <CollectionPicker
+          collections={mockCollections.map((collection) =>
+            collection.id === blockedId
+              ? { ...collection, mutationBlockedReason: BLOCKED }
+              : collection
+          )}
+          onCreate={vi.fn()}
+          onDelete={onDelete}
+          onEdit={onEdit}
+          onSelect={vi.fn()}
+          selectedId={null}
+        />
+      </TooltipProvider>
+    );
+    return { onDelete, onEdit };
+  }
+
+  it('disables delete and edit for the blocked collection without hiding them', () => {
+    const first = mockCollections[0];
+    if (!first) {
+      throw new Error('fixture missing');
+    }
+    const { onDelete, onEdit } = renderWithBlocked(first.id);
+
+    const del = screen.getByRole('button', { name: new RegExp(`Delete collection.*${BLOCKED}`) });
+    const edit = screen.getByRole('button', { name: new RegExp(`Edit collection.*${BLOCKED}`) });
+    expect(del).toBeDisabled();
+    expect(edit).toBeDisabled();
+
+    fireEvent.click(del);
+    fireEvent.click(edit);
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(onEdit).not.toHaveBeenCalled();
+  });
+
+  it('leaves other collections fully mutable', () => {
+    const [first, second] = mockCollections;
+    if (!(first && second)) {
+      throw new Error('fixture missing');
+    }
+    const { onDelete } = renderWithBlocked(first.id);
+
+    const enabled = screen.getByRole('button', { name: 'Delete collection' });
+    expect(enabled).toBeEnabled();
+    fireEvent.click(enabled);
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-enables the controls once nothing is blocked (run settled)', () => {
+    const { onDelete } = renderWithBlocked(null);
+
+    const buttons = screen.getAllByRole('button', { name: 'Delete collection' });
+    expect(buttons.length).toBe(mockCollections.length);
+    for (const button of buttons) {
+      expect(button).toBeEnabled();
+    }
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('getCollectionPickerProtection mutationBlockedReason', () => {
+  it('surfaces the reason so the item can render it as the tooltip', () => {
+    const first = mockCollections[0];
+    if (!first) {
+      throw new Error('fixture missing');
+    }
+    expect(
+      getCollectionPickerProtection({ ...first, mutationBlockedReason: 'busy' })
+        .mutationBlockedReason
+    ).toBe('busy');
+    expect(getCollectionPickerProtection(first).mutationBlockedReason).toBeNull();
+  });
+});

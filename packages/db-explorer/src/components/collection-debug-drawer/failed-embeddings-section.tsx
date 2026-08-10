@@ -50,6 +50,11 @@ export function FailedEmbeddingsSection({
     if (!activeCollectionId) {
       setFiles([]);
       setError(null);
+      // A request may already be in flight (the collection can drop to null
+      // mid-load). Its `isCurrent()` guard will suppress the response, so
+      // nothing else would ever clear this — leaving "Loading…" latched where
+      // the no-selection message belongs.
+      setLoading(false);
       return;
     }
     requestRef.current += 1;

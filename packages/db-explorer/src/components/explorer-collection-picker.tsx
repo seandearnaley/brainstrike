@@ -13,9 +13,20 @@ import { type ReactElement, useCallback, useEffect, useMemo, useState } from 're
 
 const logger = createLogger('ExplorerCollectionPicker');
 
+export const IMPORT_IN_FLIGHT_BLOCK_REASON =
+  'An import is writing into this collection — finish or cancel it first';
+
 interface ExplorerCollectionPickerProps {
   readonly activeCollectionId: string | null;
   readonly db: ReturnType<typeof usePGliteDatabase>;
+  /**
+   * The collection an import is CURRENTLY writing into, if any. Renaming it is
+   * merely confusing; deleting it orphans every chunk the run writes after the
+   * delete, because `file_chunks.embedding_set_id` carries no foreign key. Its
+   * edit/delete controls are disabled with a visible reason until the run
+   * settles — never silently dropped.
+   */
+  readonly mutationBlockedCollectionId?: string | null;
   readonly onCollectionChange: (collectionId: string | null) => void;
   readonly onCreateCollection: () => void;
   readonly onDeleteCollection: (collection: CollectionPickerCollection) => void;
@@ -38,6 +49,7 @@ export function ExplorerCollectionPicker({
   db,
   onCollectionChange,
   onCreateCollection,
+  mutationBlockedCollectionId = null,
   onDeleteCollection,
   onEditCollection,
 }: ExplorerCollectionPickerProps): ReactElement {
@@ -98,8 +110,16 @@ export function ExplorerCollectionPicker({
   // Same rule as SearchCollectionSelector: workspace-index sets are never a
   // manual import target and must not appear as one.
   const visibleCollections = useMemo(
-    () => cachedCollections.filter((collection) => collection.systemRole !== 'workspace-index'),
-    [cachedCollections]
+    () =>
+      cachedCollections.flatMap((collection) => {
+        if (collection.systemRole === 'workspace-index') {
+          return [];
+        }
+        return collection.id === mutationBlockedCollectionId
+          ? [{ ...collection, mutationBlockedReason: IMPORT_IN_FLIGHT_BLOCK_REASON }]
+          : [collection];
+      }),
+    [cachedCollections, mutationBlockedCollectionId]
   );
 
   const selectedCollection = useMemo(
@@ -111,24 +131,33 @@ export function ExplorerCollectionPicker({
       ? activeCollectionId
       : null;
 
+  // Re-checked here as well as in the item: the callback is the last gate
+  // before a destructive dialog opens, and a run can start between render and
+  // click.
   const handleEdit = useCallback(
     (collection: CollectionPickerCollection) => {
-      if (!getCollectionPickerProtection(collection).canEdit) {
+      if (
+        !getCollectionPickerProtection(collection).canEdit ||
+        collection.id === mutationBlockedCollectionId
+      ) {
         return;
       }
       onEditCollection(collection);
     },
-    [onEditCollection]
+    [mutationBlockedCollectionId, onEditCollection]
   );
 
   const handleDelete = useCallback(
     (collection: CollectionPickerCollection) => {
-      if (!getCollectionPickerProtection(collection).canDelete) {
+      if (
+        !getCollectionPickerProtection(collection).canDelete ||
+        collection.id === mutationBlockedCollectionId
+      ) {
         return;
       }
       onDeleteCollection(collection);
     },
-    [onDeleteCollection]
+    [mutationBlockedCollectionId, onDeleteCollection]
   );
 
   const handleSelect = useCallback(

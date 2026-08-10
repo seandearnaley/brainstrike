@@ -33,20 +33,36 @@ interface ExplorerImportActionLazyProps {
   readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
 }
 
-function ImportActionPlaceholder({ reason }: { readonly reason: string }): ReactElement {
+/**
+ * Stands in for the real action while it loads, or after it failed to.
+ *
+ * With `onRetry` the button becomes live: a load failure keeps its reason
+ * visible in the tooltip but stops being terminal, so a transient queue-init
+ * rejection no longer disables importing for the rest of the session.
+ */
+function ImportActionPlaceholder({
+  onRetry,
+  reason,
+}: {
+  readonly onRetry?: (() => void) | undefined;
+  readonly reason: string;
+}): ReactElement {
   return (
     <Button
-      aria-label="Import into collection"
+      aria-label={onRetry ? `Retry loading import tools. ${reason}` : 'Import into collection'}
       className="gap-1.5 whitespace-nowrap"
-      data-testid="explorer-import-action-placeholder"
-      disabled
+      data-testid={onRetry ? 'explorer-import-action-retry' : 'explorer-import-action-placeholder'}
+      disabled={!onRetry}
+      onClick={onRetry}
       size="sm"
       title={reason}
       type="button"
       variant="secondary"
     >
       <FileText aria-hidden="true" className="h-4 w-4" />
-      <span className={SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS}>Import</span>
+      <span className={SELECTION_ACTION_BAR_COMPACT_LABEL_CLASS}>
+        {onRetry ? 'Retry' : 'Import'}
+      </span>
     </Button>
   );
 }
@@ -64,7 +80,7 @@ function ImportActionPlaceholder({ reason }: { readonly reason: string }): React
 export function ExplorerImportActionLazy({
   loadEmbeddingQueue = null,
 }: ExplorerImportActionLazyProps): ReactElement {
-  const { component, embeddingQueue, loadError, ready } =
+  const { component, embeddingQueue, loadError, ready, retry } =
     useLazyComponentWithEmbeddingQueue<LoadedExplorerImportActionProps>({
       initialComponent: explorerImportActionComponent,
       label: 'explorer import action',
@@ -73,7 +89,12 @@ export function ExplorerImportActionLazy({
     });
 
   if (loadError) {
-    return <ImportActionPlaceholder reason={`Import unavailable: ${loadError.message}`} />;
+    return (
+      <ImportActionPlaceholder
+        onRetry={retry}
+        reason={`Import unavailable: ${loadError.message}`}
+      />
+    );
   }
 
   if (!(ready && component)) {

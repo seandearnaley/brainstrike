@@ -189,6 +189,12 @@ export function ExplorerImportAction({
   // forever — and `ImportProgressBar` renders its Close button from the same
   // "did it finish normally" guess, so there was no way to dismiss it either
   // (hence `isSettled` below). Errors are the one outcome worth holding for.
+  // The collection the RUNNING import is writing into. `importRunTargetRef` is
+  // pinned at hand-off and outlives `activeCollectionId` changes, so this stays
+  // correct if the user re-picks mid-run. Null once the run settles, which
+  // re-enables the controls.
+  const inFlightImportCollectionId = importFlow.isImporting ? importRunTargetRef.current : null;
+
   const importFailed = (importFlow.progress?.errors.length ?? 0) > 0;
   const awaitingImportAcknowledgement = importFlow.showImportProgress && importFailed;
 
@@ -277,6 +283,7 @@ export function ExplorerImportAction({
             <ExplorerCollectionPicker
               activeCollectionId={activeCollectionId}
               db={dbContext}
+              mutationBlockedCollectionId={inFlightImportCollectionId}
               onCollectionChange={handleCollectionChange}
               onCreateCollection={collectionDialogs.handleCreateCollection}
               onDeleteCollection={collectionDialogs.handleDeleteCollection}

@@ -60,6 +60,10 @@
       "types": "./dist/database-demo-panel.d.ts",
       "import": "./dist/database-demo-panel.js"
     },
+    "./database-demo-store": {
+      "types": "./dist/stores/database-demo-store.d.ts",
+      "import": "./dist/stores/database-demo-store.js"
+    },
     "./explorer-import-action": {
       "types": "./dist/components/explorer-import-action.d.ts",
       "import": "./dist/components/explorer-import-action.js"

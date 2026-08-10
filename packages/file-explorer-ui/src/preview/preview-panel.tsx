@@ -534,6 +534,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   );
 
   const isDesktopPreviewTestMode = window.desktopLifecycle?.isTestMode ?? false;
+  // Content digest of the ONLY sub-state the snapshot below reads out of
+  // `visibleFilesOnPage` (the paths). NUL-joined so a path containing the
+  // separator cannot forge a collision.
   const visiblePathsKey = isDesktopPreviewTestMode
     ? visibleFilesOnPage.map((item) => item.path).join('\0')
     : '';
@@ -554,6 +557,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     return () => {
       window.__brainstrikeContextExplorerPreviewTestHooks__ = undefined;
     };
+    // `visibleFilesOnPage` is DELIBERATELY excluded in favour of
+    // `visiblePathsKey`. `getSnapshot` reads nothing from that array but each
+    // item's `path`, so the key is a complete digest of the closure's
+    // dependency: a new array identity with unchanged paths would produce a
+    // byte-identical snapshot, and re-running the effect for it would only
+    // reinstall the same hook. Adding the array itself would re-run this on
+    // every pagination/selection re-render for no observable difference.
+    // (react-doctor exhaustive-deps, triaged on PR #2381.)
   }, [flattenedData.length, isDesktopPreviewTestMode, selectedFiles.size, visiblePathsKey]);
 
   const groupedPageSections = useMemo(
