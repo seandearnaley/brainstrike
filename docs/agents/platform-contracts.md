@@ -1291,22 +1291,25 @@ choke points feeding the sink),
 
 ### P2b: status chip, retention preferences, sink health
 
-**Unseen-error status chip** (`DiagnosticsStatusItem`,
+**Unseen-diagnostics status chip** (`DiagnosticsStatusItem`,
 `packages/app-shell/src/status-items/diagnostics-status-item.tsx`, mounted in
 `app-layout.tsx`'s `rightContent` before `IndexingStatusItem`) backed by
 `useUnseenDiagnosticsCount` (`.../diagnostics/use-unseen-diagnostics-count.ts`):
-a `usePGliteLiveQuery` `COUNT(*)` over rows newer than the watermark. The
-query carries NO severity predicate on purpose — the table's CHECK constraint
-already guarantees every row is warn+, so a redundant filter would just invite
-someone to "fix" it later. The chip renders `null` at count 0 (no chrome when
-nothing is wrong), but BOTH not-knowing states outrank the count, because
+a single `usePGliteLiveQuery` aggregate over rows newer than the watermark. The
+table's CHECK constraint defines the complete warn+ set; two `FILTER` clauses
+partition that set for honest labels rather than deciding eligibility: `warn`
+stays in the warning bucket, while `error` and `fatal` share the error bucket.
+Warning-only rows render `N warnings`; mixed rows render `N errors, M warnings`
+visibly and `N errors and M warnings` to assistive technology. The chip renders
+`null` when both counts are 0 (no chrome when nothing is wrong), but BOTH
+not-knowing states outrank the counts, because
 this is the only always-visible diagnostics surface: a live-query error
 renders "Diagnostics unavailable" rather than the honest-looking `0`, and a
 non-null `disabledReason` renders "Diagnostics not recording" — outranking
-even a non-zero count, since that count is frozen and stale once the sink is
-dead. Without the latter, a disabled sink writes no rows, the count sits at 0
-forever, and the status bar silently claims "no errors" precisely when errors
-have stopped being recorded; the settings banner alone cannot cover that,
+even non-zero counts, since those counts are frozen and stale once the sink is
+dead. Without the latter, a disabled sink writes no rows, both counts sit at 0
+forever, and the status bar silently claims "no diagnostics" precisely when
+diagnostics have stopped being recorded; the settings banner alone cannot cover that,
 because a user has no reason to open settings while the status bar looks
 clean. Clicking marks all seen, opens settings, and routes to
 `#settings/logging`.

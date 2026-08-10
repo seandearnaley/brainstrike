@@ -143,4 +143,21 @@ describe('useUnseenDiagnosticsCount', () => {
     expect(result.current.warningCount).toBe(0);
     expect(result.current.error).toBeNull();
   });
+
+  it('surfaces malformed aggregates as unavailable instead of returning NaN counts', () => {
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: [{ errorCount: 'not-a-number', warningCount: '2' }],
+    });
+
+    const { result } = renderHook(() => useUnseenDiagnosticsCount());
+
+    expect(result.current.errorCount).toBe(0);
+    expect(result.current.warningCount).toBe(0);
+    expect(result.current.error).toEqual(
+      new Error('Unseen diagnostics query returned invalid aggregate counts')
+    );
+  });
 });

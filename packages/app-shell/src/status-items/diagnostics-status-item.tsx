@@ -73,8 +73,8 @@ function getDisplay(
   }
   if (error) {
     return {
-      announcement: 'Diagnostics status: unseen error count unavailable',
-      ariaLabel: 'Unseen error count unavailable. Open logging settings',
+      announcement: 'Diagnostics status: unseen diagnostics count unavailable',
+      ariaLabel: 'Unseen diagnostics count unavailable. Open logging settings',
       visibleLabel: 'Diagnostics unavailable',
     };
   }

@@ -20,7 +20,7 @@ import { useDiagnosticsSeenStore } from './diagnostics-seen-store';
  * mirrors `useDailySpend` (`cost-tracking/use-daily-spend.ts`), the existing
  * precedent in this same package for gating a live query on the raw handle.
  */
-const UNSEEN_DIAGNOSTICS_QUERY = `
+export const UNSEEN_DIAGNOSTICS_QUERY = `
   SELECT
     COUNT(*) FILTER (WHERE severity IN ('error', 'fatal'))::int AS "errorCount",
     COUNT(*) FILTER (WHERE severity = 'warn')::int AS "warningCount"
@@ -54,13 +54,29 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
     query: UNSEEN_DIAGNOSTICS_QUERY,
   });
 
-  const counts = useMemo(
-    () => ({
-      errorCount: Number(rows[0]?.errorCount ?? 0),
-      warningCount: Number(rows[0]?.warningCount ?? 0),
-    }),
-    [rows]
-  );
+  const counts = useMemo(() => {
+    const errorCount = Number(rows[0]?.errorCount ?? 0);
+    const warningCount = Number(rows[0]?.warningCount ?? 0);
+    if (
+      !(
+        Number.isSafeInteger(errorCount) &&
+        errorCount >= 0 &&
+        Number.isSafeInteger(warningCount) &&
+        warningCount >= 0
+      )
+    ) {
+      return {
+        aggregateError: new Error('Unseen diagnostics query returned invalid aggregate counts'),
+        errorCount: 0,
+        warningCount: 0,
+      };
+    }
+    return { aggregateError: null, errorCount, warningCount };
+  }, [rows]);
 
-  return { ...counts, error };
+  return {
+    error: error ?? counts.aggregateError,
+    errorCount: counts.errorCount,
+    warningCount: counts.warningCount,
+  };
 }

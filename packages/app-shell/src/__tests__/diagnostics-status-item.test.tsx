@@ -96,6 +96,15 @@ describe('DiagnosticsStatusItem', () => {
     );
   });
 
+  it('uses the singular warning label at count 1', () => {
+    mockLiveQueryResult([{ errorCount: 0, warningCount: 1 }]);
+
+    render(<DiagnosticsStatusItem />);
+
+    expect(screen.getByTestId('diagnostics-status-item')).toHaveTextContent('1 warning');
+    expect(screen.getByTestId('diagnostics-status-item')).not.toHaveTextContent('warnings');
+  });
+
   it('reports errors and warnings separately when both are unseen', () => {
     mockLiveQueryResult([{ errorCount: 2, warningCount: 3 }]);
 
@@ -141,7 +150,7 @@ describe('DiagnosticsStatusItem', () => {
     );
     expect(trigger).toHaveAttribute(
       'aria-label',
-      'Unseen error count unavailable. Open logging settings'
+      'Unseen diagnostics count unavailable. Open logging settings'
     );
   });
 
