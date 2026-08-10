@@ -80,15 +80,15 @@ function analyzeOptionSelectors(source) {
       const scope = enclosingScope(node.parent);
       if (ts.isIdentifier(node.name)) {
         registerDeclaration(scope, node.name.text, node);
-      } else if (
-        ts.isObjectBindingPattern(node.name) &&
-        ts.isObjectLiteralExpression(node.initializer)
-      ) {
+      } else if (ts.isObjectBindingPattern(node.name)) {
         for (const element of node.name.elements) {
           if (ts.isIdentifier(element.name)) {
             const selectedName = element.propertyName?.getText(sourceFile) ?? element.name.text;
+            const selectedValue = ts.isObjectLiteralExpression(node.initializer)
+              ? propertyValue(node.initializer, selectedName)
+              : undefined;
             registerDeclaration(scope, element.name.text, {
-              initializer: propertyValue(node.initializer, selectedName) ?? element.initializer,
+              initializer: selectedValue ?? element.initializer,
               pos: element.pos,
             });
           }
@@ -162,11 +162,11 @@ function analyzeOptionSelectors(source) {
 
   function collectLabels(node, resolvingDeclarations = new Set(), exactMatch = false) {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      const selectorName = node.text.toLocaleLowerCase('en-US');
       for (const label of FORBIDDEN_CATEGORY_LABELS) {
-        const normalizedLabel = label.toLocaleLowerCase('en-US');
         if (
-          exactMatch ? selectorName === normalizedLabel : normalizedLabel.includes(selectorName)
+          exactMatch
+            ? node.text === label
+            : label.toLocaleLowerCase('en-US').includes(node.text.toLocaleLowerCase('en-US'))
         ) {
           hardcodedLabels.push(label);
         }
@@ -597,10 +597,15 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
     }
     test('Analysis remains available as unrelated fixture data', async () => {
       await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+      await page.getByRole('option', { exact: true, name: 'retrieval' }).click();
       await page.getByRole('option', { exact: true, name: /OpenAI/i }).click();
       await page.getByRole('option', { name: fixture.provider.label }).click();
       await provider.getByRole('option', { name: /^.+$/ }).click();
       await choose({ label: 'OpenAI' }).click();
+      {
+        const { label } = fixture.provider;
+        await provider.getByRole('option', { name: label }).click();
+      }
     });
   `;
 
