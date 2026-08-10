@@ -54,16 +54,17 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
   // `mapDiagnosticEventRow` converts the column back the same way.
   const lastSeenAtIso = useMemo(() => new Date(lastSeenAtMs).toISOString(), [lastSeenAtMs]);
   const params = useMemo(() => [lastSeenAtIso] as const, [lastSeenAtIso]);
+  const queryEnabled = database !== null;
 
   const { error, loading, rows } = usePGliteLiveQuery<UnseenDiagnosticsCountRow>({
     cacheKey: makeLiveQueryKey('diagnostics-unseen', lastSeenAtIso),
-    enabled: database !== null,
+    enabled: queryEnabled,
     params,
     query: UNSEEN_DIAGNOSTICS_QUERY,
   });
 
   const counts = useMemo(() => {
-    if (loading) {
+    if (!queryEnabled || loading) {
       return { aggregateError: null, errorCount: 0, warningCount: 0 };
     }
     const row = rows[0];
@@ -77,7 +78,7 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
       };
     }
     return { aggregateError: null, errorCount, warningCount };
-  }, [loading, rows]);
+  }, [loading, queryEnabled, rows]);
 
   return {
     error: error ?? counts.aggregateError,

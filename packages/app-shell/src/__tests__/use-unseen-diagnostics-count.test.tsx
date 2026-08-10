@@ -108,9 +108,16 @@ describe('useUnseenDiagnosticsCount', () => {
   it('disables the query until a database handle exists', () => {
     usePGliteDatabaseMock.mockReturnValue(null);
 
-    renderHook(() => useUnseenDiagnosticsCount());
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: [],
+    });
+    const { result } = renderHook(() => useUnseenDiagnosticsCount());
 
     expect(lastLiveQueryArgs().enabled).toBe(false);
+    expect(result.current).toEqual({ error: null, errorCount: 0, warningCount: 0 });
   });
 
   it('coerces both string counts to numbers and reports a query error verbatim', () => {
