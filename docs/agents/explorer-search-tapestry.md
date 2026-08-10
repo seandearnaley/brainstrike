@@ -317,18 +317,22 @@ those rows on `pending` forever AND pins every ancestor rollup to `partial`.
 A directory rollup is only `complete` when the subtree is fully enumerated AND
 every descendant's metadata has landed, otherwise it is an explicit `partial`
 marker; excluded files contribute zero tokens and their real size without
-blocking completeness. While lazy enumeration or deferred rollup work is still
-running, the partial marker announces that the total is recomputing; it must not
-describe the transient state as permanently incomplete. A count landing for one
-key must not re-render any other row.
+blocking completeness. Partial reasons are explicit: `recomputing` is reserved
+for deferred rollup work that is actually queued, `incomplete-subtree` covers
+unloaded/capped/failed enumeration with neutral unavailable copy, and
+`pending-metadata` means descendant counts have not landed. Do not label an
+inert or permanently capped subtree as recomputing. A count landing for one key
+must not re-render any other row.
 
 `getDirectorySubtree` is TOTAL: anything the caller cannot enumerate answers
-`{ fileKeys: [], isComplete: false }` rather than nothing, so a cell can never
-throw mid-render and "this is a file" is not confused with "this directory is
-not enumerated yet". Because rollups are cached and the store cannot see the
-tree, the caller MUST call `invalidateAll()` whenever the tree SHAPE changes
-(expand, collapse, filter, refresh, root switch) — `use-file-tree-metadata-source`
-does this off the row-model identity.
+an `isComplete: false` subtree with `incompleteReason: 'not-enumerated'`
+rather than nothing, so a cell can never throw mid-render and "this is a file"
+is not confused with "this directory is not enumerated yet". Only the deferred
+controller returns `incompleteReason: 'recomputing'`, and only after it has
+queued the path. Because rollups are cached and the store cannot see the tree,
+the caller MUST call `invalidateAll()` whenever the tree SHAPE changes (expand,
+collapse, filter, refresh, root switch) — `use-file-tree-metadata-source` does
+this off the row-model identity.
 
 Invalidation has two paths and the split is load-bearing. `useFileRowMetadataStore`
 returns an `onTokenResolved` that MUST be passed to

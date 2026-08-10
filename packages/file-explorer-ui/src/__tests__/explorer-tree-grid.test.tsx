@@ -279,7 +279,7 @@ describe('Explorer tree grid', () => {
 
     expect(
       within(rowFor('lazy')).getAllByTitle(
-        'Folder total recomputing — this folder is still being enumerated'
+        'Folder total unavailable — this folder is not fully enumerated'
       )
     ).toHaveLength(2);
   });

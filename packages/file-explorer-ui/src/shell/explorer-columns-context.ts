@@ -281,7 +281,11 @@ export function useExplorerColumnsValue(
   const resolvedTokensWidth = resolvedColumnWidths['tokens'];
   const resolvedTypeWidth = resolvedColumnWidths['type'];
   const columnWidths = useMemo(
-    () => resolvedColumnWidths,
+    () => ({
+      ...(resolvedSizeWidth === undefined ? {} : { size: resolvedSizeWidth }),
+      ...(resolvedTokensWidth === undefined ? {} : { tokens: resolvedTokensWidth }),
+      ...(resolvedTypeWidth === undefined ? {} : { type: resolvedTypeWidth }),
+    }),
     [resolvedSizeWidth, resolvedTokensWidth, resolvedTypeWidth]
   );
 

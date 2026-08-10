@@ -41,9 +41,13 @@ import type { FileTreeRowData } from './optimized-file-tree-model';
 
 export const EXCLUDED_TOKENS_TITLE = 'binary file excluded from token counts';
 
-const PARTIAL_ROLLUP_TITLE: Record<'incomplete-subtree' | 'pending-metadata', string> = {
-  'incomplete-subtree': 'Folder total recomputing — this folder is still being enumerated',
+const PARTIAL_ROLLUP_TITLE: Record<
+  'incomplete-subtree' | 'pending-metadata' | 'recomputing',
+  string
+> = {
+  'incomplete-subtree': 'Folder total unavailable — this folder is not fully enumerated',
   'pending-metadata': 'Folder total unavailable — some files are still being counted',
+  recomputing: 'Folder total recomputing — this folder is still being enumerated',
 };
 
 interface MetadataCellProps {
