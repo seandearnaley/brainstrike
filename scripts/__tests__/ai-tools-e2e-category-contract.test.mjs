@@ -114,6 +114,16 @@ function analyzeOptionSelectors(source) {
         }
       }
     }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left)
+    ) {
+      registerDeclaration(enclosingScope(node), node.left.text, {
+        initializer: node.right,
+        pos: node.pos,
+      });
+    }
     ts.forEachChild(node, collectVariableDeclarations);
   }
 
@@ -185,6 +195,17 @@ function analyzeOptionSelectors(source) {
       if (left !== undefined && right !== undefined) {
         return `${left}${right}`;
       }
+    }
+    if (ts.isTemplateExpression(node)) {
+      let value = node.head.text;
+      for (const span of node.templateSpans) {
+        const expression = evaluateStaticString(span.expression);
+        if (expression === undefined) {
+          return;
+        }
+        value += `${expression}${span.literal.text}`;
+      }
+      return value;
     }
     return;
   }
@@ -417,6 +438,7 @@ test('MONEY TEST: non-exact string matching catches case-insensitive category su
     ].label;
     await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
     await page.getByRole('option', { exact: true, name: 'Retriev' + 'al' }).click();
+    await page.getByRole('option', { exact: true, name: \`Retriev\${'al'}\` }).click();
     await page.getByRole('option', { name: 'retriev' }).click();
   `;
 
@@ -638,6 +660,8 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
     const fixture = { provider: { category: 'Analysis', label: 'OpenAI' } };
     const provider = page.getByTestId('provider');
     const label = 'Analysis';
+    let mutableLabel = 'Analysis';
+    mutableLabel = 'OpenAI';
     function choose({ label }: { label: string }) {
       return provider.getByRole('option', { name: label });
     }
@@ -647,6 +671,7 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
       await page.getByRole('option', { exact: true, name: /OpenAI/i }).click();
       await page.getByRole('option', { name: fixture.provider.label }).click();
       await provider.getByRole('option', { name: /^.+$/ }).click();
+      await provider.getByRole('option', { name: mutableLabel }).click();
       await choose({ label: 'OpenAI' }).click();
       {
         const { label } = fixture.provider;
