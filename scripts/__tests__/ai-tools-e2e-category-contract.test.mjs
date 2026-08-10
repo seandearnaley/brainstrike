@@ -30,6 +30,8 @@ function analyzeOptionSelectors(source) {
   );
   const declarationsByScope = new Map();
   const hardcodedLabels = [];
+  let importsToolCategories = false;
+  let hasCanonicalDerivedLabel = false;
   let hasExactDerivedSelector = false;
   let hasUnsupportedOptionSelector = false;
 
@@ -43,6 +45,18 @@ function analyzeOptionSelectors(source) {
   }
 
   function collectVariableDeclarations(node) {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === '@brainstrike/assistant-contract/tool-metadata' &&
+      node.importClause?.namedBindings &&
+      ts.isNamedImports(node.importClause.namedBindings) &&
+      node.importClause.namedBindings.elements.some(
+        (element) => (element.propertyName ?? element.name).text === 'TOOL_CATEGORIES'
+      )
+    ) {
+      importsToolCategories = true;
+    }
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       const scope = enclosingScope(node.parent);
       if (scope) {
@@ -76,7 +90,17 @@ function analyzeOptionSelectors(source) {
     ) {
       hardcodedLabels.push(node.text);
     } else if (ts.isRegularExpressionLiteral(node)) {
-      hardcodedLabels.push(node.text);
+      const closingSlash = node.text.lastIndexOf('/');
+      const matcher = new RegExp(
+        node.text.slice(1, closingSlash),
+        node.text.slice(closingSlash + 1)
+      );
+      for (const label of FORBIDDEN_CATEGORY_LABELS) {
+        matcher.lastIndex = 0;
+        if (matcher.test(label)) {
+          hardcodedLabels.push(label);
+        }
+      }
     } else if (ts.isIdentifier(node)) {
       const declaration = resolveIdentifier(node);
       if (declaration?.initializer && !resolvingDeclarations.has(declaration)) {
@@ -114,6 +138,30 @@ function analyzeOptionSelectors(source) {
     );
   }
 
+  function isIdentifierNamed(node, name) {
+    return ts.isIdentifier(node) && node.text === name;
+  }
+
+  function isCanonicalCategoryLabelInitializer(initializer) {
+    if (
+      !ts.isPropertyAccessExpression(initializer) ||
+      initializer.name.text !== 'label' ||
+      !ts.isElementAccessExpression(initializer.expression) ||
+      !isIdentifierNamed(initializer.expression.expression, 'TOOL_CATEGORIES')
+    ) {
+      return false;
+    }
+    const categoryAccess = initializer.expression.argumentExpression;
+    return Boolean(
+      categoryAccess &&
+        ts.isPropertyAccessExpression(categoryAccess) &&
+        categoryAccess.name.text === 'category' &&
+        ts.isElementAccessExpression(categoryAccess.expression) &&
+        isIdentifierNamed(categoryAccess.expression.expression, 'NATIVE_TOOL_DEFAULTS') &&
+        isIdentifierNamed(categoryAccess.expression.argumentExpression, 'NATIVE_TOOL_ID')
+    );
+  }
+
   function inspectOptionSelectors(node) {
     if (
       ts.isCallExpression(node) &&
@@ -139,11 +187,17 @@ function analyzeOptionSelectors(source) {
         }
         if (nameValue) {
           collectLabels(nameValue);
+          const categoryDeclaration =
+            ts.isIdentifier(nameValue) && nameValue.text === 'TOOL_CATEGORY_LABEL'
+              ? resolveIdentifier(nameValue)
+              : undefined;
           if (
-            ts.isIdentifier(nameValue) &&
-            nameValue.text === 'TOOL_CATEGORY_LABEL' &&
-            exactValue?.kind === ts.SyntaxKind.TrueKeyword
+            categoryDeclaration?.initializer &&
+            isCanonicalCategoryLabelInitializer(categoryDeclaration.initializer)
           ) {
+            hasCanonicalDerivedLabel = true;
+          }
+          if (hasCanonicalDerivedLabel && exactValue?.kind === ts.SyntaxKind.TrueKeyword) {
             hasExactDerivedSelector = true;
           }
         }
@@ -156,7 +210,13 @@ function analyzeOptionSelectors(source) {
 
   collectVariableDeclarations(sourceFile);
   inspectOptionSelectors(sourceFile);
-  return { hardcodedLabels, hasExactDerivedSelector, hasUnsupportedOptionSelector };
+  return {
+    hardcodedLabels,
+    hasCanonicalDerivedLabel,
+    hasExactDerivedSelector,
+    hasUnsupportedOptionSelector,
+    importsToolCategories,
+  };
 }
 
 function collectE2eSpecs(relativeDirectory) {
@@ -191,18 +251,10 @@ function categoryLabelViolations(source) {
   const violations = [];
   const selectorAnalysis = analyzeOptionSelectors(source);
 
-  if (
-    !/import\s*\{[^}]*\bTOOL_CATEGORIES\b[^}]*\}\s*from\s*['"]@brainstrike\/assistant-contract\/tool-metadata['"]/.test(
-      source
-    )
-  ) {
+  if (!selectorAnalysis.importsToolCategories) {
     violations.push('does not import TOOL_CATEGORIES');
   }
-  if (
-    !/\bconst\s+TOOL_CATEGORY_LABEL\s*=\s*TOOL_CATEGORIES\s*\[\s*NATIVE_TOOL_DEFAULTS\s*\[\s*NATIVE_TOOL_ID\s*\]\s*\.category\s*\]\s*\.label\s*;/.test(
-      source
-    )
-  ) {
+  if (!selectorAnalysis.hasCanonicalDerivedLabel) {
     violations.push('does not derive the category label from the native-tool contract');
   }
   if (!selectorAnalysis.hasExactDerivedSelector) {
@@ -282,7 +334,28 @@ test('MONEY TEST: an unused metadata expression cannot hide a hardcoded label in
 
   assert.deepEqual(categoryLabelViolations(source), [
     'does not derive the category label from the native-tool contract',
+    'does not select the category option through exact TOOL_CATEGORY_LABEL matching',
     'hardcodes an option presentation label',
+  ]);
+});
+
+test('MONEY TEST: a canonical initializer in a comment cannot spoof AST derivation', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const TOOL_CATEGORY_LABEL = computeLabel();
+    // const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
+    //   NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    // ].label;
+    await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), [
+    'does not derive the category label from the native-tool contract',
+    'does not select the category option through exact TOOL_CATEGORY_LABEL matching',
   ]);
 });
 
@@ -361,6 +434,7 @@ test('MONEY TEST: a hardcoded fallback cannot bypass the derived initializer gua
 
   assert.deepEqual(categoryLabelViolations(source), [
     'does not derive the category label from the native-tool contract',
+    'does not select the category option through exact TOOL_CATEGORY_LABEL matching',
     'hardcodes an option presentation label',
   ]);
 });
@@ -377,6 +451,7 @@ test('MONEY TEST: unrelated category words do not trigger selector violations', 
     ].label;
     test('Analysis remains available as unrelated fixture data', async () => {
       await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+      await page.getByRole('option', { exact: true, name: /OpenAI/i }).click();
     });
   `;
 
