@@ -20,46 +20,85 @@ const FORBIDDEN_CATEGORY_LABELS = new Set(
 );
 assert.ok(FORBIDDEN_CATEGORY_LABELS.size > 0, 'must discover category presentation labels');
 
-function hardcodedCategoryLabelsInOptionSelectors(source) {
+function analyzeOptionSelectors(source) {
   const sourceFile = ts.createSourceFile(
     'category-filter.test.ts',
     source,
     ts.ScriptTarget.Latest,
-    false,
+    true,
     ts.ScriptKind.TS
   );
-  const variableInitializers = new Map();
-  const labels = [];
+  const declarationsByScope = new Map();
+  const hardcodedLabels = [];
+  let hasExactDerivedSelector = false;
 
-  function collectVariableInitializers(node) {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      variableInitializers.set(node.name.text, node.initializer);
+  function enclosingScope(node) {
+    for (let current = node; current; current = current.parent) {
+      if (ts.isSourceFile(current) || ts.isBlock(current) || ts.isCaseBlock(current)) {
+        return current;
+      }
     }
-    ts.forEachChild(node, collectVariableInitializers);
+    return;
   }
 
-  function collectLabels(node, resolvingIdentifiers = new Set()) {
+  function collectVariableDeclarations(node) {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const scope = enclosingScope(node.parent);
+      if (scope) {
+        const declarations = declarationsByScope.get(scope) ?? new Map();
+        const namedDeclarations = declarations.get(node.name.text) ?? [];
+        namedDeclarations.push(node);
+        declarations.set(node.name.text, namedDeclarations);
+        declarationsByScope.set(scope, declarations);
+      }
+    }
+    ts.forEachChild(node, collectVariableDeclarations);
+  }
+
+  function resolveIdentifier(identifier) {
+    for (let scope = enclosingScope(identifier); scope; scope = enclosingScope(scope.parent)) {
+      const declaration = declarationsByScope
+        .get(scope)
+        ?.get(identifier.text)
+        ?.findLast((candidate) => candidate.pos < identifier.pos);
+      if (declaration) {
+        return declaration;
+      }
+    }
+    return;
+  }
+
+  function collectLabels(node, resolvingDeclarations = new Set()) {
     if (
       (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
       FORBIDDEN_CATEGORY_LABELS.has(node.text)
     ) {
-      labels.push(node.text);
+      hardcodedLabels.push(node.text);
     } else if (ts.isRegularExpressionLiteral(node)) {
       for (const label of FORBIDDEN_CATEGORY_LABELS) {
         if (node.text.includes(label)) {
-          labels.push(label);
+          hardcodedLabels.push(label);
         }
       }
     } else if (ts.isIdentifier(node)) {
-      const initializer = variableInitializers.get(node.text);
-      if (initializer && !resolvingIdentifiers.has(node.text)) {
-        const nextResolvingIdentifiers = new Set(resolvingIdentifiers);
-        nextResolvingIdentifiers.add(node.text);
-        collectLabels(initializer, nextResolvingIdentifiers);
+      const declaration = resolveIdentifier(node);
+      if (declaration?.initializer && !resolvingDeclarations.has(declaration)) {
+        const nextResolvingDeclarations = new Set(resolvingDeclarations);
+        nextResolvingDeclarations.add(declaration);
+        collectLabels(declaration.initializer, nextResolvingDeclarations);
       }
       return;
     }
-    ts.forEachChild(node, (child) => collectLabels(child, resolvingIdentifiers));
+    ts.forEachChild(node, (child) => collectLabels(child, resolvingDeclarations));
+  }
+
+  function propertyAssignment(object, name) {
+    return object.properties.find(
+      (property) =>
+        ts.isPropertyAssignment(property) &&
+        ((ts.isIdentifier(property.name) && property.name.text === name) ||
+          (ts.isStringLiteral(property.name) && property.name.text === name))
+    );
   }
 
   function inspectOptionSelectors(node) {
@@ -72,22 +111,27 @@ function hardcodedCategoryLabelsInOptionSelectors(source) {
       node.arguments[1] &&
       ts.isObjectLiteralExpression(node.arguments[1])
     ) {
-      const nameProperty = node.arguments[1].properties.find(
-        (property) =>
-          ts.isPropertyAssignment(property) &&
-          ((ts.isIdentifier(property.name) && property.name.text === 'name') ||
-            (ts.isStringLiteral(property.name) && property.name.text === 'name'))
-      );
+      const nameProperty = propertyAssignment(node.arguments[1], 'name');
+      const exactProperty = propertyAssignment(node.arguments[1], 'exact');
       if (nameProperty && ts.isPropertyAssignment(nameProperty)) {
         collectLabels(nameProperty.initializer);
+        if (
+          ts.isIdentifier(nameProperty.initializer) &&
+          nameProperty.initializer.text === 'TOOL_CATEGORY_LABEL' &&
+          exactProperty &&
+          ts.isPropertyAssignment(exactProperty) &&
+          exactProperty.initializer.kind === ts.SyntaxKind.TrueKeyword
+        ) {
+          hasExactDerivedSelector = true;
+        }
       }
     }
     ts.forEachChild(node, inspectOptionSelectors);
   }
 
-  collectVariableInitializers(sourceFile);
+  collectVariableDeclarations(sourceFile);
   inspectOptionSelectors(sourceFile);
-  return labels;
+  return { hardcodedLabels, hasExactDerivedSelector };
 }
 
 function collectE2eSpecs(relativeDirectory) {
@@ -120,6 +164,7 @@ const AI_TOOLS_SPECS = E2E_ROOTS.flatMap(collectE2eSpecs).filter((relativePath) 
 
 function categoryLabelViolations(source) {
   const violations = [];
+  const selectorAnalysis = analyzeOptionSelectors(source);
 
   if (
     !/import\s*\{[^}]*\bTOOL_CATEGORIES\b[^}]*\}\s*from\s*['"]@brainstrike\/assistant-contract\/tool-metadata['"]/.test(
@@ -135,16 +180,12 @@ function categoryLabelViolations(source) {
   ) {
     violations.push('does not derive the category label from the native-tool contract');
   }
-  if (
-    !/getByRole\(\s*['"]option['"]\s*,\s*\{(?=[^}]*\bexact:\s*true\b)(?=[^}]*\bname:\s*TOOL_CATEGORY_LABEL\b)[^}]*\}\s*\)/.test(
-      source
-    )
-  ) {
+  if (!selectorAnalysis.hasExactDerivedSelector) {
     violations.push(
       'does not select the category option through exact TOOL_CATEGORY_LABEL matching'
     );
   }
-  if (hardcodedCategoryLabelsInOptionSelectors(source).length > 0) {
+  if (selectorAnalysis.hardcodedLabels.length > 0) {
     violations.push('hardcodes an option presentation label');
   }
 
@@ -185,7 +226,7 @@ test('MONEY TEST: the metadata-derived option selector must retain exact matchin
     ].label;
     await page.getByRole(
       'option',
-      { exact: false, name: TOOL_CATEGORY_LABEL }
+      { exact: false /* exact: true */, name: TOOL_CATEGORY_LABEL }
     ).click();
   `;
 
@@ -230,6 +271,30 @@ test('MONEY TEST: a hardcoded label alias cannot bypass the selector guard', () 
     const STALE_CATEGORY_LABEL = 'Analysis';
     await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
     await page.getByRole('option', { exact: true, name: STALE_CATEGORY_LABEL }).click();
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
+});
+
+test('MONEY TEST: same-named aliases resolve through their lexical scopes', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
+      NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    ].label;
+    await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+    test('hardcoded scope', async () => {
+      const label = 'Analysis';
+      await page.getByRole('option', { exact: true, name: label }).click();
+    });
+    test('derived scope', async () => {
+      const label = TOOL_CATEGORY_LABEL;
+      await page.getByRole('option', { exact: true, name: label }).click();
+    });
   `;
 
   assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
