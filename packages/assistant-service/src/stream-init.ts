@@ -220,12 +220,11 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
   }
   // Prepend the turn's `@file` references (referenced-files), then any explicit
-  // `:skill[name]` activations, then the mounted roots' workspace instructions
-  // (AGENTS.md/AGENT.md/CLAUDE.md). Instructions are applied LAST so they land
-  // at the FRONT of the message array — general workspace conventions precede
-  // the turn's skill activations, which precede the turn-specific referenced
-  // files and the conversation. All are no-ops (same array identity) when
-  // nothing applies.
+  // `:skill[name]` activations, then the opt-in self-improvement signal, then
+  // the mounted roots' workspace instructions (AGENTS.md/AGENT.md/CLAUDE.md).
+  // Instructions are applied LAST so the final front-to-back order is:
+  // instructions → signal → skills → referenced files → conversation. All are
+  // no-ops (same array identity) when nothing applies.
   const withReferencedFiles = await capabilities.contextInjectors.referencedFiles(
     messages,
     runtime,
@@ -235,9 +234,13 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     withReferencedFiles,
     runtime.workspaceSkills
   );
+  const withSelfImprovementSignal = await capabilities.contextInjectors.selfImprovementSignal(
+    withSkillActivations,
+    runtime
+  );
   return toAiSdkStyleStream(
     await capabilities.contextInjectors.workspaceInstructions(
-      withSkillActivations,
+      withSelfImprovementSignal,
       runtime,
       capabilities.readWorkspaceTextFile
     ),
@@ -545,6 +548,10 @@ export interface AgentStreamCapabilities<
       messages: AgentMessage[],
       runtimeData: RuntimeData,
       readFile: WorkspaceFileReader
+    ) => Promise<AgentMessage[]>;
+    readonly selfImprovementSignal: (
+      messages: AgentMessage[],
+      runtimeData: RuntimeData
     ) => Promise<AgentMessage[]>;
     readonly workspaceInstructions: (
       messages: AgentMessage[],

@@ -547,6 +547,7 @@ export function buildAssistantRequestData(args: {
    * boundary — it can only reduce the skill set.
    */
   skillsPreference?: RuntimeData['skillsPreference'];
+  selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
    * Opt-in workspace instructions preference; only set on the desktop
@@ -637,6 +638,7 @@ interface OptInRequestFields {
   hookTrustRequest?: HookTrustRequest | undefined;
   permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
   planMode?: boolean;
+  selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   skillsPreference?: RuntimeData['skillsPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
@@ -669,6 +671,11 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
   }
   if (fields.workspaceInstructionsPreference) {
     data['workspaceInstructionsPreference'] = fields.workspaceInstructionsPreference;
+  }
+  // Self-improvement is default OFF; the desktop renderer sends its explicit
+  // plain-JSON preference snapshot and the server parses it strictly.
+  if (fields.selfImprovementSignalPreference) {
+    data['selfImprovementSignalPreference'] = fields.selfImprovementSignalPreference;
   }
   // Skills preference: absent => server default (master on, nothing disabled).
   if (fields.skillsPreference) {

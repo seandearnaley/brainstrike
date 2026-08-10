@@ -15,6 +15,7 @@ import {
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
+import { useSelfImprovementSignalPreferencesStore } from '@brainstrike/app-state/stores/self-improvement-signal-preferences-store';
 import {
   buildSkillsContextRequest,
   useSkillsPreferencesStore,
@@ -991,6 +992,19 @@ export function AssistantUiPanelWrapper({
     workspaceInstructionsOversizedOptIns,
   ]);
 
+  // Opt-in self-improvement signal (desktop data-stream only). The renderer
+  // attaches a plain-JSON snapshot; the server strictly parses it and owns the
+  // telemetry query and prompt construction.
+  const selfImprovementSignalEnabled = useSelfImprovementSignalPreferencesStore(
+    (state) => state.enabled
+  );
+  const selfImprovementSignalPreference = useMemo(() => {
+    if (localChatTransport !== 'data-stream') {
+      return;
+    }
+    return { enabled: selfImprovementSignalEnabled };
+  }, [localChatTransport, selfImprovementSignalEnabled]);
+
   // Agent Skills preference (desktop data-stream only — the server builds the
   // skills engine; web has no scan path). A plain-JSON snapshot the server
   // parses strictly; it can only REDUCE the skill set.
@@ -1056,6 +1070,7 @@ export function AssistantUiPanelWrapper({
     runtimeWorkspaceContext,
     selectedMemoryThreadId,
     selectionData,
+    selfImprovementSignalPreference,
     semanticRecallSettings,
     skillsPreference,
     subagentPersonasRequest,

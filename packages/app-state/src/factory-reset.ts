@@ -7,6 +7,7 @@ import { resetExplorerSortStateStoreToDefault } from './stores/explorer-sort-sta
 import { resetHookTrustStoreToDefaults } from './stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from './stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from './stores/permission-policy-store';
+import { resetSelfImprovementSignalPreferencesStoreToDefaults } from './stores/self-improvement-signal-preferences-store';
 import { resetSkillsPreferencesStoreToDefaults } from './stores/skills-preferences-store';
 import { resetSubagentPersonasStoreToDefaults } from './stores/subagent-personas-store';
 import { resetWorkspaceInstructionsPreferencesStoreToDefaults } from './stores/workspace-instructions-preferences-store';
@@ -372,6 +373,14 @@ export function registerFactoryResetSessionStore(reset: () => void): () => void 
   };
 }
 
+function resetSelfImprovementSignalPreferences(): void {
+  try {
+    resetSelfImprovementSignalPreferencesStoreToDefaults();
+  } catch (error) {
+    logger.warn('Failed to reset self-improvement signal preferences store', { error });
+  }
+}
+
 function clearBrowserStorage(): void {
   // The Explorer tree-grid layout AND its ordering are persisted and also live
   // in singleton stores. Web factory reset need not reload, so clear both
@@ -437,6 +446,10 @@ function clearBrowserStorage(): void {
   } catch (error) {
     logger.warn('Failed to reset workspace instructions preferences store', { error });
   }
+
+  // Self-improvement signal injection is an explicit persisted opt-in. Reset
+  // the live store as well as clearing localStorage so it returns to OFF.
+  resetSelfImprovementSignalPreferences();
 
   // Budget guardrail caps are persisted preferences; reset the live store too
   // so an in-memory cap never survives a reset without a reload (web path).

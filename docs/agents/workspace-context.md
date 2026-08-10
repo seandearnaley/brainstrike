@@ -183,6 +183,47 @@ When changing this flow, update this section and the paired tests
 
 ---
 
+## SELF-IMPROVEMENT SIGNAL INJECTION (BST-1241)
+
+Desktop can prepend a compact summary of the previous 24 hours' wasteful tool
+behavior to each fresh assistant run. This is an explicit persisted opt-in and
+defaults OFF. The renderer attaches `{ enabled }` as plain JSON; the server
+strictly parses it with malformed input failing safe to OFF.
+
+- **SQL ownership:** injection executes the app-owned
+  `SELF_IMPROVEMENT_SIGNAL_SQL` constant, never a workspace-scanned lens. A
+  mounted repository can shadow `.brainstrike/lenses/self-improvement-signal.sql`;
+  executing that untrusted copy automatically would let repository-authored SQL
+  shape a system message. The parity test parses the shipped repository lens and
+  pins its SQL body byte-equal to the app-owned constant so the reviewed query
+  and injection query cannot drift.
+- **Position and scope:** `resolveInitialAgentStream` applies the injector only
+  on the fresh-generation path, between explicit skill activation and workspace
+  instructions. Because every injector prepends, final context order is
+  workspace instructions → self-improvement signal → activated skills →
+  referenced files → conversation. Approval and resume legs retain their early
+  returns and never re-inject it. Provider `local` is excluded to protect its
+  small context budget.
+- **Failure posture:** query failure, malformed rows, or an unexpected column
+  contract logs a warning and injects nothing; zero qualifying waste logs at
+  debug. It never injects stale, fabricated, or guessed text, and every no-op
+  preserves the original message-array identity.
+- **Measurement/removal protocol:** compare equivalent before/after windows with
+  both the `run-outcome-tool-correlation` and `self-improvement-signal` lenses,
+  following the comparable-window method in
+  [`docs/tool-token-efficiency-2026-08-07/BASELINE.md`](../tool-token-efficiency-2026-08-07/BASELINE.md).
+  After a meaningful sample, remove the feature if truncation and zero-match
+  rates do not improve.
+
+Paired tests: `apps/desktop/src/__tests__/assistant-server/self-improvement-signal-context.test.ts`
+(preference, provider, query/column/row failure posture, exact prompt, size, and
+SQL parity),
+`packages/app-state/src/__tests__/factory-reset-self-improvement-signal-preferences.test.ts`,
+`packages/settings-ui/src/__tests__/self-improvement-signal-settings-section.test.tsx`,
+and `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts`.
+
+---
+
 ## `.brainstrike/` SCAN CONVENTIONS — the family
 
 Three features scan per-root + `~/.brainstrike/` config directories, and any

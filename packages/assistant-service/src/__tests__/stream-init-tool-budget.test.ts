@@ -97,6 +97,7 @@ describe('webExtract artifact settlement budget', () => {
       contextInjectors: {
         activatedSkills: vi.fn(async (messages) => messages),
         referencedFiles: vi.fn(async (messages) => messages),
+        selfImprovementSignal: vi.fn(async (messages) => messages),
         workspaceInstructions: vi.fn(async (messages) => messages),
       },
       hooks: {
