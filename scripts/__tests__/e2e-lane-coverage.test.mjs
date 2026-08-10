@@ -608,7 +608,7 @@ test('REAL REPO: every E2E TEST is reachable from a CI-invoked lane', async () =
   );
 });
 
-test('REAL REPO: the two BST-1010 orphans are wired into full-regression', async () => {
+test('REAL REPO: the two BST-1010 orphans are fail-late full-regression lanes', async () => {
   const webScripts = JSON.parse(
     readFileSync(path.join(REPO_ROOT, 'apps/web/package.json'), 'utf8')
   ).scripts;
@@ -616,7 +616,7 @@ test('REAL REPO: the two BST-1010 orphans are wired into full-regression', async
 
   for (const lane of ['test:e2e:lane:indexing', 'test:e2e:lane:production-csp']) {
     assert.ok(webScripts[lane], `${lane} must exist`);
-    assert.ok(chain.includes(`pnpm run ${lane}`), `${lane} must be chained into full-regression`);
+    assert.ok(chain.includes(lane), `${lane} must be delegated by full-regression`);
     // Serialized dedicated lanes are the correct fix for these two: background
     // indexing writes to the DB and the CSP spec runs PGlite search plus a real
     // local embedding, so neither may join the parallel broad pass by having its
@@ -624,31 +624,15 @@ test('REAL REPO: the two BST-1010 orphans are wired into full-regression', async
     assert.ok(webScripts[lane].includes('--workers=1'), `${lane} must stay serialized`);
   }
 
-  // Placement, not just presence — and TAIL is deliberate. Do not "fix" this to
-  // head position; that was tried and reverted on PR #2180 review.
-  //
-  // `full-regression` is an `&&` chain, so a failing lane skips everything after
-  // it. The tempting argument is that a tail lane is therefore the first thing
-  // starved, which is the worst spot for specs whose entire defect was never
-  // running (BST-1032 blind windows). That reasoning loses to the concrete
-  // budget: `web-e2e.yml` caps the job at `timeout-minutes: 45`, every lane
-  // restarts `webServer` from scratch (`reuseExistingServer: false`), and
-  // production-csp sets `test.setTimeout(180_000)` for a real local embedding.
-  //
-  // These two lanes have never executed in CI even once — that is this PR's
-  // entire premise. At the head, one flake in a never-run lane blinds all eight
-  // downstream lanes that currently work. At the tail, a failure costs only
-  // itself, and since these specs run 0% of the time today, tail is still a
-  // strict improvement over the status quo. Revisit only once they have a green
-  // track record.
-  const laneOrder = [...chain.matchAll(/pnpm run (test:e2e:lane:[\w-]+)/g)].map(
-    (match) => match[1]
-  );
+  // Preserve the established order, but do not restore the former `&&` chain:
+  // the aggregate runner must attempt these tail lanes even when an earlier lane
+  // fails (BST-1059 closes the BST-1032 short-circuit window).
+  assert.doesNotMatch(chain, /&&/);
+  const laneOrder = chain.split(' ').filter((token) => token.startsWith('test:e2e:lane:'));
   assert.deepEqual(
     laneOrder.slice(-2),
     ['test:e2e:lane:indexing', 'test:e2e:lane:production-csp'],
-    'the two newly rescued lanes must run LAST in the chain so a first-run flake cannot ' +
-      'starve the eight lanes that already work — see the comment above before changing this'
+    'the two rescued lanes must remain last while the aggregate runner guarantees fail-late execution'
   );
 });
 
