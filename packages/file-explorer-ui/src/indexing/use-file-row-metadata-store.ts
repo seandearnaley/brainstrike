@@ -32,7 +32,7 @@
 
 import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RECONCILE_METADATA_DEBOUNCE_MS } from '../constants';
+import { RECONCILE_METADATA_DEBOUNCE_MS, RECONCILE_METADATA_MAX_WAIT_MS } from '../constants';
 import { FILE_EXPLORER_REFRESH_EVENT } from '../shell/file-explorer-refresh-event';
 import {
   createFileRowMetadataStore,
@@ -129,22 +129,39 @@ export function useFileRowMetadataStore(
   );
 
   const reconcileTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const firstPendingReconcileAtRef = useRef<number | null>(null);
   const scheduleReconcile = useMemo(() => {
-    const cancel = (): void => {
+    const clearPendingTimeout = (): void => {
       if (reconcileTimeoutRef.current !== null) {
         clearTimeout(reconcileTimeoutRef.current);
         reconcileTimeoutRef.current = null;
       }
     };
+    const cancel = (): void => {
+      clearPendingTimeout();
+      firstPendingReconcileAtRef.current = null;
+    };
     return {
       cancel,
-      /** Trailing-coalesced: a burst of version bumps costs ONE full pass. */
+      clearPendingTimeout,
+      /** Trailing-coalesced, with a max wait so continuous churn cannot starve. */
       schedule: (): void => {
-        cancel();
+        const now = Date.now();
+        const firstPendingAt = firstPendingReconcileAtRef.current ?? now;
+        firstPendingReconcileAtRef.current = firstPendingAt;
+        clearPendingTimeout();
+        const remainingMaxWaitMs = RECONCILE_METADATA_MAX_WAIT_MS - (now - firstPendingAt);
+        const delayMs = Math.min(RECONCILE_METADATA_DEBOUNCE_MS, remainingMaxWaitMs);
+        if (delayMs <= 0) {
+          firstPendingReconcileAtRef.current = null;
+          store.invalidateAll();
+          return;
+        }
         reconcileTimeoutRef.current = setTimeout(() => {
           reconcileTimeoutRef.current = null;
+          firstPendingReconcileAtRef.current = null;
           store.invalidateAll();
-        }, RECONCILE_METADATA_DEBOUNCE_MS);
+        }, delayMs);
       },
     };
   }, [store]);
@@ -152,7 +169,10 @@ export function useFileRowMetadataStore(
   const cacheVersion = tokenCache?.cacheVersion ?? 0;
   useEffect(() => {
     scheduleReconcile.schedule();
-    return scheduleReconcile.cancel;
+    // Dependency cleanup must clear only the trailing timer. Resetting the
+    // first-pending timestamp here would restart the max-wait window on every
+    // cacheVersion bump and recreate the starvation bug.
+    return scheduleReconcile.clearPendingTimeout;
   }, [cacheVersion, scheduleReconcile]);
 
   // The cache going from unusable to usable turns every `pending` into a real

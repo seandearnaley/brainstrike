@@ -88,6 +88,25 @@ import { useSelectionManager } from './use-selection-manager-context';
 
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 
+function collectVisibleFilePathsIfNeeded(
+  tree: IFileNode[] | null,
+  shouldCollect: boolean
+): string[] {
+  if (!(shouldCollect && tree)) {
+    return EMPTY_DISPLAYED_FILE_LIST;
+  }
+  const visible = new Set<string>();
+  collectVisibleFiles(tree, visible);
+  return Array.from(visible);
+}
+
+function shouldCollectVisibleFilePaths(
+  hasRecursiveSelectAll: boolean,
+  quickFilter: string
+): boolean {
+  return !hasRecursiveSelectAll || quickFilter.trim().length > 0;
+}
+
 /**
  * The bar is up whenever there is a selection OR an injected action has pinned
  * it (a running import). Both cases need the padding, so the visibility rule
@@ -443,14 +462,6 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     [deferredQuickFilter, stableFileTree]
   );
 
-  const visibleFilePaths = useMemo(() => {
-    const visible = new Set<string>();
-    if (quickFilteredTree) {
-      collectVisibleFiles(quickFilteredTree, visible);
-    }
-    return Array.from(visible);
-  }, [quickFilteredTree]);
-
   // Per-row metadata seam (BST-1207/1208). Owned here because `onTokenResolved`
   // below is the PRECISE invalidation path: every count the indexer resolves
   // repaints exactly that row's cell. Without this wiring the tree grid still
@@ -486,6 +497,18 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     typeof (selectAllRecursively as unknown) === 'function' &&
     typeof (addMultipleSelectedFiles as unknown) === 'function';
   const useFallbackDisplayedFiles = !hasRecursiveSelectAll;
+
+  // Recursive select-all does not need a materialized path list. Quick-filter
+  // selection still does because it intentionally selects only displayed
+  // matches, so retain the walk for that explicit path and for legacy adapters.
+  const needsVisibleFilePaths = shouldCollectVisibleFilePaths(
+    hasRecursiveSelectAll,
+    deferredQuickFilter
+  );
+  const visibleFilePaths = useMemo(
+    () => collectVisibleFilePathsIfNeeded(quickFilteredTree, needsVisibleFilePaths),
+    [needsVisibleFilePaths, quickFilteredTree]
+  );
 
   const displayedFileList = useMemo(() => {
     if (!useFallbackDisplayedFiles) {

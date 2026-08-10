@@ -1,7 +1,7 @@
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RECONCILE_METADATA_DEBOUNCE_MS } from '../constants';
+import { RECONCILE_METADATA_DEBOUNCE_MS, RECONCILE_METADATA_MAX_WAIT_MS } from '../constants';
 import type { FileRowDirectorySubtree } from '../indexing/file-row-metadata-store';
 import type { TokenCacheContextValue } from '../indexing/token-cache-context';
 import { useFileRowMetadataStore } from '../indexing/use-file-row-metadata-store';
@@ -179,6 +179,39 @@ describe('useFileRowMetadataStore', () => {
     expect(invalidateAllSpy).not.toHaveBeenCalled();
 
     settleReconcile();
+    expect(invalidateAllSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles by the max wait while cache-version bumps keep streaming', () => {
+    const state: StubCacheState = {
+      cacheVersion: 1,
+      isOperational: true,
+      sizes: {},
+      tokens: {},
+    };
+    mockContext = stubTokenCache(state);
+    const { result, rerender } = renderStore();
+    const invalidateAllSpy = vi.spyOn(result.current.store, 'invalidateAll');
+    settleReconcile();
+    invalidateAllSpy.mockClear();
+
+    const churnIntervalMs = RECONCILE_METADATA_DEBOUNCE_MS / 5;
+    for (
+      let elapsedMs = 0;
+      elapsedMs < RECONCILE_METADATA_MAX_WAIT_MS;
+      elapsedMs += churnIntervalMs
+    ) {
+      state.cacheVersion += 1;
+      mockContext = stubTokenCache(state);
+      act(() => {
+        rerender();
+        vi.advanceTimersByTime(churnIntervalMs);
+      });
+    }
+
+    act(() => {
+      vi.advanceTimersByTime(churnIntervalMs);
+    });
     expect(invalidateAllSpy).toHaveBeenCalledTimes(1);
   });
 
