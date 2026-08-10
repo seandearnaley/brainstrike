@@ -1,7 +1,17 @@
 # Handoff: Assistant Tool Token Efficiency
 
-**Linear project:** [Assistant Tool Token Efficiency](https://linear.app/brainstrike/project/assistant-tool-token-efficiency-072ded0cf4ec) (team Brainstrike, High priority)
-**Audit date:** 2026-08-07 · **This doc:** `docs/tool-token-efficiency-2026-08-07/HANDOFF.md`
+> ## ⚠️ HISTORICAL — this work order is complete. Do not execute it.
+>
+> Every ticket described below shipped between 2026-08-07 and 2026-08-10, along with a second wave that followed. **Do not treat any instruction in this file as a live task**; the code it describes has already changed, and re-running the plan would re-implement work that exists.
+>
+> For the current state — what shipped, where we stand against the three peer agents, and the only items still outstanding — read **[`followup-report-2026-08-09.html`](./followup-report-2026-08-09.html)** in this directory.
+>
+> This file is kept as the record of how the program was scoped and what rules governed it. It is useful as an example of a fully-specified work order, and its "Rules and invariants" section still describes live architectural constraints — but its *instructions* are spent.
+
+**Linear project:** [Assistant Tool Token Efficiency](https://linear.app/brainstrike/project/assistant-tool-token-efficiency-072ded0cf4ec) (team Brainstrike, High priority) — **completed**
+**Audit date:** 2026-08-07 · **Status:** all ten tickets Done · **This doc:** `docs/tool-token-efficiency-2026-08-07/HANDOFF.md`
+
+*The text below is preserved as originally written, in the present tense of 2026-08-07.*
 
 You are picking up a fully-scoped efficiency program. The investigation is done; do not redo it. This document gives you the context, the rules, and the work order. Everything else you need is in the four sibling files in this directory and the ten Linear tickets.
 

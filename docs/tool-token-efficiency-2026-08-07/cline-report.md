@@ -1,6 +1,6 @@
 # Cline: Token-Efficiency Architecture of Coding-Agent Tools
 
-Repo studied: `/Users/seandearnaley/Documents/GitHub/cline`, HEAD `8ca3068b7` (2026-08-07). All paths below are relative to the repo root unless stated otherwise.
+Repo studied: cline, HEAD `8ca3068b7` (2026-08-07). All paths below are `path:line` relative to that repository's root at that commit — not to this repository — unless stated otherwise.
 
 ## 0. Architectural note (read this first)
 

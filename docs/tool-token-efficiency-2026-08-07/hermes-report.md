@@ -1,8 +1,8 @@
 # hermes-agent: Token Efficiency in Coding-Agent Tools
 
-Repository studied (read-only): `/Users/seandearnaley/Documents/GitHub/hermes-agent`
+Repository studied (read-only): hermes-agent, as checked out on 2026-08-07.
 
-All citations are `path:line` against the repo state at the time of this study. All quoted strings/constants are verbatim from source.
+All citations are `path:line` relative to that repository's root at the time of this study — not to this repository. All quoted strings/constants are verbatim from source.
 
 ---
 
