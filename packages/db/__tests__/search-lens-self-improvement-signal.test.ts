@@ -12,6 +12,31 @@ const LENS_PATH = resolve(
   '../../../.brainstrike/lenses/self-improvement-signal.sql'
 );
 
+function coerce(values: readonly [string, string, string]): (string | number | boolean)[] {
+  const parsed = parseLensFile('self-improvement-signal.sql', readFileSync(LENS_PATH, 'utf8'));
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
+  }
+  const coerced = coerceLensValues(parsed.lens.params, [...values]);
+  if (!coerced.ok) {
+    throw new Error(coerced.error);
+  }
+  return [...coerced.values];
+}
+
+function loadLensSql(): string {
+  const parsed = parseLensFile('self-improvement-signal.sql', readFileSync(LENS_PATH, 'utf8'));
+  if (!parsed.ok) {
+    throw new Error(parsed.error);
+  }
+  expect(parsed.lens.params.map((param) => `${param.name}:${param.type}`)).toEqual([
+    'since:text',
+    'until:text',
+    'top_n:integer',
+  ]);
+  return parsed.lens.sql;
+}
+
 describe('self-improvement-signal lens', () => {
   let db: PGlite;
   let service: AgentSqlService;
@@ -19,7 +44,7 @@ describe('self-improvement-signal lens', () => {
   beforeEach(async () => {
     db = await createMigratedTestDb();
     service = new AgentSqlService(db);
-    // Six tools so the LIMIT 5 drops exactly one; scores chosen distinct so
+    // Six tools so top_n=5 drops exactly one; scores chosen distinct so
     // ordering is fully determined before the tool_id tiebreak, plus three
     // zero-score tools to prove the tiebreak itself.
     await db.query(
@@ -40,23 +65,11 @@ describe('self-improvement-signal lens', () => {
 
   afterEach(async () => db.close());
 
-  it('ranks tools by waste score and keeps the top five', { timeout: 120_000 }, async () => {
-    const parsed = parseLensFile('self-improvement-signal.sql', readFileSync(LENS_PATH, 'utf8'));
-    if (!parsed.ok) {
-      throw new Error(parsed.error);
-    }
-    expect(parsed.lens.params.map((param) => `${param.name}:${param.type}`)).toEqual([
-      'since:text',
-      'until:text',
-    ]);
-    const values = coerceLensValues(parsed.lens.params, [
-      '2026-08-07T10:00:00Z',
-      '2026-08-07T11:00:00Z',
-    ]);
-    if (!values.ok) {
-      throw new Error(values.error);
-    }
-    const result = await service.query(parsed.lens.sql, { params: values.values });
+  it('ranks tools by waste score and keeps the top N', { timeout: 120_000 }, async () => {
+    const sql = loadLensSql();
+    const result = await service.query(sql, {
+      params: coerce(['2026-08-07T10:00:00Z', '2026-08-07T11:00:00Z', '5']),
+    });
 
     expect(result.columns).toEqual([
       'tool_id',
@@ -72,7 +85,7 @@ describe('self-improvement-signal lens', () => {
     //   globWorkspace:      80 * (1 + 1)     = 160
     //   readWorkspaceFile: 1000 * (0 + 0)    = 0
     //   runPython:           10 * (0 + 0)    = 0
-    //   webFetch:            50 * (0 + 0)    = 0     ← dropped: LIMIT 5, tool_id tiebreak
+    //   webFetch:            50 * (0 + 0)    = 0     ← dropped: top_n=5, tool_id tiebreak
     // The zero_match_rate COLUMN stays NULL for tools that never report it;
     // only the score folds the missing term to 0.
     expect(result.rows).toEqual([
@@ -82,5 +95,36 @@ describe('self-improvement-signal lens', () => {
       ['readWorkspaceFile', 2, 1000, 0, null, 0],
       ['runPython', 1, 10, 0, null, 0],
     ]);
+  });
+
+  it('honors top_n as the ranked cutoff', async () => {
+    const sql = loadLensSql();
+    const result = await service.query(sql, {
+      params: coerce(['2026-08-07T10:00:00Z', '2026-08-07T11:00:00Z', '2']),
+    });
+
+    expect(result.rows).toEqual([
+      ['grepSearch', 2, 400, 0.5, 0.5, 400],
+      ['executeCommand', 1, 300, 1, null, 300],
+    ]);
+  });
+
+  it('merges dotted and bare spellings of the same logical tool', async () => {
+    // An isolated window slice holding one dotted and one bare call: they
+    // must land in ONE bucket, because a split would halve the waste score
+    // and can silently push the genuinely-worst tool out of the top N.
+    await db.query(
+      `INSERT INTO brainstrike_tool_call_telemetry
+        (id, thread_id, run_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup)
+       VALUES
+        ('10', 'thread', 'run', 'brainstrike.grepSearch', '2026-08-07T11:30:00Z', 100, true, true, false),
+        ('11', 'thread', 'run', 'grepSearch', '2026-08-07T11:45:00Z', 300, false, false, false)`
+    );
+    const sql = loadLensSql();
+    const result = await service.query(sql, {
+      params: coerce(['2026-08-07T11:30:00Z', '2026-08-07T12:00:00Z', '5']),
+    });
+
+    expect(result.rows).toEqual([['grepSearch', 2, 400, 0.5, 0.5, 400]]);
   });
 });

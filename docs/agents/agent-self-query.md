@@ -512,6 +512,24 @@ Invariants (do not silently reverse):
   `packages/db/__tests__/search-lens-callers-hybrid.test.ts`, which reads
   the ACTUAL checked-in file — the artifact is the single source of truth.
 
+Shipped lens inventory (each with its golden test,
+`packages/db/__tests__/search-lens-<name>.test.ts`, reading the checked-in
+file):
+
+| Lens | What it answers |
+| --- | --- |
+| `callers-hybrid` | BST-935 hybrid retrieval over a symbol's caller graph |
+| `token-spend-by-tool` | per-tool model-facing chars, truncation, zero-match, pagination proxy over a window |
+| `estimator-calibration` | estimator-vs-provider prompt-token ratio distribution by model and budget tier (BST-1205/BST-1219) |
+| `run-outcome-tool-correlation` | tool usage × run-outcome verdict buckets with per-verdict run denominators (`verdict_total_runs`, `verdict_run_share`); unlabeled runs kept as their own bucket (BST-1240) |
+| `self-improvement-signal` | top-N tools by `waste_score` — a RANKING HEURISTIC (chars × (truncation rate + zero-match rate)), not a char count (BST-1240) |
+
+The BST-1240 lenses normalize `tool_id` before grouping
+(`brainstrike.grepSearch` → `grepSearch`): the telemetry writer stores the id
+verbatim (`toolNameMap.get(toolId) ?? toolId`), so one logical tool can land
+under both spellings, and a split would halve a waste score and silently push
+the worst tool out of the top N.
+
 ---
 
 ## Using it for database tuning
@@ -598,7 +616,13 @@ complete-prefix and explicit-omission contract.
 - `packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts` — the hybrid
   one-statement query admitted end-to-end, arm scoping via the traversal
 - `packages/db/__tests__/search-lens-callers-hybrid.test.ts` — the shipped
-  lens artifact: parse → coerce → sandbox execution with binds
+  lens artifact: parse → coerce → sandbox execution with binds; the same
+  pattern proves `search-lens-token-spend-by-tool.test.ts`,
+  `search-lens-estimator-calibration.test.ts`,
+  `search-lens-run-outcome-tool-correlation.test.ts` (per-verdict
+  denominators, dotted-id normalization, 2k-row cost-gate admission), and
+  `search-lens-self-improvement-signal.test.ts` (top_n cutoff, tiebreak,
+  dotted-id merge)
 - `packages/assistant-contract/src/__tests__/lenses.test.ts` — lens grammar,
   fail-closed; `apps/desktop/src/__tests__/assistant-server/lens-loader.test.ts`
   — two-tier scan; `query-self-lens-modes.test.ts` — dispatch + bind proof
