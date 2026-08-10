@@ -1,5 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { explorerImportPicker, explorerImportTrigger } from './utils/explorer-import';
 import {
   clearDatabaseRecords,
   resolveRefreshButton,
@@ -30,6 +31,30 @@ test.describe('Database Persistence', () => {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Record count for the active collection, read from the Collections panel's
+   * own test hook.
+   *
+   * This replaces the old `tbody tr` row count: the Collection Browser owned
+   * the only table on this tab, so after BST-1213 that locator can only match
+   * an unrelated surface (or nothing) and would make every assertion below
+   * vacuously true. The hook reads the same paginated live query the panel
+   * uses, so it stays an honest "is there data in this collection" signal.
+   */
+  async function readActiveCollectionRecordTotal(page: Page): Promise<number | null> {
+    return await page.evaluate<number | null>(() => {
+      const hooks = (
+        window as Window & {
+          __brainstrikeDatabaseDemoTestHooks__?: {
+            getImportSnapshot?: () => { recordPagination?: { totalRecords?: number } };
+          };
+        }
+      ).__brainstrikeDatabaseDemoTestHooks__;
+      const total = hooks?.getImportSnapshot?.().recordPagination?.totalRecords;
+      return typeof total === 'number' ? total : null;
+    });
   }
 
   /**
@@ -440,14 +465,44 @@ test.describe('Database Persistence', () => {
       await page.waitForTimeout(200);
     }
 
-    const importButton = page.getByRole('button', { name: /^Import\s*\(/ });
-    if ((await importButton.isVisible()) && !(await importButton.isDisabled())) {
-      await importButton.click();
-      await page.waitForTimeout(5000);
-      return true;
+    // Importing is driven from the explorer's selection action bar (BST-1212):
+    // trigger -> collection picker -> confirm. This helper is best-effort, so
+    // every step is guarded rather than asserted.
+    const importTrigger = explorerImportTrigger(page);
+    // The action is code-split, and its first render is a DISABLED placeholder
+    // whose accessible name already matches the trigger locator. A one-shot
+    // `isDisabled()` therefore reads the placeholder and bails every time,
+    // silently falling through to the sample-data path and never exercising
+    // this import at all — so wait for the real control instead.
+    const triggerReady = await expect(importTrigger)
+      .toBeEnabled({ timeout: 15_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!triggerReady) {
+      return false;
     }
+    await importTrigger.click();
 
-    return false;
+    // Every bail-out past this point must dismiss the popover: leaving it open
+    // would cover the Explorer while the sample-data fallback drives the
+    // Database panel behind it.
+    const picker = explorerImportPicker(page);
+    if (!(await picker.isVisible({ timeout: 5000 }).catch(() => false))) {
+      await page.keyboard.press('Escape');
+      return false;
+    }
+    const confirmImport = picker.getByTestId('explorer-import-confirm');
+    const confirmReady = await expect(confirmImport)
+      .toBeEnabled({ timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!confirmReady) {
+      await page.keyboard.press('Escape');
+      return false;
+    }
+    await confirmImport.click();
+    await page.waitForTimeout(5000);
+    return true;
   }
 
   async function createUsingSampleData(page: Page): Promise<boolean> {
@@ -577,15 +632,11 @@ test.describe('Database Persistence', () => {
     await page.waitForTimeout(2000);
     await clickRefreshIfAvailable(page);
 
-    const recordCountAfter = await page.locator('tbody tr').count();
-    expect(recordCountAfter).toBe(0);
-
-    // After clearing, we should see an empty state message
-    await expect(
-      page.locator(
-        'text=/No files in this collection|No files imported yet|No collection selected/'
-      )
-    ).toBeVisible();
+    // Post-clear state, read from the panel's live-query-backed hook rather
+    // than from the retired browser table.
+    await expect
+      .poll(async () => await readActiveCollectionRecordTotal(page), { timeout: 15_000 })
+      .toBe(0);
   }
 
   test('should clear database via UI button workflow', async ({ window }) => {
@@ -616,10 +667,13 @@ test.describe('Database Persistence', () => {
 
     await clickRefreshIfAvailable(activeWindow);
 
-    const recordCountBefore = await activeWindow.locator('tbody tr').count();
-    if (recordCountBefore === 0) {
-      return;
-    }
+    // The workflow runs unconditionally. It used to be gated on a `tbody tr`
+    // count that the Collection Browser supplied; that locator now always
+    // reads 0, so the gate turned this into a vacuous pass. Clearing is worth
+    // exercising whether or not the collection already holds records — the
+    // assertion that matters is the post-clear total, not the pre-clear one.
+    const recordTotalBefore = await readActiveCollectionRecordTotal(activeWindow);
+    expect(recordTotalBefore).not.toBeNull();
 
     await executeClearDatabaseWorkflow(activeWindow);
   });
@@ -675,11 +729,8 @@ test.describe('Database Persistence', () => {
   }
 
   async function hasExistingData(page: Page): Promise<boolean> {
-    const [fileRows, tableRows] = await Promise.all([
-      page.locator('.border.rounded.p-3').count(),
-      page.locator('tbody tr').count(),
-    ]);
-    return fileRows > 0 || tableRows > 0;
+    const recordTotal = await readActiveCollectionRecordTotal(page);
+    return (recordTotal ?? 0) > 0;
   }
 
   async function confirmClearIfDialogVisible(dialog: Locator): Promise<void> {
@@ -738,36 +789,30 @@ test.describe('Database Persistence', () => {
     return activePage;
   }
 
+  /**
+   * The Collections tab remains functional and reports its own state.
+   *
+   * The old body probed the Collection Browser's file cards / table rows and
+   * its empty-state copy. All three are gone (the card and row selectors had in
+   * fact been dead for longer than that), which left every branch either
+   * unreachable or trivially true. The surviving, falsifiable statement is that
+   * the panel's controls are live and the panel publishes a numeric record
+   * total for the active collection.
+   */
   async function verifyUIFunctionalityAndState(page: Page): Promise<void> {
     if (await isDatabaseError(page)) {
       await expect(page.locator('[data-testid="db-init-error"]').first()).toBeVisible();
       return;
     }
-    const currentFileRows = await page.locator('.border.rounded.p-3').count();
-    const currentTableRows = await page.locator('tbody tr').count();
 
-    if (currentFileRows === 0 && currentTableRows === 0) {
-      const emptyStateSelectors = [
-        page.locator('text=/No files in this collection/'),
-        page.locator('text=/No files imported yet/'),
-        page.locator('text=/No collection selected/'),
-        page.locator('.text-muted-foreground:has-text("No files imported")'),
-        page.locator('text=/No chunks available/'),
-        page.locator('text="Enter a search query to find similar content."'),
-        page.locator('.text-center.text-muted-foreground'),
-      ];
+    await expect(page.locator('[data-testid="database-panel-actions"]')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.locator(REFRESH_BUTTON_SELECTOR).first()).toBeVisible({ timeout: 15_000 });
 
-      for (const selector of emptyStateSelectors) {
-        if (await selector.isVisible({ timeout: 1000 }).catch(() => false)) {
-          return;
-        }
-      }
-
-      console.warn('⚠️ Empty state message not found, but database is empty');
-      return;
-    }
-
-    await expect(page.locator('.border.rounded.p-3').first()).toBeVisible();
+    const recordTotal = await readActiveCollectionRecordTotal(page);
+    expect(recordTotal).not.toBeNull();
+    expect(recordTotal).toBeGreaterThanOrEqual(0);
   }
 
   test('@desktop-db-storage should perform CRUD operations through UI', async ({ window }) => {
@@ -781,7 +826,7 @@ test.describe('Database Persistence', () => {
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
-    await expect(activeWindow.getByRole('button', { name: /^Import\s*\(/ })).toBeVisible();
+    await expect(activeWindow.getByTestId('database-panel-actions')).toBeVisible();
     await clickRefreshIfAvailable(activeWindow);
     await verifyUIFunctionalityAndState(activeWindow);
   });
@@ -810,7 +855,9 @@ test.describe('Database Persistence', () => {
     ).toBeVisible({
       timeout: 30_000,
     });
-    await expect(activeWindow.locator('tbody tr')).toHaveCount(0, { timeout: 5000 });
+    await expect
+      .poll(async () => await readActiveCollectionRecordTotal(activeWindow), { timeout: 15_000 })
+      .toBe(0);
     // Verify connection indicator in status bar
     const statusText = await activeWindow
       .locator('[data-testid="status-bar-db-connected"]')
@@ -843,7 +890,7 @@ test.describe('Database Persistence', () => {
       .textContent();
     expect(relaunchedStatusText).toContain('Storage:');
     expect(relaunchedStatusText).toMatch(/IPC|PGlite/i);
-    await expect(relaunchedWindow.getByRole('button', { name: /^Import\s*\(/ })).toBeVisible();
+    await expect(relaunchedWindow.getByTestId('database-panel-actions')).toBeVisible();
     await expect(
       relaunchedWindow.locator('[data-testid="database-demo-panel"]').first()
     ).toBeVisible();
@@ -851,7 +898,10 @@ test.describe('Database Persistence', () => {
     relaunchedWindow = await clearDatabaseRecords(relaunchedWindow);
     await clickRefreshIfAvailable(relaunchedWindow);
 
-    const finalRecordCount = await relaunchedWindow.locator('tbody tr').count();
-    expect(finalRecordCount).toBe(0);
+    await expect
+      .poll(async () => await readActiveCollectionRecordTotal(relaunchedWindow), {
+        timeout: 15_000,
+      })
+      .toBe(0);
   });
 });

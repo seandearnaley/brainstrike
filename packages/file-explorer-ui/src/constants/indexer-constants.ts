@@ -48,6 +48,47 @@ export const TOKEN_INDEXER_IO_BATCH_SIZE = 8;
 export const TOKEN_INDEXER_BATCH_YIELD_MS = 16;
 
 /**
+ * Debounce floor for the VISIBLE-file indexing trigger (BST-1207, decision D2).
+ *
+ * Visible/expanded rows are indexed so the tree grid can show real token counts
+ * without the user selecting anything. This floor is 2× the selection trigger's
+ * longest adaptive delay, which keeps visible work behind selection work for
+ * every batch size EXCEPT the degenerate one where a huge selection and a tiny
+ * visible set land in the same window — the two debounces are independent, so
+ * this is a strong bias, not a guarantee of ordering. It also absorbs
+ * scroll/expand churn, which changes the visible set far more often than a
+ * selection changes.
+ */
+export const VISIBLE_FILE_INDEXING_DEBOUNCE_MS = 1000;
+
+/**
+ * Ceiling on how many files ONE visible-file indexing pass dispatches
+ * (BST-1207, decision D2).
+ *
+ * The visible set is every file under an expanded directory, not the viewport,
+ * so a single expand on a large directory can surface thousands of uncached
+ * files — and each uncached file costs a full-content read (IPC on desktop,
+ * `getFile()` on web) before the tokenizer even sees it. 500 is a batch the
+ * `TOKEN_INDEXER_IO_BATCH_SIZE` reader drains in ~60 cooperative windows, which
+ * keeps one expand from monopolizing the IPC channel while still being far more
+ * than a screenful. The pass re-arms for the remainder whenever it made
+ * progress, so nothing is dropped — it is deferred.
+ */
+export const VISIBLE_FILE_INDEXING_MAX_PER_PASS = 500;
+
+/**
+ * Trailing coalescing window for the per-row metadata store's full
+ * reconciliation pass (BST-1207).
+ *
+ * The token cache's `cacheVersion` is debounced at 50ms, so during an index run
+ * it bumps ~20×/s. Reconciliation re-reads every rendered row and every cached
+ * directory subtree, so it must not run at that rate; per-count updates take
+ * the store's precise `invalidate` path instead. This window only has to be
+ * long enough to collapse a burst and short enough to stay imperceptible.
+ */
+export const RECONCILE_METADATA_DEBOUNCE_MS = 250;
+
+/**
  * Debounce delay for file handle map rebuild in milliseconds.
  *
  * Waits for the tree to stabilize before rebuilding the expensive

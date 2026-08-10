@@ -1,5 +1,9 @@
 import { FILE_EXPLORER_STORAGE_KEY } from '@brainstrike/file-explorer/testing';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
+import {
+  clickExplorerTreeAction,
+  expectExplorerTreeActionsReachable,
+} from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { getContextExplorerFileExplorerPanel } from './utils/context-explorer-locators';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -27,6 +31,13 @@ const ELECTRON_CONTROL_CLICK_TIMEOUT_MS = 10_000;
 const PRESET_DATABASE_QUERY_ATTEMPT_TIMEOUT_MS = 5000;
 const PRESET_DATABASE_READY_TIMEOUT_MS = 45_000;
 const PRESET_PERSIST_READY_TIMEOUT_MS = 15_000;
+const VIEW_FILTERS_MOUNT_TIMEOUT_MS = 15_000;
+/**
+ * Generous on purpose: below 236px the compact menu is the only route to the
+ * view filters, and it yields the narrow track for the whole of a cold initial
+ * scan or a refresh, so the wait spans an operation rather than a render.
+ */
+const EXPLORER_ACTION_SURFACE_TIMEOUT_MS = 20_000;
 
 interface ViewFilterPresetReadinessResult {
   count: number | null;
@@ -108,15 +119,123 @@ async function ensureFileExplorerPanelVisible(window: Page): Promise<void> {
   await expect(explorerPanel).toBeVisible({ timeout: 15_000 });
 }
 
-async function ensureViewFiltersExpanded(window: Page): Promise<void> {
-  const toggleButton = window.getByRole('button', { name: /view filters/i });
-  await expect(toggleButton).toBeVisible({ timeout: 10_000 });
+/**
+ * The view-filters block itself, which mounts with the workspace root at EVERY
+ * toolbar width and only toggles `inert`. The toolbar's toggle button does not:
+ * below the toolbar's 236px container-query step it is `display:none` and moves
+ * into the compact overflow menu, which drops it out of the accessibility tree
+ * entirely (role locators then report "element(s) not found", not "hidden").
+ * The desktop Explorer panel opens at its 180px minimum, so this block — not
+ * the button — is the layout-independent "a root is attached" signal.
+ */
+function getViewFiltersContent(window: Page): Locator {
+  return getContextExplorerFileExplorerPanel(window).locator('#view-filters-content');
+}
 
-  if ((await toggleButton.getAttribute('aria-expanded')) !== 'true') {
-    await clickElectronControl(toggleButton);
+/** Wide-toolbar surface: present in the accessibility tree only at >=236px. */
+function getViewFiltersToggle(window: Page): Locator {
+  return getContextExplorerFileExplorerPanel(window).getByRole('button', {
+    name: /view filters/i,
+  });
+}
+
+/** Narrow-toolbar surface: the overflow menu that hosts the same two actions. */
+function getCompactExplorerActionsTrigger(window: Page): Locator {
+  return getContextExplorerFileExplorerPanel(window).getByRole('button', {
+    name: 'More Explorer actions',
+  });
+}
+
+/**
+ * Opens the compact Explorer actions menu.
+ *
+ * Radix portals the menu outside the toolbar, so scope the content through the
+ * trigger's aria-controls relationship (published once the menu opens) instead
+ * of selecting an arbitrary menu.
+ *
+ * The trigger is WAITED for rather than probed: the compact menu unmounts while
+ * a cancellable operation runs — initial load, refresh, or an expand-all sweep —
+ * so the scanning indicator's cancel can occupy the narrow track. "Absent right
+ * now" therefore means "busy", not "wrong layout".
+ */
+async function openExplorerCompactMenu(window: Page): Promise<Locator> {
+  const compactActions = getCompactExplorerActionsTrigger(window);
+  await expect(compactActions).toBeVisible({ timeout: EXPLORER_ACTION_SURFACE_TIMEOUT_MS });
+
+  const compactActionsHandle = await compactActions.elementHandle();
+  if (!compactActionsHandle) {
+    throw new Error('Compact Explorer actions trigger detached before opening');
   }
 
-  await expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
+  await clickElectronControl(compactActions);
+
+  // Radix publishes aria-controls from a discrete-event state update, so poll
+  // rather than reading once: a slow renderer would otherwise raise a hard
+  // "missing aria-controls" with no retry, in the very lane this de-flakes.
+  //
+  // Poll the HANDLE, never a re-query. Radix marks the rest of the page
+  // aria-hidden while the menu is open, so the trigger leaves the accessibility
+  // tree the moment it is clicked and `getByRole(...)` then reports
+  // "element(s) not found". That is exactly why the handle is captured up front.
+  await expect
+    .poll(async () => await compactActionsHandle.getAttribute('aria-controls'))
+    .toMatch(/\S/);
+
+  const menuId = await compactActionsHandle.getAttribute('aria-controls');
+  if (!menuId) {
+    throw new Error('Compact Explorer actions trigger is missing aria-controls');
+  }
+
+  const explorerMenu = window.locator(`[id=${JSON.stringify(menuId)}]`);
+  await expect(explorerMenu).toHaveAttribute('role', 'menu');
+  await expect(explorerMenu).toBeVisible();
+  return explorerMenu;
+}
+
+/**
+ * Expands the view-filters block through whichever action surface the current
+ * toolbar width exposes. Exactly one of the two must be visible; asserting that
+ * first also absorbs the compact menu's unmount window, so a busy toolbar waits
+ * instead of falling through to a surface that is never coming.
+ */
+async function ensureViewFiltersExpanded(window: Page): Promise<void> {
+  // Both surfaces mount with the root, so gate on the block before probing
+  // which one exists — otherwise "not rendered yet" is indistinguishable from
+  // "compact layout".
+  const viewFiltersContent = getViewFiltersContent(window);
+  await expect(viewFiltersContent).toBeAttached({ timeout: VIEW_FILTERS_MOUNT_TIMEOUT_MS });
+
+  const toggleButton = getViewFiltersToggle(window);
+  const compactActions = getCompactExplorerActionsTrigger(window);
+  await expect(toggleButton.or(compactActions).filter({ visible: true })).toHaveCount(1, {
+    timeout: EXPLORER_ACTION_SURFACE_TIMEOUT_MS,
+  });
+
+  if (await toggleButton.isVisible()) {
+    if ((await toggleButton.getAttribute('aria-expanded')) !== 'true') {
+      await clickElectronControl(toggleButton);
+    }
+
+    await expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
+  } else {
+    const explorerMenu = await openExplorerCompactMenu(window);
+    const showViewFilters = explorerMenu.getByRole('menuitem', { name: 'Show view filters' });
+
+    if ((await showViewFilters.count()) > 0) {
+      await clickElectronControl(showViewFilters);
+    } else {
+      // Already expanded — the menu only offers the inverse action. Close it
+      // without toggling the block back shut.
+      await expect(explorerMenu.getByRole('menuitem', { name: 'Hide view filters' })).toBeVisible();
+      await window.keyboard.press('Escape');
+    }
+
+    await expect(explorerMenu).toHaveCount(0);
+  }
+
+  // The observable outcome both paths share: `inert` is the block's own
+  // collapsed marker, and unlike aria-expanded it exists at every width.
+  await expect(viewFiltersContent).not.toHaveAttribute('inert');
 }
 
 async function waitForViewFilterPresetsDatabase(window: Page): Promise<void> {
@@ -535,8 +654,8 @@ async function selectMockRoot(window: Page): Promise<void> {
   await expect(selectRootButton).toBeVisible({ timeout: 10_000 });
   await clickElectronControl(selectRootButton);
 
-  await expect(window.getByRole('button', { name: /view filters/i })).toBeVisible({
-    timeout: 15_000,
+  await expect(getViewFiltersContent(window)).toBeAttached({
+    timeout: VIEW_FILTERS_MOUNT_TIMEOUT_MS,
   });
 }
 
@@ -640,7 +759,12 @@ test.describe('Desktop filter presets', () => {
   });
 
   test('keeps the selected preset after app restart', async ({ electron, window }) => {
-    test.setTimeout(90_000);
+    // 120s (the config default) rather than 90s: on the restoration-failed
+    // path this test serially spends the 15s restore wait, selectMockRoot's own
+    // mount wait, ensureViewFiltersExpanded's 15s + 20s, and TWO 45s preset-DB
+    // polls. At 90s that path reports a bare "Test timeout exceeded" instead of
+    // the assertion that actually failed.
+    test.setTimeout(120_000);
 
     await ensureFileExplorerPanelVisible(window);
     await selectMockRoot(window);
@@ -656,8 +780,24 @@ test.describe('Desktop filter presets', () => {
     await mockFileSystemOperations(relaunchedWindow);
     await ensureFileExplorerPanelVisible(relaunchedWindow);
 
-    const viewFiltersButton = relaunchedWindow.getByRole('button', { name: /view filters/i });
-    if (!(await viewFiltersButton.isVisible().catch(() => false))) {
+    // Root restoration after a relaunch is async, so give it a real chance
+    // before re-attaching the mock root — a point-in-time probe would almost
+    // always lose the race and quietly turn this into a fresh-root test.
+    //
+    // Only a timeout means "no root was restored". Anything else (a crashed
+    // renderer, a detached frame) is a real failure and must surface here
+    // rather than be laundered into the re-attach path, where it would
+    // resurface later as a confusing downstream assertion.
+    const restoredRoot = await getViewFiltersContent(relaunchedWindow)
+      .waitFor({ state: 'attached', timeout: VIEW_FILTERS_MOUNT_TIMEOUT_MS })
+      .then(() => true)
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === 'TimeoutError') {
+          return false;
+        }
+        throw error;
+      });
+    if (!restoredRoot) {
       await selectMockRoot(relaunchedWindow);
     }
 
@@ -737,14 +877,12 @@ test.describe('Desktop filter presets', () => {
 
     await selectPresetBySearch(window, 'TypeScript', /typescript\/javascript/i);
 
-    const expandAllButton = window.getByTestId('expand-all-button-small');
-    await expect(expandAllButton).toBeVisible({ timeout: 10_000 });
-    await clickElectronControl(expandAllButton);
+    await clickExplorerTreeAction(window, 'expand-all');
 
     await expect(window.getByTestId('inline-scanning-indicator')).not.toBeVisible({
       timeout: 20_000,
     });
-    await expect(expandAllButton).toBeEnabled({ timeout: 10_000 });
+    await expectExplorerTreeActionsReachable(window);
 
     const fileTree = window.getByRole('treegrid', { name: 'File tree' });
     await expect(fileTree.getByText('apps')).toBeVisible({ timeout: 10_000 });

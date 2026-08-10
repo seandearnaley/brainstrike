@@ -13,15 +13,12 @@ import {
   EmbeddingActionsDropdown,
   type useEmbeddingControls,
 } from '@brainstrike/vector-management';
-import { FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
+import { HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
 import type { ComponentProps, ReactElement } from 'react';
 import type { useCollectionDialogs } from '../hooks/use-collection-dialogs';
 import type { useExportHandlers } from '../hooks/use-export-handlers';
 import type { useImportSettings } from '../hooks/use-import-settings';
-import type { EnhancedImportProgress } from '../types';
-import type { UseImportFlowResult } from '../use-import-flow';
 import { ExportDropdown } from './export-dropdown';
-import { ImportProgressBar } from './import-progress-bar';
 import { SearchCollectionSelector } from './search-collection-selector';
 import { SettingsPanel } from './settings-panel';
 
@@ -41,7 +38,6 @@ interface DatabaseDemoPrimaryPanelProps {
   readonly dbContext: ReturnType<typeof usePGliteDatabase>;
   readonly dropdownProps: ReturnType<typeof useEmbeddingControls>['dropdownProps'];
   readonly exportHandlers: ReturnType<typeof useExportHandlers>;
-  readonly importFlow: UseImportFlowResult;
   readonly importSettings: ReturnType<typeof useImportSettings>;
   readonly isManagedCollection: boolean;
   readonly onClearDatabase: () => Promise<void>;
@@ -65,7 +61,6 @@ export function DatabaseDemoPrimaryPanel({
   dbContext,
   dropdownProps,
   exportHandlers,
-  importFlow,
   importSettings,
   isManagedCollection,
   onClearDatabase,
@@ -204,15 +199,8 @@ export function DatabaseDemoPrimaryPanel({
         ) : null}
       </div>
 
-      {importFlow.showImportProgress && importFlow.progress && (
-        <ImportProgressBar
-          isCancelling={importFlow.isCancelling}
-          onCancel={importFlow.handleCancelImport}
-          onClose={() => importFlow.setShowImportProgress(false)}
-          progress={importFlow.progress as EnhancedImportProgress}
-        />
-      )}
-
+      {/* Import progress renders next to the trigger, in the explorer's
+          selection action bar (BST-1212). */}
       <div
         className="@container/database-actions flex-shrink-0 border-t bg-background"
         data-testid="database-panel-actions"
@@ -229,37 +217,9 @@ export function DatabaseDemoPrimaryPanel({
               exportHandlers={exportHandlers}
             />
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  aria-label={`Import (${importFlow.selectedFileCount})`}
-                  className="flex h-7 @[420px]:min-w-[5.25rem] items-center gap-1.5 @[420px]:px-3 px-2"
-                  disabled={
-                    importFlow.isImporting ||
-                    !activeCollectionId ||
-                    importFlow.selectedFileCount === 0 ||
-                    isManagedCollection
-                  }
-                  onClick={importFlow.handleImportClick}
-                  size="sm"
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span className="@[420px]:inline hidden font-medium">Import</span>
-                  <span className="@[520px]:inline hidden text-[10px] opacity-70">
-                    ({importFlow.selectedFileCount})
-                  </span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {importFlow.selectedFileCount === 0
-                  ? 'Select files to import first'
-                  : isManagedCollection
-                    ? 'Background indexing manages imports for this collection'
-                    : activeCollectionId
-                      ? `Import ${importFlow.selectedFileCount} files to collection`
-                      : 'Select a collection first'}
-              </TooltipContent>
-            </Tooltip>
+            {/* Importing is triggered from the file explorer's selection
+                action bar (BST-1212) — the surface that owns the selection.
+                There is deliberately no second entry point here. */}
 
             <EmbeddingActionsDropdown
               {...dropdownProps}

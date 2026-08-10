@@ -6,23 +6,12 @@ export { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-sta
 export * from './components';
 // Context Actions
 export * from './context-actions';
-// Contexts
-export * from './contexts';
 // Utils
 export * from './csv-export-utils';
 export * from './database-demo-panel';
 // Hooks
 export * from './hooks';
 // Stores
-export {
-  type CollectionBrowserStore,
-  type CollectionSortDirection,
-  type CollectionSortKey,
-  type CollectionSortState,
-  collectionBrowserSelectors,
-  type SearchMode,
-  useCollectionBrowserStore,
-} from './stores/collection-browser-store';
 export { useDatabaseDemoStore } from './stores/database-demo-store';
 // Types
 export * from './types';

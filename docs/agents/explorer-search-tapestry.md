@@ -167,6 +167,18 @@ When changing this flow, update this section and the paired tests.
 The per-file range model spans Explorer, Search, Tapestry, and every context
 consumer (report generator, `listWorkspaceContext`, token meters).
 
+- **Tapestry is the ONLY context preview surface (BST-1211).** The panel is a
+  footer plus `TapestryView`; there is no tab strip, no Table View, and no
+  `activeTab` preference. Everything the table used to own went with it: column
+  visibility and widths (`context-preview-column-sizes.v1` store deleted),
+  sortable headers (preview order is now the fixed ascending-`rootFolderId`
+  comparator in `preview-panel.tsx`), page-size selection (Tapestry paginates at
+  a constant 24/page) and the shared `PreviewViewToolbar`. Group-by, group
+  collapse and the multi-select toggle live in `TapestryControls`; the
+  bulk-action bar reaches Tapestry as its `selectionActionBar` prop. The stored
+  `previewPanelPreferences.v1` blob keeps its key — retired fields are ignored
+  on read and pruned on the next write. Do not reintroduce a second surface
+  without re-reading this paragraph.
 - **Per-file rule, no global toggle.** "Files are membership, ranges are
   refinement, no ranges = whole file" — unconditional everywhere
   (`useTapestryRanges` retired). Selecting a file is membership ONLY; nothing
@@ -254,6 +266,86 @@ The policy test owns the preset contract. The parallel-directory-walker test
 must also prove excluded directories are rejected before `readDirectory` is
 called. Provider/service tests own policy-switch cancellation and stale-progress
 suppression.
+
+### Token indexing has TWO trigger sources (BST-1207, decision D2)
+
+Separate from the Workspace Index above, per-file TOKEN counting is driven by
+`useBackgroundTokenIndexerIntegration`. It has two trigger sources, and both go
+through the SAME `triggerIndexing` → `planTokenIndexingDispatch` path, so the
+binary/size exclusions and the indexed/in-flight de-duplication are shared:
+
+1. **Selection** (original). Adaptive debounce; the user is waiting on it.
+2. **Visible/expanded rows** (`visibleFiles` prop, implemented in
+   `packages/file-explorer-ui/src/indexing/use-visible-file-token-indexing.ts`).
+   Feeds the tree grid's token column for rows the user only expanded. It is
+   **cached-first** — each folder's persistent cache is warmed via
+   `preloadFolder`, then every key the hot cache can already answer is dropped
+   and marked indexed. A warm is memoized only once `isPersisted` is true: the
+   worker goes operational before PGlite does, and remembering that no-op warm
+   would strand every later visible file on a full re-count. The memo is the
+   parent-owned `preloadedVisibleFoldersRef`, reset with the other indexer memos
+   on root change, tree clear, and `clearIndexedCache`.
+   It is **capped**: the visible set is every file under an expanded directory,
+   not the viewport, so one expand on a large directory can surface thousands of
+   uncached files, each costing a full-content read (IPC on desktop). A pass
+   dispatches at most `VISIBLE_FILE_INDEXING_MAX_PER_PASS` (500) keys and
+   re-arms for the remainder — but ONLY when the previous pass consumed
+   something, so a set that can never be consumed (every key parked for a
+   missing handle) cannot spin. Nothing is dropped; it is deferred.
+   It is **throttled** by a `VISIBLE_FILE_INDEXING_DEBOUNCE_MS` floor set to 2×
+   the selection trigger's longest adaptive delay. The two debounces are
+   independent, so this is a strong bias toward selection-first, NOT a
+   guarantee — do not write code or docs that depend on strict ordering.
+   Because the Explorer tree is lazily enumerated, "in the tree" already means
+   "visible or under an expanded directory"; `collectVisibleFileSelectionKeys`
+   walks the quick-filtered tree and keys by `node.rootFolderId` so forest roots
+   stay distinct.
+
+Do not add a third trigger.
+
+Per-row metadata for the tree grid (tokens/size/type + directory rollups) is
+read through `FileRowMetadataStore`
+(`packages/file-explorer-ui/src/indexing/file-row-metadata-store.ts`), a
+per-composite-key external store. Rules that must hold: an uncounted file reads
+`pending`; a file the planner permanently retires reads `excluded` with an
+`exclusionReason`, and that set must stay in sync with
+`planTokenIndexingDispatch` — today `'binary'` (`isBinaryFile`) and
+`'too-large'` (over the shared `DEFAULT_MAX_FILE_SIZE`), both of which the
+planner pushes into `indexedKeysToAdd` so their count never arrives. Adding a
+new permanent retirement to the planner without adding its reason here leaves
+those rows on `pending` forever AND pins every ancestor rollup to `partial`.
+A directory rollup is only `complete` when the subtree is fully enumerated AND
+every descendant's metadata has landed, otherwise it is an explicit `partial`
+marker; excluded files contribute zero tokens and their real size without
+blocking completeness. A count landing for one key must not re-render any other
+row.
+
+`getDirectorySubtree` is TOTAL: anything the caller cannot enumerate answers
+`{ fileKeys: [], isComplete: false }` rather than nothing, so a cell can never
+throw mid-render and "this is a file" is not confused with "this directory is
+not enumerated yet". Because rollups are cached and the store cannot see the
+tree, the caller MUST call `invalidateAll()` whenever the tree SHAPE changes
+(expand, collapse, filter, refresh, root switch) — `use-file-tree-metadata-source`
+does this off the row-model identity.
+
+Invalidation has two paths and the split is load-bearing. `useFileRowMetadataStore`
+returns an `onTokenResolved` that MUST be passed to
+`useBackgroundTokenIndexerIntegration`: every resolved count names its own
+composite key, so the store re-reads that key plus its cached ancestor rollups —
+O(affected keys), whatever the tree size. The full `invalidateAll` reconciliation
+exists only for bulk writes that name no key (`preloadFolder`, warm-cache
+hydration), which surface solely as a `cacheVersion` bump; since that bump is
+debounced at 50ms and therefore fires ~20×/s during an index run, the
+version-driven pass is coalesced behind a trailing
+`RECONCILE_METADATA_DEBOUNCE_MS` timer. Operational transitions and
+`FILE_EXPLORER_REFRESH_EVENT` reconcile immediately. Do not drop the
+reconciliation path (a reopened workspace's already-cached counts would sit on
+`pending` forever) and do not make it the per-count path. No third channel, no
+polling. Paired tests:
+`packages/file-explorer-ui/src/__tests__/file-row-metadata-store.test.ts`,
+`packages/file-explorer-ui/src/__tests__/file-row-metadata-render-stability.test.tsx`,
+`packages/file-explorer-ui/src/__tests__/use-file-row-metadata-store.test.tsx`,
+`packages/file-explorer-ui/src/__tests__/use-background-token-indexer-integration-visible-files.test.tsx`.
 
 ---
 
@@ -409,12 +501,36 @@ fallback.
   RootSection provider reacts — that is what makes the toolbar Refresh reach
   every forest root, including the focused root's VISIBLE section.
 - **Narrow toolbar geometry.** The Explorer panel's 180px minimum width leaves
-  a 76px right grid track. Below 236px, Refresh and View Filters move into one
-  24px compact-actions menu beside the 24px Select All control, preserving the
-  symmetric 12px edge gutters and WCAG-size hit regions. At 236px, the menu is
-  replaced by the full Refresh and View Filters controls; all three right-side
-  controls are 28px with 4px gaps. Select All remains the edge action at every
-  width, preventing any sibling from intercepting its pointer region.
+  a 76px right grid track. Below 236px, Refresh, View Filters **and Expand All /
+  Collapse All** move into one 24px compact-actions menu beside the 24px Select
+  All control, preserving the symmetric 12px edge gutters and WCAG-size hit
+  regions. At 236px, the menu is replaced by the full Refresh and View Filters
+  controls; all three right-side controls are 28px with 4px gaps. Select All
+  remains the edge action at every width, preventing any sibling from
+  intercepting its pointer region.
+  Expand All / Collapse All appear at that SAME 236px step, but in the **left**
+  track beside the selection status — the right track is exactly full at every
+  step below, and these two used to avoid the problem by floating over the tree
+  (retired: the overlay covered the tree grid's column header and ate its
+  clicks; see `docs/agents/ui-conventions.md`). Adding them costs the left track
+  ~60px, so the compact selection COUNTER yields below **180px of track** — the
+  measured sum of the 12px gutter, the status cluster's 106px of content, the
+  4px gap and the 58px expansion pair. The selection-mode badge still renders
+  the compact count, so no state is lost. The status cluster is also
+  `overflow-hidden`: it is `min-w-0`, so without clipping a shrunk box spills
+  its content over the expansion buttons and swallows their clicks (observed
+  live at a 349px panel before the threshold was corrected).
+  No new breakpoint was introduced — every toolbar action has exactly one home
+  at every width.
+  At **300px** a FOURTH control joins — the tree-grid Columns popover
+  (BST-1208) — because that is the first width whose ~136px right track holds
+  four 28px controls, three 4px gaps and the 12px gutter. It sits in its own
+  `@[300px]/explorer-toolbar:contents` wrapper, before Refresh/View Filters, so
+  the documented three-control geometry at 236px is unchanged. 300px is ALSO
+  the width below which the tree grid suppresses its metadata columns
+  (`METADATA_COLUMNS_MIN_WIDTH` in `shell/explorer-columns-context.ts`) — the
+  two are tied on purpose so the grid never shows a column the user has no way
+  to hide. Pinned by `file-explorer-toolbar.test.tsx`.
 - **The cancel affordance is never width-gated.** The inline scanning
   indicator's Cancel (X) is the ONLY way to abort a running expand-all sweep —
   Refresh is disabled for the duration and the compact menu has never carried a
@@ -441,7 +557,7 @@ fallback.
   `apps/desktop/src/__tests__/renderer/adapters.test.ts` (watchDirectory),
   `packages/file-explorer-hooks/src/__tests__/use-file-system-watcher.test.ts`
   (per-root lifecycle + signal threading),
-  `packages/file-explorer-ui/src/__tests__/file-explorer-panel-toolbar-helpers.test.tsx`
+  `packages/file-explorer-ui/src/__tests__/file-explorer-panel-toolbar-logic.test.ts`
   (compact menu yields to cancel),
   `packages/file-explorer-ui/src/__tests__/file-explorer-toolbar.test.tsx` +
   `tree-action-buttons.test.tsx` (cancel is never width-gated),

@@ -512,6 +512,38 @@ reopen, strict post-ready writes, torn-store recovery),
 
 ---
 
+## COLLECTIONS LIVE QUERY: ONE OWNER (settled 2026-08, BST-1212 — do not relitigate)
+
+`useCollections` (`packages/vector-management/src/collection-select/collection-select.tsx`)
+is the SINGLE writer of the shared `vectorStatusUIStore.cachedCollections`
+cache. It does not merely read that cache — it recomputes it through its own
+instance-local `pendingMutationsRef` and writes the result back.
+
+**At most one instance may be mounted at a time.** Two instances whose pending
+mutations differ each recompute a different "next" cache from the other's
+write and never converge: A writes X, B recomputes Y and writes it, A
+recomputes X, forever. The loop terminates as React error #185 ("maximum
+update depth"), which takes down the nearest error boundary — in the original
+report, the whole file Explorer panel, and it presented first as a Playwright
+"element was detached from the DOM" flake, not as a crash.
+
+A second surface that only needs to DISPLAY collections must:
+- read `cachedCollections` from the store,
+- seed it once with `fetchCollectionsSnapshot(db)` if it may be the first
+  surface up (that helper THROWS on an unusable handle and its rejection must
+  be surfaced, never rendered as an empty list — an empty picker reads as "no
+  collections exist" and invites a duplicate), and
+- stay current through the `onEmbeddingSetUpdated` browser event
+  (`removeCachedCollection` on `deleted`, `upsertCachedCollection` otherwise).
+  Both store mutations are idempotent, so this is safe alongside the live
+  owner. The rename dialog only DISPATCHES; it never touches the cache, so a
+  surface that skips this listener shows stale names.
+
+Reference implementation:
+`packages/db-explorer/src/components/explorer-collection-picker.tsx`.
+
+---
+
 ## STATS ROLLUP + WAKEUP POLLING (settled 2026-07 — do not relitigate)
 
 `collection_indexing_stats` stays a hand-maintained rollup table (NOT a

@@ -1834,6 +1834,39 @@ describe('TreeTable', () => {
       expect(handleSort).toHaveBeenCalledWith('name', 'asc');
     });
 
+    it('exposes each sortable header as a focusable button so sorting works from the keyboard', () => {
+      // Regression: the built-in header made the whole th clickable but gave
+      // keyboard users no tabstop — the single-root Explorer grid's headline
+      // sort affordance was pointer-only.
+      const handleSort = vi.fn();
+      const columns: TreeTableColumn<TestData>[] = [
+        {
+          cell: ({ node }) => node.data.name,
+          header: 'Name',
+          id: 'name',
+          sortable: true,
+        },
+      ];
+
+      render(
+        <TreeTable
+          columns={columns}
+          expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onSortChange={handleSort}
+          onToggleExpand={() => {}}
+        />
+      );
+
+      const button = screen.getByRole('button', { name: 'Name: sort ascending' });
+      button.focus();
+      expect(button).toHaveFocus();
+      fireEvent.click(button);
+      // Exactly once — the th's pointer hit-area must not double-fire.
+      expect(handleSort).toHaveBeenCalledTimes(1);
+      expect(handleSort).toHaveBeenCalledWith('name', 'asc');
+    });
+
     it('cycles sort direction on repeated clicks', () => {
       const handleSort = vi.fn();
       const columns: TreeTableColumn<TestData>[] = [

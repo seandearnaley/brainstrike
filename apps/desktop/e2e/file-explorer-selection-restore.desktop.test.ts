@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  clickExplorerTreeAction,
   ensureFileExplorerPanelVisible,
   expandDirectoryIfNeeded,
   expect,
@@ -52,9 +53,7 @@ test.describe('Desktop file explorer selection restore', () => {
       const filterInput = restartedWindow.getByTestId('file-filter-input');
       await expect(filterInput).toBeVisible({ timeout: 15_000 });
 
-      const expandAllButton = restartedWindow.getByTestId('expand-all-button-small');
-      await expect(expandAllButton).toBeVisible({ timeout: 15_000 });
-      await expandAllButton.click({ noWaitAfter: true });
+      await clickExplorerTreeAction(restartedWindow, 'expand-all');
 
       await filterInput.fill('file-23', { timeout: 5000 });
       await expect(filterInput).toHaveValue('file-23');

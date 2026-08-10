@@ -113,17 +113,11 @@ describe('file-explorer-ui index exports', () => {
   it('keeps preview implementation files inside the preview slice', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const previewImplementationMoves = [
-      ['hooks/use-preview-panel-persistence.ts', 'preview/use-preview-panel-persistence.ts'],
       ['hooks/use-preview-panel-preferences.ts', 'preview/use-preview-panel-preferences.ts'],
       ['hooks/use-preview-panel-report-actions.ts', 'preview/use-preview-panel-report-actions.ts'],
-      ['preview-column-visibility-controls.tsx', 'preview/preview-column-visibility-controls.tsx'],
-      ['preview-column-visibility.ts', 'preview/preview-column-visibility.ts'],
       ['preview-footer-layout.ts', 'preview/preview-footer-layout.ts'],
       ['preview-panel-footer.tsx', 'preview/preview-panel-footer.tsx'],
       ['preview-panel.tsx', 'preview/preview-panel.tsx'],
-      ['preview-table-row.tsx', 'preview/preview-table-row.tsx'],
-      ['preview-table.tsx', 'preview/preview-table.tsx'],
-      ['preview-view-toolbar.tsx', 'preview/preview-view-toolbar.tsx'],
       ['use-preview-panel-state.ts', 'preview/use-preview-panel-state.ts'],
     ] as const;
 

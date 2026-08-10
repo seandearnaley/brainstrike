@@ -122,10 +122,10 @@ test.describe('Background indexing settings (web) @stateful @web-settings-state'
     await home.navigateToHome();
     await ensureDatabasePanelVisible(page);
 
-    const importButton = page
-      .getByTestId('database-demo-panel')
-      .getByRole('button', { name: /^Import\s*\(/ });
-    await expect(importButton).toBeDisabled();
+    // The import trigger itself now lives in the explorer's selection bar
+    // (BST-1212); the Database panel's remaining job is to EXPLAIN why manual
+    // imports are unavailable for a background-indexed collection. The
+    // explorer-side block is covered by explorer-import-action.test.tsx.
     await expect(page.getByText(/manual db imports are disabled/i)).toBeVisible({
       timeout: 15_000,
     });

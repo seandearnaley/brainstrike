@@ -83,17 +83,9 @@
       "types": "./dist/stores/background-indexing-preferences-store.d.ts",
       "import": "./dist/stores/background-indexing-preferences-store.js"
     },
-    "./stores/collection-browser-column-sizes-store": {
-      "types": "./dist/stores/collection-browser-column-sizes-store.d.ts",
-      "import": "./dist/stores/collection-browser-column-sizes-store.js"
-    },
     "./stores/context-explorer-layout-store": {
       "types": "./dist/stores/context-explorer-layout-store.d.ts",
       "import": "./dist/stores/context-explorer-layout-store.js"
-    },
-    "./stores/context-preview-column-sizes-store": {
-      "types": "./dist/stores/context-preview-column-sizes-store.d.ts",
-      "import": "./dist/stores/context-preview-column-sizes-store.js"
     },
     "./stores/database-status-store": {
       "types": "./dist/stores/database-status-store.d.ts",
@@ -106,6 +98,18 @@
     "./stores/embedding-preferences-store": {
       "types": "./dist/stores/embedding-preferences-store.d.ts",
       "import": "./dist/stores/embedding-preferences-store.js"
+    },
+    "./stores/explorer-column-sizes-store": {
+      "types": "./dist/stores/explorer-column-sizes-store.d.ts",
+      "import": "./dist/stores/explorer-column-sizes-store.js"
+    },
+    "./stores/explorer-column-visibility-store": {
+      "types": "./dist/stores/explorer-column-visibility-store.d.ts",
+      "import": "./dist/stores/explorer-column-visibility-store.js"
+    },
+    "./stores/explorer-sort-state-store": {
+      "types": "./dist/stores/explorer-sort-state-store.d.ts",
+      "import": "./dist/stores/explorer-sort-state-store.js"
     },
     "./stores/hook-trust-store": {
       "types": "./dist/stores/hook-trust-store.d.ts",

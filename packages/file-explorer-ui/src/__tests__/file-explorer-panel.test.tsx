@@ -5,7 +5,11 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { act, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
+import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { useOptionalFileRowMetadata } from '../indexing/file-row-metadata-context';
+import type { FileRowMetadataStore } from '../indexing/file-row-metadata-store';
+import { useBackgroundTokenIndexerIntegration } from '../indexing/use-background-token-indexer-integration';
 import { FileExplorerPanel } from '../shell/file-explorer-panel';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import {
@@ -38,6 +42,7 @@ vi.mock('../shell/file-explorer-toolbar', () => ({
     isLoading,
     selectionStatusControl,
     treeActionsControl,
+    treeExpansionControl,
   }: {
     bulkSelectionControl?: ReactNode;
     compactActionsControl?: ReactNode;
@@ -46,6 +51,7 @@ vi.mock('../shell/file-explorer-toolbar', () => ({
     isLoading: boolean;
     selectionStatusControl?: ReactNode;
     treeActionsControl?: ReactNode;
+    treeExpansionControl?: ReactNode;
   }) => (
     <div data-testid="file-explorer-toolbar">
       <div data-testid="toolbar">
@@ -55,6 +61,7 @@ vi.mock('../shell/file-explorer-toolbar', () => ({
         </button>
         {bulkSelectionControl}
         {selectionStatusControl}
+        {treeExpansionControl}
         {treeActionsControl}
         {filtersControl}
         {compactActionsControl}
@@ -367,10 +374,64 @@ describe('FileExplorerPanel', () => {
       'gap-0.5',
       '@[128px]:gap-1.5'
     );
+    // The counter yields to the Expand/Collapse cluster that shares this track
+    // (whole-branch review F11) — but ONLY in the band where they actually
+    // compete. Below the toolbar's 236px step the pair lives in the compact
+    // menu, so nothing is competing and the counter stays; above a 388px
+    // toolbar the left track reaches the 180px both need. In between, the
+    // counter yields and the mode badge carries the compact count.
     expect(within(toolbar).getByTestId('selection-counter-control')).toHaveClass(
       'hidden',
-      '@[72px]:block'
+      '@max-[236px]/explorer-toolbar:block',
+      '@[388px]/explorer-toolbar:block'
     );
+    // And the cluster CLIPS, so no future content can paint over its neighbour.
+    expect(within(toolbar).getByTestId('selection-status-controls')).toHaveClass(
+      'min-w-0',
+      'overflow-hidden'
+    );
+  });
+
+  /**
+   * CARRIED from the BST-1207 review: the A1 seam's precise invalidation path
+   * only exists if `onTokenResolved` reaches the background indexer. Nothing
+   * breaks visibly when the wiring is dropped — the tree grid still fills in
+   * via the 250ms bulk reconcile — so this is the only thing standing between
+   * a per-cell repaint and a whole-tree re-scan per count.
+   */
+  it('wires the metadata seam onTokenResolved into the background token indexer', async () => {
+    const capture: { store: FileRowMetadataStore | null } = { store: null };
+    const Probe = () => {
+      const metadata = useOptionalFileRowMetadata();
+      const store = metadata?.store ?? null;
+      useEffect(() => {
+        capture.store = store;
+      }, [store]);
+      return <div data-testid="sidebar">Sidebar</div>;
+    };
+    FileExplorerSidebarMock?.mockImplementation(() => <Probe />);
+
+    try {
+      renderWithProviders(<FileExplorerPanel />);
+      await screen.findByTestId('sidebar');
+
+      const indexerProps = vi.mocked(useBackgroundTokenIndexerIntegration).mock.calls.at(-1)?.[0];
+      const onTokenResolved = indexerProps?.onTokenResolved;
+      expect(onTokenResolved).toBeTypeOf('function');
+      expect(capture.store).not.toBeNull();
+
+      const store = capture.store;
+      if (!(store && onTokenResolved)) {
+        throw new Error('expected the panel to own a metadata store and forward onTokenResolved');
+      }
+      // The PRECISE path: one resolved count invalidates exactly that key, not
+      // every rendered row.
+      const invalidateSpy = vi.spyOn(store, 'invalidate');
+      onTokenResolved('root-id|@|src/a.ts', 42);
+      expect(invalidateSpy).toHaveBeenCalledWith(['root-id|@|src/a.ts']);
+    } finally {
+      FileExplorerSidebarMock?.mockImplementation(() => <div data-testid="sidebar">Sidebar</div>);
+    }
   });
 
   it('surfaces when automatic folder restoration is bounded', async () => {
@@ -396,10 +457,11 @@ describe('FileExplorerPanel', () => {
     });
   });
 
-  it('hides the floating tree actions while expanded-paths restoration runs (BST-571)', () => {
-    // Both overlays pin to the tree area's top band; while RestorationStatus
-    // is showing, the floating cluster would draw over its right-aligned
-    // percentage readout — so the cluster yields for the (transient) restore.
+  it('keeps the tree expansion actions available while restoration runs', () => {
+    // The old floating cluster yielded to RestorationStatus because both
+    // pinned to the tree area's top band. On the toolbar nothing overlaps, so
+    // hiding a user action mid-restore would be a trap with no reason left
+    // (whole-branch review F11).
     vi.mocked(useFileExplorer).mockReturnValueOnce({
       ...fileExplorerReturnValue,
       isRestoringExpandedPaths: true,
@@ -413,7 +475,7 @@ describe('FileExplorerPanel', () => {
 
     renderWithProviders(<FileExplorerPanel />);
 
-    expect(screen.queryByTestId('floating-tree-actions')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tree-expansion-actions')).toBeInTheDocument();
   });
 
   it('rehydrates the persisted folder state when the restored root matches the current folder id', () => {
@@ -1816,13 +1878,15 @@ describe('FileExplorerPanel', () => {
       expect(toolbar).toContainElement(refresh);
       expect(collapsible).not.toContainElement(refresh);
 
-      // Expand/Collapse All moved OFF the crowded toolbar into the floating
-      // cluster pinned over the tree area's top-right.
-      const floating = screen.getByTestId('floating-tree-actions');
+      // Expand/Collapse All are BACK on the toolbar (whole-branch review F11):
+      // the floating overlay covered the tree grid's column header and ate its
+      // clicks. They sit in the left track, still outside the collapsible
+      // filter block so they stay reachable while filters are collapsed.
+      const expansion = screen.getByTestId('tree-expansion-actions');
+      expect(toolbar).toContainElement(expansion);
+      expect(collapsible).not.toContainElement(expansion);
       for (const testId of ['expand-all-button-small', 'collapse-all-button-small']) {
-        const button = screen.getByTestId(testId);
-        expect(floating).toContainElement(button);
-        expect(toolbar).not.toContainElement(button);
+        expect(expansion).toContainElement(screen.getByTestId(testId));
       }
     });
 

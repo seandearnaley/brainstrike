@@ -17,12 +17,37 @@ import {
   getContextExplorerFileExplorerPanel,
   getContextExplorerMiddlePanel,
 } from './utils/context-explorer-locators';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 
-export { getContextExplorerFileExplorerPanel, getContextExplorerMiddlePanel, loadElectronHelpers };
+// NOTE: deliberately no `loadElectronHelpers` re-export. This module documents
+// that a harness-owned app must only be closed via `closeForStateSeeding()`, so
+// it should not also hand callers `closeElectronApp`. Specs that genuinely need
+// the helpers import './utils/load-electron-helpers' directly.
+export { getContextExplorerFileExplorerPanel, getContextExplorerMiddlePanel };
+
+/**
+ * Harness surface the seeding helpers need.
+ *
+ * `closeForStateSeeding` is mandatory: the harness registers every process it
+ * launches with `ElectronProcessExitGuard`, so closing a harness-owned app any
+ * other way (e.g. `closeElectronApp` directly) records the exit as unexpected
+ * and fails the test before it reaches its first assertion (BST-1087).
+ */
+export interface SeedableElectronHarness {
+  closeForStateSeeding: () => Promise<void>;
+  ensureContext: () => Promise<{
+    app: ElectronApplication;
+    window: Page;
+  }>;
+}
 
 export interface ElectronE2eFileSystemFixture {
   directoriesByPath: Record<string, unknown[]>;
+  /**
+   * Opt-in per-read delay (ms) honored by the main-process `fs:readDirectory`
+   * handler (apps/desktop/src/ipc-domains/file-system-ipc.ts). Omit it — as
+   * every fixture below this one does — to keep reads instant.
+   */
+  directoryReadDelayMs?: number;
   fileContentsByPath: Record<string, string>;
   readDirectoryCalls: string[];
   readFileByPathCalls: string[];
@@ -675,12 +700,7 @@ export function createRestoredQuerySelectionSnapshot(args: {
 }
 
 export async function seedRestoredExplicitSelectionState(args: {
-  electronHarness: {
-    ensureContext: () => Promise<{
-      app: ElectronApplication;
-      window: Page;
-    }>;
-  };
+  electronHarness: SeedableElectronHarness;
   expandedDirectoryPaths: string[];
   rootPath: string;
   selectedFilePaths: string[];
@@ -693,9 +713,8 @@ export async function seedRestoredExplicitSelectionState(args: {
   });
   const currentContext = await electronHarness.ensureContext();
   const userDataDir = await currentContext.app.evaluate(async ({ app }) => app.getPath('userData'));
-  const { closeElectronApp } = await loadElectronHelpers();
 
-  await closeElectronApp(currentContext);
+  await electronHarness.closeForStateSeeding();
 
   const storagePath = path.join(userDataDir, 'electron-storage.json');
   let existingStorage: Record<string, string> = {};
@@ -721,12 +740,7 @@ export async function seedRestoredExplicitSelectionState(args: {
 
 export async function seedRestoredQuerySelectionState(args: {
   coveredDirectoryPaths: string[];
-  electronHarness: {
-    ensureContext: () => Promise<{
-      app: ElectronApplication;
-      window: Page;
-    }>;
-  };
+  electronHarness: SeedableElectronHarness;
   expandedDirectoryPaths: string[];
   excludeFilters?: string[];
   excludedPaths?: string[];
@@ -764,9 +778,8 @@ export async function seedRestoredQuerySelectionState(args: {
   });
   const currentContext = await electronHarness.ensureContext();
   const userDataDir = await currentContext.app.evaluate(async ({ app }) => app.getPath('userData'));
-  const { closeElectronApp } = await loadElectronHelpers();
 
-  await closeElectronApp(currentContext);
+  await electronHarness.closeForStateSeeding();
 
   const storagePath = path.join(userDataDir, 'electron-storage.json');
   let existingStorage: Record<string, string> = {};
@@ -804,12 +817,7 @@ export async function writeLive3dmolRestoreFixture(args: {
 }
 
 export async function seedLive3dmolRestoreState(args: {
-  electronHarness: {
-    ensureContext: () => Promise<{
-      app: ElectronApplication;
-      window: Page;
-    }>;
-  };
+  electronHarness: SeedableElectronHarness;
   rootPath: string;
 }): Promise<void> {
   const { rootPath } = args;
@@ -873,12 +881,7 @@ export async function seedLive3dmolRestoreState(args: {
 }
 
 export async function seedSelectionSnapshotRows(args: {
-  electronHarness: {
-    ensureContext: () => Promise<{
-      app: ElectronApplication;
-      window: Page;
-    }>;
-  };
+  electronHarness: SeedableElectronHarness;
   filePaths: string[];
   snapshotId: string;
 }): Promise<void> {
@@ -1025,6 +1028,31 @@ export async function installNestedFolderFixture(
   }, fixture);
 }
 
+export const WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT = 30;
+export const WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT = 8;
+/** Every directory expand-all must read: the root folders plus their children. */
+export const WIDE_EXPAND_ALL_TOTAL_DIRECTORY_COUNT =
+  WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT +
+  WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT * WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT;
+
+/**
+ * Per-read delay that makes expand-all genuinely cancellable for the test below.
+ *
+ * Without it the memory-served fixture answers every read in microseconds and
+ * the whole 270-directory sweep finishes in ~35ms, leaving the Cancel button
+ * on screen for roughly 3 frames — the test then passes only because Playwright
+ * round-trips happen to land inside that window, and a single slow round-trip
+ * on a loaded CI runner loses it.
+ *
+ * Sizing: the worker walks directories in serial batches of 10 (BATCH_SIZE,
+ * packages/file-tree-worker/src/bfs-engine.ts) and each batch resolves as two
+ * chunk-barriered groups of 5 (MAX_CONCURRENT_LOADS, use-file-tree-worker.ts),
+ * so the sweep costs ~54 delays ≈ 13.5s — comfortably inside the test's 60s
+ * budget even if cancellation never lands. Matches the browser lane's constant
+ * (apps/web/e2e/performance/tree-rendering.test.ts, BST-1044).
+ */
+export const WIDE_EXPAND_ALL_DIRECTORY_READ_DELAY_MS = 250;
+
 export async function installWideExpandAllFixture(
   electronApp: ElectronApplication,
   rootPath: string
@@ -1077,27 +1105,31 @@ export async function installWideExpandAllFixture(
     type: 'file' as const,
   });
 
-  directoriesByPath[rootPath] = Array.from({ length: 30 }, (_, rootIndex) =>
-    createDirectoryEntry({
-      depth: 0,
-      name: `folder-${rootIndex}`,
-      path: `${rootPath}/folder-${rootIndex}`,
-      rootFolderId: rootPath,
-    })
-  );
-
-  for (let rootIndex = 0; rootIndex < 30; rootIndex += 1) {
-    const directoryPath = `${rootPath}/folder-${rootIndex}`;
-    directoriesByPath[directoryPath] = Array.from({ length: 8 }, (_, childIndex) =>
+  directoriesByPath[rootPath] = Array.from(
+    { length: WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT },
+    (_, rootIndex) =>
       createDirectoryEntry({
-        depth: 1,
-        name: `child-${rootIndex}-${childIndex}`,
-        path: `${directoryPath}/child-${rootIndex}-${childIndex}`,
+        depth: 0,
+        name: `folder-${rootIndex}`,
+        path: `${rootPath}/folder-${rootIndex}`,
         rootFolderId: rootPath,
       })
+  );
+
+  for (let rootIndex = 0; rootIndex < WIDE_EXPAND_ALL_ROOT_DIRECTORY_COUNT; rootIndex += 1) {
+    const directoryPath = `${rootPath}/folder-${rootIndex}`;
+    directoriesByPath[directoryPath] = Array.from(
+      { length: WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT },
+      (_, childIndex) =>
+        createDirectoryEntry({
+          depth: 1,
+          name: `child-${rootIndex}-${childIndex}`,
+          path: `${directoryPath}/child-${rootIndex}-${childIndex}`,
+          rootFolderId: rootPath,
+        })
     );
 
-    for (let childIndex = 0; childIndex < 8; childIndex += 1) {
+    for (let childIndex = 0; childIndex < WIDE_EXPAND_ALL_CHILD_DIRECTORY_COUNT; childIndex += 1) {
       const childDirectoryPath = `${directoryPath}/child-${rootIndex}-${childIndex}`;
       const filePath = `${childDirectoryPath}/file-${rootIndex}-${childIndex}.ts`;
       directoriesByPath[childDirectoryPath] = [
@@ -1115,6 +1147,7 @@ export async function installWideExpandAllFixture(
 
   const fixture: ElectronE2eFileSystemFixture = {
     directoriesByPath,
+    directoryReadDelayMs: WIDE_EXPAND_ALL_DIRECTORY_READ_DELAY_MS,
     fileContentsByPath,
     readDirectoryCalls: [],
     readFileByPathCalls: [],
@@ -1674,4 +1707,67 @@ export async function installMixedHookSelectionFixture(
       }
     ).__brainstrike_e2e_file_system_fixture__ = nextFixture;
   }, fixture);
+}
+
+/** Explorer tree-expansion actions, by their stable testids. */
+export type ExplorerTreeAction = 'collapse-all' | 'expand-all';
+
+const TREE_ACTION_MENU_ITEM: Record<ExplorerTreeAction, string> = {
+  'collapse-all': 'Collapse all directories',
+  'expand-all': 'Expand all directories',
+};
+
+/**
+ * Click Expand All / Collapse All the way a user reaches them on desktop.
+ *
+ * RESPONSIVE since BST-1208: the toolbar's left track carries the buttons at
+ * and above its 236px step, and the compact "More Explorer actions" menu
+ * carries them below it. The desktop Explorer panel opens at its 180px
+ * MINIMUM — the same default state BST-657 is about — so the menu is the live
+ * route here and clicking the testid directly times out.
+ *
+ * Exactly one surface must be offering the action, so a layout change that
+ * shows both (or neither) fails loudly rather than being hidden by a fallback.
+ */
+export async function clickExplorerTreeAction(
+  page: Page,
+  action: ExplorerTreeAction
+): Promise<void> {
+  const toolbar = page.getByTestId('file-explorer-toolbar');
+  const wideButton = toolbar.getByTestId(`${action}-button-small`);
+  const compactActions = toolbar.getByRole('button', { name: 'More Explorer actions' });
+  const visibleActionSurfaces = wideButton.or(compactActions).filter({ visible: true });
+
+  await expect(visibleActionSurfaces).toHaveCount(1, { timeout: 15_000 });
+
+  if (await wideButton.isVisible()) {
+    await clickExpandButton(wideButton);
+    return;
+  }
+
+  await compactActions.click({ noWaitAfter: true, timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS });
+  const menuItem = page.getByRole('menuitem', { exact: true, name: TREE_ACTION_MENU_ITEM[action] });
+  await expect(menuItem).toBeVisible({ timeout: 15_000 });
+  await menuItem.click({ noWaitAfter: true, timeout: FILE_EXPLORER_CLICK_TIMEOUT_MS });
+}
+
+/**
+ * Assert the tree-expansion actions are REACHABLE again — one surface offering
+ * them, and it is live.
+ *
+ * Replaces `expect(expandAllButton).toBeEnabled()` at the Explorer's 180px
+ * default, where that button is not in the DOM. It also cannot be swapped for
+ * the compact menu's item mid-sweep: BST-657 makes the menu YIELD its slot to
+ * the cancel affordance while an operation runs, so during a sweep neither
+ * surface exposes the expansion actions at all. "Reachable again" is therefore
+ * the honest post-condition, and it is exactly what the original assertion was
+ * really checking — the operation finished and the control came back.
+ */
+export async function expectExplorerTreeActionsReachable(page: Page): Promise<void> {
+  const toolbar = page.getByTestId('file-explorer-toolbar');
+  const wideButton = toolbar.getByTestId('expand-all-button-small');
+  const compactActions = toolbar.getByRole('button', { name: 'More Explorer actions' });
+  await expect(wideButton.or(compactActions).filter({ visible: true })).toHaveCount(1, {
+    timeout: 15_000,
+  });
 }

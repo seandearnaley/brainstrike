@@ -15,20 +15,6 @@ export interface FileItem {
   type: 'file';
 }
 
-export interface FolderHeaderItem {
-  fileCount: number;
-  folderId: string;
-  totalTokens: number;
-  type: 'folder-header';
-}
-
-export type ListItem = FileItem | FolderHeaderItem;
-
-interface SortConfig {
-  direction: 'asc' | 'desc';
-  key: string;
-}
-
 // Pre-compiled Intl.Collator is ~40x faster than inline localeCompare
 // while preserving localeCompare() default behavior.
 const pathCollator = defaultCollator;
@@ -48,17 +34,6 @@ export interface UsePreviewPanelStateProps {
   fileContents: Record<string, string>;
   fileSizes?: Record<string, number> | undefined;
   loadingFiles: Set<string>;
-  onSelectionChange: (files: Set<string>) => void;
-  performUndoableAction: (
-    key: string,
-    itemKey: string,
-    opts: {
-      actionName: string;
-      itemDescription: string;
-      getStateSnapshot: () => Set<string>;
-      onUndo: (key: string, snapshot: Set<string>) => void;
-    }
-  ) => void;
   selectedFiles: Set<string>;
   tokenCounting: TokenCountingState;
 }
@@ -78,56 +53,22 @@ function getFileSizeFromMetadata(
   return persistentCacheGetFileSize(compositeKey);
 }
 
-// Helper function to sort files
-function sortFiles(files: FileItem[], sortConfig: SortConfig): void {
-  files.sort((a, b) => {
-    const { key, direction } = sortConfig;
-    const multiplier = direction === 'asc' ? 1 : -1;
-    switch (key) {
-      case 'path':
-        return multiplier * pathCollator.compare(a.path, b.path);
-      case 'size':
-        return multiplier * ((a.size || 0) - (b.size || 0));
-      case 'tokens':
-        return multiplier * ((a.tokens || 0) - (b.tokens || 0));
-      default:
-        return 0;
-    }
-  });
-}
-
-// Helper function to build final list items
-function buildListItems(
-  folderGroups: Record<string, FileItem[]>,
-  collapsedFolders: Set<string>
-): ListItem[] {
-  const items: ListItem[] = [];
-
-  for (const [folderId, files] of Object.entries(folderGroups)) {
-    const totalTokens = files.reduce((sum, file) => sum + (file.tokens || 0), 0);
-    items.push({ fileCount: files.length, folderId, totalTokens, type: 'folder-header' });
-
-    if (!collapsedFolders.has(folderId)) {
-      items.push(...files);
-    }
-  }
-
-  return items;
+/**
+ * Ascending path order inside one folder bucket. Ties never happen — composite
+ * keys are unique per (folder, path) — so this is a total order.
+ */
+function comparePathsAscending(a: FileItem, b: FileItem): number {
+  return pathCollator.compare(a.path, b.path);
 }
 
 export function usePreviewPanelState({
   selectedFiles,
   fileContents,
   loadingFiles,
-  onSelectionChange,
   fileSizes,
   decodeFileSelection,
   tokenCounting,
-  performUndoableAction,
 }: UsePreviewPanelStateProps) {
-  const [batchSelectedFiles, setBatchSelectedFiles] = useState<Set<string>>(new Set());
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
-  const [sortConfig] = useState<SortConfig>({ direction: 'asc', key: 'path' });
   const [cachedSelectionStats, setCachedSelectionStats] = useState<{
     cachedFileCount: number;
     selection: Set<string>;
@@ -141,7 +82,6 @@ export function usePreviewPanelState({
   });
 
   const [tokenVersion, setTokenVersion] = useState(0);
-  const prevSelectedFilesRef = useRef<Set<string> | null>(null);
   const isMountedRef = useRef(true);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -238,11 +178,6 @@ export function usePreviewPanelState({
     setTokenVersion((prev) => prev + 1);
   }, [tokenCounting.mode, tokenCounting.reason]);
 
-  if (prevSelectedFilesRef.current !== selectedFiles) {
-    prevSelectedFilesRef.current = selectedFiles;
-    setBatchSelectedFiles(new Set());
-  }
-
   // Build file items using the persistent cache
   const flatListItems = useMemo(() => {
     const folderGroups: Record<string, FileItem[]> = {};
@@ -272,127 +207,27 @@ export function usePreviewPanelState({
       folderGroups[folderId].push(fileItem);
     }
 
-    // Sort files in each folder
+    // Bucket order is `selectedFiles` first-seen order; within a bucket, path
+    // order. Both are observable — preview-panel.tsx re-sorts this list with a
+    // STABLE comparator keyed only on the root, so everything else it inherits
+    // from here decides Tapestry card order. Pinned by
+    // "buckets files by first-seen folder and path-sorts only within a bucket".
+    const items: FileItem[] = [];
     for (const files of Object.values(folderGroups)) {
-      sortFiles(files, sortConfig);
+      files.sort(comparePathsAscending);
+      items.push(...files);
     }
 
-    return buildListItems(folderGroups, collapsedFolders);
+    return items;
   }, [
     selectedFiles,
-    sortConfig,
     fileSizes,
     decodeFileSelection,
-    collapsedFolders,
     cacheVersion,
     tokenVersion,
     getFileSize,
     getTokenCount,
   ]);
-
-  const handleRemoveFile = useCallback(
-    (compositeKey: string) => {
-      const { path } = decodeFileSelection(compositeKey);
-      const newSelectedFiles = new Set(selectedFiles);
-      newSelectedFiles.delete(compositeKey);
-      onSelectionChange(newSelectedFiles);
-
-      performUndoableAction(compositeKey, compositeKey, {
-        actionName: 'File removed',
-        getStateSnapshot: () => new Set(selectedFiles),
-        itemDescription: `Removed "${path}" from selection`,
-        onUndo: (key, snapshot) => {
-          const restoredFiles = new Set(snapshot);
-          restoredFiles.add(key);
-          onSelectionChange(restoredFiles);
-        },
-      });
-    },
-    [selectedFiles, onSelectionChange, performUndoableAction, decodeFileSelection]
-  );
-
-  const handleBatchRemove = useCallback(() => {
-    if (batchSelectedFiles.size === 0) {
-      return;
-    }
-    const newSelectedFiles = new Set(selectedFiles);
-    for (const compositeKey of batchSelectedFiles) {
-      newSelectedFiles.delete(compositeKey);
-    }
-    onSelectionChange(newSelectedFiles);
-    performUndoableAction('batch-remove', 'batch-remove', {
-      actionName: 'Files removed',
-      getStateSnapshot: () => new Set(selectedFiles),
-      itemDescription: `Removed ${batchSelectedFiles.size} files from selection`,
-      onUndo: (_key, snapshot) => {
-        const restoredFiles = new Set(snapshot);
-        onSelectionChange(restoredFiles);
-      },
-    });
-    setBatchSelectedFiles(new Set());
-  }, [batchSelectedFiles, selectedFiles, onSelectionChange, performUndoableAction]);
-
-  const toggleFileSelection = useCallback((compositeKey: string, checked: boolean) => {
-    setBatchSelectedFiles((prev) => {
-      const newSelection = new Set(prev);
-      if (checked) {
-        newSelection.add(compositeKey);
-      } else {
-        newSelection.delete(compositeKey);
-      }
-      return newSelection;
-    });
-  }, []);
-
-  const toggleFolderCollapse = useCallback((folderId: string) => {
-    setCollapsedFolders((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(folderId)) {
-        newSet.delete(folderId);
-      } else {
-        newSet.add(folderId);
-      }
-      return newSet;
-    });
-  }, []);
-
-  const expandAllFolders = useCallback(() => {
-    setCollapsedFolders(new Set());
-  }, []);
-
-  const collapseAllFolders = useCallback(() => {
-    const allFolderIds = new Set<string>();
-    for (const item of flatListItems) {
-      if (item.type === 'folder-header') {
-        allFolderIds.add(item.folderId);
-      }
-    }
-    setCollapsedFolders(allFolderIds);
-  }, [flatListItems]);
-
-  const handleSelectAll = useCallback(() => {
-    setBatchSelectedFiles(new Set(selectedFiles));
-  }, [selectedFiles]);
-
-  const handleDeselectAll = useCallback(() => {
-    setBatchSelectedFiles(new Set());
-  }, []);
-
-  const isAllFilesSelected = batchSelectedFiles.size === selectedFiles.size;
-
-  const formatFileSize = useCallback((bytes?: number) => {
-    if (bytes === undefined) {
-      return 'Unknown';
-    }
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let size = bytes;
-    let unitIndex = 0;
-    while (size >= 1024 && unitIndex < units.length - 1) {
-      size /= 1024;
-      unitIndex++;
-    }
-    return `${size.toFixed(1)} ${units[unitIndex]}`;
-  }, []);
 
   // Calculate total stats using the persistent cache
   // BST-153: Also track pendingCount for "estimating..." UI state
@@ -437,23 +272,5 @@ export function usePreviewPanelState({
     tokenVersion,
   ]);
 
-  return {
-    batchSelectedFiles,
-    collapseAllFolders,
-    collapsedFolders,
-    expandAllFolders,
-    flatListItems,
-    formatFileSize,
-    handleBatchRemove,
-    handleDeselectAll,
-    handleRemoveFile,
-    handleSelectAll,
-    isAllFilesSelected,
-    loadingFiles,
-    toggleFileSelection,
-    toggleFolderCollapse,
-    totalStats,
-  };
+  return { flatListItems, loadingFiles, totalStats };
 }
-
-export type UsePreviewPanelStateReturn = ReturnType<typeof usePreviewPanelState>;

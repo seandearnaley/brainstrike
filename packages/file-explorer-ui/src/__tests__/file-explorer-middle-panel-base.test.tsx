@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => {
     copyContext: vi.fn(async () => {}),
     downloadContext: vi.fn(async () => {}),
     loadMultipleFileContents: vi.fn(async () => {}),
-    openFileInTab: vi.fn(),
     performUndoableAction: vi.fn(),
     persistFileExplorerStateImmediately: vi.fn(async () => {}),
     previewProps,
@@ -36,7 +35,6 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 vi.mock('@brainstrike/ui', () => ({
-  useIdeFileEditor: () => ({ openFileInTab: mocks.openFileInTab }),
   useUndoableAction: () => ({ performUndoableAction: mocks.performUndoableAction }),
 }));
 
@@ -132,7 +130,6 @@ describe('FileExplorerMiddlePanelBase', () => {
     mocks.downloadContext.mockClear();
     mocks.setSelectedFilesFromList.mockClear();
     mocks.loadMultipleFileContents.mockClear();
-    mocks.openFileInTab.mockClear();
     mocks.performUndoableAction.mockClear();
     mocks.persistFileExplorerStateImmediately.mockClear();
     mocks.previewProps.current = null;
@@ -164,7 +161,7 @@ describe('FileExplorerMiddlePanelBase', () => {
   });
 
   it('adapts preview panel callbacks to shell services', async () => {
-    render(<FileExplorerMiddlePanelBase estimateTokenCost={(tokens) => tokens / 1000} />);
+    render(<FileExplorerMiddlePanelBase />);
     const props = mocks.previewProps.current;
     if (!props) {
       throw new Error('PreviewPanel props were not captured');
@@ -172,14 +169,10 @@ describe('FileExplorerMiddlePanelBase', () => {
 
     expect(props.fileSizes).toEqual({ [selectedFileKey]: 123 });
     expect(props.projectTreeTokenCount).toBe(12);
-    expect(props.estimateTokenCost?.(2000)).toBe(2);
 
     props.onIncludeProjectTreeChange?.(true);
     expect(mocks.setIncludeProjectTree).toHaveBeenCalledWith(true);
     await waitFor(() => expect(mocks.persistFileExplorerStateImmediately).toHaveBeenCalledTimes(1));
-
-    props.onFileClick?.(selectedFileKey);
-    expect(mocks.openFileInTab).toHaveBeenCalledWith(selectedFileKey);
 
     props.onRequestFileContent?.(selectedFileKey);
     props.onRequestFileContent?.('root::src/b.ts');

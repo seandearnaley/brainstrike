@@ -19,6 +19,7 @@ import {
   onQueueDrained,
 } from '@brainstrike/utils/browser-events';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { canonicalizeCollectionTimestamps, normalizeTimestamp } from './collection-timestamps';
 
 /**
  * Row shape returned by the collections query
@@ -26,7 +27,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 export interface CollectionRow {
   category: string | null;
   chunkCount: null | string | number;
-  createdAt: string;
+  /** `timestamptz`; PGlite yields a `Date`. See {@link normalizeTimestamp}. */
+  createdAt: string | Date;
   description: string | null;
   dimensions: number;
   distance: string;
@@ -37,7 +39,8 @@ export interface CollectionRow {
   modelKey: string;
   name: string | null;
   statsAvailable?: boolean | string;
-  statsLastRefreshedAt?: string | null;
+  /** `timestamptz`; PGlite yields a `Date`. See {@link normalizeTimestamp}. */
+  statsLastRefreshedAt?: string | Date | null;
   systemRole?: EmbeddingSetSystemRole | null;
   tags: string | null;
 }
@@ -233,7 +236,9 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
   return rows.map((row) => ({
     category: row.category,
     chunkCount: Number(row.chunkCount ?? 0),
-    createdAt: row.createdAt,
+    // `createdAt` is non-nullable, so it is narrowed inline rather than through
+    // normalizeTimestamp — nothing here may invent a missing timestamp.
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
     description: row.description,
     dimensions: row.dimensions,
     distance: row.distance as 'cosine' | 'l2' | 'ip',
@@ -247,7 +252,7 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
       row.statsAvailable === undefined
         ? true
         : row.statsAvailable === true || row.statsAvailable === 'true',
-    statsLastRefreshedAt: row.statsLastRefreshedAt ?? null,
+    statsLastRefreshedAt: normalizeTimestamp(row.statsLastRefreshedAt),
     systemRole: row.systemRole ?? null,
     tags: row.tags,
   }));
@@ -359,6 +364,51 @@ function areCollectionsEqual(
   return true;
 }
 
+/**
+ * One-shot read of the collections projection.
+ *
+ * Exists so read-only surfaces (a transient picker) can show collections
+ * WITHOUT mounting a second `useCollections`. Two live instances both write the
+ * shared `cachedCollections` cache after applying their OWN pending mutations,
+ * so they ping-pong the store forever once those diverge (React "maximum update
+ * depth"). Exactly one `useCollections` may be mounted at a time.
+ */
+export async function fetchCollectionsSnapshot(
+  db: ReturnType<typeof usePGliteDatabase>
+): Promise<CollectionWithDocCount[]> {
+  // NO SILENT FALLBACKS: an empty array here is indistinguishable from "this
+  // workspace has no collections", which reads to the user as an invitation to
+  // create a duplicate. An unusable handle is a programming error - throw.
+  if (!(db && typeof (db as { query?: unknown }).query === 'function')) {
+    throw new Error(
+      'fetchCollectionsSnapshot requires an initialized database handle exposing query().'
+    );
+  }
+  const result = await (
+    db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
+  ).query(COLLECTIONS_QUERY);
+  return normalizeCollectionRows(result.rows);
+}
+
+/**
+ * Live collections projection, backed by a PGlite live query.
+ *
+ * ⚠️ MOUNT AT MOST ONE INSTANCE AT A TIME (settled BST-1212 — do not
+ * relitigate). This hook does not just READ the shared
+ * `vectorStatusUIStore.cachedCollections` cache, it WRITES it, after applying
+ * its own instance-local `pendingMutationsRef`. Two mounted instances whose
+ * pending mutations differ compute different "next" caches from each other's
+ * writes and never converge: A writes X, B recomputes Y and writes it, A
+ * recomputes X... The render loop ends with React's "maximum update depth"
+ * (#185), which in practice killed the whole surrounding panel.
+ *
+ * A second surface that only needs to DISPLAY collections must read
+ * `cachedCollections` and, if it may be the first surface up, seed it with the
+ * one-shot `fetchCollectionsSnapshot` — see
+ * `packages/db-explorer/src/components/explorer-collection-picker.tsx`. Keeping
+ * the shared cache current across create/rename/delete is the
+ * `onEmbeddingSetUpdated` contract, not a reason to mount a second live query.
+ */
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
@@ -461,11 +511,14 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
         if (detail.reason === 'created' || detail.reason === 'updated') {
           pendingMutationsRef.current.set(detail.collection.id, detail.reason);
         }
+        // Second ingress into the shared cache. It must land in the same
+        // timestamp form as the query path or the two sort against each other.
+        const eventCollection = canonicalizeCollectionTimestamps(detail.collection);
         cachedCollectionsRef.current = upsertCollectionSnapshot(
           cachedCollectionsRef.current,
-          detail.collection
+          eventCollection
         );
-        upsertCachedCollection(detail.collection);
+        upsertCachedCollection(eventCollection);
       }
       if (liveQueryEnabled) {
         void refresh();

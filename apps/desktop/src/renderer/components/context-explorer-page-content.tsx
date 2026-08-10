@@ -1,4 +1,4 @@
-import { FileExplorerPanel, WorkspaceTabHost } from '@brainstrike/file-explorer-ui/shell';
+import { WorkspaceTabHost } from '@brainstrike/file-explorer-ui/shell';
 import { Suspense } from 'react';
 
 function DesktopContextExplorerPage() {
@@ -17,8 +17,4 @@ export default function ContextExplorerPageContent() {
       </Suspense>
     </>
   );
-}
-
-export function DesktopContextExplorerPanel() {
-  return <FileExplorerPanel />;
 }

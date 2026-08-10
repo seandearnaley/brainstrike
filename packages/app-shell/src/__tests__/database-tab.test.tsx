@@ -1,5 +1,6 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -138,5 +139,40 @@ describe('DatabaseTab', () => {
       'Failed to load database tools: queue exploded'
     );
     expect(screen.getByRole('alert')).toHaveTextContent('queue exploded');
+  });
+});
+
+describe('DatabaseTab load-failure recovery (PR #2381 review)', () => {
+  it('offers a retry that succeeds after a transient queue-init rejection', async () => {
+    const user = userEvent.setup();
+    const { DatabaseTab } = await import('../database-tab');
+
+    // The queue keeps failing until the user retries. Two rejections, not one:
+    // the component half resolving re-runs the effect, which re-attempts the
+    // still-missing queue on its own — so a single rejection self-heals and
+    // would never reach the error UI.
+    //
+    // Before the fix this latched: Promise.all rejected as a unit, so the
+    // resolved component was discarded with it and nothing could re-drive it.
+    const queue = { enqueue: vi.fn() } as unknown as QueueAdapter;
+    const loadEmbeddingQueue = vi
+      .fn<() => Promise<QueueAdapter>>()
+      .mockRejectedValueOnce(new Error('queue boot failed'))
+      .mockRejectedValueOnce(new Error('queue boot failed'))
+      .mockResolvedValue(queue);
+
+    render(<DatabaseTab loadEmbeddingQueue={loadEmbeddingQueue} />);
+
+    const error = await screen.findByTestId('database-tab-load-error');
+    expect(error).toHaveTextContent(/queue boot failed/);
+
+    await user.click(screen.getByTestId('database-tab-load-retry'));
+
+    expect(await screen.findByText('Database overview chunk')).toBeInTheDocument();
+    expect(screen.queryByTestId('database-tab-load-error')).not.toBeInTheDocument();
+    // Only the QUEUE half was re-attempted: two automatic tries plus the
+    // explicit retry. The component half, which resolved on the first attempt,
+    // survived the failures rather than being discarded with them.
+    expect(loadEmbeddingQueue).toHaveBeenCalledTimes(3);
   });
 });

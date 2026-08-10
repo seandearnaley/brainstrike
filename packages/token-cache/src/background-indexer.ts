@@ -1,6 +1,7 @@
 export type {
   IndexerBatchRequest,
   IndexerError,
+  IndexerErrorReason,
   IndexerProgress,
   IndexerRequest,
   IndexerResult,

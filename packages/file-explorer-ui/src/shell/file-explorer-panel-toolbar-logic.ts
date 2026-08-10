@@ -10,6 +10,7 @@
 
 import { createLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
+import { resolveTreeExpansionDisabledState } from '../utils/tree-expansion-disabled-state';
 import type { useFileExplorerStoreContext } from './file-explorer-provider';
 import type { useOptionalForestTreeActions } from './forest-tree-actions-context';
 
@@ -18,11 +19,16 @@ const logger = createLogger('FileExplorerPanel');
 
 type CompactRefreshState = 'disabled' | 'ready' | 'refreshing';
 type CompactViewFiltersState = 'collapsed' | 'expanded';
+interface CompactExpansionState {
+  collapseDisabled: boolean;
+  expandDisabled: boolean;
+}
 export type CompactToolbarActionsState =
   | { availability: 'unavailable' }
   | { availability: 'yielded-to-cancel' }
   | {
       availability: 'available';
+      expansion: CompactExpansionState;
       filters: CompactViewFiltersState;
       refresh: CompactRefreshState;
     };
@@ -60,6 +66,11 @@ export function isCancellableOperationRunning(args: {
 
 interface CompactToolbarActionsInput {
   hasRoot: boolean;
+  /**
+   * Feeds the SHARED expansion disabled rule below, so the menu's Expand /
+   * Collapse items and their toolbar-button counterparts can never disagree.
+   */
+  isExpandingAll: boolean;
   isFiltersExpanded: boolean;
   isLoading: boolean;
   /**
@@ -88,6 +99,7 @@ interface CompactToolbarActionsInput {
 
 export function resolveCompactToolbarActionsState({
   hasRoot,
+  isExpandingAll,
   isFiltersExpanded,
   isLoading,
   isOperationInProgress,
@@ -99,9 +111,17 @@ export function resolveCompactToolbarActionsState({
   if (isOperationInProgress) {
     return { availability: 'yielded-to-cancel' };
   }
+  // ONE disabled rule for both surfaces: the menu below 236px and the buttons
+  // above it must never disagree about whether an action is available.
+  const disabled = resolveTreeExpansionDisabledState({ isExpandingAll, isLoading, isRefreshing });
+  const expansion: CompactExpansionState = {
+    collapseDisabled: disabled.collapse,
+    expandDisabled: disabled.expand,
+  };
   if (isRefreshing) {
     return {
       availability: 'available',
+      expansion,
       filters: isFiltersExpanded ? 'expanded' : 'collapsed',
       refresh: 'refreshing',
     };
@@ -109,12 +129,14 @@ export function resolveCompactToolbarActionsState({
   if (isLoading) {
     return {
       availability: 'available',
+      expansion,
       filters: isFiltersExpanded ? 'expanded' : 'collapsed',
       refresh: 'disabled',
     };
   }
   return {
     availability: 'available',
+    expansion,
     filters: isFiltersExpanded ? 'expanded' : 'collapsed',
     refresh: 'ready',
   };

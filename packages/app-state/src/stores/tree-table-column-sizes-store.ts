@@ -265,8 +265,8 @@ export function createTreeTableColumnSizesStore(options: CreateTreeTableColumnSi
  * the same Zustand instance so persistence + subscriptions stay coherent.
  *
  * Consumers pass the column bounds + persisted name/version they want; the
- * helper handles the rest. Extracted to remove the ~30-line copy/paste pair
- * that existed in collection-browser and context-preview singleton files.
+ * helper handles the rest. Extracted to remove a ~30-line copy/paste pair
+ * between per-surface singleton files.
  */
 const SINGLETON_BRAND = '__brainstrike_store_brand__';
 const SINGLETON_BRAND_VERSION = 1 as const;

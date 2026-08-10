@@ -23,8 +23,8 @@
 
 ## Database Demo Data Ownership
 
-The database demo data surface owns collection-browser orchestration, not low-level
-database repositories.
+The database demo data surface owns the Collections panel's data orchestration,
+not low-level database repositories.
 
 Owned files:
 

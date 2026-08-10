@@ -689,6 +689,34 @@ fixture-teardown error. Restart uses the same close/guard path and must surface
 close failures; if close and process health both fail, both errors are retained.
 Do not restore the former warn-and-relaunch behavior.
 
+**A harness-owned app may only be closed through the harness.** Tests that seed
+on-disk userData (`electron-storage.json`) need the app down mid-test so no
+process owns the file; they must call `ElectronHarness.closeForStateSeeding()`,
+never `closeElectronApp(context)` directly. An out-of-band close is invisible to
+the guard, so the process's exit is recorded as unexpected and the *next*
+`restart()` fails the test — with `signal=SIGKILL`, which is just Playwright
+reaping the child after `app.close()`, plus a `TypeError` reading `_object` from
+the already-disposed `ElectronApplication`. That combination is a lifecycle-bypass
+signature, not a crash, not memory pressure, and not an orphaned process: read it
+as "somebody closed the app behind the harness's back". All ten
+`file-explorer-selection-restore.desktop.test.ts` specs failed this way the
+moment the desktop lane started loading again. Whether the failure surfaces as
+the bare guard error or as an `AggregateError` pairing it with the `_object`
+`TypeError` depends on whether Playwright has disposed the `ElectronApplication`
+yet — that run produced 7 of the latter and 3 of the former; both mean the same
+thing.
+
+The seeding helpers take `SeedableElectronHarness`, whose required
+`closeForStateSeeding` puts the guarded path in reach at every seeding call site.
+The type does not *prevent* an out-of-band close — `ensureContext()` still hands
+back the `ElectronApplication` — so this stays a convention backed by the paired
+test, not a compiler guarantee. `file-explorer-selection.shared.ts` deliberately
+does not re-export `loadElectronHelpers`, so the module that states the rule does
+not also hand out `closeElectronApp`. Specs that launch their own Electron app
+(`launchElectronDevAppInTest`) are unaffected — the harness never observes those
+processes. Paired test:
+`apps/desktop/src/__tests__/electron-harness-state-seeding.test.ts`.
+
 ### E2E module-format contract (BST-1217)
 
 `scripts/e2e-module-format-contract.mjs` (paired test:

@@ -13,11 +13,11 @@
  * which absorbs the indicator's width (on mount and on digit growth), so the
  * refresh button keeps its position rather than shifting.
  *
- * Expand All / Collapse All moved to the FloatingTreeActions overlay pinned
- * over the tree area (BST-571) — the toolbar cluster was overcrowded. Refresh
- * stays HERE because its disabled/spin state pairs with the indicator's
- * cancel affordance. `isExpandingAll` is still consumed to suppress the
- * indicator's redundant spinner while the floating expand button spins.
+ * Expand All / Collapse All are a separate toolbar cluster in the LEFT track
+ * (`components/tree-expansion-buttons.tsx`). Refresh stays HERE because its
+ * disabled/spin state pairs with the indicator's cancel affordance.
+ * `isExpandingAll` is still consumed to suppress the indicator's redundant
+ * spinner while the expand button spins.
  *
  * Below the toolbar's 236px step this cluster keeps ONLY the cancel button:
  * Refresh collapses (it is disabled mid-operation anyway, and the compact
@@ -44,9 +44,9 @@ export interface ScanningStatusInfo {
 
 interface TreeActionButtonsProps {
   /**
-   * True while an expand-all sweep runs. The buttons live in the floating
-   * cluster now, but the indicator still suppresses its own spinner while
-   * the floating expand button spins (one spinning circle per operation).
+   * True while an expand-all sweep runs. The buttons live in the toolbar's
+   * LEFT track now, but the indicator still suppresses its own spinner while
+   * the expand button spins (one spinning circle per operation).
    */
   isExpandingAll: boolean;
   isLoading: boolean;
@@ -170,7 +170,7 @@ export const TreeActionButtons = React.memo(
             cluster's flexible column absorbs its width, keeping the button
             from shifting. Hide ONLY the indicator's spinner when another
             control is already spinning (Refresh while isRefreshing, the
-            floating expand-all button while isExpandingAll) -- two spinning
+            toolbar's expand-all button while isExpandingAll) -- two spinning
             circles for one operation is the redundancy this removes. We never
             hide the whole indicator: the count is the progress signal during
             expand, and the cancel X is the user's only way to abort a

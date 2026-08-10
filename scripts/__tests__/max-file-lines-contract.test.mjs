@@ -24,8 +24,10 @@ const biomeBin = path.join(repoRoot, 'node_modules', '@biomejs', 'biome', 'bin',
 const RULE = 'lint/style/noExcessiveLinesPerFile';
 const MAX_LINES = 1000;
 // Current violator count. Refactoring a file under the cap removes its entry
-// and lowers this ceiling in lockstep; it must never go up. (Shipped at 136.)
-const MAX_BASELINE_ENTRIES = 129;
+// and lowers this ceiling in lockstep; it must never go up. (Shipped at 136;
+// BST-1211 took it 126 -> 122 by deleting the preview table and shrinking
+// preview-panel.tsx and its suite under the cap.)
+const MAX_BASELINE_ENTRIES = 122;
 
 function isRuleOff(configured) {
   return configured === 'off' || configured?.level === 'off';

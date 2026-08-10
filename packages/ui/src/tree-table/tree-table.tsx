@@ -21,6 +21,7 @@ import { cn } from '../lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../table';
 import { TablePagination } from '../table-pagination';
 import { ColumnResizeHandle } from './column-resize-handle';
+import { getTreeTableAriaSortValue, getTreeTableSortButtonLabel } from './sort';
 import { DEFAULT_ROW_HEIGHTS, TreeTableRow } from './tree-table-row';
 import {
   createChildrenGetter,
@@ -87,25 +88,6 @@ function resolveVirtualRowMeasureProps<T>(
   }
 
   return { measureRef: measureRow };
-}
-
-/**
- * Maps our SortDirection to ARIA sort values.
- */
-function getAriaSortValue(
-  columnId: string,
-  sortState?: { columnId: string | null; direction: 'asc' | 'desc' | null }
-): 'ascending' | 'descending' | 'none' | undefined {
-  if (!sortState || sortState.columnId !== columnId) {
-    return;
-  }
-  if (sortState.direction === 'asc') {
-    return 'ascending';
-  }
-  if (sortState.direction === 'desc') {
-    return 'descending';
-  }
-  return 'none';
 }
 
 interface ResolveWindowingStrategyOptions {
@@ -270,8 +252,9 @@ function renderTableHeader<T>({
     <TableHeader className="sticky top-0 z-10 bg-background" role="rowgroup">
       <TableRow role="row">
         {columns.map((column) => {
+          const isSortable = Boolean(column.sortable && onSortChange);
           const ariaSortValue = column.sortable
-            ? getAriaSortValue(column.id, sortState)
+            ? getTreeTableAriaSortValue(column.id, sortState)
             : undefined;
           const resolvedWidth = getResolvedWidth(column.id);
           const showHandle = isColumnResizable(column.id) && resolvedWidth !== undefined;
@@ -282,31 +265,68 @@ function renderTableHeader<T>({
               className={cn(
                 'relative',
                 column.headerClassName,
-                column.sortable && onSortChange && 'cursor-pointer select-none'
+                isSortable && 'cursor-pointer select-none'
               )}
               key={column.id}
               onClick={() => column.sortable && onSortClick(column.id)}
               role="columnheader"
+              // Native column association for the cells beneath. `role` alone
+              // does not give assistive tech the header→cell relationship.
+              scope="col"
               style={{
                 maxWidth: column.maxWidth,
                 minWidth: column.minWidth,
                 width: resolvedWidth ?? column.width,
               }}
             >
-              <div className={cn('flex items-center gap-1', column.headerContentClassName)}>
-                {column.header ?? column.id}
-                {column.sortable &&
-                  column.showSortIndicator !== false &&
-                  sortState?.columnId === column.id && (
-                    <span aria-hidden="true" className="text-xs">
-                      {sortState.direction === 'asc'
-                        ? '\u2191'
-                        : sortState.direction === 'desc'
-                          ? '\u2193'
-                          : ''}
-                    </span>
-                  )}
-              </div>
+              {(() => {
+                const headerContent = (
+                  <>
+                    {column.header ?? column.id}
+                    {column.sortable &&
+                      column.showSortIndicator !== false &&
+                      sortState?.columnId === column.id && (
+                        <span aria-hidden="true" className="text-xs">
+                          {sortState.direction === 'asc'
+                            ? '\u2191'
+                            : sortState.direction === 'desc'
+                              ? '\u2193'
+                              : ''}
+                        </span>
+                      )}
+                  </>
+                );
+                if (!isSortable) {
+                  return (
+                    <div className={cn('flex items-center gap-1', column.headerContentClassName)}>
+                      {headerContent}
+                    </div>
+                  );
+                }
+                // A real button gives keyboard users a tabstop for the sort
+                // cycle; the th's own onClick keeps the whole cell as the
+                // pointer hit-area (stopPropagation prevents double-firing).
+                return (
+                  <button
+                    aria-label={getTreeTableSortButtonLabel(
+                      resolveColumnHeaderLabel(column),
+                      column.id,
+                      sortState
+                    )}
+                    className={cn(
+                      'flex cursor-pointer items-center gap-1 rounded-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      column.headerContentClassName
+                    )}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSortClick(column.id);
+                    }}
+                    type="button"
+                  >
+                    {headerContent}
+                  </button>
+                );
+              })()}
               {showHandle && resolvedWidth !== undefined ? (
                 <ColumnResizeHandle
                   bounds={computeColumnBounds(column)}

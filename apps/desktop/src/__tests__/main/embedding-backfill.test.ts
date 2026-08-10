@@ -2046,6 +2046,115 @@ describe('embedding-backfill', () => {
     vi.useRealTimers();
   });
 
+  // Regression: the capacity deadline used to be plain wall-clock, so a large
+  // collection failed purely because the embedding worker — the ONLY thing that
+  // can lower queue depth, and something this loop neither owns nor paces — took
+  // longer than the budget. The deadline now measures consumer liveness: every
+  // completed job restarts it, and it only expires when the worker has completed
+  // nothing at all, which is the one condition waiting longer cannot resolve.
+  it('keeps waiting for queue capacity while the embedding worker keeps completing jobs', async () => {
+    let capacityCalls = 0;
+    const db = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }] };
+        }
+        if (isEmbeddingSetCapacityQuery(sql)) {
+          capacityCalls += 1;
+          // Depth stays pinned for the first five polls while `succeeded` keeps
+          // advancing — a slow but demonstrably live consumer.
+          return {
+            rows: [
+              {
+                queued: capacityCalls <= 5 ? 1 : 0,
+                running: 0,
+                succeeded: capacityCalls,
+              },
+            ],
+          };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          return { rows: [{ failed: 0, queued: 0, running: 0, succeeded: 1 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('ORDER BY c.id::text ASC')) {
+          const afterChunkId = typeof params?.[2] === 'string' ? params[2] : null;
+          if (afterChunkId) {
+            return { rows: [] };
+          }
+          return { rows: [{ contentHash: 'hash-1', fileRecordId: '101', id: '1' }] };
+        }
+        if (sql.startsWith('VACUUM')) {
+          return { rows: [] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const jobQueue = {
+      enqueueBatch: vi.fn(async (jobs: Record<string, unknown>[]) =>
+        jobs.map((job, index) => ({ id: `job-${index}`, ...job }))
+      ),
+    };
+
+    const result = await enqueueTestEmbeddingBackfill(
+      db,
+      withQueueRepair(jobQueue),
+      'set-123',
+      () => undefined,
+      {
+        backlogPollMs: 1,
+        maxQueueDepth: 1,
+        // Deliberately shorter than the total wait this test forces: a wall-clock
+        // budget would have thrown before capacity ever freed.
+        queueCapacityTimeoutMs: 5,
+      }
+    );
+
+    expect(capacityCalls).toBeGreaterThan(5);
+    expect(jobQueue.enqueueBatch).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 1 });
+  });
+
+  it('names the stalled consumer when the queue capacity deadline expires', async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return { rows: [{ dimensions: 384, modelKey: 'local::Xenova/all-MiniLM-L6-v2' }] };
+        }
+        if (isDirectEmbeddingSetPendingCountQuery(sql)) {
+          return { rows: [{ count: 0 }] };
+        }
+        if (isBackfillCandidateCountQuery(sql)) {
+          return { rows: [{ count: 1 }] };
+        }
+        if (sql.includes('COUNT(*) FILTER')) {
+          // `succeeded` never advances: the consumer is not running at all.
+          return { rows: [{ failed: 0, queued: 64, running: 0, succeeded: 0 }] };
+        }
+        if (isDimensionIndexMaintenanceQuery(sql)) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }),
+    };
+
+    await expect(
+      enqueueTestEmbeddingBackfill(db, withQueueRepair({}), 'set-123', () => undefined, {
+        backlogPollMs: 1,
+        maxQueueDepth: 64,
+        queueCapacityTimeoutMs: 5,
+      })
+    ).rejects.toThrow(/The embedding worker completed no jobs for 5ms/u);
+  });
+
   it('admits a scoped backfill while unrelated embedding sets fill the shared queue', async () => {
     let pendingCountCalls = 0;
     const queryOrder: string[] = [];

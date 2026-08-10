@@ -7,6 +7,7 @@
 
 import { useEventCallback } from '@brainstrike/hooks';
 import * as React from 'react';
+import { getNextTreeTableSortDirection } from './sort';
 import type { FlattenedRow, SortState, TreeNode, UseTreeKeyboardResult } from './types';
 
 interface UseTreeTableHandlersOptions<T> {
@@ -169,15 +170,7 @@ export function useTreeTableHandlers<T>({
       }
 
       const currentDirection = sortState?.columnId === columnId ? sortState.direction : null;
-      let newDirection: 'asc' | 'desc' | null = 'asc';
-
-      if (currentDirection === 'asc') {
-        newDirection = 'desc';
-      } else if (currentDirection === 'desc') {
-        newDirection = null;
-      }
-
-      onSortChange(columnId, newDirection);
+      onSortChange(columnId, getNextTreeTableSortDirection(currentDirection));
     },
     [sortState, onSortChange]
   );

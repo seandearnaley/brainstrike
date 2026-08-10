@@ -29,11 +29,22 @@ import {
   useSharedSearchEmbedder,
 } from '@brainstrike/vector-management';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { SearchExecutor } from '../contexts/semantic-search-context';
 import {
   buildLocalEmbeddingModelConfigMap,
   resolveEmbeddingSetModelInfo,
 } from '../utils/embedding-models';
+
+/**
+ * A one-shot scoped retrieval: run `query` against `embeddingSetId` with the
+ * given tuning and return scored chunks. Previously declared alongside the
+ * SemanticSearchProvider, which lost its last consumer when the Collection
+ * Browser was retired (BST-1213/1214); the executor is now the only owner.
+ */
+export type SearchExecutor = (
+  query: string,
+  config: SearchConfig,
+  embeddingSetId: string | null
+) => Promise<SemanticSearchResult[]>;
 
 const logger = createLogger('SemanticSearchExecutor');
 
@@ -366,7 +377,8 @@ function getFilterModeLabel(filterOptions: RetrievalFilterOptions): string {
 }
 
 /**
- * Creates a search executor for semantic search in the collection browser
+ * Creates a search executor for semantic search (hosted today by the
+ * collection debug drawer's retrieval preview).
  */
 export function useSemanticSearchExecutor({
   chunkRepository,
@@ -375,9 +387,9 @@ export function useSemanticSearchExecutor({
   const previousAvailabilityRef = useRef<boolean | null>(null);
   const db = usePGliteDatabase();
   // Selector-scoped subscription: this hook only consumes `models`. A bare
-  // useModelRegistryStore() would re-render the host component (the whole
-  // collection-browser panel) on every store update — including per-tick
-  // setDownloadProgress during model downloads.
+  // useModelRegistryStore() would re-render the whole host panel on every
+  // store update — including per-tick setDownloadProgress during model
+  // downloads.
   const models = useModelRegistryStore((state) => state.models);
   // Shared embedder resolution + WebGPU device-loss recovery lives in
   // @brainstrike/vector-management so the workspace-search feature can reuse it.

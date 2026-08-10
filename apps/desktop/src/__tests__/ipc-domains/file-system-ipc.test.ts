@@ -6,76 +6,19 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
+vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 
-const { handlers, removeHandler } = vi.hoisted(() => {
-  const registeredHandlers = new Map<string, IpcHandler>();
-  return {
-    handlers: registeredHandlers,
-    removeHandler: vi.fn((channel: string) => {
-      registeredHandlers.delete(channel);
-    }),
-  };
-});
-
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: vi.fn((channel: string, listener: IpcHandler) => {
-      handlers.set(channel, listener);
-    }),
-    on: vi.fn(),
-    removeHandler,
-    removeListener: vi.fn(),
-  },
-}));
-
-import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
 import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
-
-const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
-
-// Shared roots-DB seam for the fs:removeRoot status transition. Resolves an
-// empty result by default; individual tests override with mock*Once.
-const rootsDbQuery = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({
-  rows: [] as unknown[],
-}));
-const rootsDatabase = { query: rootsDbQuery } as unknown as WorkspaceRootsQueryable;
-const getRootsDatabase = vi.fn(async () => rootsDatabase);
-
-function makeDirHandle(dirPath: string): DirectoryHandle {
-  return {
-    kind: 'directory',
-    name: path.basename(dirPath),
-    path: dirPath,
-    platform: 'electron',
-  };
-}
-
-function createFileSystem(pickedPath = '/real-dir'): ElectronFileSystemAdapter {
-  return {
-    exists: vi.fn(async () => true),
-    readDirectory: vi.fn(async () => []),
-    readFile: vi.fn(async () => 'file content'),
-    readFileByPath: vi.fn(async () => 'path content'),
-    requestDirectoryAccess: vi.fn(async () => makeDirHandle(pickedPath)),
-    watchDirectory: vi.fn(),
-  } as unknown as ElectronFileSystemAdapter;
-}
-
-function createStorage(storedItems: Record<string, string> = {}): ElectronStorageAdapter {
-  const store: Record<string, string> = { ...storedItems };
-  return {
-    clear: vi.fn(async () => undefined),
-    getAllKeys: vi.fn(async () => Object.keys(store)),
-    getItem: vi.fn(async (key: string) => store[key] ?? null),
-    removeItem: vi.fn(async (key: string) => {
-      delete store[key];
-    }),
-    setItem: vi.fn(async (key: string, value: string) => {
-      store[key] = value;
-    }),
-  } as unknown as ElectronStorageAdapter;
-}
+import {
+  createFileSystem,
+  createStorage,
+  E2E_FILE_SYSTEM_FIXTURE_KEY,
+  getRootsDatabase,
+  handlers,
+  makeDirHandle,
+  removeHandler,
+  rootsDbQuery,
+} from './file-system-ipc-test-harness';
 
 describe('file system IPC domain', () => {
   let fileSystem: ElectronFileSystemAdapter;

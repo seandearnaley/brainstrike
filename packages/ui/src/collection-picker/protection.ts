@@ -13,6 +13,8 @@ export interface CollectionPickerProtection {
   disabledReason: string | null;
   isDisabled: boolean;
   isWorkspaceIndex: boolean;
+  /** Non-null while edit/delete must be refused with a visible reason. */
+  mutationBlockedReason: string | null;
 }
 
 export function getCollectionPickerProtection(
@@ -20,6 +22,10 @@ export function getCollectionPickerProtection(
 ): CollectionPickerProtection {
   const isWorkspaceIndex = collection.systemRole === WORKSPACE_INDEX_SYSTEM_ROLE;
   const canNormalSearchSelect = collection.canNormalSearchSelect ?? !isWorkspaceIndex;
+  const mutationBlockedReason = collection.mutationBlockedReason ?? null;
+  // A blocked mutation keeps its button RENDERED (disabled, with the reason in
+  // the tooltip) rather than removing it, so the refusal is visible instead of
+  // looking like the affordance never existed.
   const canEdit = collection.canEdit ?? !isWorkspaceIndex;
   const canDelete = collection.canDelete ?? !isWorkspaceIndex;
   let defaultDisabledReason: string | null = null;
@@ -38,5 +44,6 @@ export function getCollectionPickerProtection(
     disabledReason,
     isDisabled: !canNormalSearchSelect,
     isWorkspaceIndex,
+    mutationBlockedReason,
   };
 }

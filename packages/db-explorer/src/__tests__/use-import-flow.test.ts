@@ -137,12 +137,10 @@ describe('useImportFlow', () => {
   it('invokes completion and progress handlers from the import service', async () => {
     const toast = vi.fn();
     const onImportComplete = vi.fn();
-    const onChunkRepositoryChange = vi.fn();
 
     const { result } = renderHook(() =>
       useImportFlow({
         importSettings: baseSettings,
-        onChunkRepositoryChange,
         onImportComplete,
         resolveActiveCollectionId: () => 'set-1',
         toast,
@@ -165,7 +163,6 @@ describe('useImportFlow', () => {
     });
 
     expect(result.current.showImportProgress).toBe(false);
-    expect(onChunkRepositoryChange).toHaveBeenCalledWith(importServiceReturn.chunkRepository!);
   });
 
   it('uses the latest completion handler without waiting for an effect tick', async () => {

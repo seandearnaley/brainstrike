@@ -1,6 +1,9 @@
 import { createLogger } from '@brainstrike/logging';
 import { resetAssistantBudgetPreferencesStoreToDefaults } from './stores/assistant-budget-preferences-store';
 import { resetDiagnosticsRetentionStoreToDefaults } from './stores/diagnostics-retention-store';
+import { resetExplorerColumnSizesStoreToDefault } from './stores/explorer-column-sizes-store';
+import { resetExplorerColumnVisibilityStoreToDefault } from './stores/explorer-column-visibility-store';
+import { resetExplorerSortStateStoreToDefault } from './stores/explorer-sort-state-store';
 import { resetHookTrustStoreToDefaults } from './stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from './stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from './stores/permission-policy-store';
@@ -370,6 +373,25 @@ export function registerFactoryResetSessionStore(reset: () => void): () => void 
 }
 
 function clearBrowserStorage(): void {
+  // The Explorer tree-grid layout AND its ordering are persisted and also live
+  // in singleton stores. Web factory reset need not reload, so clear both
+  // layers explicitly per the FACTORY RESET CONTRACT.
+  try {
+    resetExplorerColumnSizesStoreToDefault();
+  } catch (error) {
+    logger.warn('Failed to reset Explorer column sizes store', { error });
+  }
+  try {
+    resetExplorerColumnVisibilityStoreToDefault();
+  } catch (error) {
+    logger.warn('Failed to reset Explorer column visibility store', { error });
+  }
+  try {
+    resetExplorerSortStateStoreToDefault();
+  } catch (error) {
+    logger.warn('Failed to reset Explorer sort state store', { error });
+  }
+
   // Reset live in-memory stores that hold session-only state. The blanket
   // localStorage.clear() below wipes persisted slices, but session-lived state
   // (e.g. permission session grants) lives only in the running store instance,
