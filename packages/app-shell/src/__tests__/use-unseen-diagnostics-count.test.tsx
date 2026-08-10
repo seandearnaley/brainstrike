@@ -151,7 +151,7 @@ describe('useUnseenDiagnosticsCount', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('fails loud when a completed aggregate query returns no row', () => {
+  it('keeps the enabled transition render quiet before the aggregate row arrives', () => {
     usePGliteLiveQueryMock.mockReturnValue({
       error: null,
       loading: false,
@@ -161,10 +161,7 @@ describe('useUnseenDiagnosticsCount', () => {
 
     const { result } = renderHook(() => useUnseenDiagnosticsCount());
 
-    expect(result.current).toMatchObject({ errorCount: 0, warningCount: 0 });
-    expect(result.current.error).toEqual(
-      new Error('Unseen diagnostics query returned invalid aggregate counts')
-    );
+    expect(result.current).toEqual({ error: null, errorCount: 0, warningCount: 0 });
   });
 
   it.each([null, ''])('fails loud when an aggregate count is %p', (invalidCount) => {

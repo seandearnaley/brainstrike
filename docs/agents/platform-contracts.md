@@ -1301,11 +1301,14 @@ partition that set for honest labels rather than deciding eligibility: `warn`
 stays in the warning bucket, while `error` and `fatal` share the error bucket.
 Warning-only rows render `N warnings`; mixed rows render `N errors, M warnings`
 visibly and `N errors and M warnings` to assistive technology. The chip renders
-`null` when both counts are 0 (no chrome when nothing is wrong), but BOTH
-not-knowing states outrank the counts, because
+`null` when both counts are 0 (no chrome when nothing is wrong), but ALL
+not-knowing classes outrank the counts, because
 this is the only always-visible diagnostics surface: a live-query error
-renders "Diagnostics unavailable" rather than the honest-looking `0`, and a
-non-null `disabledReason` renders "Diagnostics not recording" — outranking
+renders "Diagnostics unavailable" rather than the honest-looking `0`.
+Present aggregate values are validated strictly: null, blank, non-integer,
+negative, or otherwise unsafe counts also render "Diagnostics unavailable"
+rather than being coerced to 0. A non-null `disabledReason` renders
+"Diagnostics not recording" — outranking
 even non-zero counts, since those counts are frozen and stale once the sink is
 dead. Without the latter, a disabled sink writes no rows, both counts sit at 0
 forever, and the status bar silently claims "no diagnostics" precisely when

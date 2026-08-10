@@ -64,12 +64,12 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
   });
 
   const counts = useMemo(() => {
-    if (!queryEnabled || loading) {
+    const row = rows[0];
+    if (!queryEnabled || loading || row === undefined) {
       return { aggregateError: null, errorCount: 0, warningCount: 0 };
     }
-    const row = rows[0];
-    const errorCount = parseAggregateCount(row?.errorCount);
-    const warningCount = parseAggregateCount(row?.warningCount);
+    const errorCount = parseAggregateCount(row.errorCount);
+    const warningCount = parseAggregateCount(row.warningCount);
     if (errorCount === null || warningCount === null) {
       return {
         aggregateError: new Error('Unseen diagnostics query returned invalid aggregate counts'),
