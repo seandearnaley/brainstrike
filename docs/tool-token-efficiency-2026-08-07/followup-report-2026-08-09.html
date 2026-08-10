@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrainStrike Tool Token-Efficiency — Follow-up: Two Waves Later</title>
+<style>
+  :root {
+    --bg: #F7F8F9;
+    --surface: #FFFFFF;
+    --surface-2: #EFF1F3;
+    --ink: #1C2127;
+    --ink-2: #4B535D;
+    --ink-3: #7A828C;
+    --line: #DDE1E5;
+    --accent: #B45309;
+    --accent-soft: #FDF0E3;
+    --good: #1A7F4B;
+    --warn: #A16207;
+    --crit: #B42318;
+    --good-soft: #E7F4EC;
+    --warn-soft: #FBF3DE;
+    --crit-soft: #FBEAE8;
+    --bar-us: #B45309;
+    --bar-peer: #8794A3;
+    --code-bg: #21262D;
+    --code-ink: #D6DBE1;
+    --code-dim: #8A93A0;
+    --code-hl: #F0A84B;
+    --code-good: #7CC08F;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171B; --surface: #1B1F25; --surface-2: #22272E;
+      --ink: #E8EAEC; --ink-2: #AEB6BF; --ink-3: #7E8790; --line: #303740;
+      --accent: #F0A84B; --accent-soft: #33291B;
+      --good: #5DBE85; --warn: #E0B84E; --crit: #E5766A;
+      --good-soft: #1D2E24; --warn-soft: #302B1B; --crit-soft: #33211F;
+      --bar-us: #F0A84B; --bar-peer: #5B6673;
+      --code-bg: #101317; --code-ink: #CDD3DA; --code-dim: #79828D;
+      --code-hl: #F0A84B; --code-good: #7CC08F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171B; --surface: #1B1F25; --surface-2: #22272E;
+    --ink: #E8EAEC; --ink-2: #AEB6BF; --ink-3: #7E8790; --line: #303740;
+    --accent: #F0A84B; --accent-soft: #33291B;
+    --good: #5DBE85; --warn: #E0B84E; --crit: #E5766A;
+    --good-soft: #1D2E24; --warn-soft: #302B1B; --crit-soft: #33211F;
+    --bar-us: #F0A84B; --bar-peer: #5B6673;
+    --code-bg: #101317; --code-ink: #CDD3DA; --code-dim: #79828D;
+    --code-hl: #F0A84B; --code-good: #7CC08F;
+  }
+  :root[data-theme="light"] {
+    --bg: #F7F8F9; --surface: #FFFFFF; --surface-2: #EFF1F3;
+    --ink: #1C2127; --ink-2: #4B535D; --ink-3: #7A828C; --line: #DDE1E5;
+    --accent: #B45309; --accent-soft: #FDF0E3;
+    --good: #1A7F4B; --warn: #A16207; --crit: #B42318;
+    --good-soft: #E7F4EC; --warn-soft: #FBF3DE; --crit-soft: #FBEAE8;
+    --bar-us: #B45309; --bar-peer: #8794A3;
+    --code-bg: #21262D; --code-ink: #D6DBE1; --code-dim: #8A93A0;
+    --code-hl: #F0A84B; --code-good: #7CC08F;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 28px 96px; }
+  code, pre, .mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; }
+
+  header { padding: 56px 0 8px; }
+  .eyebrow {
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 14px;
+  }
+  h1 {
+    font-size: clamp(28px, 4.4vw, 42px); line-height: 1.12; margin: 0 0 14px;
+    letter-spacing: -.015em; text-wrap: balance; font-weight: 750;
+  }
+  .subtitle { color: var(--ink-2); max-width: 62ch; margin: 0 0 20px; font-size: 17px; }
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 8px 22px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--ink-3);
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    padding: 10px 0; margin-bottom: 40px;
+  }
+  .meta b { color: var(--ink-2); font-weight: 600; }
+
+  section { margin-top: 64px; }
+  .sec-label {
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px;
+  }
+  h2 { font-size: 26px; margin: 0 0 14px; letter-spacing: -.012em; text-wrap: balance; }
+  h3 { font-size: 18.5px; margin: 30px 0 10px; letter-spacing: -.008em; }
+  p { max-width: 72ch; margin: 0 0 14px; color: var(--ink-2); }
+  p strong, li strong { color: var(--ink); }
+  ul { margin: 0 0 14px; padding-left: 22px; color: var(--ink-2); }
+  li { margin-bottom: 6px; max-width: 70ch; }
+  a { color: var(--accent); }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 26px 0 8px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px 16px; }
+  .tile .k { font-size: 30px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .tile .k small { font-size: 16px; font-weight: 600; color: var(--ink-3); }
+  .tile .lbl { font-size: 13px; color: var(--ink-2); margin-top: 6px; line-height: 1.45; }
+  .tile.accent .k { color: var(--accent); }
+  .tile.good .k { color: var(--good); }
+  .tile .note { font-size: 11.5px; color: var(--ink-3); margin-top: 8px; }
+
+  .codewrap { margin: 16px 0 22px; }
+  .codehead {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+    color: var(--ink-3); padding: 0 2px 6px;
+  }
+  .cost { font-variant-numeric: tabular-nums; }
+  .cost.bad { color: var(--crit); }
+  .cost.good { color: var(--good); }
+  pre {
+    margin: 0; background: var(--code-bg); color: var(--code-ink);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; font-size: 12.75px; line-height: 1.62;
+    overflow-x: auto; white-space: pre;
+  }
+  pre .dim { color: var(--code-dim); }
+  pre .hl { color: var(--code-hl); }
+  pre .ok { color: var(--code-good); }
+  pre em { font-style: normal; background: rgba(240,168,75,.16); border-radius: 3px; padding: 0 1px; }
+
+  .tablewrap { overflow-x: auto; margin: 18px 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  tbody tr:last-child td { border-bottom: 0; }
+  th {
+    font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-3); font-weight: 600;
+    background: var(--surface-2); position: sticky; top: 0;
+  }
+  td { color: var(--ink-2); }
+  td:first-child { color: var(--ink); font-weight: 600; min-width: 150px; }
+  td.us { background: var(--accent-soft); }
+  .tbl-note { font-size: 12px; color: var(--ink-3); margin: 8px 2px 0; }
+  td .mini { display: block; font-size: 11.5px; color: var(--ink-3); margin-top: 3px; font-weight: 400; }
+
+  .pill {
+    display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+    letter-spacing: .04em; border-radius: 99px; padding: 2px 9px; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .pill.good { color: var(--good); background: var(--good-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.crit { color: var(--crit); background: var(--crit-soft); }
+  .pill.neut { color: var(--ink-2); background: var(--surface-2); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin: 20px 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; }
+  .card h4 { margin: 0 0 4px; font-size: 16px; }
+  .card .src { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--ink-3); margin-bottom: 12px; }
+  .card ul { padding-left: 18px; margin-bottom: 0; }
+  .card li { font-size: 13.5px; margin-bottom: 7px; }
+
+  .prop { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; margin: 14px 0; }
+  .prop-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .prop-id { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 13px; color: var(--accent); letter-spacing: .04em; }
+  .prop h4 { margin: 0; font-size: 16.5px; flex: 1 1 auto; }
+  .prop p { font-size: 14px; margin-bottom: 10px; }
+  .prop .from { font-size: 12.5px; color: var(--ink-3); }
+  .prop .from b { color: var(--ink-2); font-weight: 600; }
+
+  footer { margin-top: 80px; border-top: 1px solid var(--line); padding-top: 18px; font-size: 12.5px; color: var(--ink-3); }
+  footer p { font-size: 12.5px; color: var(--ink-3); }
+
+  @media (max-width: 640px) { .wrap { padding: 0 18px 72px; } }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">BrainStrike // Agent Diagnostics — Follow-up</div>
+  <h1>Two waves later: the format waste is gone, and context finally has a lifecycle</h1>
+  <p class="subtitle">Follow-up to the 2026-08-07 audit against opencode, Cline, and Hermes. Twenty-two PRs merged across two waves re-ran the comparison in our favor: every format-level finding is fixed, both systemic gaps are closed, and on several dimensions we now hold the strongest position of the four agents.</p>
+  <div class="meta">
+    <span><b>Date</b> 2026-08-09 · <b>revised</b> 2026-08-10</span>
+    <span><b>Baseline</b> token-efficiency-report.html (2026-08-07)</span>
+    <span><b>Shipped</b> 22 PRs — Wave I 13 + #2338 · Wave II 8 (enumerated in the footer)</span>
+    <span><b>Remaining</b> BST-1199 measurement report · BST-1204 (evidence-gated)</span>
+  </div>
+</header>
+
+<!-- ================= VERDICT ================= -->
+<section id="verdict">
+  <div class="sec-label">01 — Verdict, revisited</div>
+  <h2>Both systemic findings from the audit are resolved in code</h2>
+  <p>The audit's core claim was that our budgets were peer-grade but the <em>bytes inside them</em> were not, and that <strong>nothing ever left our context</strong>. As of today: every model-facing projection is compact plain text (grep, reads, shell, symbols), the ~180-char per-match grep envelope is down to roughly five characters on the same envelope-only basis the audit used for the peers (with a separate test ratchet bounding the whole projection, source lines included, at 100 chars/match), and context now has three subtractive mechanisms — stale-read rewriting, recency pruning, and agentic conversation compaction — all shipped, all built on one durable overlay seam with rollback.</p>
+  <p>Just as important: the follow-through respected the audit's own rulings. We stayed in the small-page lane (window scaling is capped at 2× the anchor), cost accounting still comes exclusively from provider-reported usage, and where Cline <em>guesses</em> chars/3 for estimation we now <em>measure</em> the estimator against provider actuals per run, per model — Hermes' receipts-first habit applied to the one number everyone else hardcodes.</p>
+
+  <div class="tiles">
+    <div class="tile good">
+      <div class="k">22</div>
+      <div class="lbl">PRs merged from the audit's fix plan — every ticket with buildable scope across both waves</div>
+      <div class="note">Enumerated in the footer; every bot-review thread fixed or reasoned-declined, replied, resolved</div>
+    </div>
+    <div class="tile accent">
+      <div class="k">~180 → ~5</div>
+      <div class="lbl">Chars of envelope per grep match, on the peers' envelope-only basis (opencode ~11, Hermes ~6)</div>
+      <div class="note">Derived from the format: <code>N: </code> gutter + newline, one path header per file. A separate ≤100-chars/match test ratchet bounds the whole projection <em>including</em> matched source lines.</div>
+    </div>
+    <div class="tile good">
+      <div class="k">3</div>
+      <div class="lbl">Mechanisms that shrink old context: stale-read rewriting, recency pruning, conversation compaction</div>
+      <div class="note">Was 0 at audit time; all three ride one durable overlay seam with rollback</div>
+    </div>
+    <div class="tile">
+      <div class="k">−66%</div>
+      <div class="lbl">Model-facing chars on the common "grep exits 1" shell case after the exec text projection</div>
+      <div class="note">Plain text + exit-code interpretation replaced the JSON envelope</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ANATOMY ================= -->
+<section id="anatomy">
+  <div class="sec-label">02 — Anatomy, revisited</div>
+  <h2>The same two grep matches — then and now</h2>
+  <p>The audit's centerpiece was one content-mode search, two matches, one file. Here is the same result in the old format and in what ships today from <code>workspace-search-model-projections.ts</code>.</p>
+
+  <div class="codewrap">
+    <div class="codehead"><span>2026-08-07 — audit baseline</span><span class="cost bad">≈ 1,050 chars for 2 matches</span></div>
+    <pre><span class="dim">grep content | page=1-2/61 | live=ripgrep | </span><em>candidates_truncated=false | scan_limited=false | skipped_missing_line_metadata=0</em>
+<em>read_args={"path":"packages/agent/src/stream/tool-output-limits.ts","root":"0198a2b4-7c31-7f4e-9a12-3d5e6f7a8b9c","startLine":17} | root_name="brainstrike" | source=both</em>
+<span class="dim">before: */</span>
+match: export const MAX_TOOL_RESULT_TOKENS = 3000;
+<em>read_args={…same 140-char blob again…}</em>
+match: export const MAX_MODEL_TOOL_RESULT_TOKENS = 2000;
+continue: reuse the prior brainstrike.grepSearch input with offset=2</pre>
+  </div>
+
+  <div class="codewrap">
+    <div class="codehead"><span>Today — path-grouped, silent happy path, contextLines default 0</span><span class="cost good">≈ 210 chars for 2 matches</span></div>
+    <pre><span class="ok">grep content 1-2/61</span>
+<span class="hl">packages/agent/src/stream/tool-output-limits.ts:</span>
+17: export const MAX_TOOL_RESULT_TOKENS = 3000;
+19: export const MAX_MODEL_TOOL_RESULT_TOKENS = 2000;
+<span class="dim">continue: offset=2</span></pre>
+  </div>
+  <p>The file header prints once per file (prefixed by root name only when several folders are open), rows are <code>line: text</code>, warning flags appear only when they actually fire, and the line number doubles as the <code>startLine</code> for a follow-up read. Context lines are opt-in. The <strong>same 6,000-char page now carries roughly 4–5× the information</strong>, which is the audit's projected win realized — fewer follow-up calls, and every avoided call skips a full-conversation replay.</p>
+  <p>Reads and shell went through the same conversion: file pages are plain gutter-numbered text with a one-line header and cursor footer (the 11-key JSON envelope and its double-priced newlines are gone), and <code>executeCommand</code> emits <code>exec exit=0 1.2s</code> + verbatim streams with benign exits interpreted (<code>grep</code> exit 1 = "no matches") so the model doesn't burn a turn misreading them. A decoded-length ruler ended the double-charging of newlines everywhere — the same read page that measured as 54 rows under the old ruler carries 100 today.</p>
+</section>
+
+<!-- ================= SCORECARD ================= -->
+<section id="scorecard">
+  <div class="sec-label">03 — Scorecard</div>
+  <h2>Where the four agents stand now</h2>
+  <p>The audit's comparison dimensions, re-scored. <span class="pill good">lead</span> means we now hold the strongest implementation of the four; <span class="pill neut">parity</span> means peer-grade; <span class="pill crit">open</span> marks the one dimension where a peer still holds something we don't.</p>
+
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Dimension</th><th>opencode</th><th>Cline</th><th>Hermes</th><th>BrainStrike now</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Search output format</td>
+        <td>Path-grouped, ~11 chars/match</td>
+        <td>Flat list</td>
+        <td>~6 chars/match</td>
+        <td class="us">Path-grouped, silent happy path; root names only when multi-root. <b>Envelope ≈5–6 chars/match</b> — the <code>N: </code> gutter plus newline, with one path header amortized across that file's matches
+          <span class="mini">#2313 #2316 · <b>Basis note:</b> the peer figures are envelope-only (non-content formatting per match). Our envelope figure is derived from the format, not measured. The separate ≤100-chars/match test ratchet measures the <em>whole</em> projection <em>including the matched source line</em> — a different, stricter basis, not comparable to 6/11/14. Fixtures pin the format byte-for-byte.</span></td>
+        <td><span class="pill neut">parity</span></td>
+      </tr>
+      <tr>
+        <td>Zero-match searches</td>
+        <td>—</td>
+        <td>—</td>
+        <td>Probes (13.9% of greps return zero)</td>
+        <td class="us">Case/literal/hidden-file probes + actionable excluded-path steer
+          <span class="mini">#2321</span></td>
+        <td><span class="pill neut">parity</span></td>
+      </tr>
+      <tr>
+        <td>File reads</td>
+        <td>Plain text</td>
+        <td>Plain text</td>
+        <td>Plain text, unpadded gutter (A/B validated)</td>
+        <td class="us">Plain text pages, unpadded gutter, cursor continuation; legacy JSON projections unwrap on replay
+          <span class="mini">#2322 · decoded ruler #2334: 54→100 rows in the same budget</span></td>
+        <td><span class="pill neut">parity</span></td>
+      </tr>
+      <tr>
+        <td>Shell output</td>
+        <td>Truncation marker</td>
+        <td>Head-biased cap</td>
+        <td>40/60 head-tail, exit-code interpretation</td>
+        <td class="us">40/60 head-tail + command-echo dedupe + plain-text projection + benign-exit map + balanced previews
+          <span class="mini">#2314 #2339</span></td>
+        <td><span class="pill neut">parity</span></td>
+      </tr>
+      <tr>
+        <td>Truncation honesty</td>
+        <td>Marker text</td>
+        <td>Marker text</td>
+        <td>Marker text</td>
+        <td class="us">A limited result without continuation guidance <b>fails the run</b> (BST-951) — still unique among the four</td>
+        <td><span class="pill good">lead</span></td>
+      </tr>
+      <tr>
+        <td>Repeat-call loop guards</td>
+        <td>—</td>
+        <td>Consecutive-error counter</td>
+        <td>warn@3 / block@4 identical calls</td>
+        <td class="us">warn@3/block@4 + edit-failure escalation + guard refusals excluded from streaks; reset hooks fire after pruning
+          <span class="mini">#2323 #2332 · livelock case found in review: unchanged-file reads exempt</span></td>
+        <td><span class="pill neut">parity</span></td>
+      </tr>
+      <tr>
+        <td>Stale-read handling</td>
+        <td>—</td>
+        <td>Rewrites superseded reads to a 40-char placeholder (in-memory, per task)</td>
+        <td>Read-dedup cache</td>
+        <td class="us"><b>Durable</b> overlay rewrites (migration 084): survive reload, roll back via superseder-presence check, batched ≥64KiB to protect prompt-prefix caches
+          <span class="mini">#2333</span></td>
+        <td><span class="pill good">lead</span></td>
+      </tr>
+      <tr>
+        <td>Old-result pruning</td>
+        <td>Protect newest ~40k tool tokens, prune the rest to markers</td>
+        <td>Re-caps every result to 8k on each request</td>
+        <td>One-line pre-summaries</td>
+        <td class="us">~40k protect window + ≥20k reclaim floor on the same overlay seam; <b>read-only allowlist</b> so a marker never invites re-running a mutation; skill activations exempt; rewind self-heals
+          <span class="mini">#2355 · json artifact projections measured correctly (review catch)</span></td>
+        <td><span class="pill good">lead</span></td>
+      </tr>
+      <tr>
+        <td>Conversation compaction</td>
+        <td>Prune-first, then summary (≤2k chars/tool result visible)</td>
+        <td>90% trigger / 70% target / 20k tail / deterministic overflow fallback</td>
+        <td>Tool-aware pre-summaries, per-model triggers</td>
+        <td class="us">Shipped: estimator trigger 90%→70%, prune-first, fixed section schema, deterministic non-LLM overflow fallback, tagged summary message, <b>no silent compaction</b> (visible divider), rewind-past-compaction self-heals via presence-gated ranges
+          <span class="mini">#2375 · adds two things no peer has — durable rewind-safe ranges, and a fallback that fires only on non-retryable summarizer failure (a cancel or 429 leaves history intact). Newly shipped against Cline's mature implementation, hence parity rather than a lead claim.</span></td>
+        <td><span class="pill neut">parity</span></td>
+      </tr>
+      <tr>
+        <td>Oversized-output spill</td>
+        <td>/tmp file + "delegate, don't read it yourself"</td>
+        <td>/tmp file + "grep it"</td>
+        <td>Spill file + search hint</td>
+        <td class="us"><b>Durable, thread-scoped</b> artifacts with opaque cursors + in-artifact regex search (ReDoS-guarded, line-aligned paging, decoupled scan window) + conditional delegate hint
+          <span class="mini">#2350 · peers' spill files are neither durable nor access-controlled</span></td>
+        <td><span class="pill good">lead</span></td>
+      </tr>
+      <tr>
+        <td>Budgets vs model window</td>
+        <td>Fixed</td>
+        <td>Fixed caps</td>
+        <td>15%/30% of window with floors/ceilings</td>
+        <td class="us">Window-scaled from the 131,072-token anchor with floor + 2× ceiling (small-page ruling intact); resolved once per run and threaded into every producer including the desktop text projectors; personas resolve from their <b>pinned</b> model via a per-call budget context; replay accepts the ceiling tier so old projections never throw under smaller models; unknown models fall back to the anchor, logged
+          <span class="mini">#2349 + #2373 · replay-safety problem is unique to us — peers persist no projections</span></td>
+        <td><span class="pill good">lead</span></td>
+      </tr>
+      <tr>
+        <td>Token estimation</td>
+        <td>chars/4</td>
+        <td>chars/3, deliberate over-estimate</td>
+        <td>Measured habits, fixed ratio</td>
+        <td class="us">chars/4 for budgets, but now <b>calibrated</b>: per-run estimator-vs-provider pairs persisted per model (denominator = final-step prompt, so the ratio measures the estimator, not step count) + a lens over the distribution; tuning follows the data
+          <span class="mini">#2356 · cost accounting authority unchanged: provider-reported usage only</span></td>
+        <td><span class="pill good">lead</span></td>
+      </tr>
+      <tr>
+        <td>Internal-content write guard</td>
+        <td>—</td>
+        <td>—</td>
+        <td>Refuses gutter-format pastes</td>
+        <td class="us">Refuses sequential gutter pastes incl. edited ones (monotonic tight-span test); start-at-1 numbered mappings knowingly writable — the coverage boundary is documented, not accidental; refusals never advance the edit-failure streak
+          <span class="mini">#2352</span></td>
+        <td><span class="pill neut">parity</span></td>
+      </tr>
+      <tr>
+        <td>Per-tool token telemetry</td>
+        <td>—</td>
+        <td>—</td>
+        <td>Logs, not queryable</td>
+        <td class="us">Durable per-tool call telemetry (subagents included) + agent-queryable lenses (<code>token-spend-by-tool</code>, <code>estimator-calibration</code>), 60-day retention
+          <span class="mini">#2317 #2330 #2331 · the agent can audit its own token spend via querySelf</span></td>
+        <td><span class="pill good">lead</span></td>
+      </tr>
+      <tr>
+        <td>Model-aware edit routing</td>
+        <td>—</td>
+        <td>apply_patch for GPT/Codex-family models</td>
+        <td>—</td>
+        <td class="us">Held on its own measure-first clause: edit-failure telemetry only began collecting 2026-08-08; proceeds or is downgraded with evidence ~08-15
+          <span class="mini">BST-1204 · building without receipts is what the ticket forbids</span></td>
+        <td><span class="pill crit">open</span></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="tbl-note">Peer figures are from the 2026-08-07 source study (opencode dev@284214c, cline 8ca3068, hermes-agent). "Lead" claims rest on capabilities peers lack outright (durability, rollback, enforcement, queryability), not on tuning differences.</p>
+</section>
+
+<!-- ================= WHERE WE LEAD ================= -->
+<section id="leads">
+  <div class="sec-label">04 — What "better" bought us</div>
+  <h2>The audit asked for canonical + innovation tokens. Here's where they went.</h2>
+  <p>Most of the two waves was deliberate convergence on formats the three peers already proved. The innovation budget went to four places where our architecture allowed something none of them have:</p>
+  <div class="cards">
+    <div class="card">
+      <h4>A durable history lifecycle, not an in-memory one</h4>
+      <div class="src">#2333 · #2355 · overlay table + replay processor</div>
+      <ul>
+        <li>Cline's rewriting and opencode's pruning live in process memory and reset per task. Ours is a durable overlay: rewrites and prune markers survive reload, replay deterministically, and <strong>roll back</strong> (superseder-presence checks; rewinding past a prune self-heals).</li>
+        <li>One seam, three consumers — stale-read rewriting, recency pruning, and M2 compaction all commit through the same table and reset the same caches.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Spill files that are actually a database</h4>
+      <div class="src">#2350 · durable artifacts + search</div>
+      <ul>
+        <li>Peers spill to /tmp and hope the model greps it with a different tool. Our artifacts are thread-scoped, cursor-controlled, and now searchable in place — with the scan window decoupled from the projection budget so one search call covers what paging needed ~130 calls for.</li>
+        <li>The delegate hint appears only when a delegation tool is actually registered — no advertising capabilities that don't exist.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Measured calibration instead of a guessed constant</h4>
+      <div class="src">#2356 · calibration pairs + lens</div>
+      <ul>
+        <li>Cline hardcodes chars/3 as insurance. We persist (estimate, provider-actual) per run per model — with the denominator fixed to the final step's prompt so the ratio isolates estimator error from step count — and will tune from the distribution, per model, with receipts.</li>
+        <li>Cost display never touches the estimator: provider-reported usage remains the only cost authority, pinned by regression tests.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Window scaling that survives model switching</h4>
+      <div class="src">#2349 · replay-safe scaled budgets</div>
+      <ul>
+        <li>Hermes scales budgets but persists nothing, so it never faces the hard case: a projection written under a 200k model replaying into an 8k local run. We accept stored projections at the ceiling tier while fitting fresh ones to the resolved budget — scaling without breaking a single stored thread.</li>
+        <li>Personas resolve budgets from their pinned model, not their parent's — the anti-thrash bound follows the model that actually reads the result.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= REVIEW HARDENING ================= -->
+<section id="review">
+  <div class="sec-label">05 — What review caught</div>
+  <h2>Six would-have-been production bugs died in review</h2>
+  <p>Every PR ran the full bot-review gauntlet (~50 substantive threads in Wave II; each fixed or declined with reasoning, replied, resolved). The ones that mattered:</p>
+  <ul>
+    <li><strong>A cancel or a bad API key could shred conversation history.</strong> Compaction's summarizer-failure handler was unconditional, so pressing Stop mid-summary — or a 429, a socket reset, an expired key — committed a <em>deterministic</em> truncation of the oldest turns. An invalid key would have done it on every turn until noticed. Now only non-retryable summarizer evidence triggers the fallback; transient failures and aborts leave history intact.</li>
+    <li><strong>The compaction summary would have eaten the previous turn on reload.</strong> The summary row was persisted without topology, so history hydration never closed the open assistant group and rendered the entire prior turn inside the compaction card. The test suite missed it because its fixture thread ended on a user message.</li>
+    <li><strong>Prune markers inviting repeated mutations.</strong> The first pruning pass could tell the model to "re-run the tool" for a <em>delete or shell command</em>. Pruning now works from an explicit read-only allowlist; mutating and interactive tools are never pruned (their projections are tiny anyway).</li>
+    <li><strong>Artifact-spilled results silently disabling pruning.</strong> <code>{type:'json'}</code> projections — exactly the largest outputs — threw inside the size walk and permanently disabled pruning for the thread. Now measured with the serialized ruler; unknown shapes still fail loudly.</li>
+    <li><strong>Calibration measuring the wrong thing.</strong> The first pass compared a once-counted estimate against cross-step-summed provider tokens, so the ratio tracked step count. The denominator ruling (final-step prompt) is what makes the dataset usable at all.</li>
+    <li><strong>Small-window models hard-failing on legal pages.</strong> Scaling the central assertion below what producers enforce would have killed ordinary reads on Ollama/LM Studio runs. The assertion floors at the anchor until the producers are threaded (BST-1219).</li>
+  </ul>
+  <p>Two E2E regressions were root-caused rather than retried, and both turned into permanent guards. Renderer bootstrap SQL carrying schema mutation tripped the desktop's destructive-schema IPC guard and blocked the assistant panel from mounting — the third occurrence of that bug class, and the fix restored the architectural rule (main-process migrations are authoritative; renderer bootstrap never mutates schema) while adding a unit test that runs the real bootstrap SQL through the real guard. Separately, an Electron launch failure traced to main-process code importing a renderer-only package whose exports map has no <code>require</code> condition; the fix moved the dependency rather than widening the exports map, and added a test that esbuild-bundles the actual main entry points and resolves every external import. Both classes now fail in unit tests instead of costing an E2E cycle.</p>
+</section>
+
+<!-- ================= ROADMAP ================= -->
+<section id="roadmap">
+  <div class="sec-label">06 — Closed since publication, and what's left</div>
+  <h2>The remaining distance</h2>
+  <p>The first two items were in flight when this report was written on 2026-08-09 and merged the next day; they are kept here with their outcomes rather than deleted, so the roadmap reads as a record. Everything below them is genuinely outstanding.</p>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">BST-1200 M2</span><h4>Agentic conversation compaction</h4><span class="pill good">shipped #2375</span></div>
+    <p>The last structural gap vs all three peers, closed. Estimator trigger at ~90% of usable input targeting ~70%; prune-first on the milestone-1 seam; fixed section schema (Goal / State / Decisions / Next / Files) fed only projected transcripts; a <em>deterministic</em> non-LLM fallback on provider overflow that fires only on non-retryable summarizer failure — a user cancel or a 429 leaves history untouched for the next turn to retry; the summary persists as a tagged message with proper topology; the thread shows the compaction point visibly; rewinding past a compaction self-heals by the same presence-gating rule as pruning, with no new coupling in the tombstone machinery.</p>
+    <div class="from"><b>From:</b> Cline's trigger/fallback discipline + opencode's prune-first ordering + Hermes' cache resets — on our overlay seam.</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">BST-1219</span><h4>Resolved budgets threaded into desktop text projectors</h4><span class="pill good">shipped #2373</span></div>
+    <p>Window scaling now reaches the purpose-built desktop projectors, so the scale-up half is live on large-window models and the anchor-floor stopgap is gone from the fresh-path assertion (replay still validates at the ceiling tier). The persona case became a per-call budget context rather than a construction-time capture, so a pinned small-window subagent fits to its own budget rather than its parent's. Calibration samples now carry the resolved budgets, letting the lens segment by effective tier.</p>
+    <div class="from"><b>From:</b> #2349's own documented deferral, plus three review findings that proved the floor could only come off once <em>every</em> producer honored the resolved value.</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">BST-1199 / P15</span><h4>The measurement report</h4><span class="pill neut">unlocks ~08-15</span></div>
+    <p>All before/after numbers in this report except the enforced ratchets are fixture-derived or estimated — that was true of the audit and remains true here, honestly labeled. One week of production telemetry through the new lenses turns them into measured production deltas: chars-per-call by tool, zero-match rates, loop-guard fire rates, estimator ratios by model.</p>
+    <div class="from"><b>From:</b> Hermes' receipts-before-optimization culture; the entire point of shipping telemetry first (P10) in Wave I.</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">BST-1204 / P20</span><h4>apply_patch routing for GPT-family models</h4><span class="pill crit">gated on evidence</span></div>
+    <p>The one scorecard row where Cline holds something we don't. Held deliberately: its own measure-first clause requires <code>stringReplaceWorkspaceFile</code> failure rates by model family, and that telemetry is a day old. The P15 report supplies the verdict — elevated GPT-family failures and it proceeds as specced; flat rates and it's downgraded with the evidence attached.</p>
+    <div class="from"><b>From:</b> Cline's routing rule, filtered through the project's no-optimization-without-receipts stance.</div>
+  </div>
+
+  <div class="prop">
+    <div class="prop-head"><span class="prop-id">follow-up</span><h4>Per-model chars/token tuning</h4><span class="pill neut">after P15</span></div>
+    <p>The calibration lens exists precisely so this is a data-driven change: per-model ratio distributions decide whether chars/4 stays, moves, or gains per-model overrides. Explicitly out of scope until the distribution has a week of mass.</p>
+    <div class="from"><b>From:</b> the anti-Cline position — measure, then tune, never guess.</div>
+  </div>
+</section>
+
+<!-- ================= HONESTY ================= -->
+<section id="provenance">
+  <div class="sec-label">07 — Number provenance</div>
+  <h2>What's measured, what's enforced, what's estimated</h2>
+  <ul>
+    <li><strong>Enforced by tests:</strong> the ≤100-chars/match grep ratchet — note this bounds the <em>whole</em> projection including matched source lines, a stricter and different basis from the envelope-only figures compared against peers; byte-for-byte projection fixtures for grep/read/exec; the ~9,810-token tool-description ceiling (52-token margin at last check); replay-acceptance bounds; the calibration denominator contract.</li>
+    <li><strong>Measured in fixtures:</strong> the ≈1,050 → ≈210 char two-match comparison; 54 → 100 rows under the decoded ruler; −66% on the grep-exit-1 shell case.</li>
+    <li><strong>Derived from the format, not measured:</strong> our ~5-chars/match envelope figure (gutter + newline, plus an amortized per-file path header); the 4–5× information-per-page multiplier.</li>
+    <li><strong>Estimated:</strong> peer per-match envelope figures (read from their formatters, not live traffic).</li>
+    <li><strong>Pending:</strong> production deltas — the telemetry lenses have been live since 2026-08-08; the P15 report converts these estimates into measurements around 2026-08-15.</li>
+  </ul>
+</section>
+
+<footer>
+  <p>Follow-up to <code>token-efficiency-report.html</code> in this folder; peer facts from the sibling study documents (opencode dev@284214c · cline 8ca3068 · hermes-agent). Shipped work, 22 PRs total, all verified merged: Wave I (13) #2313, #2314, #2315, #2316, #2317, #2321, #2322, #2323, #2330, #2331, #2332, #2333, #2334 · #2338 (BST-1189 projection pass-through, landed from a parallel session during Wave I) · Wave II (8) #2339, #2349, #2350, #2352, #2355, #2356, #2373, #2375. Linear: "Assistant Tool Token Efficiency" (complete) and "Assistant Tool Token Efficiency II" (buildable scope complete; BST-1199 and BST-1204 gated on the measurement window).</p>
+</footer>
+</div>
