@@ -37,7 +37,15 @@ function analyzeOptionSelectors(source) {
 
   function enclosingScope(node) {
     for (let current = node; current; current = current.parent) {
-      if (ts.isSourceFile(current) || ts.isBlock(current) || ts.isCaseBlock(current)) {
+      if (
+        ts.isSourceFile(current) ||
+        ts.isBlock(current) ||
+        ts.isCaseBlock(current) ||
+        ts.isArrowFunction(current) ||
+        ts.isFunctionExpression(current) ||
+        ts.isFunctionDeclaration(current) ||
+        ts.isMethodDeclaration(current)
+      ) {
         return current;
       }
     }
@@ -512,6 +520,26 @@ test('MONEY TEST: same-named aliases resolve through their lexical scopes', () =
       const label = TOOL_CATEGORY_LABEL;
       await page.getByRole('option', { exact: true, name: label }).click();
     });
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
+});
+
+test('MONEY TEST: concise-arrow parameters do not shadow outer selector bindings', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
+      NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    ].label;
+    await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+    const label = 'Analysis';
+    const choose = (label) => provider.getByRole('option', { name: label });
+    await choose('OpenAI').click();
+    await page.getByRole('option', { exact: true, name: label }).click();
   `;
 
   assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
