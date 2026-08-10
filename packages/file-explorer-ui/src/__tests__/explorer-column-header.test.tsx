@@ -351,7 +351,7 @@ describe('metadata sort on a surface without the seam', () => {
     warn.mockRestore();
   });
 
-  it('preserves the persisted metadata sort while a mounted root id is not ready', async () => {
+  it('preserves the persisted metadata sort and warns when a populated root id is not ready', async () => {
     const warn = vi
       .spyOn(createLogger('OptimizedFileTree'), 'warn')
       .mockImplementation(() => undefined);
@@ -371,7 +371,10 @@ describe('metadata sort on a surface without the seam', () => {
     );
 
     expect(useExplorerSortStateStore.getState().sortState).toEqual(persistedSort);
-    expect(warn).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('cannot apply the persisted "tokens" sort until its root id is ready')
+    );
     warn.mockRestore();
   });
 });

@@ -58,6 +58,7 @@ import {
   type FileTreeSelectionContextValue,
 } from './file-tree-selection-context';
 import { createFileTreeSortMetadataReader } from './file-tree-sort-metadata';
+import { fileTreeTelemetry } from './file-tree-telemetry-counters';
 import {
   applyDirectorySelectionMutation,
   applyFileSelectionMutation,
@@ -299,20 +300,6 @@ function runLoadedDirectorySelectionMutation(args: {
 }
 
 /**
- * Performance telemetry counters for the file tree.
- * Exposed for tests and browser devtools inspection.
- */
-export const fileTreeTelemetry = {
-  columnsRebuildCount: 0,
-  treeRowsRebuildCount: 0,
-};
-
-export function resetFileTreeTelemetry(): void {
-  fileTreeTelemetry.columnsRebuildCount = 0;
-  fileTreeTelemetry.treeRowsRebuildCount = 0;
-}
-
-/**
  * TreeTable adapter for file explorer panel.
  * Maintains lazy-loading and recursive selection behavior while converging on shared tree-grid UI.
  */
@@ -521,6 +508,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const canReadSortMetadata = hasSortMetadataCapability && folderId !== '';
     const setExplorerSortState = explorerSort?.setSortState;
     const hasWarnedAboutMissingSeamRef = useRef(false);
+    const unreadyRootDiagnosticRef = useRef<'debug' | 'warn' | null>(null);
     useEffect(() => {
       if (hasSortMetadataCapability) {
         return;
@@ -542,6 +530,29 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       }
       setExplorerSortState(null);
     }, [hasSortMetadataCapability, setExplorerSortState, sortState]);
+    useEffect(() => {
+      const hasMetadataSort = Boolean(sortState && isExplorerMetadataSortField(sortState.field));
+      if (!(hasSortMetadataCapability && hasMetadataSort) || folderId !== '') {
+        unreadyRootDiagnosticRef.current = null;
+        return;
+      }
+
+      const diagnosticLevel = fileTree.length > 0 ? 'warn' : 'debug';
+      if (
+        unreadyRootDiagnosticRef.current === diagnosticLevel ||
+        unreadyRootDiagnosticRef.current === 'warn'
+      ) {
+        return;
+      }
+
+      const message = `Explorer cannot apply the persisted "${sortState?.field ?? 'metadata'}" sort until its root id is ready; preserving the preference and rendering loader order`;
+      if (diagnosticLevel === 'warn') {
+        logger.warn(message);
+      } else {
+        logger.debug(message);
+      }
+      unreadyRootDiagnosticRef.current = diagnosticLevel;
+    }, [fileTree.length, folderId, hasSortMetadataCapability, sortState]);
     const tracksMetadataRevision = sortState?.field === 'size' || sortState?.field === 'tokens';
     const subscribeToSortedMetadata = useCallback(
       (listener: () => void): (() => void) => {

@@ -9,6 +9,7 @@
  * through the SAME dispatch planner so binary/size policy still applies.
  */
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { createLogger } from '@brainstrike/logging';
 import type { FileToIndex } from '@brainstrike/token-cache/background-indexer';
 import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
@@ -132,8 +133,9 @@ async function flushTimers(passes = 3): Promise<void> {
 
 /**
  * Advance exactly one visible-file pass: its debounce, then the cooperative
- * yields between dispatch batches. Stays well inside the next pass's debounce
- * so passes stay individually observable.
+ * yields between dispatch batches. The margin before the next debounce is
+ * deliberately thin, so the invariant below fails at the constants that need
+ * coordinated adjustment instead of obscuring the cap with a second pass.
  */
 async function drainOnePass(): Promise<void> {
   // Two debounce-length advances: the handle-map rebuild has to land and
@@ -148,6 +150,9 @@ async function drainOnePass(): Promise<void> {
   }
   const yieldsPerPass =
     Math.ceil(VISIBLE_FILE_INDEXING_MAX_PER_PASS / TOKEN_INDEXER_IO_BATCH_SIZE) - 1;
+  expect(yieldsPerPass * TOKEN_INDEXER_BATCH_YIELD_MS).toBeLessThan(
+    VISIBLE_FILE_INDEXING_DEBOUNCE_MS
+  );
   for (let step = 0; step < yieldsPerPass; step += 1) {
     await act(async () => {
       vi.advanceTimersByTime(TOKEN_INDEXER_BATCH_YIELD_MS);
@@ -325,6 +330,24 @@ describe('useBackgroundTokenIndexerIntegration visible-file trigger', () => {
 
     expect(indexFilesMock).not.toHaveBeenCalled();
     expect(preloadFolderMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs a rejected visible dispatch and deliberately suppresses its re-arm', async () => {
+    const error = new Error('cache warm failed');
+    const loggerError = vi
+      .spyOn(createLogger('VisibleFileTokenIndexing'), 'error')
+      .mockImplementation(() => undefined);
+    preloadFolderMock.mockRejectedValueOnce(error);
+    renderIntegration({ visibleFiles: new Set([VISIBLE_A]) });
+
+    await flushTimers();
+
+    expect(loggerError).toHaveBeenCalledWith(
+      'Visible-file indexing pass failed; automatic re-arm suppressed',
+      { error }
+    );
+    expect(indexFilesMock).not.toHaveBeenCalled();
+    loggerError.mockRestore();
   });
 
   it('does not re-dispatch a file the selection trigger already queued', async () => {

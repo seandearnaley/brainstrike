@@ -295,8 +295,9 @@ binary/size exclusions and the indexed/in-flight de-duplication are shared:
    Cooperative-yield counts in tests are derived from
    `VISIBLE_FILE_INDEXING_MAX_PER_PASS / TOKEN_INDEXER_IO_BATCH_SIZE`; do not
    copy a stale window count. Effect cleanup cancels both the debounce and the
-   async continuation's re-arm, so a completed dispatch cannot set state after
-   its tree unmounts or its visible set is replaced.
+   async continuation's re-arm whenever effect cleanup runs, so a completed
+   dispatch cannot update the stale cursor after its tree unmounts or any
+   dependency replacement installs a new effect that owns the next pass.
    It is **throttled** by a `VISIBLE_FILE_INDEXING_DEBOUNCE_MS` floor set to 2×
    the selection trigger's longest adaptive delay. The two debounces are
    independent, so this is a strong bias toward selection-first, NOT a
@@ -334,7 +335,8 @@ must not re-render any other row.
 Metadata sorting distinguishes capability from readiness. A missing
 `FileRowMetadataProvider` means the surface cannot serve a persisted metadata
 sort, so it warns and resets to loader order. A mounted provider with an empty
-root id is only temporarily unready: skip the sort for that render but preserve
+root id is only temporarily unready: skip the sort for that render, emit a
+one-shot debug diagnostic (promoted to a warning if tree content is present), but preserve
 the user's persisted preference. Production and the 10k-row performance test
 must both use `createFileTreeSortMetadataReader`; never copy its closure into a
 test.

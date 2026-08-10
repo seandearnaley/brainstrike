@@ -187,22 +187,32 @@ export function useVisibleFileTokenIndexing({
     const batch = candidates.slice(0, VISIBLE_FILE_INDEXING_MAX_PER_PASS);
     let cancelled = false;
     const timeoutId = setTimeout(() => {
-      void indexVisibleFiles(batch).then(() => {
-        const remaining = Array.from(visibleFiles).filter(isUnconsumed).length;
-        // Re-arm on PROGRESS only. A pass that consumed nothing — every key
-        // parked for a missing handle, say — must not reschedule itself. An
-        // unmounted/replaced effect must not enqueue a stale state update after
-        // its in-flight dispatch resolves either.
-        if (
-          shouldRearmVisibleFileIndexing({
-            cancelled,
-            candidateCount: candidates.length,
-            remainingCount: remaining,
-          })
-        ) {
-          setPassCursor((cursor) => cursor + 1);
-        }
-      });
+      void indexVisibleFiles(batch)
+        .then(() => {
+          const remaining = Array.from(visibleFiles).filter(isUnconsumed).length;
+          // Re-arm on PROGRESS only. A pass that consumed nothing — every key
+          // parked for a missing handle, say — must not reschedule itself.
+          // `cancelled` means cleanup ran for any reason, including dependency
+          // replacement as well as unmount; the replacement effect owns any
+          // next pass and this stale continuation must not update its cursor.
+          if (
+            shouldRearmVisibleFileIndexing({
+              cancelled,
+              candidateCount: candidates.length,
+              remainingCount: remaining,
+            })
+          ) {
+            setPassCursor((cursor) => cursor + 1);
+          }
+        })
+        .catch((error: unknown) => {
+          // A permanent worker/DB failure must be visible and must not create
+          // an unbounded retry loop. A later dependency change can retry the
+          // still-unconsumed keys through a fresh effect.
+          logger.error('Visible-file indexing pass failed; automatic re-arm suppressed', {
+            error,
+          });
+        });
     }, VISIBLE_FILE_INDEXING_DEBOUNCE_MS);
 
     return () => {
