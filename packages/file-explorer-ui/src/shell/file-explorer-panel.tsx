@@ -88,6 +88,35 @@ import { useSelectionManager } from './use-selection-manager-context';
 
 const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
 
+function collectVisibleFilePathsIfNeeded(
+  tree: IFileNode[] | null,
+  shouldCollect: boolean
+): string[] {
+  if (!(shouldCollect && tree)) {
+    return EMPTY_DISPLAYED_FILE_LIST;
+  }
+  const visible = new Set<string>();
+  collectVisibleFiles(tree, visible);
+  return Array.from(visible);
+}
+
+function shouldCollectVisibleFilePaths(
+  hasRecursiveSelectAll: boolean,
+  quickFilter: string,
+  hasQuickFilterSelectAllOverride: boolean
+): boolean {
+  return (
+    !hasRecursiveSelectAll || (quickFilter.trim().length > 0 && !hasQuickFilterSelectAllOverride)
+  );
+}
+
+function hasForestQuickFilterSelectAllOverride(
+  isForestMode: boolean,
+  forestActions: ReturnType<typeof useOptionalForestTreeActions>
+): boolean {
+  return isForestMode && forestActions !== null;
+}
+
 /**
  * The bar is up whenever there is a selection OR an injected action has pinned
  * it (a running import). Both cases need the padding, so the visibility rule
@@ -443,14 +472,6 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     [deferredQuickFilter, stableFileTree]
   );
 
-  const visibleFilePaths = useMemo(() => {
-    const visible = new Set<string>();
-    if (quickFilteredTree) {
-      collectVisibleFiles(quickFilteredTree, visible);
-    }
-    return Array.from(visible);
-  }, [quickFilteredTree]);
-
   // Per-row metadata seam (BST-1207/1208). Owned here because `onTokenResolved`
   // below is the PRECISE invalidation path: every count the indexer resolves
   // repaints exactly that row's cell. Without this wiring the tree grid still
@@ -479,6 +500,16 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     ...(webFileHandleResolver ? { webFileHandleResolver } : {}),
   });
 
+  // Forest sections own their tree enumeration and provide the quick-filter
+  // Select All override through this registry. Resolve that capability before
+  // deciding whether the focused panel must materialize a fallback path list.
+  const forestActions = useOptionalForestTreeActions();
+  const isForestMode = isForestModeActive(rootDirectoryHandles);
+  const hasQuickFilterSelectAllOverride = hasForestQuickFilterSelectAllOverride(
+    isForestMode,
+    forestActions
+  );
+
   // displayedFiles are only needed by the legacy "fallback select-all" path.
   // In desktop, recursive select-all should always be available and this stays false.
   // Keep a runtime capability check so tests and non-desktop adapters can still exercise fallback.
@@ -486,6 +517,19 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
     typeof (selectAllRecursively as unknown) === 'function' &&
     typeof (addMultipleSelectedFiles as unknown) === 'function';
   const useFallbackDisplayedFiles = !hasRecursiveSelectAll;
+
+  // Recursive select-all does not need a materialized path list. Quick-filter
+  // selection still does because it intentionally selects only displayed
+  // matches, so retain the walk for that explicit path and for legacy adapters.
+  const needsVisibleFilePaths = shouldCollectVisibleFilePaths(
+    hasRecursiveSelectAll,
+    deferredQuickFilter,
+    hasQuickFilterSelectAllOverride
+  );
+  const visibleFilePaths = useMemo(
+    () => collectVisibleFilePathsIfNeeded(quickFilteredTree, needsVisibleFilePaths),
+    [needsVisibleFilePaths, quickFilteredTree]
+  );
 
   const displayedFileList = useMemo(() => {
     if (!useFallbackDisplayedFiles) {
@@ -722,12 +766,10 @@ const FileExplorerPanelInner = React.memo(({ selectionActions }: FileExplorerPan
   // Forest mode: Expand All must run inside EACH root section's own tree
   // context — the legacy path below only expands the focused provider's
   // (invisible) top-level tree when multiple roots are active.
-  const forestActions = useOptionalForestTreeActions();
   // Single source for the forest cancel: the toolbar cluster and the
   // compact-menu yield rule must agree on whether one exists, or the menu could
   // stand down for an operation that renders no cancel.
   const forestCancelExpandAll = forestActions?.cancelExpandAll ?? null;
-  const isForestMode = isForestModeActive(rootDirectoryHandles);
   // Run-boundary signal only — high-frequency progress is subscribed by the
   // PanelTreeActionButtons leaf, never by this panel component.
   const isForestExpandingAll = useForestIsExpandingAll();

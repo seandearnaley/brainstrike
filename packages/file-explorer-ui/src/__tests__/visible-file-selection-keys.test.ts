@@ -19,6 +19,7 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
+import { buildFileHandleMap } from '../indexing/background-token-indexer-handles';
 import { collectVisibleFileSelectionKeys } from '../indexing/visible-file-selection-keys';
 
 const ROOT_ID = 'aaaaaaaa-0000-4000-8000-0000000000aa';
@@ -37,6 +38,17 @@ function relativePaths(keys: Set<string>): string[] {
 }
 
 describe('collectVisibleFileSelectionKeys path exclusions', () => {
+  it('uses the same composite-key format as the production handle map', () => {
+    const tree = [file('index.ts', '/repo/index.ts')];
+    const visibleKeys = collectVisibleFileSelectionKeys(tree);
+    const handleMap = new Map();
+
+    buildFileHandleMap(tree, handleMap);
+
+    expect(visibleKeys.size).toBe(1);
+    expect([...visibleKeys]).toEqual([...handleMap.keys()]);
+  });
+
   it('never mints a key for anything under .claude/worktrees', () => {
     const tree = [
       dir('.claude', '/repo/.claude', [

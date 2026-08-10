@@ -40,7 +40,6 @@ import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  getAdaptiveDebounceMs,
   VISIBLE_FILE_INDEXING_DEBOUNCE_MS,
   VISIBLE_FILE_INDEXING_MAX_PER_PASS,
 } from '../constants';
@@ -171,10 +170,6 @@ export function useVisibleFileTokenIndexing({
     }
 
     const batch = candidates.slice(0, VISIBLE_FILE_INDEXING_MAX_PER_PASS);
-    const debounceMs = Math.max(
-      getAdaptiveDebounceMs(batch.length),
-      VISIBLE_FILE_INDEXING_DEBOUNCE_MS
-    );
     const timeoutId = setTimeout(() => {
       void indexVisibleFiles(batch).then(() => {
         const remaining = Array.from(visibleFiles).filter(isUnconsumed).length;
@@ -184,7 +179,7 @@ export function useVisibleFileTokenIndexing({
           setPassCursor((cursor) => cursor + 1);
         }
       });
-    }, debounceMs);
+    }, VISIBLE_FILE_INDEXING_DEBOUNCE_MS);
 
     return () => clearTimeout(timeoutId);
   }, [

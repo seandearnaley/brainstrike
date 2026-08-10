@@ -210,6 +210,8 @@ describe('FileExplorerPanel', () => {
     setDevInlineFixtureEnabledMock = vi.fn();
     hydrateFolderStateMock = vi.fn();
     const storeState = {
+      addMultipleSelectedFiles: vi.fn(),
+      addMultipleSelectedFilesChunked: vi.fn(),
       clearQuickFilter: vi.fn(),
       collapseAllDirectories: vi.fn(),
       currentFolderId: '/root',
@@ -1419,6 +1421,17 @@ describe('FileExplorerPanel', () => {
       return forestActions;
     }
 
+    it('skips the visible-file walk when forest quick-filter Select All owns selection', () => {
+      arrangeForest();
+      const mockedStore = vi.mocked(useFileExplorerStoreContext)();
+      Object.assign(mockedStore.getState(), { quickFilter: 'dir' });
+
+      renderWithProviders(<FileExplorerPanel />);
+
+      const actionProps = ActionButtonsMock?.mock.calls.at(-1)?.[0];
+      expect(actionProps?.visibleFilePaths).toEqual([]);
+    });
+
     it('stages the multi-root sweep behind a confirmation naming the root count', async () => {
       const user = userEvent.setup();
       const forestActions = arrangeForest();
@@ -1605,9 +1618,14 @@ describe('FileExplorerPanel', () => {
     expect(filteredTree[0].name).toBe('foo.ts');
     expect(filteredTree[1].name).toBe('dir');
     expect(filteredTree[1].children).toHaveLength(1);
+
+    // Recursive select-all is available, but single-root quick-filter Select
+    // All still consumes the displayed path list through the fallback branch.
+    const actionProps = ActionButtonsMock?.mock.calls.at(-1)?.[0];
+    expect(actionProps?.visibleFilePaths).toEqual(['/foo.ts', '/dir/foo-in-dir.ts']);
   });
 
-  it('collects visible files for action buttons', async () => {
+  it('skips the fallback visible-file walk when recursive select-all is available', () => {
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
       fileTree: [
@@ -1660,9 +1678,43 @@ describe('FileExplorerPanel', () => {
     const lastCall = ActionButtonsMock?.mock.calls.at(-1);
     const displayedFiles = lastCall?.[0]?.displayedFiles;
 
-    expect(displayedFiles).toContain('/foo.ts');
-    expect(displayedFiles).not.toContain('/hidden.ts');
-    expect(displayedFiles).toContain('/dir/bar.ts');
+    expect(displayedFiles).toEqual(new Set());
+  });
+
+  it('collects visible files when action buttons need the fallback select-all path', () => {
+    vi.mocked(useFileExplorer).mockReturnValue({
+      ...fileExplorerReturnValue,
+      fileTree: [
+        {
+          depth: 0,
+          handle: {} as any,
+          isVisible: true,
+          name: 'foo.ts',
+          path: '/foo.ts',
+          rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'file',
+        },
+        {
+          depth: 0,
+          handle: {} as any,
+          isVisible: false,
+          name: 'hidden.ts',
+          path: '/hidden.ts',
+          rootFolderId: 'root',
+          selectionState: 'unchecked',
+          type: 'file',
+        },
+      ],
+      selectAllRecursively:
+        undefined as unknown as typeof fileExplorerReturnValue.selectAllRecursively,
+    });
+
+    renderWithProviders(<FileExplorerPanel />);
+
+    const lastCall = ActionButtonsMock?.mock.calls.at(-1);
+    const displayedFiles = lastCall?.[0]?.displayedFiles;
+    expect(displayedFiles).toEqual(new Set(['/foo.ts']));
   });
 
   it('does not clobber a UUID currentFolderId with the handle path when rootIdByPath knows the handle', () => {

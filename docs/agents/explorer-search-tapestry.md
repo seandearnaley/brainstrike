@@ -337,7 +337,8 @@ exists only for bulk writes that name no key (`preloadFolder`, warm-cache
 hydration), which surface solely as a `cacheVersion` bump; since that bump is
 debounced at 50ms and therefore fires ~20×/s during an index run, the
 version-driven pass is coalesced behind a trailing
-`RECONCILE_METADATA_DEBOUNCE_MS` timer. Operational transitions and
+`RECONCILE_METADATA_DEBOUNCE_MS` timer with a
+`RECONCILE_METADATA_MAX_WAIT_MS` starvation bound. Operational transitions and
 `FILE_EXPLORER_REFRESH_EVENT` reconcile immediately. Do not drop the
 reconciliation path (a reopened workspace's already-cached counts would sit on
 `pending` forever) and do not make it the per-count path. No third channel, no

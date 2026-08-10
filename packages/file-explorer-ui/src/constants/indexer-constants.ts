@@ -89,6 +89,16 @@ export const VISIBLE_FILE_INDEXING_MAX_PER_PASS = 500;
 export const RECONCILE_METADATA_DEBOUNCE_MS = 250;
 
 /**
+ * Starvation bound for metadata reconciliation during continuous cache churn.
+ *
+ * The trailing debounce above keeps ordinary bursts cheap, but an active index
+ * run can bump `cacheVersion` every 50ms indefinitely. Force one full pass at
+ * least once per second so bulk cache writes without a composite key become
+ * visible even when the stream never becomes quiet.
+ */
+export const RECONCILE_METADATA_MAX_WAIT_MS = 1000;
+
+/**
  * Debounce delay for file handle map rebuild in milliseconds.
  *
  * Waits for the tree to stabilize before rebuilding the expensive
