@@ -16,6 +16,7 @@ import {
 import {
   decodedTextModelOutputChars,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
 } from '../stream/tool-output-limits';
 
 const TEXT_ENCODER = new TextEncoder();
@@ -348,6 +349,39 @@ describe('tool output artifact reader', () => {
     expect(projection.value.next).toBeUndefined();
   });
 
+  it('fits an artifact page to a floor-tier resolved domain budget', () => {
+    const content = 'x'.repeat(5800);
+    const artifactRef = referenceFor(content);
+    const rawPage = {
+      artifactRef,
+      content,
+      endByte: artifactRef.byteLength,
+      offsetByte: 0,
+    };
+    const floorBudget = resolveScaledToolResultBudget(8192).domainModelResultCharBudget;
+
+    const projection = projectToolOutputArtifactPage(rawPage, floorBudget);
+
+    expect(JSON.stringify(projection).length).toBeLessThanOrEqual(floorBudget);
+    expect(projection.value.content.length).toBeLessThan(content.length);
+    expect(projection.value.next?.tool).toBe('brainstrike.readToolOutputArtifact');
+  });
+
+  it('keeps an anchor-tier artifact page byte-identical to the default projection', () => {
+    const content = `head${'\\'.repeat(2000)}tail`;
+    const artifactRef = referenceFor(content);
+    const rawPage = {
+      artifactRef,
+      content,
+      endByte: artifactRef.byteLength,
+      offsetByte: 0,
+    };
+
+    expect(
+      projectToolOutputArtifactPage(rawPage, MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET)
+    ).toEqual(projectToolOutputArtifactPage(rawPage));
+  });
+
   it('searches a bounded artifact slice and projects matching lines in compact grep format', async () => {
     const content = ['alpha', 'Needle first', 'beta', 'second needle'].join('\n');
     const artifactRef = referenceFor(content);
@@ -431,6 +465,29 @@ describe('tool output artifact reader', () => {
     ).toThrow(
       'Tool output artifact search projection received a limited result without continuation guidance'
     );
+  });
+
+  it('fits artifact search rows to a floor-tier resolved domain budget', async () => {
+    const content = Array.from(
+      { length: 12 },
+      (_, index) => `match-${index}-${'x'.repeat(620)}`
+    ).join('\n');
+    const artifactRef = referenceFor(content);
+    const result = await readToolOutputArtifact(
+      {
+        cursor: encodeToolOutputArtifactCursor(artifactRef, 0),
+        maxBytes: 8000,
+        mode: 'cursor',
+        pattern: 'match-',
+      },
+      { now: () => NOW, reader: readerFor(content, artifactRef) }
+    );
+    const floorBudget = resolveScaledToolResultBudget(8192).domainModelResultCharBudget;
+
+    const projection = projectToolOutputArtifactPage(result, floorBudget);
+
+    expect(decodedTextModelOutputChars(projection.value)).toBeLessThanOrEqual(floorBudget);
+    expect(projection.value).toContain('continue:');
   });
 
   it('supports regex matching and independently controls case sensitivity', async () => {

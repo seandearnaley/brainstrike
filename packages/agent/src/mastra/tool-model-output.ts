@@ -7,8 +7,6 @@ import {
   boundToolOutputForModel,
   CEILING_SCALED_TOOL_RESULT_BUDGET,
   decodedTextModelOutputChars,
-  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
-  MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS,
   MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
   MAX_MODEL_TOOL_RESULT_TOKENS,
   NATIVE_SELF_BOUND_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
@@ -65,30 +63,17 @@ export interface ModelProjectionBudget {
 }
 
 /**
- * BST-1219 (follow-up, not yet landed): desktop's purpose-built TEXT
- * projectors (`apps/desktop/src/assistant-server/workspace-*-model-projection.ts`
- * etc.) still self-fit to the FIXED anchor domain budget
- * ({@link MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET} /
- * {@link MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS}) — they are not yet threaded
- * with the per-run resolved budget. Scaling this runtime assertion DOWN for a
- * sub-anchor model (e.g. local Ollama) before that threading lands would
- * reject a legitimate anchor-sized projection a producer is still allowed to
- * emit, turning ordinary reads/searches into a hard `RangeError`. The domain
- * fields therefore floor at the anchor — `max(resolved, anchor)` — so the
- * assertion never drops below what producers actually enforce; only the
- * UPWARD scale (larger-window models get a bigger domain budget) is live.
- * Remove this floor once BST-1219 threads `resolvedToolResultBudget` into the
- * desktop projector constructors so both layers scale together again.
+ * BST-1219 (done; follow-up to PR #2349): fresh domain projections validate
+ * against this run's exact resolved budget. Desktop producers receive and
+ * self-fit against the same value, keeping producer fitting and the downstream
+ * assertion in lockstep.
  */
 export function buildDefaultModelProjectionBudget(
   resolved: ScaledToolResultBudget
 ): ModelProjectionBudget {
   return {
-    domainSerializedChars: Math.max(
-      resolved.domainModelResultCharBudget,
-      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
-    ),
-    domainTokens: Math.max(resolved.domainModelResultTokens, MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS),
+    domainSerializedChars: resolved.domainModelResultCharBudget,
+    domainTokens: resolved.domainModelResultTokens,
     rawOutputTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
     totalSerializedChars: MAX_MODEL_TOOL_RESULT_CHAR_BUDGET,
     totalTokens: MAX_MODEL_TOOL_RESULT_TOKENS,
@@ -98,6 +83,34 @@ export function buildDefaultModelProjectionBudget(
 const CEILING_DEFAULT_MODEL_PROJECTION_BUDGET = buildDefaultModelProjectionBudget(
   CEILING_SCALED_TOOL_RESULT_BUDGET
 );
+
+let activeToolResultBudget: ScaledToolResultBudget | undefined;
+
+/**
+ * The resolved budget for the synchronous custom-projector call currently on
+ * this stack. Desktop's purpose-built projectors use this because Mastra's
+ * `toModelOutput(output)` callback has no budget parameter and one tool object
+ * can be re-projected for a persona running under a different model budget.
+ *
+ * This deliberately uses save/restore module state rather than async context:
+ * every desktop custom projector is synchronous end-to-end, so Node cannot
+ * interleave another call before the `finally` restores the previous value.
+ * Async projectors remain supported by the outer projection pipeline, but they
+ * must not depend on this synchronous-only context after returning a Promise.
+ */
+export function getActiveToolResultBudget(): ScaledToolResultBudget | undefined {
+  return activeToolResultBudget;
+}
+
+function withActiveToolResultBudget<T>(budget: ScaledToolResultBudget, run: () => T): T {
+  const previous = activeToolResultBudget;
+  activeToolResultBudget = budget;
+  try {
+    return run();
+  } finally {
+    activeToolResultBudget = previous;
+  }
+}
 
 const SKILL_MODEL_PROJECTION_BUDGET: ModelProjectionBudget = {
   domainSerializedChars: SKILL_ACTIVATION_DOMAIN_MODEL_RESULT_CHAR_BUDGET,
@@ -760,7 +773,8 @@ function projectExistingModelOutput(
   projector: (output: unknown) => unknown,
   receiver: ExecutableToolWithModelOutput,
   output: unknown,
-  resolvedDefaultBudget: ModelProjectionBudget
+  resolvedDefaultBudget: ModelProjectionBudget,
+  resolvedToolResultBudget: ScaledToolResultBudget
 ): unknown {
   const settled = readSettledToolOutputModelProjection(output);
   if (settled) {
@@ -836,7 +850,9 @@ function projectExistingModelOutput(
   };
   let projected: unknown;
   try {
-    projected = Reflect.apply(projector, receiver, [domainOutput]);
+    projected = withActiveToolResultBudget(resolvedToolResultBudget, () =>
+      Reflect.apply(projector, receiver, [domainOutput])
+    );
   } catch (error) {
     return failSoft(error);
   }
@@ -926,7 +942,8 @@ export function applyToolModelOutputProjections(
               originalProjection,
               cloned,
               output,
-              resolvedDefaultBudget
+              resolvedDefaultBudget,
+              resolvedToolResultBudget
             ),
             observer,
             readTelemetrySource(output)

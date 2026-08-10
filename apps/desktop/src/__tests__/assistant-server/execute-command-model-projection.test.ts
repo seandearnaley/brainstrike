@@ -1,5 +1,6 @@
 import {
   applyToolModelOutputProjections,
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   resolveScaledToolResultBudget,
   ToolProjectionInputRejectedError,
@@ -289,13 +290,38 @@ describe('projectExecuteCommandModelOutput', () => {
     expect(projectExecuteCommandModelOutput(first)).toEqual(first);
   });
 
+  it('replays a stored projection above the resolved floor budget but below the ceiling', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192).domainModelResultCharBudget;
+    const storedModelOutput = {
+      type: 'text' as const,
+      value: `exec exit=0 0.0s\n${'x'.repeat(8000)}`,
+    };
+
+    expect(JSON.stringify(storedModelOutput).length).toBeGreaterThan(floorBudget);
+    expect(JSON.stringify(storedModelOutput).length).toBeLessThanOrEqual(
+      CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+    );
+    expect(projectExecuteCommandModelOutput(storedModelOutput, floorBudget)).toEqual(
+      storedModelOutput
+    );
+  });
+
   it('rejects an oversized stored text projection', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192).domainModelResultCharBudget;
+
     expect(() =>
-      projectExecuteCommandModelOutput({
-        type: 'text',
-        value: `exec ${'x'.repeat(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET)}`,
-      })
-    ).toThrow(RangeError);
+      projectExecuteCommandModelOutput(
+        {
+          type: 'text',
+          value: `exec ${'x'.repeat(
+            CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+          )}`,
+        },
+        floorBudget
+      )
+    ).toThrow(
+      `stored model projection exceeds the ${CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget}-character domain budget`
+    );
   });
 
   it('does not replay a text envelope with extra keys', () => {

@@ -276,7 +276,12 @@ truncated at that composition stage. The `skill` activation exception keeps
 its complete 6000-token instruction budget and adds a dedicated bounded hook
 allowance plus structural reserve instead of rebinding to the generic
 1500-token domain budget. Persona agents receive the same projections before
-their independent permission gate. Mastra 1.51's documented CoreTool
+their independent permission gate. A reused parent-owned tool is invoked under
+a save/restore active-budget context for the synchronous custom-projector call,
+so a pinned child producer fits to the child's resolved tier rather than the
+construction-time parent tier; every desktop custom projector is synchronous,
+and the context is restored before any returned Promise can be observed.
+Mastra 1.51's documented CoreTool
 projection callback receives the raw execute output. Brainstrike never
 shape-guesses `{toolCallId,input,output}` as adapter metadata because that exact
 object is valid domain evidence; a future direct AI SDK adapter belongs at a
@@ -317,10 +322,13 @@ run (domain payload sized up to the 12,000-char ceiling) that replays with hook
 context on a small-window run (e.g. an 8192-token local model) can compose a
 combined envelope sized for the ORIGINAL run's budget, not the replaying run's
 — the same 12,000-char-vs-3000-token-window mismatch the domain-only case
-already accepts by design, just one layer further out. Deferred as a follow-up
-(paired with BST-1219's desktop-projector threading, since both require
-widening what budget context reaches a replay) rather than implemented
-here.
+already accepts by design, just one layer further out. BST-1219's paired FRESH-
+path work has now landed: desktop projector producers receive the resolved
+per-run domain budget and the downstream fresh assertion uses that same
+unfloored value. Replay budget context was deliberately not widened. The
+remaining deferred tradeoff is therefore narrower and unchanged: only replay-
+time hook-context composition against the fixed `totalSerializedChars` /
+`totalTokens` axis described above.
 
 `ModelOutputProjectionObserver` receives `(toolName, output)` at this final
 projection seam. `RunTokenDiagnostics` uses it to retain one privacy-safe
@@ -354,9 +362,10 @@ tool map is settlement-wrapped after policy/provider transforms and before
 before an artifact envelope can reach display/transcript. A trusted per-tool
 canonical-name map may lower the inline threshold by
 serialized characters when a complete domain projection has a tighter budget.
-`brainstrike.webExtract` uses 2400 characters: smaller extracts project every
-source byte and exact URL directly; larger extracts settle completely and
-continue through the artifact reader instead of clipping or re-fetching.
+`brainstrike.webExtract` uses the smaller of 2400 characters and the active
+run's resolved domain-projection character budget: smaller extracts project
+every source byte and exact URL directly; larger extracts settle completely
+and continue through the artifact reader instead of clipping or re-fetching.
 If a stricter-threshold artifact still fits one model page, settlement keeps
 the rich raw display and publishes a complete page without an EOF cursor. If
 no durable store exists, an oversized web extract produces an explicit

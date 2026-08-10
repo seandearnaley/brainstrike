@@ -1,4 +1,7 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
+} from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
 import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
 import {
@@ -83,6 +86,34 @@ function hybridResult() {
 }
 
 describe('workspace retrieval model projections', () => {
+  it('fits semantic context at floor, byte-identical anchor, and ceiling tiers', () => {
+    const raw = {
+      ...semanticResult(),
+      context: 'semantic evidence '.repeat(2000),
+    };
+    const floorBudget = resolveScaledToolResultBudget(8192);
+    const anchorBudget = resolveScaledToolResultBudget(131_072);
+    const ceilingBudget = resolveScaledToolResultBudget(262_144);
+
+    const floor = projectQueryEmbeddingSpaceModelOutput(
+      raw,
+      floorBudget.domainModelResultCharBudget
+    );
+    const anchor = projectQueryEmbeddingSpaceModelOutput(
+      raw,
+      anchorBudget.domainModelResultCharBudget
+    );
+    const defaultAnchor = projectQueryEmbeddingSpaceModelOutput(raw);
+    const ceiling = projectQueryEmbeddingSpaceModelOutput(
+      raw,
+      ceilingBudget.domainModelResultCharBudget
+    );
+
+    expect(anchor).toEqual(defaultAnchor);
+    expect(floor.value.length).toBeLessThan(anchor.value.length);
+    expect(ceiling.value.length).toBeGreaterThan(anchor.value.length);
+  });
+
   it('projects semantic evidence with ranked scores and exact source locations', () => {
     expect(projectQueryEmbeddingSpaceModelOutput(semanticResult())).toEqual({
       type: 'text',

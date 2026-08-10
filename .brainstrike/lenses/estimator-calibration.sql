@@ -1,4 +1,4 @@
--- description: Estimator-vs-provider prompt-token ratio distribution by model over an inclusive time window (BST-1205)
+-- description: Estimator-vs-provider prompt-token ratio distribution by model and resolved tool-result budget tier over an inclusive time window (BST-1205/BST-1219)
 -- param: since text  Inclusive ISO timestamp at the start of the window
 -- param: until text  Inclusive ISO timestamp at the end of the window
 --
@@ -13,6 +13,8 @@
 -- now enforces the latter, so both guards are defensive for future/rare rows.
 SELECT
   model,
+  resolved_domain_budget_tokens,
+  resolved_transport_budget_tokens,
   count(*) FILTER (WHERE final_step_prompt_tokens > 0)::int AS samples,
   min(estimated_prompt_tokens::float8 / NULLIF(final_step_prompt_tokens, 0)) AS ratio_min,
   percentile_cont(0.5) WITHIN GROUP (
@@ -24,5 +26,5 @@ FROM brainstrike_token_estimate_calibration
 WHERE occurred_at >= $1::timestamptz
   AND occurred_at <= $2::timestamptz
   AND estimated_prompt_tokens > 0
-GROUP BY model
-ORDER BY model;
+GROUP BY model, resolved_domain_budget_tokens, resolved_transport_budget_tokens
+ORDER BY model, resolved_domain_budget_tokens NULLS FIRST, resolved_transport_budget_tokens NULLS FIRST;

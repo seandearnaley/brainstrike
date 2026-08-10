@@ -257,6 +257,8 @@ describe('mastra streaming integration', () => {
           modelVisibleProjectionCount: 1,
           occurredAt: expect.any(Number),
           provider: 'openai',
+          resolvedDomainBudgetTokens: 3000,
+          resolvedTransportBudgetTokens: 6000,
           stepCount: 2,
         },
       });
