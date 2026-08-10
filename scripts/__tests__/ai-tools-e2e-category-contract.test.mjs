@@ -75,8 +75,15 @@ function analyzeOptionSelectors(source) {
     ) {
       hardcodedLabels.push(node.text);
     } else if (ts.isRegularExpressionLiteral(node)) {
+      const closingSlash = node.text.lastIndexOf('/');
+      const pattern = node.text.slice(1, closingSlash);
+      const flags = node.text.slice(closingSlash + 1);
       for (const label of FORBIDDEN_CATEGORY_LABELS) {
-        if (node.text.includes(label)) {
+        if (
+          flags.includes('i')
+            ? pattern.toLocaleLowerCase('en-US').includes(label.toLocaleLowerCase('en-US'))
+            : pattern.includes(label)
+        ) {
           hardcodedLabels.push(label);
         }
       }
@@ -92,13 +99,20 @@ function analyzeOptionSelectors(source) {
     ts.forEachChild(node, (child) => collectLabels(child, resolvingDeclarations));
   }
 
-  function propertyAssignment(object, name) {
-    return object.properties.find(
+  function propertyValue(object, name) {
+    const property = object.properties.find(
       (property) =>
-        ts.isPropertyAssignment(property) &&
+        (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) &&
         ((ts.isIdentifier(property.name) && property.name.text === name) ||
           (ts.isStringLiteral(property.name) && property.name.text === name))
     );
+    if (property && ts.isPropertyAssignment(property)) {
+      return property.initializer;
+    }
+    if (property && ts.isShorthandPropertyAssignment(property)) {
+      return property.name;
+    }
+    return;
   }
 
   function inspectOptionSelectors(node) {
@@ -111,16 +125,14 @@ function analyzeOptionSelectors(source) {
       node.arguments[1] &&
       ts.isObjectLiteralExpression(node.arguments[1])
     ) {
-      const nameProperty = propertyAssignment(node.arguments[1], 'name');
-      const exactProperty = propertyAssignment(node.arguments[1], 'exact');
-      if (nameProperty && ts.isPropertyAssignment(nameProperty)) {
-        collectLabels(nameProperty.initializer);
+      const nameValue = propertyValue(node.arguments[1], 'name');
+      const exactValue = propertyValue(node.arguments[1], 'exact');
+      if (nameValue) {
+        collectLabels(nameValue);
         if (
-          ts.isIdentifier(nameProperty.initializer) &&
-          nameProperty.initializer.text === 'TOOL_CATEGORY_LABEL' &&
-          exactProperty &&
-          ts.isPropertyAssignment(exactProperty) &&
-          exactProperty.initializer.kind === ts.SyntaxKind.TrueKeyword
+          ts.isIdentifier(nameValue) &&
+          nameValue.text === 'TOOL_CATEGORY_LABEL' &&
+          exactValue?.kind === ts.SyntaxKind.TrueKeyword
         ) {
           hasExactDerivedSelector = true;
         }
@@ -192,7 +204,7 @@ function categoryLabelViolations(source) {
   return violations;
 }
 
-for (const hardcodedName of ["'Analysis'", '/Retrieval/']) {
+for (const hardcodedName of ["'Analysis'", '/retrieval/i']) {
   test(`MONEY TEST: a derived selector cannot hide hardcoded ${hardcodedName}`, () => {
     const source = `
     import {
@@ -271,6 +283,24 @@ test('MONEY TEST: a hardcoded label alias cannot bypass the selector guard', () 
     const STALE_CATEGORY_LABEL = 'Analysis';
     await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
     await page.getByRole('option', { exact: true, name: STALE_CATEGORY_LABEL }).click();
+  `;
+
+  assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
+});
+
+test('MONEY TEST: a shorthand hardcoded name cannot bypass the selector guard', () => {
+  const source = `
+    import {
+      NATIVE_TOOL_DEFAULTS,
+      TOOL_CATEGORIES,
+    } from '@brainstrike/assistant-contract/tool-metadata';
+    const NATIVE_TOOL_ID = 'brainstrike.readWorkspaceContext';
+    const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
+      NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
+    ].label;
+    await page.getByRole('option', { exact: true, name: TOOL_CATEGORY_LABEL }).click();
+    const name = 'Retrieval';
+    await page.getByRole('option', { exact: true, name }).click();
   `;
 
   assert.deepEqual(categoryLabelViolations(source), ['hardcodes an option presentation label']);
