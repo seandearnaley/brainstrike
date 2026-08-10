@@ -191,13 +191,14 @@ function analyzeOptionSelectors(source) {
             ts.isIdentifier(nameValue) && nameValue.text === 'TOOL_CATEGORY_LABEL'
               ? resolveIdentifier(nameValue)
               : undefined;
-          if (
+          const isCanonicalDerivedSelector = Boolean(
             categoryDeclaration?.initializer &&
-            isCanonicalCategoryLabelInitializer(categoryDeclaration.initializer)
-          ) {
+              isCanonicalCategoryLabelInitializer(categoryDeclaration.initializer)
+          );
+          if (isCanonicalDerivedSelector) {
             hasCanonicalDerivedLabel = true;
           }
-          if (hasCanonicalDerivedLabel && exactValue?.kind === ts.SyntaxKind.TrueKeyword) {
+          if (isCanonicalDerivedSelector && exactValue?.kind === ts.SyntaxKind.TrueKeyword) {
             hasExactDerivedSelector = true;
           }
         }
@@ -304,10 +305,12 @@ test('MONEY TEST: the metadata-derived option selector must retain exact matchin
     const TOOL_CATEGORY_LABEL = TOOL_CATEGORIES[
       NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].category
     ].label;
+    const TOOL_TIER_LABEL = NATIVE_TOOL_DEFAULTS[NATIVE_TOOL_ID].tier;
     await page.getByRole(
       'option',
       { exact: false /* exact: true */, name: TOOL_CATEGORY_LABEL }
     ).click();
+    await page.getByRole('option', { exact: true, name: TOOL_TIER_LABEL }).click();
   `;
 
   assert.deepEqual(categoryLabelViolations(source), [
