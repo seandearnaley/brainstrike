@@ -576,9 +576,11 @@ A second surface that only needs to DISPLAY collections must:
 
 Reference implementation:
 `packages/db-explorer/src/components/explorer-collection-picker.tsx`.
-The sanctioned synchronization write path for that secondary surface is
-`packages/db-explorer/src/hooks/use-collection-cache-sync.ts`; it implements
-the seed-and-event flow above without mounting another `useCollections` owner.
+The sanctioned event-sync write path is
+`packages/db-explorer/src/hooks/use-collection-cache-sync.ts`; mount it on the
+dialog-hosting surface (`explorer-import-action.tsx`), never on the picker
+itself, because the popover unmounts before the outcome is announced. Seeding
+stays with each caller via `fetchCollectionsSnapshot`.
 
 ---
 
