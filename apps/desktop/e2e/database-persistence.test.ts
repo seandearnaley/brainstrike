@@ -223,7 +223,12 @@ test.describe('Database Persistence', () => {
     const preserveState = testInfo.title.includes('should persist data between app restarts');
 
     if (!preserveState) {
-      await clearDatabaseRecords(window);
+      if (await isDatabaseError(window)) {
+        const teardownErrorText = await window.locator(ERROR_LOCATOR).first().textContent();
+        expect(isExpectedDatabaseInitError(teardownErrorText)).toBe(true);
+      } else {
+        await clearDatabaseRecords(window);
+      }
     }
 
     await electron.ensureWindow();

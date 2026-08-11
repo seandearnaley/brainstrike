@@ -234,6 +234,11 @@ test('database persistence specs do not treat fail-closed cleanup as a graceful 
     /test\.afterEach\([\s\S]*?try\s*\{[\s\S]*?clearDatabaseRecords\(window\)[\s\S]*?\}\s*catch/,
     'serial-suite teardown must propagate cleanup failures instead of contaminating later cases'
   );
+  assert.match(
+    source,
+    /const teardownErrorText = await window[\s\S]*?expect\(isExpectedDatabaseInitError\(teardownErrorText\)\)\.toBe\(true\);/,
+    'teardown may skip cleanup only after re-validating an expected database initialization error'
+  );
   const buttonCleanupSource = findNamedFunctionSource(source, 'confirmClearDatabaseAndVerifyEmpty');
   assert.match(
     buttonCleanupSource,
