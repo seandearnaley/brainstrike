@@ -2,6 +2,8 @@ import type { LogRecord } from '@brainstrike/logging';
 import { type DiagnosticCauseEntry, isDiagnosticCauseEntry } from '@brainstrike/utils/diagnostics';
 
 const CIRCULAR_REFERENCE_MARKER = '[Circular]';
+const DIAGNOSTIC_SERIALIZATION_FAILURE_MARKER = '[Diagnostic serialization failed]';
+const BINDINGS_SERIALIZATION_FAILURE_MARKER = '[Bindings serialization failed]';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -96,7 +98,11 @@ function normalizeDiagnosticNumber(value: number): number | string {
   return value > 0 ? '[Infinity]' : '[-Infinity]';
 }
 
-function normalizeDiagnosticValue(value: unknown, active: WeakSet<object>): unknown {
+function normalizeDiagnosticValue(
+  value: unknown,
+  active: WeakSet<object>,
+  failureMarker = DIAGNOSTIC_SERIALIZATION_FAILURE_MARKER
+): unknown {
   if (value === undefined) {
     return '[Undefined]';
   }
@@ -121,29 +127,59 @@ function normalizeDiagnosticValue(value: unknown, active: WeakSet<object>): unkn
 
   active.add(value);
   try {
-    if (value instanceof Date) {
-      return Number.isFinite(value.getTime()) ? value.toISOString() : '[Invalid Date]';
-    }
-    if (Array.isArray(value)) {
-      return value.map((entry) => normalizeDiagnosticValue(entry, active));
-    }
-    if (value instanceof Error) {
-      const customEntries = Object.entries(value).filter(
-        ([key]) => !['cause', 'message', 'name', 'stack'].includes(key)
+    try {
+      if (value instanceof Date) {
+        return Number.isFinite(value.getTime()) ? value.toISOString() : '[Invalid Date]';
+      }
+      if (Array.isArray(value)) {
+        return value.map((entry) => {
+          try {
+            return normalizeDiagnosticValue(entry, active, failureMarker);
+          } catch {
+            return failureMarker;
+          }
+        });
+      }
+      if (value instanceof Error) {
+        const customEntries = Object.entries(value).filter(
+          ([key]) => !['cause', 'message', 'name', 'stack'].includes(key)
+        );
+        return {
+          ...Object.fromEntries(
+            customEntries.map(([key, entry]) => [
+              key,
+              normalizeDiagnosticValue(entry, active, failureMarker),
+            ])
+          ),
+          cause: normalizeDiagnosticValue(value.cause, active, failureMarker),
+          message: value.message,
+          name: value.name,
+          stack: value.stack ?? '[Undefined]',
+        };
+      }
+      let keys: string[];
+      try {
+        keys = Object.keys(value);
+      } catch {
+        return failureMarker;
+      }
+      return Object.fromEntries(
+        keys.map((key) => {
+          const childFailureMarker =
+            key === 'bindings' ? BINDINGS_SERIALIZATION_FAILURE_MARKER : failureMarker;
+          try {
+            return [
+              key,
+              normalizeDiagnosticValue(Reflect.get(value, key), active, childFailureMarker),
+            ];
+          } catch {
+            return [key, childFailureMarker];
+          }
+        })
       );
-      return {
-        ...Object.fromEntries(
-          customEntries.map(([key, entry]) => [key, normalizeDiagnosticValue(entry, active)])
-        ),
-        cause: normalizeDiagnosticValue(value.cause, active),
-        message: value.message,
-        name: value.name,
-        stack: value.stack ?? '[Undefined]',
-      };
+    } catch {
+      return failureMarker;
     }
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, normalizeDiagnosticValue(entry, active)])
-    );
   } finally {
     active.delete(value);
   }

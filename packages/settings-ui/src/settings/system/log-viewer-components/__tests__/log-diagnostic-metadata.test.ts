@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getLogRecordCauseChainDiagnostics,
   serializeLogContextJson,
+  serializeLogRecordJson,
 } from '../log-diagnostic-metadata';
 
 function createRecord(context: Record<string, unknown>): LogRecord {
@@ -51,6 +52,38 @@ describe('log diagnostic metadata', () => {
       symbolValue: 'Symbol(diagnostic)',
       undefinedValue: '[Undefined]',
     });
+  });
+
+  it('keeps malformed binding properties visible instead of aborting record serialization', () => {
+    const bindings: Record<string, unknown> = {};
+    Object.defineProperty(bindings, 'broken', {
+      enumerable: true,
+      get: () => {
+        throw new Error('binding getter failed');
+      },
+    });
+    const record = createRecord({});
+    record.bindings = bindings;
+
+    expect(JSON.parse(serializeLogRecordJson(record)).bindings).toEqual({
+      broken: '[Bindings serialization failed]',
+    });
+  });
+
+  it('marks an unreadable bindings proxy instead of aborting record serialization', () => {
+    const record = createRecord({});
+    record.bindings = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error('binding keys failed');
+        },
+      }
+    );
+
+    expect(JSON.parse(serializeLogRecordJson(record)).bindings).toBe(
+      '[Bindings serialization failed]'
+    );
   });
 
   it('keeps valid causes and reports malformed entries instead of dropping the chain', () => {

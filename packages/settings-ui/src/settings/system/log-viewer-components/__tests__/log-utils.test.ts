@@ -5,7 +5,14 @@ import {
   getCachedLogSearchHaystack,
   type LogRecordRow,
   MAX_CACHED_LOG_SEARCH_HAYSTACK_CHARACTERS,
+  serializeBindings,
 } from '../log-utils';
+
+describe('serializeBindings', () => {
+  it('surfaces a toJSON result of undefined instead of silently omitting bindings', () => {
+    expect(serializeBindings({ toJSON: () => undefined })).toBe('[Bindings serialization failed]');
+  });
+});
 
 describe('getCachedLogSearchHaystack', () => {
   it('builds the lowercase projection once per record across incremental searches', () => {

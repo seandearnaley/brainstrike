@@ -191,6 +191,12 @@ describe('LogViewer', () => {
   it('exports circular bindings with an explicit circular marker', async () => {
     const circularBindings: Record<string, unknown> = { runtime: 'electron-renderer' };
     circularBindings['self'] = circularBindings;
+    Object.defineProperty(circularBindings, 'broken', {
+      enumerable: true,
+      get: () => {
+        throw new Error('binding getter failed');
+      },
+    });
     const logSource = {
       getInitialRecords: async () => [
         createMockLogRecord({
@@ -220,6 +226,7 @@ describe('LogViewer', () => {
       expect(exportedBlob).not.toBeNull();
       const payload = JSON.parse(await exportedBlob!.text());
       expect(payload.records[0].bindings).toEqual({
+        broken: '[Bindings serialization failed]',
         runtime: 'electron-renderer',
         self: '[Circular]',
       });

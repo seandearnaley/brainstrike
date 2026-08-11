@@ -43,7 +43,8 @@ export function serializeBindings(bindings: LogRecord['bindings']): string {
   try {
     // Preserve normal JSON/toJSON semantics on the common path; only invoke the
     // diagnostic normalizer when native serialization proves the value unsafe.
-    return JSON.stringify(bindings ?? {});
+    const serialized = JSON.stringify(bindings ?? {});
+    return serialized ?? BINDINGS_SERIALIZATION_FAILURE;
   } catch {
     try {
       return serializeDiagnosticJson(bindings ?? {}, 'Log bindings', 0);
