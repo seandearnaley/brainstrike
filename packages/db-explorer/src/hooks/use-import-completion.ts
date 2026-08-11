@@ -10,7 +10,7 @@ interface ImportCounts {
   totalEmbeddings: number;
 }
 
-interface ImportCompletionHandlerOptions {
+export interface ImportCompletionHandlerOptions {
   loadChunks?: () => Promise<void>;
   loadRecords?: () => Promise<void>;
   refreshCollectionStats?: () => Promise<void>;

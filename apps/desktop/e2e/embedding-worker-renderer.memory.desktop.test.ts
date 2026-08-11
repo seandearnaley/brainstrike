@@ -418,7 +418,7 @@ test.describe('Embedding Host Renderer - memory', () => {
         },
         { timeout: 30_000 }
       )
-      .toBeLessThanOrEqual(recordPageSize);
+      .toBe(recordPageSize);
 
     await forceRendererGarbageCollection(activeWindow);
     await forceRendererGarbageCollection(activeWindow);
