@@ -370,62 +370,69 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
     verboseLog('🧹 Starting efficient database record cleanup...');
 
     if (await isDatabaseErrorState(activePage)) {
-      verboseLog('ℹ️ Database in error state; skipping record cleanup.');
-      return activePage;
+      failClosedOnUnavailableUiCleanup('database is in an error state');
     }
 
     // Try using the bulk delete API (available in Electron environment)
     verboseLog('🚀 Attempting bulk delete via Electron API...');
-    let uiCleanupReason: string;
+    let bulkDeleteResult: { message: string; success: boolean };
     try {
-      const result = await activePage.evaluate(async () => {
+      bulkDeleteResult = await activePage.evaluate(async () => {
         // Check if we're in Electron and have the API available
         if (typeof window !== 'undefined' && (window as any).electronAPI?.db?.clearAll) {
           return await (window as any).electronAPI.db.clearAll('CONFIRM_CLEAR_DATABASE');
         }
         return { message: 'Bulk delete API not available', success: false };
       });
-
-      if (result.success) {
-        verboseLog(`✅ Bulk delete successful: ${result.message}`);
-        const remainingCount = await activePage.evaluate(async () => {
-          const api = (
-            window as unknown as {
-              electronAPI?: {
-                db?: { query?: (sql: string) => Promise<{ rows: { count: number }[] }> };
-              };
-            }
-          ).electronAPI;
-          if (!api?.db?.query) {
-            return null;
-          }
-          const result = await api.db.query('SELECT COUNT(*)::int AS count FROM file_records');
-          return result.rows[0]?.count ?? null;
-        });
-
-        if (typeof remainingCount === 'number') {
-          verboseLog(`📊 Records remaining after bulk delete (API): ${remainingCount}`);
-          if (remainingCount === 0) {
-            verboseLog('✅ Database cleanup completed successfully');
-            return activePage;
-          }
-          uiCleanupReason = `bulk delete reported success but left ${remainingCount} records`;
-        } else {
-          console.warn('⚠️ Could not verify record count via API after bulk delete');
-          uiCleanupReason =
-            'bulk delete reported success but the remaining record count could not be verified';
-        }
-      } else {
-        console.warn(`⚠️ Bulk delete failed: ${result.message}`);
-        uiCleanupReason = `bulk delete failed: ${result.message}`;
-      }
     } catch (bulkError) {
       console.warn('⚠️ Bulk delete API failed:', bulkError);
       const detail = bulkError instanceof Error ? bulkError.message : String(bulkError);
-      uiCleanupReason = `bulk delete threw: ${detail}`;
+      failClosedOnUnavailableUiCleanup(`bulk delete threw: ${detail}`);
     }
 
-    clearDatabaseRecordsViaUI(uiCleanupReason);
+    if (!bulkDeleteResult.success) {
+      console.warn(`⚠️ Bulk delete failed: ${bulkDeleteResult.message}`);
+      failClosedOnUnavailableUiCleanup(`bulk delete failed: ${bulkDeleteResult.message}`);
+    }
+    verboseLog(`✅ Bulk delete successful: ${bulkDeleteResult.message}`);
+
+    let remainingCount: number | null;
+    try {
+      remainingCount = await activePage.evaluate(async () => {
+        const api = (
+          window as unknown as {
+            electronAPI?: {
+              db?: { query?: (sql: string) => Promise<{ rows: { count: number }[] }> };
+            };
+          }
+        ).electronAPI;
+        if (!api?.db?.query) {
+          return null;
+        }
+        const result = await api.db.query('SELECT COUNT(*)::int AS count FROM file_records');
+        return result.rows[0]?.count ?? null;
+      });
+    } catch (verificationError) {
+      const detail =
+        verificationError instanceof Error ? verificationError.message : String(verificationError);
+      failClosedOnUnavailableUiCleanup(`record-count verification threw: ${detail}`);
+    }
+
+    if (typeof remainingCount !== 'number') {
+      failClosedOnUnavailableUiCleanup(
+        'bulk delete reported success but the remaining record count could not be verified'
+      );
+    }
+
+    verboseLog(`📊 Records remaining after bulk delete (API): ${remainingCount}`);
+    if (remainingCount > 0) {
+      failClosedOnUnavailableUiCleanup(
+        `bulk delete reported success but left ${remainingCount} records`
+      );
+    }
+
+    verboseLog('✅ Database cleanup completed successfully');
+    return activePage;
   } catch (error) {
     console.error('❌ Database cleanup failed:', error);
     throw error;
@@ -435,14 +442,13 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
 /**
  * Surface the unavailable UI cleanup path with the reason it was reached.
  *
- * NOTE (BST-1213/BST-1216): this path is unreachable-by-design. It drives
- * `tbody tr button[title="Remove record"]`, and no surface has rendered a
- * per-record delete button for some time; since the Collections tab lost its
- * record table entirely, `tbody tr` matches nothing here either. Every bulk
- * cleanup fall-through therefore fails closed here with its exact reason
- * instead of reporting a successful cleanup. See the B2 report follow-ups.
+ * NOTE (BST-1213/BST-1216): the removed fallback used to drive
+ * `tbody tr button[title="Remove record"]`, but no surface has rendered that
+ * control for some time. Every unverified cleanup path therefore fails closed
+ * here with its exact reason instead of reporting success. See the B2 report
+ * follow-ups.
  */
-function clearDatabaseRecordsViaUI(reason: string): never {
+function failClosedOnUnavailableUiCleanup(reason: string): never {
   throw new Error(`Database UI cleanup is unavailable: ${reason}; records were not cleared.`);
 }
 

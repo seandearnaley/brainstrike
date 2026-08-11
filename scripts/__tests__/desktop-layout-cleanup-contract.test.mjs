@@ -8,19 +8,22 @@ test('desktop database UI cleanup fails closed when the dead fallback cannot rem
   const source = await readFile(helperPath, 'utf8');
   assert.match(
     source,
-    /function clearDatabaseRecordsViaUI\(reason: string\): never \{\s*throw new Error\(`Database UI cleanup is unavailable: \$\{reason\}; records were not cleared\.`\);\s*\}/,
+    /function failClosedOnUnavailableUiCleanup\(reason: string\): never \{\s*throw new Error\(`Database UI cleanup is unavailable: \$\{reason\}; records were not cleared\.`\);\s*\}/,
     'the unavailable fallback must throw its caller-provided failure reason'
   );
 
-  for (const reason of [
-    'bulk delete reported success but left',
-    'bulk delete reported success but the remaining record count could not be verified',
-    'bulk delete failed:',
-    'bulk delete threw:',
+  for (const invocationPattern of [
+    /failClosedOnUnavailableUiCleanup\('database is in an error state'\);/,
+    /failClosedOnUnavailableUiCleanup\(`bulk delete threw: \$\{detail\}`\);/,
+    /failClosedOnUnavailableUiCleanup\(`bulk delete failed: \$\{bulkDeleteResult\.message\}`\);/,
+    /failClosedOnUnavailableUiCleanup\(`record-count verification threw: \$\{detail\}`\);/,
+    /failClosedOnUnavailableUiCleanup\(\s*'bulk delete reported success but the remaining record count could not be verified'\s*\);/,
+    /failClosedOnUnavailableUiCleanup\(\s*`bulk delete reported success but left \$\{remainingCount\} records`\s*\);/,
   ]) {
-    assert.ok(
-      source.includes(reason),
-      `the cleanup caller must preserve the distinct reason: ${reason}`
+    assert.match(
+      source,
+      invocationPattern,
+      `the cleanup caller must invoke the fail-closed helper: ${invocationPattern}`
     );
   }
 
