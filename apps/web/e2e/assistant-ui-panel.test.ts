@@ -399,6 +399,118 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(reloadedThreadTab.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible();
   });
 
+  test('tracks concurrent thread activity from durable runs and clears every terminal spinner', async ({
+    page,
+  }) => {
+    const elements = getPanelElements(page);
+    if (await elements.showRightPanelShim.isVisible()) {
+      await elements.showRightPanelShim.click();
+      await expect(elements.rightPanel).toBeVisible();
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
+    await page.getByTestId('new-agent-button').click();
+    await expect(page.getByTestId('thread-row')).toHaveCount(2);
+
+    const threads = await page.evaluate(async (resourceId) => {
+      const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+        .__brainstrikeWebE2ETestHooks__;
+      if (!hooks) {
+        throw new Error('Expected web E2E hooks to be available');
+      }
+      return (await hooks.readAssistantThreads()).filter(
+        (thread) => thread.resourceId === resourceId
+      );
+    }, WORKSPACE_MEMORY_RESOURCE_ID);
+    expect(threads).toHaveLength(2);
+    const firstThread = threads[0];
+    const secondThread = threads[1];
+    if (!(firstThread && secondThread)) {
+      throw new Error('Expected two assistant threads for concurrent activity coverage');
+    }
+    const firstRunId = `e2e-active-run-${crypto.randomUUID()}`;
+    const secondRunId = `e2e-active-run-${crypto.randomUUID()}`;
+    await page.evaluate(
+      async ({ first, firstId, resourceId, second, secondId }) => {
+        const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+          .__brainstrikeWebE2ETestHooks__;
+        if (!hooks) {
+          throw new Error('Expected web E2E hooks to be available');
+        }
+        await Promise.all([
+          hooks.createAssistantThreadRun({ id: firstId, resourceId, threadId: first }),
+          hooks.createAssistantThreadRun({ id: secondId, resourceId, threadId: second }),
+        ]);
+      },
+      {
+        first: firstThread.id,
+        firstId: firstRunId,
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        second: secondThread.id,
+        secondId: secondRunId,
+      }
+    );
+
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(2);
+    await expect(
+      page.getByTestId('thread-row').locator('[data-testid^="thread-icon-"]')
+    ).toHaveCount(2);
+    await expect(page.getByTestId('thread-active-spinner').first()).toHaveCSS(
+      'animation-name',
+      'none'
+    );
+
+    await page.evaluate(async (runId) => {
+      const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+        .__brainstrikeWebE2ETestHooks__;
+      if (!hooks) {
+        throw new Error('Expected web E2E hooks to be available');
+      }
+      await hooks.completeAssistantThreadRun(runId, 'completed');
+    }, firstRunId);
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(1);
+
+    await page.evaluate(async (runId) => {
+      const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+        .__brainstrikeWebE2ETestHooks__;
+      if (!hooks) {
+        throw new Error('Expected web E2E hooks to be available');
+      }
+      await hooks.completeAssistantThreadRun(runId, 'failed');
+    }, secondRunId);
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(0);
+    await expect(
+      page.getByTestId('thread-row').locator('[data-testid^="thread-icon-"]')
+    ).toHaveCount(2);
+
+    const cancellationRunId = `e2e-cancelled-run-${crypto.randomUUID()}`;
+    await page.evaluate(
+      async ({ resourceId, runId, threadId }) => {
+        const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+          .__brainstrikeWebE2ETestHooks__;
+        if (!hooks) {
+          throw new Error('Expected web E2E hooks to be available');
+        }
+        await hooks.createAssistantThreadRun({ id: runId, resourceId, threadId });
+      },
+      {
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        runId: cancellationRunId,
+        threadId: firstThread.id,
+      }
+    );
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(1);
+    await page.evaluate(async (runId) => {
+      const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+        .__brainstrikeWebE2ETestHooks__;
+      if (!hooks) {
+        throw new Error('Expected web E2E hooks to be available');
+      }
+      await hooks.completeAssistantThreadRun(runId, 'cancelled');
+    }, cancellationRunId);
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(0);
+  });
+
   test('keeps thread identity aligned when switching into rename mode', async ({ page }) => {
     await expect(page.getByTestId('threads-panel')).toBeVisible();
     const threadRow = page.getByTestId('thread-row').first();

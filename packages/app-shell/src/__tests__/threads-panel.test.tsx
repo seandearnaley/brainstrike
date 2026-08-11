@@ -58,6 +58,8 @@ vi.mock('@tanstack/react-virtual', () => ({
 const { dbMocks, fileExplorerMocks, groupRows, mockDb, placementRows, threadRows } = vi.hoisted(
   () => ({
     dbMocks: {
+      activeRunError: null as Error | null,
+      activeRunRows: [] as Record<string, unknown>[],
       database: undefined as unknown,
       deleteFailureThreadId: null as string | null,
       initializationStatus: 'ready' as 'idle' | 'initializing' | 'ready' | 'error',
@@ -175,6 +177,7 @@ vi.mock('@brainstrike/db/react', () => ({
         results: [],
       }),
   }),
+  makeLiveQueryKey: (...parts: readonly unknown[]) => JSON.stringify(parts),
   ThreadSearchRepository: class {
     deleteThreads(): Promise<void> {
       return Promise.resolve();
@@ -223,6 +226,12 @@ vi.mock('@brainstrike/db/react', () => ({
   useDbInitializing: () => dbMocks.initializing,
   useDbProviderError: () => dbMocks.providerError,
   usePGliteDatabase: () => (dbMocks.database === undefined ? mockDb : dbMocks.database),
+  usePGliteLiveQuery: () => ({
+    error: dbMocks.activeRunError,
+    loading: false,
+    refresh: vi.fn(),
+    rows: dbMocks.activeRunRows,
+  }),
 }));
 
 vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
@@ -270,6 +279,8 @@ beforeEach(() => {
     path: '/tmp/workspace-a',
   };
   dbMocks.database = undefined;
+  dbMocks.activeRunError = null;
+  dbMocks.activeRunRows = [];
   dbMocks.deleteFailureThreadId = null;
   dbMocks.initializing = false;
   dbMocks.initializationStatus = 'ready';
@@ -536,6 +547,70 @@ beforeEach(() => {
 });
 
 describe('ThreadsPanel', () => {
+  it('shows independent reduced-motion-safe activity spinners without replacing thread icons', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-a' }, { threadId: 'thread-b' }];
+    renderThreadsPanel();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('thread-active-spinner')).toHaveLength(2);
+    });
+
+    const firstThreadRow = screen
+      .getByText('First thread')
+      .closest<HTMLElement>('[data-testid="thread-row"]');
+    const secondThreadRow = screen
+      .getByText('Second thread')
+      .closest<HTMLElement>('[data-testid="thread-row"]');
+    expect(firstThreadRow).not.toBeNull();
+    expect(secondThreadRow).not.toBeNull();
+    if (!(firstThreadRow && secondThreadRow)) {
+      throw new Error('Expected both thread rows to render.');
+    }
+
+    expect(within(firstThreadRow).getByTestId('thread-icon-code')).toBeVisible();
+    expect(within(secondThreadRow).getByTestId('thread-icon-message')).toBeVisible();
+    expect(
+      within(firstThreadRow).getByRole('status', { name: 'First thread is active' })
+    ).toHaveClass('motion-reduce:animate-none');
+    expect(
+      within(secondThreadRow).getByRole('status', { name: 'Second thread is active' })
+    ).toBeVisible();
+
+    dbMocks.activeRunRows = [];
+    act(() => {
+      useAssistantThreadStore.setState((state) => ({
+        selectedThreadByResourceId: { ...state.selectedThreadByResourceId },
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('thread-active-spinner')).not.toBeInTheDocument();
+    });
+    expect(within(firstThreadRow).getByTestId('thread-icon-code')).toBeVisible();
+    expect(within(secondThreadRow).getByTestId('thread-icon-message')).toBeVisible();
+  });
+
+  it('surfaces an active-run subscription failure instead of silently showing every thread idle', async () => {
+    dbMocks.activeRunRows = [{ threadId: 'thread-a' }];
+    dbMocks.activeRunError = new Error('active run live query failed');
+    renderThreadsPanel();
+
+    expect(await screen.findByTestId('thread-activity-error')).toHaveTextContent(
+      'Active thread status unavailable: active run live query failed'
+    );
+    expect(screen.queryByTestId('thread-active-spinner')).not.toBeInTheDocument();
+  });
+
+  it('rejects malformed active-run rows instead of guessing a thread identity', async () => {
+    dbMocks.activeRunRows = [{ threadId: 42 }];
+    renderThreadsPanel();
+
+    expect(await screen.findByTestId('thread-activity-error')).toHaveTextContent(
+      'Active thread status unavailable: Active assistant thread query returned an invalid thread id.'
+    );
+    expect(screen.queryByTestId('thread-active-spinner')).not.toBeInTheDocument();
+  });
+
   it('spends exactly two chrome rows above the list: a toolbar and the search row', async () => {
     renderThreadsPanel();
 

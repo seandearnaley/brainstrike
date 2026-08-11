@@ -59,6 +59,7 @@ import {
   FolderMinus,
   FolderPlus,
   ListChecks,
+  LoaderCircle,
   MessageSquare,
   MoreHorizontal,
   Palette,
@@ -106,6 +107,7 @@ import {
   useThreadsPanelDropMonitor,
 } from './threads-panel-dnd-elements';
 import { ThreadsPanelSearch } from './threads-panel-search';
+import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 import { type ThreadPanelSelection, useThreadPanelSelection } from './use-thread-panel-selection';
 import { useThreadSearchController } from './use-thread-search-controller';
 
@@ -207,6 +209,7 @@ interface ThreadMoveTarget {
 }
 
 function ThreadRows({
+  activeThreadIds,
   membershipByThreadId,
   moveTargets,
   onDeleteThread,
@@ -217,6 +220,7 @@ function ThreadRows({
   selectedThreadId,
   threads,
 }: {
+  readonly activeThreadIds: ReadonlySet<string>;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
   readonly moveTargets: readonly ThreadMoveTarget[];
   readonly onDeleteThread: (threadId: string) => Promise<void>;
@@ -251,6 +255,7 @@ function ThreadRows({
           threadId={thread.id}
         >
           <ThreadRowItem
+            active={activeThreadIds.has(thread.id)}
             confirmingDeleteThreadId={confirmingDeleteThreadId}
             customizingThreadId={customizingThreadId}
             deleteError={deleteError}
@@ -338,6 +343,7 @@ function ThreadRows({
 }
 
 function ThreadRowItem({
+  active,
   customizingThreadId,
   confirmingDeleteThreadId,
   deletingThreadId,
@@ -371,6 +377,7 @@ function ThreadRowItem({
   selectedThreadId,
   thread,
 }: {
+  readonly active: boolean;
   readonly customizingThreadId: string | null;
   readonly confirmingDeleteThreadId: string | null;
   readonly deletingThreadId: string | null;
@@ -573,6 +580,7 @@ function ThreadRowItem({
     >
       {isEditing ? (
         <ThreadRenameForm
+          active={active}
           draftTitle={draftTitle}
           onCancelRename={onCancelRename}
           onDraftTitleChange={onDraftTitleChange}
@@ -596,6 +604,7 @@ function ThreadRowItem({
             onContextMenuCapture={() => setContextMenuTarget(null)}
           >
             <ThreadRowDisplay
+              active={active}
               customizing={isCustomizing}
               deleteError={isConfirmingDelete ? deleteError : null}
               deleting={deletingThreadId === thread.id}
@@ -624,6 +633,7 @@ function ThreadRowItem({
 }
 
 function ThreadRenameForm({
+  active,
   draftTitle,
   onCancelRename,
   onDraftTitleChange,
@@ -635,6 +645,7 @@ function ThreadRenameForm({
   savingThreadId,
   thread,
 }: {
+  readonly active: boolean;
   readonly draftTitle: string;
   readonly onCancelRename: () => void;
   readonly onDraftTitleChange: (title: string) => void;
@@ -662,7 +673,7 @@ function ThreadRenameForm({
           });
       }}
     >
-      <ThreadIdentityMark thread={thread} />
+      <ThreadIdentityMark active={active} thread={thread} />
       <input
         aria-label="Thread title"
         className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -705,6 +716,7 @@ function ThreadRenameForm({
 }
 
 function ThreadRowDisplay({
+  active,
   customizing,
   deleteError,
   deleting,
@@ -725,6 +737,7 @@ function ThreadRowDisplay({
   selected,
   thread,
 }: {
+  readonly active: boolean;
   readonly customizing: boolean;
   readonly deleteError: string | null;
   readonly deleting: boolean;
@@ -768,7 +781,7 @@ function ThreadRowDisplay({
         >
           <div className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-x-2">
             <div className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} items-center`}>
-              <ThreadIdentityMark thread={thread} />
+              <ThreadIdentityMark active={active} thread={thread} />
             </div>
             <div
               className={`flex ${THREAD_CONTROL_MIN_HEIGHT_CLASS_NAME} min-w-0 items-center gap-1.5`}
@@ -912,17 +925,31 @@ function ThreadRowDisplay({
   );
 }
 
-function ThreadIdentityMark({ thread }: { readonly thread: AssistantMemoryThread }): ReactElement {
+function ThreadIdentityMark({
+  active,
+  thread,
+}: {
+  readonly active: boolean;
+  readonly thread: AssistantMemoryThread;
+}): ReactElement {
   const iconId = getThreadIconId(thread);
   const colorId = getThreadColorId(thread);
   const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
   const colorConfig = getThreadColorConfig(thread);
   return (
     <span
-      className={`${THREAD_CONTROL_MARK_CLASS_NAME} ${colorConfig.markClassName}`}
+      className={`relative ${THREAD_CONTROL_MARK_CLASS_NAME} ${colorConfig.markClassName}`}
       data-testid={`thread-color-${colorId ?? 'unassigned'}`}
     >
       <Icon className="size-3" data-testid={`thread-icon-${iconId}`} />
+      {active ? (
+        <LoaderCircle
+          aria-label={`${thread.title} is active`}
+          className="pointer-events-none absolute -right-1 -bottom-1 size-3 animate-spin rounded-full border border-background bg-background text-current shadow-sm motion-reduce:animate-none"
+          data-testid="thread-active-spinner"
+          role="status"
+        />
+      ) : null}
     </span>
   );
 }
@@ -1991,6 +2018,7 @@ function ThreadBulkSelectionOverlay({
 }
 
 function ThreadPanelTree({
+  activeThreadIds,
   groupHandlers,
   membershipByThreadId,
   moveTargets,
@@ -2006,6 +2034,7 @@ function ThreadPanelTree({
   selection,
   view,
 }: {
+  readonly activeThreadIds: ReadonlySet<string>;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly membershipByThreadId: ReadonlyMap<string, string | null>;
   readonly moveTargets: readonly ThreadMoveTarget[];
@@ -2070,6 +2099,7 @@ function ThreadPanelTree({
 
   const rowsProps = useMemo<Omit<ThreadRowsProps, 'threads'>>(
     () => ({
+      activeThreadIds,
       membershipByThreadId,
       moveTargets,
       onDeleteThread,
@@ -2080,6 +2110,7 @@ function ThreadPanelTree({
       selectedThreadId,
     }),
     [
+      activeThreadIds,
       membershipByThreadId,
       moveTargets,
       onDeleteThread,
@@ -2206,6 +2237,7 @@ function ThreadPanelTree({
 }
 
 function ThreadsPanelContent({
+  activeThreadIds,
   databaseError,
   databaseStartupLoading,
   groupHandlers,
@@ -2226,6 +2258,7 @@ function ThreadsPanelContent({
   threads,
   view,
 }: {
+  readonly activeThreadIds: ReadonlySet<string>;
   readonly databaseError: Error | null;
   readonly databaseStartupLoading: boolean;
   readonly groupHandlers: ThreadGroupSectionHandlers;
@@ -2272,6 +2305,7 @@ function ThreadsPanelContent({
   }
   return (
     <ThreadPanelTree
+      activeThreadIds={activeThreadIds}
       groupHandlers={groupHandlers}
       membershipByThreadId={membershipByThreadId}
       moveTargets={moveTargets}
@@ -2462,6 +2496,10 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   const selectedThreadId = selectedThreadByResourceId[resourceId];
   const threads = threadsByResourceId[resourceId] ?? EMPTY_THREADS;
   const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
+  const activeThreads = useActiveAssistantThreadIds({
+    enabled: Boolean(repository) && loadState.status === 'ready',
+    resourceId,
+  });
   const groupsByResourceId = useAssistantThreadGroupsStore((state) => state.groupsByResourceId);
   const placementsByThreadId = useAssistantThreadGroupsStore((state) => state.placementsByThreadId);
   const groupsLoadStateByResourceId = useAssistantThreadGroupsStore(
@@ -2800,9 +2838,15 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           Failed to load thread groups: {groupsLoadState.error}
         </p>
       ) : null}
+      {activeThreads.error ? (
+        <p className="px-3 pb-2 text-[11px] text-destructive" data-testid="thread-activity-error">
+          Active thread status unavailable: {activeThreads.error.message}
+        </p>
+      ) : null}
 
       <div className={searchActive ? 'hidden' : 'flex min-h-0 flex-1 overflow-hidden'}>
         <ThreadsPanelContent
+          activeThreadIds={activeThreads.threadIds}
           databaseError={databaseError}
           databaseStartupLoading={databaseStartupLoading}
           groupHandlers={{

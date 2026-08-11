@@ -804,6 +804,29 @@ carries the weight here rather than error surfacing. If provenance is ever
 broken, expect partial silence, not a clean failure. Paired test (clean-stream
 path only): `apps/desktop/src/__tests__/assistant-server/run-event-schema-provenance.integration.test.ts`.
 
+### Threads-panel active-run projection (BST-1244)
+
+The Threads panel derives its running indicators directly from
+`brainstrike_assistant_thread_runs` through ONE resource-scoped PGlite live
+query (`packages/app-shell/src/use-active-assistant-thread-ids.ts`). It does not
+own a second activity store, poll, or subscribe once per row. The query selects
+the distinct thread ids whose durable status is `running`; the virtualized row
+surface only performs `Set.has(thread.id)` for visible rows.
+
+This makes all existing lifecycle writers authoritative for the indicator:
+renderer-created runs appear after their durable insert; completed, failed, and
+cancelled runs clear after their terminal update; thread deletion clears via
+the existing cascade; and the desktop startup `reapOrphanedThreadRuns` sweep
+clears pre-boot crash rows through the same status transition. The subscription
+is enabled only after the thread repository has completed schema bootstrap.
+Subscription or row-shape failures clear possibly stale indicators and render
+an explicit unavailable state in the panel instead of silently presenting
+every thread as idle. The icon badge keeps a static active treatment under
+reduced motion.
+
+Paired coverage: `packages/app-shell/src/__tests__/threads-panel.test.tsx` and
+the concurrent-run case in `apps/web/e2e/assistant-ui-panel.test.ts`.
+
 ### RUN ERROR PROVIDER FORENSICS (Flight Recorder P3)
 
 `brainstrike_assistant_run_errors` is the durable one-row-per-run provider

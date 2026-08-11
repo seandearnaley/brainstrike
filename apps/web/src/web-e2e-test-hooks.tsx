@@ -14,6 +14,10 @@ interface AssistantThreadRow {
   readonly title: string | null;
 }
 
+interface AssistantThreadRunRow {
+  readonly id: string;
+}
+
 interface ExtensionRow {
   readonly extname: string;
 }
@@ -34,6 +38,12 @@ export interface WebE2EAssistantThreadSnapshot {
   readonly metadata: unknown;
   readonly resourceId: string;
   readonly title: string;
+}
+
+export interface WebE2EAssistantThreadRunInput {
+  readonly id: string;
+  readonly resourceId: string;
+  readonly threadId: string;
 }
 
 export interface WebE2EDatabaseQualification {
@@ -75,6 +85,11 @@ interface CountRow {
 }
 
 export interface WebE2ETestHooks {
+  readonly completeAssistantThreadRun: (
+    runId: string,
+    status: 'cancelled' | 'completed' | 'failed'
+  ) => Promise<void>;
+  readonly createAssistantThreadRun: (input: WebE2EAssistantThreadRunInput) => Promise<void>;
   readonly dbPath: string;
   /**
    * Links the `reset-probe://` file record and `reset probe chunk` chunk
@@ -153,6 +168,35 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
     }
 
     const hooks: WebE2ETestHooks = {
+      completeAssistantThreadRun: async (
+        runId: string,
+        status: 'cancelled' | 'completed' | 'failed'
+      ): Promise<void> => {
+        const completedAt = new Date();
+        const result = await db.query<AssistantThreadRunRow>(
+          `UPDATE brainstrike_assistant_thread_runs
+           SET status = $2, completed_at = $3, updated_at = $3
+           WHERE id = $1 AND status = 'running'
+           RETURNING id`,
+          [runId, status, completedAt]
+        );
+        if (result.rows[0]?.id !== runId) {
+          throw new Error(`Web E2E assistant run completion matched no running row: ${runId}`);
+        }
+      },
+      createAssistantThreadRun: async (input: WebE2EAssistantThreadRunInput): Promise<void> => {
+        const startedAt = new Date();
+        const result = await db.query<AssistantThreadRunRow>(
+          `INSERT INTO brainstrike_assistant_thread_runs
+            (id, resource_id, thread_id, provider, model, runtime_kind, status, started_at, created_at, updated_at)
+           VALUES ($1, $2, $3, 'local', 'web-e2e-active-thread-projection', 'local', 'running', $4, $4, $4)
+           RETURNING id`,
+          [input.id, input.resourceId, input.threadId, startedAt]
+        );
+        if (result.rows[0]?.id !== input.id) {
+          throw new Error(`Web E2E assistant run creation returned no row: ${input.id}`);
+        }
+      },
       dbPath,
       linkResetProbeRowsToCollection: async (collectionId: string): Promise<void> => {
         if (typeof db.transaction !== 'function') {
