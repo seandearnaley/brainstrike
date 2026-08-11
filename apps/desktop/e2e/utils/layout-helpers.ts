@@ -365,64 +365,84 @@ export async function resolveRefreshButton(
  * Clear all records from the database for testing using bulk delete
  */
 export async function clearDatabaseRecords(page: Page): Promise<Page> {
-  let activePage = await resolveActivePage(page);
+  const activePage = await resolveActivePage(page);
   try {
     verboseLog('🧹 Starting efficient database record cleanup...');
 
-    if (await isDatabaseErrorState(activePage)) {
-      verboseLog('ℹ️ Database in error state; skipping record cleanup.');
-      return activePage;
-    }
-
     // Try using the bulk delete API (available in Electron environment)
     verboseLog('🚀 Attempting bulk delete via Electron API...');
+    let bulkDeleteResult: unknown;
     try {
-      const result = await activePage.evaluate(async () => {
+      bulkDeleteResult = await activePage.evaluate(async () => {
         // Check if we're in Electron and have the API available
         if (typeof window !== 'undefined' && (window as any).electronAPI?.db?.clearAll) {
           return await (window as any).electronAPI.db.clearAll('CONFIRM_CLEAR_DATABASE');
         }
         return { message: 'Bulk delete API not available', success: false };
       });
-
-      if (result.success) {
-        verboseLog(`✅ Bulk delete successful: ${result.message}`);
-        const remainingCount = await activePage.evaluate(async () => {
-          const api = (
-            window as unknown as {
-              electronAPI?: {
-                db?: { query?: (sql: string) => Promise<{ rows: { count: number }[] }> };
-              };
-            }
-          ).electronAPI;
-          if (!api?.db?.query) {
-            return null;
-          }
-          const result = await api.db.query('SELECT COUNT(*)::int AS count FROM file_records');
-          return result.rows[0]?.count ?? null;
-        });
-
-        if (typeof remainingCount === 'number') {
-          verboseLog(`📊 Records remaining after bulk delete (API): ${remainingCount}`);
-          if (remainingCount === 0) {
-            verboseLog('✅ Database cleanup completed successfully');
-            return activePage;
-          }
-        } else {
-          console.warn('⚠️ Could not verify record count via API after bulk delete');
-        }
-
-        verboseLog('⚠️ Records still remain, continuing with UI cleanup...');
-      } else {
-        console.warn(`⚠️ Bulk delete failed: ${result.message}, falling back to UI deletion`);
-      }
     } catch (bulkError) {
-      console.warn('⚠️ Bulk delete API failed, falling back to UI deletion:', bulkError);
+      console.warn('⚠️ Bulk delete API failed:', bulkError);
+      const detail = bulkError instanceof Error ? bulkError.message : String(bulkError);
+      failClosedOnUnverifiedCleanup(`bulk delete threw: ${detail}`);
     }
 
-    // Fallback to UI-based deletion (much slower but works in all environments)
-    verboseLog('🔄 Using UI-based deletion fallback...');
-    activePage = await clearDatabaseRecordsViaUI(activePage);
+    if (
+      typeof bulkDeleteResult !== 'object' ||
+      bulkDeleteResult === null ||
+      !('success' in bulkDeleteResult) ||
+      typeof bulkDeleteResult.success !== 'boolean' ||
+      !('message' in bulkDeleteResult) ||
+      typeof bulkDeleteResult.message !== 'string'
+    ) {
+      failClosedOnUnverifiedCleanup('bulk delete returned a malformed response');
+    }
+
+    if (!bulkDeleteResult.success) {
+      console.warn(`⚠️ Bulk delete failed: ${bulkDeleteResult.message}`);
+      failClosedOnUnverifiedCleanup(`bulk delete failed: ${bulkDeleteResult.message}`);
+    }
+    verboseLog(`✅ Bulk delete successful: ${bulkDeleteResult.message}`);
+
+    let remainingCount: number | null;
+    try {
+      remainingCount = await activePage.evaluate(async () => {
+        const api = (
+          window as unknown as {
+            electronAPI?: {
+              db?: { query?: (sql: string) => Promise<{ rows: { count: number }[] }> };
+            };
+          }
+        ).electronAPI;
+        if (!api?.db?.query) {
+          return null;
+        }
+        const result = await api.db.query('SELECT COUNT(*)::int AS count FROM file_records');
+        return result.rows[0]?.count ?? null;
+      });
+    } catch (verificationError) {
+      const detail =
+        verificationError instanceof Error ? verificationError.message : String(verificationError);
+      failClosedOnUnverifiedCleanup(`record-count verification threw: ${detail}`);
+    }
+
+    if (
+      typeof remainingCount !== 'number' ||
+      !Number.isSafeInteger(remainingCount) ||
+      remainingCount < 0
+    ) {
+      failClosedOnUnverifiedCleanup(
+        'bulk delete reported success but the remaining record count could not be verified'
+      );
+    }
+
+    verboseLog(`📊 Records remaining after bulk delete (API): ${remainingCount}`);
+    if (remainingCount > 0) {
+      failClosedOnUnverifiedCleanup(
+        `bulk delete reported success but left ${remainingCount} records`
+      );
+    }
+
+    verboseLog('✅ Database cleanup completed successfully');
     return activePage;
   } catch (error) {
     console.error('❌ Database cleanup failed:', error);
@@ -431,115 +451,16 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
 }
 
 /**
- * Clear records via UI interaction (fallback method).
+ * Surface an unverified cleanup path with the reason it was reached.
  *
- * NOTE (BST-1213): this path is now unreachable-by-design. It drives
- * `tbody tr button[title="Remove record"]`, and no surface has rendered a
- * per-record delete button for some time; since the Collections tab lost its
- * record table entirely, `tbody tr` matches nothing here either. It therefore
- * returns "nothing to clear" instead of clearing. It only runs when the bulk
- * Electron API above has ALREADY failed, so it does not mask a working path —
- * but it should be made to throw rather than report success. Left alone here
- * deliberately: changing it alters behaviour on a path this branch cannot
- * exercise. See the B2 report follow-ups.
+ * NOTE (BST-1213/BST-1216): the removed fallback used to drive
+ * `tbody tr button[title="Remove record"]`, but no surface has rendered that
+ * control for some time. Every unverified cleanup path therefore fails closed
+ * here with its exact reason instead of reporting success. See the B2 report
+ * follow-ups.
  */
-async function clearDatabaseRecordsViaUI(page: Page): Promise<Page> {
-  let activePage = await resolveActivePage(page);
-  if (activePage.isClosed()) {
-    activePage = await resolveActivePage(page);
-  }
-
-  if (await isDatabaseErrorState(activePage)) {
-    console.log('ℹ️ Database in error state; UI cleanup skipped.');
-    return activePage;
-  }
-
-  let refresh = await resolveRefreshButton(activePage, { timeoutMs: 20_000 });
-  activePage = refresh.page;
-  let refreshButton = refresh.button;
-
-  // First refresh to ensure we see all current records
-  console.log('🔄 Refreshing records...');
-  try {
-    await refreshButton.click({ timeout: 5000 });
-    if (!activePage.isClosed()) {
-      await activePage.waitForTimeout(800);
-    }
-  } catch {
-    console.warn('⚠️ Refresh click failed; reinitializing panel...');
-    refresh = await resolveRefreshButton(activePage);
-    activePage = refresh.page;
-    refreshButton = refresh.button;
-    await refreshButton.click({ timeout: 5000 });
-    if (!activePage.isClosed()) {
-      await activePage.waitForTimeout(800);
-    }
-  }
-
-  // Check initial record count
-  const initialCount = await activePage.locator('tbody tr').count();
-  console.log(`📊 Found ${initialCount} records to clear via UI`);
-
-  if (initialCount === 0) {
-    console.log('✅ No records to clear');
-    return activePage;
-  }
-
-  // Limit UI deletion to prevent crashes from too many records
-  const maxUIDeletes = 50;
-  if (initialCount > maxUIDeletes) {
-    console.warn(
-      `⚠️ Too many records (${initialCount}) for safe UI deletion. Consider using bulk delete API.`
-    );
-    throw new Error(
-      `Cannot safely delete ${initialCount} records via UI. Use bulk delete instead.`
-    );
-  }
-
-  // Delete records one by one with better error handling
-  let attempts = 0;
-  const maxAttempts = Math.min(initialCount + 3, maxUIDeletes);
-
-  while (attempts < maxAttempts) {
-    try {
-      const deleteButtons = activePage.locator('tbody tr button[title="Remove record"]');
-      const count = await deleteButtons.count();
-
-      if (count === 0) {
-        console.log('✅ All records cleared via UI');
-        break;
-      }
-
-      console.log(`🗑️ Deleting record via UI (${attempts + 1}/${maxAttempts}), ${count} remaining`);
-
-      // Click the first delete button
-      await deleteButtons.first().click();
-      await page.waitForTimeout(300);
-
-      attempts++;
-    } catch (error) {
-      console.warn(`⚠️ Error during UI deletion attempt ${attempts + 1}:`, error);
-
-      // Check if the page/app is still responsive
-      try {
-        await activePage.locator('[data-testid="database-demo-panel"]').waitFor({
-          state: 'visible',
-          timeout: 2000,
-        });
-      } catch {
-        console.error('❌ App appears to have crashed during UI cleanup');
-        throw new Error('Application crashed during database record cleanup');
-      }
-
-      attempts++;
-      if (attempts >= maxAttempts) {
-        console.warn('⚠️ Max UI cleanup attempts reached');
-        break;
-      }
-    }
-  }
-
-  return activePage;
+function failClosedOnUnverifiedCleanup(reason: string): never {
+  throw new Error(`Database cleanup could not be verified: ${reason}; records were not cleared.`);
 }
 
 async function resolveActivePage(page: Page): Promise<Page> {
@@ -558,15 +479,6 @@ async function resolveActivePage(page: Page): Promise<Page> {
   console.warn('⚠️ Existing window closed; waiting for replacement...');
   const context = page.context();
   return waitForReplacementPage(context, page);
-}
-
-async function isDatabaseErrorState(page: Page): Promise<boolean> {
-  try {
-    const errorPanel = page.locator('[data-testid="db-init-error"]');
-    return await errorPanel.isVisible({ timeout: 200 }).catch(() => false);
-  } catch {
-    return false;
-  }
 }
 
 async function waitForReplacementPage(

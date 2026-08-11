@@ -223,10 +223,11 @@ test.describe('Database Persistence', () => {
     const preserveState = testInfo.title.includes('should persist data between app restarts');
 
     if (!preserveState) {
-      try {
+      if (await isDatabaseError(window)) {
+        const teardownErrorText = await window.locator(ERROR_LOCATOR).first().textContent();
+        expect(isExpectedDatabaseInitError(teardownErrorText)).toBe(true);
+      } else {
         await clearDatabaseRecords(window);
-      } catch {
-        // Ignore cleanup errors; tests already succeeded.
       }
     }
 
@@ -535,22 +536,17 @@ test.describe('Database Persistence', () => {
 
   async function handleClearConfirmation(page: Page): Promise<void> {
     const confirmDialog = page.locator('[role="dialog"]');
-    const dialogAppeared = await confirmDialog.isVisible({ timeout: 3000 }).catch(() => false);
-
-    if (!dialogAppeared) {
-      await page.waitForTimeout(3000);
-      return;
-    }
-
+    await expect(confirmDialog).toBeVisible({ timeout: 3000 });
     const confirmButton = confirmDialog
       .locator('button:has-text("Clear Database")')
-      .or(confirmDialog.locator('button[variant="destructive"]:has-text("Clear")'));
-    if (await confirmButton.isVisible()) {
-      await confirmButton.click();
-      await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
-    }
-
-    await page.waitForTimeout(3000);
+      .or(confirmDialog.locator('button[data-variant="destructive"]:has-text("Clear")'));
+    await expect(confirmButton).toBeVisible({ timeout: 5000 });
+    await confirmButton.click();
+    await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
+    const clearOutcome = page
+      .getByText(/^(Database Cleared|Critical Operation Failed|Clear Function Not Available)$/)
+      .first();
+    await expect(clearOutcome).toBeVisible({ timeout: 15_000 });
   }
 
   async function handleClearDatabasePage(page: Page): Promise<void> {
@@ -604,6 +600,34 @@ test.describe('Database Persistence', () => {
     }
   }
 
+  async function confirmClearDatabaseAndVerifyEmpty(
+    page: Page,
+    clearButton: Locator
+  ): Promise<void> {
+    await expect(clearButton).toBeEnabled({ timeout: 5000 });
+    await clearButton.click();
+
+    const confirmDialog = page.locator('[role="dialog"]');
+    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
+    const confirmButton = confirmDialog
+      .locator('button:has-text("Clear Database")')
+      .or(confirmDialog.locator('button[data-variant="destructive"]:has-text("Clear")'));
+    await expect(confirmButton).toBeVisible({ timeout: 5000 });
+    await confirmButton.click();
+    await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
+
+    if (await isDatabaseError(page)) {
+      throw new Error(
+        'Database cleanup could not be verified: the database entered an error state after Clear Database.'
+      );
+    }
+
+    await clickRefreshIfAvailable(page);
+    await expect
+      .poll(async () => await readActiveCollectionRecordTotal(page), { timeout: 15_000 })
+      .toBe(0);
+  }
+
   async function executeClearDatabaseWorkflow(page: Page): Promise<void> {
     if (await isDatabaseError(page)) {
       await expect(page.locator(ERROR_LOCATOR).first()).toBeVisible();
@@ -615,28 +639,7 @@ test.describe('Database Persistence', () => {
 
     const clearButton = page.locator('button:has-text("Clear Database")');
     await expect(clearButton).toBeVisible();
-    await expect(clearButton).toBeEnabled({ timeout: 5000 });
-
-    await clearButton.click();
-
-    const confirmDialog = page.locator('[role="dialog"]');
-    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
-
-    const confirmButton = confirmDialog
-      .locator('button:has-text("Clear Database")')
-      .or(confirmDialog.locator('button[variant="destructive"]:has-text("Clear")'));
-    await expect(confirmButton).toBeVisible();
-    await confirmButton.click();
-
-    await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
-    await page.waitForTimeout(2000);
-    await clickRefreshIfAvailable(page);
-
-    // Post-clear state, read from the panel's live-query-backed hook rather
-    // than from the retired browser table.
-    await expect
-      .poll(async () => await readActiveCollectionRecordTotal(page), { timeout: 15_000 })
-      .toBe(0);
+    await confirmClearDatabaseAndVerifyEmpty(page, clearButton);
   }
 
   test('should clear database via UI button workflow', async ({ window }) => {
@@ -685,14 +688,6 @@ test.describe('Database Persistence', () => {
     }
     activeWindow = await clearDatabaseRecords(activeWindow);
 
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      // Expand Import Settings first to check button count
-      await expandImportSettings(activeWindow);
-      await expect(activeWindow.getByRole('button', { name: 'Clear Database' })).toHaveCount(0);
-      return;
-    }
-
     await clickRefreshIfAvailable(activeWindow);
 
     // Expand Import Settings to access Clear Database button
@@ -733,34 +728,6 @@ test.describe('Database Persistence', () => {
     return (recordTotal ?? 0) > 0;
   }
 
-  async function confirmClearIfDialogVisible(dialog: Locator): Promise<void> {
-    try {
-      if (await dialog.isVisible({ timeout: 2000 })) {
-        const confirmButton = dialog
-          .locator('button:has-text("Clear Database")')
-          .or(dialog.locator('button:has-text("Clear")'))
-          .or(dialog.locator('button:has-text("Confirm")'));
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
-        }
-        await dialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
-      }
-    } catch {
-      // Ignore visibility timeouts; absence of dialog is acceptable.
-    }
-  }
-
-  async function clearWithButton(page: Page, clearButton: Locator): Promise<boolean> {
-    await clearButton.click();
-    await confirmClearIfDialogVisible(page.locator('[role="dialog"]'));
-    await page.waitForTimeout(2000);
-    if (await isDatabaseError(page)) {
-      return false;
-    }
-    await clickRefreshIfAvailable(page);
-    return true;
-  }
-
   async function cleanupExistingData(page: Page): Promise<Page> {
     let activePage = page;
     if (await isDatabaseError(activePage)) {
@@ -775,17 +742,11 @@ test.describe('Database Persistence', () => {
 
     const clearButton = activePage.locator('button:has-text("Clear Database")');
     if (await clearButton.isVisible()) {
-      const cleared = await clearWithButton(activePage, clearButton);
-      if (!cleared) {
-        return activePage;
-      }
+      await confirmClearDatabaseAndVerifyEmpty(activePage, clearButton);
       return activePage;
     }
 
     activePage = await clearDatabaseRecords(activePage);
-    if (await isDatabaseError(activePage)) {
-      return activePage;
-    }
     return activePage;
   }
 
@@ -800,11 +761,6 @@ test.describe('Database Persistence', () => {
    * total for the active collection.
    */
   async function verifyUIFunctionalityAndState(page: Page): Promise<void> {
-    if (await isDatabaseError(page)) {
-      await expect(page.locator('[data-testid="db-init-error"]').first()).toBeVisible();
-      return;
-    }
-
     await expect(page.locator('[data-testid="database-panel-actions"]')).toBeVisible({
       timeout: 15_000,
     });
@@ -822,10 +778,6 @@ test.describe('Database Persistence', () => {
     }
     activeWindow = await setupDatabaseUIState(activeWindow);
     activeWindow = await cleanupExistingData(activeWindow);
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
     await expect(activeWindow.getByTestId('database-panel-actions')).toBeVisible();
     await clickRefreshIfAvailable(activeWindow);
     await verifyUIFunctionalityAndState(activeWindow);
@@ -843,10 +795,6 @@ test.describe('Database Persistence', () => {
     }
 
     activeWindow = await clearDatabaseRecords(activeWindow);
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
     await clickRefreshIfAvailable(activeWindow);
 
     // Wait for database connection status (now in global status bar)
@@ -872,11 +820,6 @@ test.describe('Database Persistence', () => {
       return;
     }
     relaunchedWindow = await clearDatabaseRecords(relaunchedWindow);
-    if (await isDatabaseError(relaunchedWindow)) {
-      console.log('⚠️ Database start failed after restart – skipping persistence assertions.');
-      await expect(relaunchedWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
     await clickRefreshIfAvailable(relaunchedWindow);
 
     // Wait for database connection status after restart (now in global status bar)

@@ -33,7 +33,10 @@ import {
   __resetImportActivitySnapshotForTests,
   publishImportActivitySnapshot,
 } from '../import-activity-snapshot';
-import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
+import {
+  __resetDatabaseDemoStoreForTests,
+  useDatabaseDemoStore,
+} from '../stores/database-demo-store';
 
 // Helper to wrap renders with TooltipProvider and the context-action registry
 // (panel surfaces mount the shared ActionContextMenu, whose useActionRegistry
@@ -582,15 +585,25 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Basic Rendering', () => {
+    it('exposes Clear Database by name in a healthy expanded settings panel', async () => {
+      useDatabaseDemoStore.setState({ showSettings: true });
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      expect(await screen.findByRole('button', { name: 'Clear Database' })).toBeInTheDocument();
+    });
+
     it('keeps a provider error detail visible when Error.message is empty', () => {
       const emptyMessageError = new Error('placeholder');
       emptyMessageError.message = '';
       dbProviderErrorMock.current = emptyMessageError;
+      useDatabaseDemoStore.setState({ showSettings: true });
 
       renderWithProviders(<DatabaseDemoPanel />);
 
       expect(screen.getByRole('alert')).toHaveTextContent('Database failed to initialize');
       expect(screen.getByTestId('db-init-error')).toHaveTextContent('Error');
+      expect(screen.queryByRole('button', { name: 'Clear Database' })).not.toBeInTheDocument();
       // The surface is named Collections (matching its Library tab); only the
       // engine-level error copy still speaks about the database itself.
       expect(screen.getByTestId('database-panel-loading-label')).toHaveTextContent(
