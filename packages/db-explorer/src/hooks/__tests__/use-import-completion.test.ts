@@ -7,7 +7,11 @@ describe('createImportCompletionHandler', () => {
     const mockToast = vi.fn();
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
     const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
-    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+    const handler = createImportCompletionHandler({
+      loadChunks: mockLoadChunks,
+      loadRecords: mockLoadRecords,
+      toast: mockToast,
+    });
     const rawResults: EnhancedImportResult[] = [
       { chunksCreated: 3, existed: false, id: 'new.txt', imported: true },
       { chunksCreated: 2, existed: true, id: 'existing.txt', imported: false },
@@ -33,7 +37,11 @@ describe('createImportCompletionHandler', () => {
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
     const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
 
-    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+    const handler = createImportCompletionHandler({
+      loadChunks: mockLoadChunks,
+      loadRecords: mockLoadRecords,
+      toast: mockToast,
+    });
 
     const results: EnhancedImportResult[] = [
       {
@@ -77,12 +85,12 @@ describe('createImportCompletionHandler', () => {
       events.push('chunks');
     });
 
-    const handler = createImportCompletionHandler(
-      mockToast,
-      mockLoadRecords,
-      mockLoadChunks,
-      mockRefreshCollectionStats
-    );
+    const handler = createImportCompletionHandler({
+      loadChunks: mockLoadChunks,
+      loadRecords: mockLoadRecords,
+      refreshCollectionStats: mockRefreshCollectionStats,
+      toast: mockToast,
+    });
 
     await handler([
       {
@@ -101,7 +109,11 @@ describe('createImportCompletionHandler', () => {
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
     const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
 
-    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+    const handler = createImportCompletionHandler({
+      loadChunks: mockLoadChunks,
+      loadRecords: mockLoadRecords,
+      toast: mockToast,
+    });
 
     const results: EnhancedImportResult[] = [
       {
@@ -141,7 +153,11 @@ describe('createImportCompletionHandler', () => {
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
     const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
 
-    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+    const handler = createImportCompletionHandler({
+      loadChunks: mockLoadChunks,
+      loadRecords: mockLoadRecords,
+      toast: mockToast,
+    });
 
     const results: EnhancedImportResult[] = [
       {
@@ -175,7 +191,11 @@ describe('createImportCompletionHandler', () => {
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
     const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
 
-    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+    const handler = createImportCompletionHandler({
+      loadChunks: mockLoadChunks,
+      loadRecords: mockLoadRecords,
+      toast: mockToast,
+    });
 
     const results: EnhancedImportResult[] = [
       {
@@ -208,7 +228,11 @@ describe('createImportCompletionHandler', () => {
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
     const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
 
-    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+    const handler = createImportCompletionHandler({
+      loadChunks: mockLoadChunks,
+      loadRecords: mockLoadRecords,
+      toast: mockToast,
+    });
 
     handler([]);
 
@@ -224,7 +248,11 @@ describe('createImportCompletionHandler', () => {
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
     const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
 
-    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+    const handler = createImportCompletionHandler({
+      loadChunks: mockLoadChunks,
+      loadRecords: mockLoadRecords,
+      toast: mockToast,
+    });
 
     const results: EnhancedImportResult[] = [
       {
@@ -250,7 +278,11 @@ describe('createImportCompletionHandler', () => {
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
     const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
 
-    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+    const handler = createImportCompletionHandler({
+      loadChunks: mockLoadChunks,
+      loadRecords: mockLoadRecords,
+      toast: mockToast,
+    });
 
     const results: EnhancedImportResult[] = [
       {
@@ -291,7 +323,11 @@ describe('createImportCompletionHandler', () => {
     const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
     const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
 
-    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+    const handler = createImportCompletionHandler({
+      loadChunks: mockLoadChunks,
+      loadRecords: mockLoadRecords,
+      toast: mockToast,
+    });
 
     // Simulates importing 10 files that already exist in file_records
     // to a new collection - creates chunks but files have imported:false, existed:true
