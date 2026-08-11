@@ -947,7 +947,7 @@ function ThreadIdentityMark({
           aria-label={`${thread.title} is active`}
           className="pointer-events-none absolute -right-1 -bottom-1 size-3 animate-spin rounded-full border border-background bg-background text-current shadow-sm motion-reduce:animate-none"
           data-testid="thread-active-spinner"
-          role="status"
+          role="img"
         />
       ) : null}
     </span>
@@ -2497,8 +2497,9 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   const threads = threadsByResourceId[resourceId] ?? EMPTY_THREADS;
   const loadState = loadStateByResourceId[resourceId] ?? { status: 'idle' };
   const activeThreads = useActiveAssistantThreadIds({
-    enabled: Boolean(repository) && loadState.status === 'ready',
+    database,
     resourceId,
+    schemaReady: Object.hasOwn(threadsByResourceId, resourceId),
   });
   const groupsByResourceId = useAssistantThreadGroupsStore((state) => state.groupsByResourceId);
   const placementsByThreadId = useAssistantThreadGroupsStore((state) => state.placementsByThreadId);

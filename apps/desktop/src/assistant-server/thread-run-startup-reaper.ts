@@ -47,16 +47,14 @@
  *   relation is probed with `to_regclass` and reported, exactly like the
  *   rewind repository's own probes.
  */
+import {
+  ORPHANED_THREAD_RUN_ERROR,
+  REAP_CLOCK_SKEW_MARGIN_MS,
+  reapOrphanedAssistantThreadRuns,
+} from '@brainstrike/assistant-data/assistant-thread-run-reaper';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 
-const RUNS_TABLE = 'brainstrike_assistant_thread_runs';
-
-/** Visible on the run row (and the Task Ledger's status badge) — never a silent flip. */
-export const ORPHANED_THREAD_RUN_ERROR =
-  'run orphaned by an earlier app session; marked failed by the startup sweep';
-
-/** Guard band for non-monotonic clocks — see CLOCK SKEW in the module doc. */
-export const REAP_CLOCK_SKEW_MARGIN_MS = 60_000;
+export { ORPHANED_THREAD_RUN_ERROR, REAP_CLOCK_SKEW_MARGIN_MS };
 
 export interface ThreadRunReapReport {
   readonly reaped: readonly { readonly id: string; readonly threadId: string }[];
@@ -75,29 +73,5 @@ export async function reapOrphanedThreadRuns(
   db: EditCheckpointDatabase,
   bootedAt: Date
 ): Promise<ThreadRunReapReport> {
-  const probe = await db.query<{ oid: string | null }>('SELECT to_regclass($1)::text AS oid', [
-    RUNS_TABLE,
-  ]);
-  const probedOid = probe.rows[0]?.oid;
-  if (probedOid === null || probedOid === undefined) {
-    return { reaped: [], runsTableMissing: true };
-  }
-  const now = new Date();
-  const reapBefore = new Date(bootedAt.getTime() - REAP_CLOCK_SKEW_MARGIN_MS);
-  // `completed_at` is stamped with the REAP instant, deliberately non-null:
-  // `resolveRewindRunRange`'s fallback predicate treats a NULL `completed_at`
-  // as in-range, so a null here would pull the reaped row into EVERY rewind
-  // range for its thread forever — the opposite of unsticking it. The Task
-  // Ledger's `durationMs` therefore spans the downtime for a reaped row; the
-  // visible orphan error string on the same row is the explanation, and that
-  // display tradeoff is accepted (PR #2292 review).
-  const result = await db.query<{ id: string; threadId: string }>(
-    `UPDATE ${RUNS_TABLE}
-     SET status = 'failed', error = $2, completed_at = $3, updated_at = $3
-     WHERE status = 'running' AND started_at < $1::timestamptz
-     RETURNING id, thread_id AS "threadId"`,
-    [reapBefore, ORPHANED_THREAD_RUN_ERROR, now]
-  );
-  const reaped = result.rows.map((row) => ({ id: row.id, threadId: row.threadId }));
-  return { reaped, runsTableMissing: false };
+  return reapOrphanedAssistantThreadRuns(db, bootedAt);
 }

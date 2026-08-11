@@ -509,6 +509,34 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
       await hooks.completeAssistantThreadRun(runId, 'cancelled');
     }, cancellationRunId);
     await expect(page.getByTestId('thread-active-spinner')).toHaveCount(0);
+
+    const orphanedRunId = `e2e-orphaned-run-${crypto.randomUUID()}`;
+    await page.evaluate(
+      async ({ resourceId, runId, startedAt, threadId }) => {
+        const hooks = (window as unknown as { __brainstrikeWebE2ETestHooks__?: WebE2ETestHooks })
+          .__brainstrikeWebE2ETestHooks__;
+        if (!hooks) {
+          throw new Error('Expected web E2E hooks to be available');
+        }
+        await hooks.createAssistantThreadRun({ id: runId, resourceId, startedAt, threadId });
+        await hooks.syncDatabase();
+      },
+      {
+        resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+        runId: orphanedRunId,
+        startedAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+        threadId: firstThread.id,
+      }
+    );
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(1);
+
+    await page.reload();
+    await waitForAppLoad(page, { waitForDatabase: true });
+    await restoreAssistantFixtureRoot(page);
+    await expect(page.getByTestId('assistant-thread-tabs-workspace')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId('thread-active-spinner')).toHaveCount(0);
   });
 
   test('keeps thread identity aligned when switching into rename mode', async ({ page }) => {

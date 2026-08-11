@@ -43,6 +43,7 @@ export interface WebE2EAssistantThreadSnapshot {
 export interface WebE2EAssistantThreadRunInput {
   readonly id: string;
   readonly resourceId: string;
+  readonly startedAt?: string;
   readonly threadId: string;
 }
 
@@ -185,7 +186,10 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
         }
       },
       createAssistantThreadRun: async (input: WebE2EAssistantThreadRunInput): Promise<void> => {
-        const startedAt = new Date();
+        const startedAt = input.startedAt ? new Date(input.startedAt) : new Date();
+        if (Number.isNaN(startedAt.getTime())) {
+          throw new Error(`Web E2E assistant run has an invalid start time: ${input.startedAt}`);
+        }
         const result = await db.query<AssistantThreadRunRow>(
           `INSERT INTO brainstrike_assistant_thread_runs
             (id, resource_id, thread_id, provider, model, runtime_kind, status, started_at, created_at, updated_at)
