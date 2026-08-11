@@ -225,6 +225,39 @@ describe('useAssistantThreadStore tab sessions', () => {
     expect(state.selectedThreadByResourceId[workspaceId]).toBe('thread-b');
   });
 
+  it('preserves a metadata write that completes while an older title refresh is in flight', async () => {
+    const repository = createRepository([makeCuratedThread()]);
+    const staleRefresh = Promise.withResolvers<readonly AssistantMemoryThread[]>();
+
+    await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+    vi.mocked(repository.listThreads).mockReturnValueOnce(staleRefresh.promise);
+
+    const refresh = useAssistantThreadStore
+      .getState()
+      .refreshResourceThreads(repository, workspaceId);
+    await useAssistantThreadStore
+      .getState()
+      .updateThreadMetadata(repository, workspaceId, 'thread-curated', { icon: 'bug' });
+
+    staleRefresh.resolve([
+      {
+        ...makeCuratedThread(),
+        title: 'Observer title from stale snapshot',
+      },
+    ]);
+    await refresh;
+
+    expect(useAssistantThreadStore.getState().threadsByResourceId[workspaceId]?.[0]).toMatchObject({
+      metadata: {
+        color: 'blue',
+        icon: 'bug',
+        model: 'gpt-5.2',
+        provider: 'openai',
+      },
+      title: 'Observer title from stale snapshot',
+    });
+  });
+
   it('does not refresh a resource whose initial load has not completed', async () => {
     const repository = createRepository();
 

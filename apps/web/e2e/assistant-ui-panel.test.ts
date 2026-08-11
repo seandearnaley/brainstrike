@@ -11,6 +11,10 @@ const ASSISTANT_UI_PANEL_ROOT_NAME = 'assistant-ui-panel';
 const ASSISTANT_UI_PANEL_TREE = {
   'README.md': '# BrainStrike test workspace',
 };
+// Report interaction latency separately from functional visibility assertions,
+// so a loaded runner identifies a performance-budget miss rather than disguising
+// it as a missing icon/color regression.
+const THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS = 1000;
 
 type MockProgressPayload =
   | {
@@ -306,6 +310,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     const threadRow = page.getByTestId('thread-row').first();
     await expect(threadRow).toBeVisible();
     await expect(threadRow).not.toContainText(/thread-[0-9a-f-]+/i);
+    const threadTab = page
+      .getByRole('tablist', { name: 'Open assistant threads' })
+      .getByRole('tab')
+      .first();
+    await expect(threadTab).toBeVisible();
+    await expect(threadTab.getByTestId('assistant-thread-tab-glyph-message')).toBeVisible();
 
     // Customization moved into the row's "Thread actions" popover (#1661). The
     // popover renders in a portal, so its controls are scoped to the open
@@ -317,8 +327,23 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await threadRow.getByRole('button', { name: /Thread actions/i }).click();
     const threadActions = page.getByRole('dialog');
     await threadActions.getByRole('button', { name: 'Customize' }).click();
+    const iconCustomizationStartedAt = Date.now();
     await threadActions.getByRole('button', { name: 'Use Bug icon' }).click();
+    await expect(threadRow.getByTestId('thread-icon-bug')).toBeVisible();
+    await expect(threadTab.getByTestId('assistant-thread-tab-glyph-bug')).toBeVisible();
+    expect(
+      Date.now() - iconCustomizationStartedAt,
+      'Thread icon customization exceeded the click-to-paint performance budget.'
+    ).toBeLessThan(THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS);
+
+    const colorCustomizationStartedAt = Date.now();
     await threadActions.getByRole('button', { name: 'Use Rose color' }).click();
+    await expect(threadRow.getByTestId('thread-color-rose')).toBeVisible();
+    await expect(threadTab.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible();
+    expect(
+      Date.now() - colorCustomizationStartedAt,
+      'Thread color customization exceeded the click-to-paint performance budget.'
+    ).toBeLessThan(THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS);
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('thread-customization-panel')).toHaveCount(0);
 
@@ -366,6 +391,12 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await expect(reloadedThreadRow.getByTestId('thread-icon-bug')).toBeVisible();
     await expect(reloadedThreadRow.getByTestId('thread-color-rose')).toBeVisible();
     await expect(reloadedThreadRow).not.toContainText(/thread-[0-9a-f-]+/i);
+    const reloadedThreadTab = page
+      .getByRole('tablist', { name: 'Open assistant threads' })
+      .getByRole('tab')
+      .first();
+    await expect(reloadedThreadTab.getByTestId('assistant-thread-tab-glyph-bug')).toBeVisible();
+    await expect(reloadedThreadTab.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible();
   });
 
   test('keeps thread identity aligned when switching into rename mode', async ({ page }) => {

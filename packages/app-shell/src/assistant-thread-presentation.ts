@@ -1,4 +1,44 @@
-import type { AssistantThreadColorId } from '@brainstrike/assistant-data';
+import type { AssistantThreadColorId, AssistantThreadIconId } from '@brainstrike/assistant-data';
+import {
+  Bug,
+  ClipboardList,
+  Code2,
+  type LucideIcon,
+  MessageSquare,
+  Rocket,
+  Search,
+} from 'lucide-react';
+
+export interface AssistantThreadIconPresentation {
+  readonly iconComponent: LucideIcon;
+  readonly iconId: AssistantThreadIconId;
+  readonly label: string;
+}
+
+/**
+ * One semantic icon registry for every surface that presents assistant-thread
+ * identity. Keeping this beside the shared color/density contract prevents a
+ * row, group picker, and open tab from assigning different glyphs to the same
+ * durable metadata value.
+ */
+export const ASSISTANT_THREAD_ICON_PRESENTATION = {
+  bug: { iconComponent: Bug, iconId: 'bug', label: 'Bug' },
+  code: { iconComponent: Code2, iconId: 'code', label: 'Code' },
+  message: { iconComponent: MessageSquare, iconId: 'message', label: 'Message' },
+  plan: { iconComponent: ClipboardList, iconId: 'plan', label: 'Plan' },
+  research: { iconComponent: Search, iconId: 'research', label: 'Research' },
+  rocket: { iconComponent: Rocket, iconId: 'rocket', label: 'Rocket' },
+} satisfies Record<AssistantThreadIconId, AssistantThreadIconPresentation>;
+
+/**
+ * Missing icon metadata has one documented default. Unsupported persisted
+ * values never reach this boundary: the assistant repository rejects them.
+ */
+export function getAssistantThreadIconPresentation(
+  iconId: AssistantThreadIconId | null | undefined
+): AssistantThreadIconPresentation {
+  return ASSISTANT_THREAD_ICON_PRESENTATION[iconId ?? 'message'];
+}
 
 export interface AssistantThreadColorPresentation {
   readonly accentClassName: string;

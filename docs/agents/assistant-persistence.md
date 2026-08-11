@@ -1971,8 +1971,25 @@ controller uses the WAI-ARIA automatic-activation pattern with roving tab focus,
 Home/End, Delete, and `Alt+Shift+Left/Right` reorder controls. Pointer drag uses
 Pragmatic drag and drop plus edge auto-scroll; context-menu Move Left / Move
 Right provides the non-drag alternative. Panels remain mounted while inactive
-so runtime state is not discarded, and a colored thread supplies the canonical
-accent from `assistant-thread-presentation.ts` rather than a tab-local palette.
+so runtime state is not discarded. Open tabs project BOTH the icon and color
+from the current loaded thread after every `useAssistantThreadStore` transition:
+`assistant-thread-presentation.ts` owns the exhaustive icon registry, the
+Message default for absent icon metadata, and the canonical color surfaces.
+The Threads panel rows, customization pickers, group icon choices, and tabs
+consume those shared contracts rather than declaring local glyph maps or
+palettes. A successful metadata write updates the one loaded thread object, so
+an open tab reflects customization without a PGlite re-read, timer, global
+invalidation, or assistant-panel remount; a failed write performs no store
+transition and remains visibly failed in the panel. `listThreads` returns the
+thread row plus its latest-run badge data in ONE SQL snapshot; splitting those
+reads permits a metadata write to interleave before a stale title refresh lands
+in the store. The refresh captures each loaded metadata object before its read;
+if an immutable metadata transition lands while that read is in flight, the
+refresh preserves the current metadata while still applying refreshed titles,
+run badges, and ordering. That store-side ordering guard closes the stale
+metadata overwrite, while the single SQL statement removes the intra-read
+inconsistency and one local database round trip. Neither path uses polling or
+retries.
 The persisted store contains tab/selection ids but not `mastra_threads` rows.
 After restore, `loadStateByResourceId` therefore remains `idle`/`loading` until
 `ensureResourceThreads` hydrates the selected row and its metadata. Composer
@@ -1999,6 +2016,7 @@ Paired tests: `assistant-thread-store.test.ts`,
 `assistant-thread-tabs-dnd.test.ts`, `assistant-thread-tabs-dnd-elements.test.tsx`,
 `assistant-thread-tabs-workspace.test.tsx`,
 `assistant-ui-panel-wrapper-runtime.test.ts`, and
-`use-assistant-thread-root-binding.test.ts`.
+`use-assistant-thread-root-binding.test.ts`; the live customize-and-reload browser
+contract is `apps/web/e2e/assistant-ui-panel.test.ts`.
 
 ---

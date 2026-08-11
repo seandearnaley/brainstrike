@@ -1,4 +1,8 @@
-import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import {
+  type AssistantThreadRepository,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { ActionRegistryProvider } from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -105,7 +109,7 @@ describe('AssistantThreadTabsWorkspace', () => {
       {
         createdAt: new Date('2026-04-22T09:00:00Z'),
         id: 'thread-a',
-        metadata: { color: 'rose' },
+        metadata: { color: 'rose', icon: 'research' },
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         title: 'Purchasing app search log',
         updatedAt: new Date('2026-04-22T11:00:00Z'),
@@ -300,6 +304,35 @@ describe('AssistantThreadTabsWorkspace', () => {
       'unassigned'
     );
     expect(screen.getByTestId('assistant-thread-tab-icon-unassigned')).toBeVisible();
+  });
+
+  it('projects durable icon and color updates into an already-open tab without remounting it', async () => {
+    renderWorkspace();
+
+    const tab = await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    const panel = screen.getByTestId('assistant-thread-panel-thread-a');
+    expect(within(tab).getByTestId('assistant-thread-tab-glyph-research')).toBeVisible();
+
+    const repository = {
+      updateThreadMetadata: vi.fn(() => Promise.resolve()),
+    } as unknown as AssistantThreadRepository;
+
+    await act(async () => {
+      await useAssistantThreadStore
+        .getState()
+        .updateThreadMetadata(repository, WORKSPACE_MEMORY_RESOURCE_ID, 'thread-a', {
+          color: 'violet',
+          icon: 'bug',
+        });
+    });
+
+    expect(repository.updateThreadMetadata).toHaveBeenCalledWith('thread-a', {
+      color: 'violet',
+      icon: 'bug',
+    });
+    expect(within(tab).getByTestId('assistant-thread-tab-glyph-bug')).toBeVisible();
+    expect(tab.closest('[data-thread-color]')).toHaveAttribute('data-thread-color', 'violet');
+    expect(screen.getByTestId('assistant-thread-panel-thread-a')).toBe(panel);
   });
 
   it('tints the whole tab with the same color surface the threads panel row uses', async () => {
