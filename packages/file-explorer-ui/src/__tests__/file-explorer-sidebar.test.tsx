@@ -13,11 +13,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import {
-  ForestTreeActionsProvider,
   type ForestTreeActionsValue,
   useForestExpandAllProgress,
   useOptionalForestTreeActions,
 } from '../shell/forest-tree-actions-context';
+import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-provider';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 // ---------------------------------------------------------------------------

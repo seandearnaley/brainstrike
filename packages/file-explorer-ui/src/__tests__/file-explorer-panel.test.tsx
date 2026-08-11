@@ -103,8 +103,8 @@ vi.mock('../shell/file-explorer-provider', async (importOriginal) => {
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(),
 }));
-// Keep the real provider (the panel mounts it) but stub the hook so forest
-// tests can hand the panel a controllable actions registry. Default null =
+// The provider lives in its separate, unmocked module; stub only the consumer
+// hooks so tests can hand the panel a controllable actions registry. Default null =
 // "no forest provider", the single-root path every existing test exercises.
 vi.mock('../shell/forest-tree-actions-context', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../shell/forest-tree-actions-context')>();

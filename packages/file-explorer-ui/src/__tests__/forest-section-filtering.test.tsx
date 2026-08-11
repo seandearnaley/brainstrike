@@ -54,7 +54,7 @@ vi.mock('@brainstrike/hooks', async (importOriginal) => {
 
 import { useFileExplorerStoreContext } from '../shell/file-explorer-provider';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
-import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-context';
+import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-provider';
 import { resolveSectionDisplayFilterFlag } from '../utils/quick-filter-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
 
