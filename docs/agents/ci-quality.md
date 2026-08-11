@@ -24,6 +24,37 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+Desktop `workflow_dispatch` exposes a `suite` choice. `full` preserves the
+scheduled workflow exactly. `memory-baseline` skips the unrelated broad
+regression job and runs only the desktop embedding memory spec with no
+max-failure truncation. Use the narrow mode for controlled, sequential
+same-head memory calibration runs; it is evidence collection, not a way to
+replace or route required PR checks.
+
+Desktop renderer working-set snapshots use `app.getAppMetrics()` joined to
+each `webContents.getOSProcessId()`. Electron 43 does not expose the older
+`webContents.getProcessMemoryInfo()` API on the CI runner; treating that
+absence as zero made the large-collection thresholds vacuous. Missing PID
+metrics now fail visibly. The older API remains optional only for its private
+and shared-memory diagnostics.
+
+The 50k collection and 50k file-list ceilings are calibrated, not inherited
+from the older Collection Browser measurement window. On 2026-08-11, three
+sequential `memory-baseline` dispatches at exact head `3d3209242` produced:
+
+| Scenario | Visible heap growth (MB) | Visible working-set growth (MB) |
+| --- | --- | --- |
+| 5k files / 50k chunks | `0.0`, `0.0`, `0.0` | `-3.5`, `-3.6`, `-4.1` |
+| 50k-file source-paginated list | `0.0`, `0.0`, `0.0` | `-4.7`, `-74.2`, `-77.3` |
+
+The paired heap and working-set limits are therefore positive floors of 16 MB
+and 32 MB. Those floors preserve 16 MB of heap noise headroom and at least
+35 MB of working-set headroom over the largest observed deltas while still
+failing a material full-collection hydration. Calibration evidence is in
+workflow runs `31458099061`, `31458469270`, and `31459112520`; replace this
+table and re-run three sequential same-head samples when changing the fixture,
+measurement window, or process-memory source.
+
 The AI Tools settings specs are deliberately part of both required PR smoke
 lanes. Their tool category/loading-tier assertions follow the shared assistant
 contract and previously drifted while every PR check stayed green. Web selects
@@ -732,8 +763,10 @@ spec was CommonJS and every ESM-only library it reached was force-transpiled.
 `import.meta` cannot be represented in CommonJS (this took desktop spec
 collection to *0 tests in 0 files* for over a month), and `export *` becomes a
 runtime getter loop that cjs-module-lexer cannot see through, so static named
-imports of re-exported bindings fail to link. A dynamic `import()` of the same
-module still works, which is what made it look selective.
+imports of re-exported bindings fail to link. A dynamic `import()` avoids that
+specific named-export linking failure, which is what made it look selective;
+it does not make `import.meta` or a CommonJS `require()` of an ESM-only package
+safe.
 
 Three assertions, over every `apps/*/e2e` directory that holds specs:
 
@@ -748,12 +781,23 @@ Three assertions, over every `apps/*/e2e` directory that holds specs:
    static import of the same library. This was live: web's config imported
    `parsePositiveIntegerConfig` from `@brainstrike/platform-utils`, and removing
    only that one import made the whole web suite collect again.
-3. **Escaping relative imports stay lexer-safe.** A relative import that leaves
-   an e2e root lands under the app's CommonJS manifest, so it is transpiled
-   inside an otherwise-ESM graph. Such a target must contain no `export *` and
-   no `import.meta`. Today the only crossing is desktop's
-   `../../src/desktop-renderer-url` (plain `export const`); web has none since
-   `production-csp.test.ts` moved to `@brainstrike/platform-utils` directly.
+3. **Runtime escaping imports stay CommonJS-safe.** A static runtime relative
+   import that leaves an e2e root lands under the app's CommonJS manifest, so it
+   is transpiled inside an otherwise-ESM graph. The contract walks that target's
+   complete static relative-import graph, with cycle protection, stopping when
+   it reaches an ESM manifest or re-enters an e2e root. Every CommonJS node must
+   contain no bare runtime dependency, no `export *`, and no `import.meta`.
+   Statement-level type-only imports do not create a runtime crossing and are
+   ignored; inline type modifiers are conservatively inspected. Today the only
+   crossing is desktop's `../../src/desktop-renderer-config`, an import-free
+   resolver leaf; web's apparent `web-e2e-test-hooks` edges are type-only.
+
+   This third assertion closes the Linux failure BST-1226 exposed after the
+   initial BST-1217 repair: `desktop-renderer-url.ts` was lexer-safe itself but
+   statically imported ESM-only `@brainstrike/logging`, so Node 24.18 tried to
+   require `packages/logging/dist/index.js` from the CommonJS-transpiled target
+   and Playwright collected zero tests. Main keeps the logging adapter in
+   `desktop-renderer-url.ts`; E2E imports only the shared, import-free resolver.
 
 The contract module is a **library** — importing it runs nothing. The test is
 the gate, and every real-tree assertion is paired with a synthetic control

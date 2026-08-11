@@ -10,6 +10,13 @@ interface ImportCounts {
   totalEmbeddings: number;
 }
 
+export interface ImportCompletionHandlerOptions {
+  loadChunks?: () => Promise<void>;
+  loadRecords?: () => Promise<void>;
+  refreshCollectionStats?: () => Promise<void>;
+  toast: ReturnType<typeof useToast>['toast'];
+}
+
 function countImportOutcomes(results: EnhancedImportResult[]): ImportCounts {
   const counts: ImportCounts = {
     existedButProcessed: 0,
@@ -91,11 +98,10 @@ function buildDescription(counts: ImportCounts): string {
  * stubbed, so a missing refresh is a stated absence rather than a silent no-op.
  */
 export function createImportCompletionHandler(
-  toast: ReturnType<typeof useToast>['toast'],
-  loadRecords?: (() => Promise<void>) | undefined,
-  loadChunks?: (() => Promise<void>) | undefined,
-  refreshCollectionStats?: () => Promise<void>
-) {
+  options: ImportCompletionHandlerOptions
+): (results: EnhancedImportResult[]) => Promise<void> {
+  const { loadChunks, loadRecords, refreshCollectionStats, toast } = options;
+
   return async (results: EnhancedImportResult[]): Promise<void> => {
     const counts = countImportOutcomes(results);
     const description = buildDescription(counts);

@@ -298,10 +298,14 @@ export const LARGE_BACKFILL_MAIN_RSS_GROWTH_LIMIT_MB = 180;
 export const LARGE_BACKFILL_MAIN_HEAP_GROWTH_LIMIT_MB = 80;
 export const LARGE_BACKFILL_IDLE_HOST_HEAP_DRIFT_LIMIT_MB = 40;
 export const LARGE_BACKFILL_IDLE_MAIN_RSS_DRIFT_LIMIT_MB = 90;
-export const LARGE_COLLECTION_VISIBLE_HEAP_GROWTH_LIMIT_MB = 120;
-export const LARGE_COLLECTION_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 250;
-export const LARGE_COLLECTION_LIST_VISIBLE_HEAP_GROWTH_LIMIT_MB = 80;
-export const LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 180;
+// Calibrated from three sequential exact-head Ubuntu workflow runs documented
+// in docs/agents/ci-quality.md. Both paths measured 0 MB heap growth and a
+// shrinking working set; these positive floors retain noise headroom while
+// still rejecting a material full-collection hydration regression.
+export const LARGE_COLLECTION_VISIBLE_HEAP_GROWTH_LIMIT_MB = 16;
+export const LARGE_COLLECTION_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 32;
+export const LARGE_COLLECTION_LIST_VISIBLE_HEAP_GROWTH_LIMIT_MB = 16;
+export const LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 32;
 export const ACTUAL_IMPORT_STRESS_FILE_COUNT = 1000;
 export const ACTUAL_IMPORT_SENTENCES_PER_FILE = 24;
 export const ACTUAL_IMPORT_VISIBLE_WORKING_SET_LIMIT_MB = 1400;
@@ -1163,6 +1167,17 @@ export function getRuntimeSnapshot(
   return runtime;
 }
 
+export function requireRuntimeWorkingSetMB(
+  snapshot: DesktopProcessSnapshot,
+  runtimeKind: RuntimeProcessSnapshot['runtimeKind']
+): number {
+  const workingSetMB = getRuntimeSnapshot(snapshot, runtimeKind).workingSetMB;
+  if (typeof workingSetMB !== 'number') {
+    throw new Error(`Missing ${runtimeKind} working-set measurement.`);
+  }
+  return workingSetMB;
+}
+
 export function growth(after: number, before: number): number {
   return Math.round((after - before) * 10) / 10;
 }
@@ -1368,16 +1383,31 @@ export async function readCombinedMemorySnapshot(
   hostPage: Page,
   label: string
 ): Promise<CombinedMemorySnapshot> {
-  const [visibleHeap, hostHeap, process] = await Promise.all([
-    readRendererHeapSnapshot(activeWindow, `${label}-visible`),
-    readRendererHeapSnapshot(hostPage, `${label}-host`),
-    readDesktopProcessSnapshot(electronApp),
-  ]);
+  const [visibleHeap, hostHeap, process, visibleWorkingSetMB, hostWorkingSetMB] = await Promise.all(
+    [
+      readRendererHeapSnapshot(activeWindow, `${label}-visible`),
+      readRendererHeapSnapshot(hostPage, `${label}-host`),
+      readDesktopProcessSnapshot(electronApp),
+      waitForTrackedRuntimeWorkingSetMB(electronApp, activeWindow, 'visible-ui'),
+      waitForTrackedRuntimeWorkingSetMB(electronApp, activeWindow, 'embedding-host'),
+    ]
+  );
 
   return {
     hostHeap,
     label,
-    process,
+    process: {
+      ...process,
+      runtimes: process.runtimes.map((runtime) => {
+        if (runtime.runtimeKind === 'visible-ui') {
+          return { ...runtime, workingSetMB: visibleWorkingSetMB };
+        }
+        if (runtime.runtimeKind === 'embedding-host') {
+          return { ...runtime, workingSetMB: hostWorkingSetMB };
+        }
+        return runtime;
+      }),
+    },
     visibleHeap,
   };
 }
