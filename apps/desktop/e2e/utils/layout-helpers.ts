@@ -433,113 +433,19 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
 /**
  * Clear records via UI interaction (fallback method).
  *
- * NOTE (BST-1213): this path is now unreachable-by-design. It drives
+ * NOTE (BST-1213/BST-1216): this path is unreachable-by-design. It drives
  * `tbody tr button[title="Remove record"]`, and no surface has rendered a
  * per-record delete button for some time; since the Collections tab lost its
  * record table entirely, `tbody tr` matches nothing here either. It therefore
  * returns "nothing to clear" instead of clearing. It only runs when the bulk
  * Electron API above has ALREADY failed, so it does not mask a working path —
- * but it should be made to throw rather than report success. Left alone here
- * deliberately: changing it alters behaviour on a path this branch cannot
- * exercise. See the B2 report follow-ups.
+ * and now fails closed with a named error instead of reporting a successful
+ * cleanup. See the B2 report follow-ups.
  */
-async function clearDatabaseRecordsViaUI(page: Page): Promise<Page> {
-  let activePage = await resolveActivePage(page);
-  if (activePage.isClosed()) {
-    activePage = await resolveActivePage(page);
-  }
-
-  if (await isDatabaseErrorState(activePage)) {
-    console.log('ℹ️ Database in error state; UI cleanup skipped.');
-    return activePage;
-  }
-
-  let refresh = await resolveRefreshButton(activePage, { timeoutMs: 20_000 });
-  activePage = refresh.page;
-  let refreshButton = refresh.button;
-
-  // First refresh to ensure we see all current records
-  console.log('🔄 Refreshing records...');
-  try {
-    await refreshButton.click({ timeout: 5000 });
-    if (!activePage.isClosed()) {
-      await activePage.waitForTimeout(800);
-    }
-  } catch {
-    console.warn('⚠️ Refresh click failed; reinitializing panel...');
-    refresh = await resolveRefreshButton(activePage);
-    activePage = refresh.page;
-    refreshButton = refresh.button;
-    await refreshButton.click({ timeout: 5000 });
-    if (!activePage.isClosed()) {
-      await activePage.waitForTimeout(800);
-    }
-  }
-
-  // Check initial record count
-  const initialCount = await activePage.locator('tbody tr').count();
-  console.log(`📊 Found ${initialCount} records to clear via UI`);
-
-  if (initialCount === 0) {
-    console.log('✅ No records to clear');
-    return activePage;
-  }
-
-  // Limit UI deletion to prevent crashes from too many records
-  const maxUIDeletes = 50;
-  if (initialCount > maxUIDeletes) {
-    console.warn(
-      `⚠️ Too many records (${initialCount}) for safe UI deletion. Consider using bulk delete API.`
-    );
-    throw new Error(
-      `Cannot safely delete ${initialCount} records via UI. Use bulk delete instead.`
-    );
-  }
-
-  // Delete records one by one with better error handling
-  let attempts = 0;
-  const maxAttempts = Math.min(initialCount + 3, maxUIDeletes);
-
-  while (attempts < maxAttempts) {
-    try {
-      const deleteButtons = activePage.locator('tbody tr button[title="Remove record"]');
-      const count = await deleteButtons.count();
-
-      if (count === 0) {
-        console.log('✅ All records cleared via UI');
-        break;
-      }
-
-      console.log(`🗑️ Deleting record via UI (${attempts + 1}/${maxAttempts}), ${count} remaining`);
-
-      // Click the first delete button
-      await deleteButtons.first().click();
-      await page.waitForTimeout(300);
-
-      attempts++;
-    } catch (error) {
-      console.warn(`⚠️ Error during UI deletion attempt ${attempts + 1}:`, error);
-
-      // Check if the page/app is still responsive
-      try {
-        await activePage.locator('[data-testid="database-demo-panel"]').waitFor({
-          state: 'visible',
-          timeout: 2000,
-        });
-      } catch {
-        console.error('❌ App appears to have crashed during UI cleanup');
-        throw new Error('Application crashed during database record cleanup');
-      }
-
-      attempts++;
-      if (attempts >= maxAttempts) {
-        console.warn('⚠️ Max UI cleanup attempts reached');
-        break;
-      }
-    }
-  }
-
-  return activePage;
+async function clearDatabaseRecordsViaUI(_page: Page): Promise<Page> {
+  throw new Error(
+    'Database UI cleanup is unavailable after the bulk delete API failed; records were not cleared.'
+  );
 }
 
 async function resolveActivePage(page: Page): Promise<Page> {
