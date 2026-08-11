@@ -29,7 +29,10 @@ import {
 } from '../diagnostics/diagnostics-seen-store';
 import { DiagnosticsStatusItem } from '../status-items/diagnostics-status-item';
 
-function mockLiveQueryResult(rows: Array<{ count: number }>, error: Error | null = null) {
+function mockLiveQueryResult(
+  rows: Array<{ errorCount: number; warningCount: number }>,
+  error: Error | null = null
+) {
   usePGliteLiveQueryMock.mockReturnValue({
     error,
     loading: false,
@@ -43,7 +46,7 @@ describe('DiagnosticsStatusItem', () => {
     usePGliteDatabaseMock.mockReset();
     usePGliteLiveQueryMock.mockReset();
     usePGliteDatabaseMock.mockReturnValue({});
-    mockLiveQueryResult([{ count: 0 }]);
+    mockLiveQueryResult([{ errorCount: 0, warningCount: 0 }]);
     resetDiagnosticsSeenStore();
     usePanelLayoutStore.setState({ activeTab: 'explorer', settingsOpen: false });
     window.location.hash = '';
@@ -57,7 +60,7 @@ describe('DiagnosticsStatusItem', () => {
   });
 
   it('renders singular "error" at count 1', () => {
-    mockLiveQueryResult([{ count: 1 }]);
+    mockLiveQueryResult([{ errorCount: 1, warningCount: 0 }]);
 
     render(<DiagnosticsStatusItem />);
 
@@ -69,7 +72,7 @@ describe('DiagnosticsStatusItem', () => {
   });
 
   it('renders plural "errors" at count 2', () => {
-    mockLiveQueryResult([{ count: 2 }]);
+    mockLiveQueryResult([{ errorCount: 2, warningCount: 0 }]);
 
     render(<DiagnosticsStatusItem />);
 
@@ -80,8 +83,42 @@ describe('DiagnosticsStatusItem', () => {
     );
   });
 
+  it('labels warning-only rows as warnings rather than errors', () => {
+    mockLiveQueryResult([{ errorCount: 0, warningCount: 2 }]);
+
+    render(<DiagnosticsStatusItem />);
+
+    expect(screen.getByTestId('diagnostics-status-item')).toHaveTextContent('2 warnings');
+    expect(screen.getByTestId('diagnostics-status-item')).not.toHaveTextContent('errors');
+    expect(screen.getByTestId('diagnostics-status-trigger')).toHaveAttribute(
+      'aria-label',
+      '2 warnings recorded since launch. Open logging settings'
+    );
+  });
+
+  it('uses the singular warning label at count 1', () => {
+    mockLiveQueryResult([{ errorCount: 0, warningCount: 1 }]);
+
+    render(<DiagnosticsStatusItem />);
+
+    expect(screen.getByTestId('diagnostics-status-item')).toHaveTextContent('1 warning');
+    expect(screen.getByTestId('diagnostics-status-item')).not.toHaveTextContent('warnings');
+  });
+
+  it('reports errors and warnings separately when both are unseen', () => {
+    mockLiveQueryResult([{ errorCount: 2, warningCount: 3 }]);
+
+    render(<DiagnosticsStatusItem />);
+
+    expect(screen.getByTestId('diagnostics-status-item')).toHaveTextContent('2 errors, 3 warnings');
+    expect(screen.getByTestId('diagnostics-status-trigger')).toHaveAttribute(
+      'aria-label',
+      '2 errors and 3 warnings recorded since launch. Open logging settings'
+    );
+  });
+
   it('clicking advances the seen watermark, opens settings, and routes to the logging tab', async () => {
-    mockLiveQueryResult([{ count: 3 }]);
+    mockLiveQueryResult([{ errorCount: 3, warningCount: 0 }]);
     // Pin the pre-click watermark to a known PAST value rather than reading
     // whatever `beforeEach` seeded. `resetDiagnosticsSeenStore()` seeds to
     // `Date.now()` and the click lands microseconds later, so asserting
@@ -113,12 +150,12 @@ describe('DiagnosticsStatusItem', () => {
     );
     expect(trigger).toHaveAttribute(
       'aria-label',
-      'Unseen error count unavailable. Open logging settings'
+      'Unseen diagnostics count unavailable. Open logging settings'
     );
   });
 
   it('uses the amber warning tone for both the counted and error states', () => {
-    mockLiveQueryResult([{ count: 1 }]);
+    mockLiveQueryResult([{ errorCount: 1, warningCount: 0 }]);
     const { rerender } = render(<DiagnosticsStatusItem />);
     expect(screen.getByTestId('diagnostics-status-item')).toHaveClass(
       'text-amber-800',
@@ -153,7 +190,7 @@ describe('DiagnosticsStatusItem sink health', () => {
   // it. The Settings banner alone is not enough: the user has no reason to
   // open Settings when the status bar says all is well.
   it('surfaces a disabled sink even though the unseen count is 0', () => {
-    mockLiveQueryResult([{ count: 0 }]);
+    mockLiveQueryResult([{ errorCount: 0, warningCount: 0 }]);
     useDiagnosticSinkHealthStore.getState().markDisabled('disk is full');
 
     render(<DiagnosticsStatusItem />);
@@ -168,7 +205,7 @@ describe('DiagnosticsStatusItem sink health', () => {
   });
 
   it('prefers the disabled-sink label over a stale non-zero count', () => {
-    mockLiveQueryResult([{ count: 4 }]);
+    mockLiveQueryResult([{ errorCount: 4, warningCount: 0 }]);
     useDiagnosticSinkHealthStore.getState().markDisabled('disk is full');
 
     render(<DiagnosticsStatusItem />);

@@ -8,12 +8,10 @@ import { useDiagnosticsSeenStore } from './diagnostics-seen-store';
  * (Flight Recorder P2b Task 3, design §9).
  *
  * `brainstrike_diagnostic_events` has a CHECK constraint restricting
- * `severity` to `warn`/`error`/`fatal` (migration 073) — every row in the
- * table already qualifies as "warn+", so no severity predicate belongs in
- * this query. Do NOT add one "for clarity" or "to be safe": it would be
- * redundant today and would silently diverge if the constraint's allowed
- * list ever changes (the constraint, not a duplicated filter, is the single
- * source of truth for what counts).
+ * `severity` to `warn`/`error`/`fatal` (migration 073), so every row already
+ * qualifies as "warn+". The FILTER clauses do not decide eligibility; they
+ * partition that constrained set so the status chip never labels warnings as
+ * errors. Fatal rows intentionally share the error bucket.
  *
  * `usePGliteDatabase()` is called directly rather than gating this hook
  * behind `useOptionalPGliteDatabase()` + a child-component split: it never
@@ -22,16 +20,35 @@ import { useDiagnosticsSeenStore } from './diagnostics-seen-store';
  * mirrors `useDailySpend` (`cost-tracking/use-daily-spend.ts`), the existing
  * precedent in this same package for gating a live query on the raw handle.
  */
-const UNSEEN_DIAGNOSTICS_QUERY =
-  'SELECT COUNT(*)::int AS count FROM brainstrike_diagnostic_events WHERE occurred_at > $1';
+export const UNSEEN_DIAGNOSTICS_QUERY = `
+  SELECT
+    COUNT(*) FILTER (WHERE severity IN ('error', 'fatal'))::int AS "errorCount",
+    COUNT(*) FILTER (WHERE severity = 'warn')::int AS "warningCount"
+  FROM brainstrike_diagnostic_events
+  WHERE occurred_at > $1
+`;
 
 interface UnseenDiagnosticsCountRow {
-  readonly count: number | string | null;
+  readonly errorCount: number | string | null;
+  readonly warningCount: number | string | null;
 }
 
 export interface UnseenDiagnosticsCountResult {
-  readonly count: number;
   readonly error: Error | null;
+  readonly errorCount: number;
+  readonly warningCount: number;
+}
+
+function parseAggregateCount(value: unknown): number | null {
+  let parsed: number;
+  if (typeof value === 'number') {
+    parsed = value;
+  } else if (typeof value === 'string' && /^\d+$/.test(value)) {
+    parsed = Number(value);
+  } else {
+    return null;
+  }
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
@@ -41,15 +58,35 @@ export function useUnseenDiagnosticsCount(): UnseenDiagnosticsCountResult {
   // `mapDiagnosticEventRow` converts the column back the same way.
   const lastSeenAtIso = useMemo(() => new Date(lastSeenAtMs).toISOString(), [lastSeenAtMs]);
   const params = useMemo(() => [lastSeenAtIso] as const, [lastSeenAtIso]);
+  const queryEnabled = database !== null;
 
-  const { error, rows } = usePGliteLiveQuery<UnseenDiagnosticsCountRow>({
+  const { error, loading, rows } = usePGliteLiveQuery<UnseenDiagnosticsCountRow>({
     cacheKey: makeLiveQueryKey('diagnostics-unseen', lastSeenAtIso),
-    enabled: database !== null,
+    enabled: queryEnabled,
     params,
     query: UNSEEN_DIAGNOSTICS_QUERY,
   });
 
-  const count = useMemo(() => Number(rows[0]?.count ?? 0), [rows]);
+  const counts = useMemo(() => {
+    const row = rows[0];
+    if (!queryEnabled || loading || row === undefined) {
+      return { aggregateError: null, errorCount: 0, warningCount: 0 };
+    }
+    const errorCount = parseAggregateCount(row.errorCount);
+    const warningCount = parseAggregateCount(row.warningCount);
+    if (errorCount === null || warningCount === null) {
+      return {
+        aggregateError: new Error('Unseen diagnostics query returned invalid aggregate counts'),
+        errorCount: 0,
+        warningCount: 0,
+      };
+    }
+    return { aggregateError: null, errorCount, warningCount };
+  }, [loading, queryEnabled, rows]);
 
-  return { count, error };
+  return {
+    error: error ?? counts.aggregateError,
+    errorCount: counts.errorCount,
+    warningCount: counts.warningCount,
+  };
 }

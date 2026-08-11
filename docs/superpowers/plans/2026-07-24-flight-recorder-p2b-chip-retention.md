@@ -113,6 +113,12 @@ Uses `usePGliteLiveQuery` with
 `SELECT COUNT(*)::int AS count FROM brainstrike_diagnostic_events WHERE occurred_at > $1`
 — note the table's CHECK constraint means every row is already warn+, so no severity predicate is needed (say so in a comment; a redundant filter invites someone to "fix" it later). Bind the watermark as an **ISO string** (repo convention — `new Date(ms).toISOString()`), and include it in `cacheKey: makeLiveQueryKey('diagnostics-unseen', iso)` because a `cacheKey` skips deep param comparison, so every param must appear in it. `params` must be a stable reference (`useMemo`). Gate with `enabled` on the db handle being present.
 
+> **BST-1222 amendment (2026-08-10):** the shipped contract now uses two
+> aggregate `FILTER` clauses to partition the CHECK-constrained warn+ set for
+> honest labels. `warn` remains a warning; `error` and `fatal` share the error
+> bucket. This supersedes the original no-predicate instruction above without
+> changing which rows qualify.
+
 **Caveat to verify first:** `usePGliteLiveQuery` internally calls the NON-optional `usePGliteDatabase()`. `AppLayout` renders inside `<DbProvider>` on both platforms, but confirm the non-optional hook's behavior before the handle is ready; if it throws, gate the chip so the hook is not called until a handle exists (split the querying part into a child component rendered only when `useOptionalPGliteDatabase()` is non-null). Report which you did.
 
 **Chip:** `DiagnosticsStatusItem` renders `null` when `count === 0` (no chrome when there is nothing wrong). Otherwise a hand-rolled `<button>` — the shared `StatusBarItem` has no `onClick` — copying `indexing-status-item.tsx`'s exact accessibility shape: a separate `sr-only` live region sibling, `aria-label` on the button, visible content `aria-hidden`. Amber tone (`text-amber-800 dark:text-amber-300`, matching that file's palette). Label: the count plus "error"/"errors". `data-testid="diagnostics-status-trigger"`.
