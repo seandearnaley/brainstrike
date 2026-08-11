@@ -168,6 +168,7 @@ describe('runAssistantTurn', () => {
             reasoning: { effort: 'max' },
           },
         },
+        requestedReasoningEffort: 'max',
       },
     });
 
@@ -183,6 +184,28 @@ describe('runAssistantTurn', () => {
         reasoningEffort: 'max',
       },
     });
+  });
+
+  it('does not mistake Auto for an explicit resolved max effort', async () => {
+    const turn = baseParams({
+      runtimeData: {
+        model: 'moonshotai/kimi-k3',
+        provider: 'openrouter',
+        providerOptions: {
+          openrouter: {
+            provider: { require_parameters: true },
+            reasoning: { effort: 'max' },
+          },
+        },
+      },
+    });
+
+    const result = await runAssistantTurn(turn.params as never);
+    if (!result.ok) {
+      throw new Error('expected turn');
+    }
+
+    expect(turn.sessions.create).toHaveBeenCalledWith(expect.anything(), {});
   });
 
   it('threads assistantMessageId into session creation only when present, and stamps both headers', async () => {

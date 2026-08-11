@@ -102,14 +102,14 @@ export async function runAssistantTurn(
     return { ok: false, payload: streamResult.payload, status: streamResult.status };
   }
 
-  const reasoningEffort = runtimeData.providerOptions?.openrouter?.reasoning?.effort;
+  const reasoningEffort = runtimeData.requestedReasoningEffort;
   const outputLimitContext =
     runtimeData.provider === 'openrouter' &&
     typeof runtimeData.model === 'string' &&
     typeof reasoningEffort === 'string'
       ? {
           model: runtimeData.model,
-          provider: runtimeData.provider,
+          provider: 'openrouter' as const,
           reasoningEffort,
         }
       : undefined;

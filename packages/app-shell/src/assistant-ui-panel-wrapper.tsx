@@ -1067,6 +1067,7 @@ export function AssistantUiPanelWrapper({
     permissionPolicyRequest,
     planMode,
     providerOptions,
+    requestedReasoningEffort: selectedProviderSettings?.reasoningEffort,
     runtimeWorkspaceContext,
     selectedMemoryThreadId,
     selectionData,

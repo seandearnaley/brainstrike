@@ -888,9 +888,9 @@ describe('AssistantDataStreamSession', () => {
   });
 
   it.each([
-    { model: 'moonshotai/kimi-k3', reasoningEffort: 'low' },
-    { model: 'moonshotai/kimi-k3', reasoningEffort: 'auto' },
-    { model: 'z-ai/glm-5.2', reasoningEffort: 'high' },
+    { model: 'moonshotai/kimi-k3', reasoningEffort: 'low' as const },
+    { model: 'moonshotai/kimi-k3', reasoningEffort: undefined },
+    { model: 'z-ai/glm-5.2', reasoningEffort: 'high' as const },
   ])('keeps generic output-limit guidance for $model at $reasoningEffort effort', async (context) => {
     const chunks: StreamChunk[] = [
       {

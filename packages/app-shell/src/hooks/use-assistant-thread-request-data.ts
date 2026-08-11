@@ -42,6 +42,8 @@ interface UseAssistantThreadRequestDataArgs {
   /** Plan mode (opt-in); forwarded to the request only when `true`. */
   readonly planMode?: boolean;
   readonly providerOptions: Record<string, unknown> | undefined;
+  /** Explicit selection only; absent means Auto. */
+  readonly requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
   readonly runtimeWorkspaceContext: RuntimeData['workspaceContext'] | null;
   readonly selectedMemoryThreadId: string | undefined;
   readonly selectionData: {
@@ -95,6 +97,7 @@ export function useAssistantThreadRequestData({
   permissionPolicyRequest,
   planMode,
   providerOptions,
+  requestedReasoningEffort,
   runtimeWorkspaceContext,
   selectedMemoryThreadId,
   selectionData,
@@ -131,6 +134,7 @@ export function useAssistantThreadRequestData({
         permissionPolicyRequest,
         ...(planMode ? { planMode: true } : {}),
         providerOptions,
+        requestedReasoningEffort,
         selectedMemoryThreadId,
         selectionData,
         ...(selfImprovementSignalPreference ? { selfImprovementSignalPreference } : {}),
@@ -155,6 +159,7 @@ export function useAssistantThreadRequestData({
       permissionPolicyRequest,
       planMode,
       providerOptions,
+      requestedReasoningEffort,
       runtimeMemorySettings,
       selectedMemoryThreadId,
       selectionData,

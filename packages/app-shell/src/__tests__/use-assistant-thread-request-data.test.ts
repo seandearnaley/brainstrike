@@ -31,6 +31,7 @@ const baseArgs = {
   observationalMemorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
   permissionPolicyRequest: undefined,
   providerOptions: { openai: { reasoningEffort: 'medium' } },
+  requestedReasoningEffort: 'medium' as const,
   runtimeWorkspaceContext: null,
   selectedMemoryThreadId: 'thread-a',
   selectionData: {
@@ -63,6 +64,7 @@ describe('useAssistantThreadRequestData', () => {
         topP: 0.9,
       },
       providerOptions: { openai: { reasoningEffort: 'medium' } },
+      requestedReasoningEffort: 'medium',
       selectionFilePaths: ['/workspace-a/src/app.ts'],
       workspaceIndexEmbeddingSetId: 'embedding-set-a',
       workspaceIndexingEnabled: true,
@@ -83,5 +85,19 @@ describe('useAssistantThreadRequestData', () => {
 
     expect(result.current.requestData['memory']).toBeUndefined();
     expect(result.current.runtimeMemorySettings).toEqual(DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS);
+  });
+
+  it('keeps Auto distinct from the resolved provider wire effort', () => {
+    const { result } = renderHook(() =>
+      useAssistantThreadRequestData({
+        ...baseArgs,
+        requestedReasoningEffort: undefined,
+      })
+    );
+
+    expect(result.current.requestData['providerOptions']).toEqual({
+      openai: { reasoningEffort: 'medium' },
+    });
+    expect(result.current.requestData['requestedReasoningEffort']).toBeUndefined();
   });
 });

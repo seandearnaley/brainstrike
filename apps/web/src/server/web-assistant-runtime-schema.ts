@@ -207,6 +207,9 @@ const ACCEPTED_IGNORED_WIRE_SCHEMAS = {
     .strict(),
   provider: idSchema,
   providerOptions: z.custom<Record<string, unknown>>(isBoundedJsonObject),
+  // Accepted for shared desktop/web wire compatibility but ignored: Hosted Web
+  // owns model/generation policy server-side and exposes no explicit effort UI.
+  requestedReasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
   transportImageElision: z
     .object({
       elidedImageBytes: countSchema,

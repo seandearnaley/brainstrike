@@ -519,6 +519,8 @@ export function buildAssistantRequestData(args: {
    */
   planMode?: boolean;
   providerOptions: Record<string, unknown> | undefined;
+  /** Explicit selection only; absent means Auto even when providerOptions has a resolved effort. */
+  requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
   selectedMemoryThreadId: string | undefined;
   selectionData: {
     filePaths: string[];
@@ -638,6 +640,7 @@ interface OptInRequestFields {
   hookTrustRequest?: HookTrustRequest | undefined;
   permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
   planMode?: boolean;
+  requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
   selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   skillsPreference?: RuntimeData['skillsPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
@@ -650,6 +653,11 @@ interface OptInRequestFields {
  * stays under the cognitive-complexity budget.
  */
 function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRequestFields): void {
+  // Explicit effort is presence-means-user-selected; absent means Auto even
+  // when resolved provider options carry a catalog-selected wire effort.
+  if (fields.requestedReasoningEffort) {
+    data['requestedReasoningEffort'] = fields.requestedReasoningEffort;
+  }
   // Permission enforcement is OPT-IN: presence means "enforce"; the server
   // re-checks `enforce` and adds server-owned tool risk classification.
   if (fields.permissionPolicyRequest) {
