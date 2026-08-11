@@ -445,6 +445,7 @@ test.describe('Embedding Host Renderer - memory', () => {
     // path against the same 50k-file collection: click through lazy import and
     // render until the size-sensitive failed-embeddings query has settled.
     const drawerToggle = activeWindow.getByRole('button', { name: /collection details/i });
+    await expect(drawerToggle).toBeEnabled({ timeout: 15_000 });
     const drawerOpenStartedAt = await activeWindow.evaluate(() => performance.now());
     await drawerToggle.click({ timeout: 5000 });
     await expect(activeWindow.getByTestId('collection-debug-drawer-content')).toBeVisible({
@@ -454,6 +455,9 @@ test.describe('Embedding Host Renderer - memory', () => {
     await expect(failedEmbeddingsSection).toContainText(`${fixture.fileCount} file(s), `, {
       timeout: 15_000,
     });
+    // 200 is DRAWER_INCOMPLETE_FILE_LIMIT. The fixture creates 50k records with
+    // no chunks and NULL chunks_processed_at, so every row matches and the
+    // limit must bind; loading, error, and empty states cannot produce 200.
     await expect(failedEmbeddingsSection).toContainText('200 file(s) need attention', {
       timeout: 15_000,
     });
