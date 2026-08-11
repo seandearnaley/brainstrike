@@ -1306,7 +1306,8 @@ not-knowing classes outrank the counts, because
 this is the only always-visible diagnostics surface: a live-query error
 renders "Diagnostics unavailable" rather than the honest-looking `0`.
 Present aggregate values are validated strictly: only a non-negative safe-integer
-number or decimal-digit string is accepted. Null, blank, non-integer, negative,
+number or decimal-digit string with no surrounding whitespace is accepted. Null,
+blank, non-integer, negative,
 boolean, array, object, non-decimal, or otherwise unsafe values render
 "Diagnostics unavailable" rather than being coerced via `Number()`. A non-null
 `disabledReason` renders
