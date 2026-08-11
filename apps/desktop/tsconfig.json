@@ -136,6 +136,9 @@
       "@brainstrike/assistant-data/cost-tracking": [
         "../../packages/assistant-data/src/cost-tracking/index.ts"
       ],
+      "@brainstrike/assistant-data/assistant-thread-run-reaper": [
+        "../../packages/assistant-data/src/assistant-thread-run-reaper.ts"
+      ],
       "@brainstrike/app-shell/changes/availability": [
         "../../packages/app-shell/src/changes/availability.ts"
       ],

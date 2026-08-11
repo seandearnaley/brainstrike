@@ -42,6 +42,8 @@ describe('WebE2ETestHooks', () => {
   it('does not expose hooks outside webdriver automation', async () => {
     setWebDriver(false);
     window.__brainstrikeWebE2ETestHooks__ = {
+      completeAssistantThreadRun: vi.fn(),
+      createAssistantThreadRun: vi.fn(),
       dbPath: 'idb://old',
       linkResetProbeRowsToCollection: vi.fn(),
       qualifyDatabaseExtensions: vi.fn(),
@@ -69,6 +71,8 @@ describe('WebE2ETestHooks', () => {
   it('waits for the database handle before exposing hooks', async () => {
     setWebDriver(true);
     window.__brainstrikeWebE2ETestHooks__ = {
+      completeAssistantThreadRun: vi.fn(),
+      createAssistantThreadRun: vi.fn(),
       dbPath: 'idb://old',
       linkResetProbeRowsToCollection: vi.fn(),
       qualifyDatabaseExtensions: vi.fn(),
@@ -230,6 +234,51 @@ describe('WebE2ETestHooks', () => {
     await waitFor(() => {
       expect(window.__brainstrikeWebE2ETestHooks__).toBeUndefined();
     });
+  });
+
+  it('creates and terminally updates assistant runs through strict webdriver-only SQL', async () => {
+    setWebDriver(true);
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ id: 'run-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'run-1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+    usePGliteDatabaseMock.mockReturnValue({ query } satisfies TestDbHandle);
+
+    render(<WebE2ETestHooks dbPath="idb://web-e2e-test" />);
+
+    await waitFor(() => {
+      expect(window.__brainstrikeWebE2ETestHooks__).toBeDefined();
+    });
+    const hooks = window.__brainstrikeWebE2ETestHooks__;
+    if (!hooks) {
+      throw new Error('Expected webdriver hooks to be installed');
+    }
+
+    await hooks.createAssistantThreadRun({
+      id: 'run-1',
+      resourceId: 'workspace-a',
+      threadId: 'thread-1',
+    });
+    await hooks.completeAssistantThreadRun('run-1', 'completed');
+
+    expect(query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('INSERT INTO brainstrike_assistant_thread_runs'),
+      ['run-1', 'workspace-a', 'thread-1', expect.any(Date)]
+    );
+    expect(query).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("WHERE id = $1 AND status = 'running'"),
+      ['run-1', 'completed', expect.any(Date)]
+    );
+    await expect(
+      hooks.createAssistantThreadRun({
+        id: 'run-missing',
+        resourceId: 'workspace-a',
+        threadId: 'thread-1',
+      })
+    ).rejects.toThrow('Web E2E assistant run creation returned no row: run-missing');
   });
 
   it('fails loudly when webdriver tests require sync but the DB handle cannot provide it', async () => {
