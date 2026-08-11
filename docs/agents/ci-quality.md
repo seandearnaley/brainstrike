@@ -43,6 +43,19 @@ statically resolved tags, the desktop file remains PR-allowlisted and
 nightly-routed, and the pull-request E2E jobs still invoke both smoke scripts
 without PR-excluding conditions.
 
+### Development startup ordering (BST-1168)
+
+Root `pnpm dev` has a two-phase lifecycle: root `predev` synchronously prepares
+the complete app dependency graph, then the root `dev` wrapper marks the outer
+Turbo graph with `BRAINSTRIKE_DEV_DEPS_PREPARED=1`. Web and desktop `predev`
+hooks may skip their standalone preparation only when both `TURBO_HASH` and
+that explicit marker are present. A bare `turbo run dev` has no marker and must
+fail closed with guidance to use `pnpm dev`; it must never start nested builds
+beside persistent watchers. Direct package-level web or desktop `pnpm dev`
+invocations have no `TURBO_HASH`, so they still prepare dependencies
+synchronously. Do not replace this ordering with sleeps, polling, or `dist`
+existence sentinels.
+
 ### The package-boundary gate runs first in Static (BST-967)
 
 The `Static` job runs `pnpm exec turbo boundaries` as its first substantive

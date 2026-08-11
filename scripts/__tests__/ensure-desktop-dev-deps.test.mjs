@@ -14,7 +14,7 @@ test('derives the desktop development dependency graph through the bounded turbo
 
   assert.deepEqual(args, [
     'scripts/run-turbo-command.mjs',
-    '--skip-under-turbo',
+    '--skip-under-prepared-dev',
     '--',
     'run',
     'desktop-dev-dependencies',

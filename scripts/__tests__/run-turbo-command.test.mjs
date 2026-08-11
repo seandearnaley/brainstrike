@@ -177,13 +177,78 @@ describe('run turbo command helper', () => {
     assert.deepEqual(spawnCalls[0].args.slice(0, 2), ['run', 'build']);
   });
 
+  it('skips prepared dev dependency builds only with the explicit root marker', () => {
+    const logs = [];
+    const spawnCalls = [];
+    const status = turboCommand.runTurboCommand(
+      ['node', 'run-turbo-command.mjs', '--skip-under-prepared-dev', '--', 'run', 'build'],
+      'darwin',
+      {
+        env: {
+          BRAINSTRIKE_DEV_DEPS_PREPARED: '1',
+          HOME: makeFakeHome(),
+          TURBO_HASH: '649b8853e23bc395',
+        },
+        log: (message) => logs.push(message),
+        logError: () => {},
+        spawnSyncImpl: (...args) => {
+          spawnCalls.push(args);
+          return { status: 0 };
+        },
+      }
+    );
+
+    assert.equal(status, 0);
+    assert.deepEqual(spawnCalls, []);
+    assert.match(logs[0], /BRAINSTRIKE_DEV_DEPS_PREPARED/u);
+  });
+
+  it('fails loudly when direct turbo dev bypasses root dependency preparation', () => {
+    const errors = [];
+    const status = turboCommand.runTurboCommand(
+      ['node', 'run-turbo-command.mjs', '--skip-under-prepared-dev', '--', 'run', 'build'],
+      'darwin',
+      {
+        env: { HOME: makeFakeHome(), TURBO_HASH: '649b8853e23bc395' },
+        log: () => {},
+        logError: (message) => errors.push(message),
+        spawnSyncImpl: () => {
+          throw new Error('must not start a racy nested build');
+        },
+      }
+    );
+
+    assert.equal(status, 1);
+    assert.match(errors[0], /pnpm dev/u);
+  });
+
+  it('marks the spawned root dev graph after synchronous preparation', () => {
+    const spawnCalls = [];
+    const status = turboCommand.runTurboCommand(
+      ['node', 'run-turbo-command.mjs', '--mark-dev-deps-prepared', '--', 'run', 'dev'],
+      'darwin',
+      {
+        env: { HOME: makeFakeHome() },
+        log: () => {},
+        logError: () => {},
+        spawnSyncImpl: (_command, _args, options) => {
+          spawnCalls.push(options.env);
+          return { status: 0 };
+        },
+      }
+    );
+
+    assert.equal(status, 0);
+    assert.equal(spawnCalls[0].BRAINSTRIKE_DEV_DEPS_PREPARED, '1');
+  });
+
   it('does not skip when TURBO_HASH is set but --skip-under-turbo is absent', () => {
     const logs = [];
     const spawnCalls = [];
 
-    // Without the opt-in flag the wrapper must run turbo even under an outer
-    // turbo task (predev under `turbo run dev` has no ^build edge and NEEDS the
-    // nested build).
+    // Without either opt-in flag the wrapper must run turbo even under an outer
+    // task. Prepared dev hooks use their distinct fail-closed option; this path
+    // remains available to other nested commands that genuinely need to run.
     const status = turboCommand.runTurboCommand(
       ['node', 'run-turbo-command.mjs', '--', 'run', 'build'],
       'darwin',
@@ -501,7 +566,10 @@ describe('nested prebuild turbo contract', () => {
     const webPrebuild = webManifest.scripts.prebuild;
     const webPredev = webManifest.scripts.predev;
 
-    assert.match(rootManifest.scripts.dev, /^node scripts\/run-turbo-command\.mjs -- run dev\b/u);
+    assert.match(
+      rootManifest.scripts.dev,
+      /^node scripts\/run-turbo-command\.mjs --mark-dev-deps-prepared -- run dev\b/u
+    );
     assert.equal(
       rootPredev,
       'node scripts/ensure-desktop-dev-deps.mjs',
@@ -510,8 +578,13 @@ describe('nested prebuild turbo contract', () => {
     assert.equal(desktopManifest.scripts.predev, 'node ../../scripts/ensure-desktop-dev-deps.mjs');
     assert.match(
       webPredev,
-      /^node \.\.\/\.\.\/scripts\/run-turbo-command\.mjs --skip-under-turbo -- run build(?: --filter=@brainstrike\/[\w-]+)+$/u,
+      /^node \.\.\/\.\.\/scripts\/run-turbo-command\.mjs --skip-under-prepared-dev -- run build(?: --filter=@brainstrike\/[\w-]+)+$/u,
       'standalone web dev must build dependencies, while the root turbo graph must skip its nested build'
+    );
+    assert.match(
+      readFileSync(resolve(process.cwd(), 'turbo.jsonc'), 'utf8'),
+      /"BRAINSTRIKE_DEV_DEPS_PREPARED"/u,
+      'the root preparation marker must pass through Turbo strict-env mode to app predev tasks'
     );
 
     const preparedGraph = JSON.parse(

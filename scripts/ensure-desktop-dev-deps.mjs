@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 // dependency graph through the bounded wrapper and shared nested-run lock.
 const desktopDevDependencyBuildArgs = [
   'scripts/run-turbo-command.mjs',
-  '--skip-under-turbo',
+  '--skip-under-prepared-dev',
   '--',
   'run',
   'desktop-dev-dependencies',
