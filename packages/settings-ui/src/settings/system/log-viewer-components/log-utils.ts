@@ -1,4 +1,5 @@
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
+import { serializeDiagnosticJson } from './log-diagnostic-metadata';
 
 const BINDINGS_SERIALIZATION_FAILURE = '[Bindings serialization failed]';
 
@@ -40,9 +41,15 @@ export function serializeArgs(args?: readonly unknown[]): string {
 
 export function serializeBindings(bindings: LogRecord['bindings']): string {
   try {
-    return JSON.stringify(bindings ?? {}) ?? BINDINGS_SERIALIZATION_FAILURE;
+    // Preserve normal JSON/toJSON semantics on the common path; only invoke the
+    // diagnostic normalizer when native serialization proves the value unsafe.
+    return JSON.stringify(bindings ?? {});
   } catch {
-    return BINDINGS_SERIALIZATION_FAILURE;
+    try {
+      return serializeDiagnosticJson(bindings ?? {}, 'Log bindings', 0);
+    } catch {
+      return BINDINGS_SERIALIZATION_FAILURE;
+    }
   }
 }
 

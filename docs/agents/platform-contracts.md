@@ -28,10 +28,12 @@ Structured logs:
 - Brainstrike's public logger is message-first; its Pino boundary reorders the
   declared `(message, metadata)` overload to Pino's object-first form. Tests
   must prove metadata reaches the transport, not only `addLogListener`.
-- The Log Viewer keeps records whose bindings cannot be serialized (including
-  circular bindings) and renders `[Bindings serialization failed]` in the
-  Bindings column. Serialization failures must remain visible; never drop the
-  record, crash the viewer, or replace the failure with an empty payload.
+- The Log Viewer keeps records whose bindings are not directly JSON-safe. Its
+  shared diagnostic normalizer preserves serializable structure and emits
+  explicit markers such as `[Circular]`; an unexpected normalization failure
+  renders `[Bindings serialization failed]`. The same normalization owns JSON
+  export, so one malformed record never crashes the viewer, silently disappears,
+  or breaks export.
 
 Scoped loggers:
 - createLogger('FileImporter')

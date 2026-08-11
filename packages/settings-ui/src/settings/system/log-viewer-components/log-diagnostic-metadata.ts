@@ -149,8 +149,12 @@ function normalizeDiagnosticValue(value: unknown, active: WeakSet<object>): unkn
   }
 }
 
-function serializeDiagnosticJson(value: unknown, description: string): string {
-  const json = JSON.stringify(normalizeDiagnosticValue(value, new WeakSet<object>()), null, 2);
+export function serializeDiagnosticJson(
+  value: unknown,
+  description: string,
+  space?: number
+): string {
+  const json = JSON.stringify(normalizeDiagnosticValue(value, new WeakSet<object>()), null, space);
   if (json === undefined) {
     throw new Error(`${description} could not be serialized as JSON`);
   }
@@ -158,9 +162,9 @@ function serializeDiagnosticJson(value: unknown, description: string): string {
 }
 
 export function serializeLogContextJson(context: Record<string, unknown> | null): string {
-  return serializeDiagnosticJson(context ?? {}, 'Log context');
+  return serializeDiagnosticJson(context ?? {}, 'Log context', 2);
 }
 
 export function serializeLogRecordJson(record: LogRecord): string {
-  return serializeDiagnosticJson(record, 'Log record');
+  return serializeDiagnosticJson(record, 'Log record', 2);
 }
