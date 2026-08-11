@@ -102,8 +102,20 @@ export async function runAssistantTurn(
     return { ok: false, payload: streamResult.payload, status: streamResult.status };
   }
 
+  const reasoningEffort = runtimeData.providerOptions?.openrouter?.reasoning?.effort;
+  const outputLimitContext =
+    runtimeData.provider === 'openrouter' &&
+    typeof runtimeData.model === 'string' &&
+    typeof reasoningEffort === 'string'
+      ? {
+          model: runtimeData.model,
+          provider: runtimeData.provider,
+          reasoningEffort,
+        }
+      : undefined;
   const session = sessions.create(streamResult.stream, {
     ...(assistantMessageId ? { messageId: assistantMessageId } : {}),
+    ...(outputLimitContext ? { outputLimitContext } : {}),
   });
   const response = session.createResponse({
     headers: {

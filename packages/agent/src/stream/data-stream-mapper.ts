@@ -64,6 +64,12 @@ export interface DataStreamTerminalOutcome {
   readonly status: 'completed' | 'failed';
 }
 
+export interface OutputLimitContext {
+  readonly model?: string;
+  readonly provider?: string;
+  readonly reasoningEffort?: string;
+}
+
 const RUN_FAILURE_VISIBLE_PREFIX = "I couldn't complete the assistant response:";
 const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop signal.';
 /**
@@ -72,6 +78,10 @@ const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop 
  * through to `completed` merely because no message was attached.
  */
 const ERROR_FINISH_FALLBACK_TEXT = 'Assistant run failed.';
+const GENERIC_OUTPUT_LIMIT_MESSAGE =
+  'Assistant stopped because the model reached its output token limit before completing the response.';
+const KIMI_K3_OUTPUT_LIMIT_MESSAGE =
+  'Assistant stopped because Kimi K3 reached its output token limit before completing the response. Retry with reasoning effort set to Low or Auto.';
 const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action because it failed:";
 const TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX =
   "I couldn't complete some tool actions because they failed:";
@@ -204,10 +214,18 @@ function resolveFinishReason(
   }
 }
 
-function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefined {
+function getAbnormalFinishMessage(
+  reason: StreamFinishReason,
+  outputLimitContext?: OutputLimitContext
+): string | undefined {
   switch (reason) {
     case 'length':
-      return 'Assistant stopped because the model reached its output token limit before completing the response.';
+      return outputLimitContext?.provider === 'openrouter' &&
+        outputLimitContext.model === 'moonshotai/kimi-k3' &&
+        (outputLimitContext.reasoningEffort === 'high' ||
+          outputLimitContext.reasoningEffort === 'max')
+        ? KIMI_K3_OUTPUT_LIMIT_MESSAGE
+        : GENERIC_OUTPUT_LIMIT_MESSAGE;
     case 'content-filter':
       return 'Assistant stopped because the provider content filter ended the response.';
     case 'other':
@@ -286,6 +304,7 @@ function toArgsObject(value: unknown, fallbackText?: string): unknown {
 
 export class DataStreamMapper {
   private readonly messageId: string;
+  private readonly outputLimitContext: OutputLimitContext | undefined;
   private readonly toolState = new Map<string, ToolState>();
   /**
    * Tool calls whose result/error already settled on the wire. Late events for
@@ -341,8 +360,9 @@ export class DataStreamMapper {
   private openArgsCallId: string | null = null;
   private pendingRunEventChunks: EncodedChunk[] = [];
 
-  constructor(messageId: string) {
+  constructor(messageId: string, outputLimitContext?: OutputLimitContext) {
     this.messageId = messageId;
+    this.outputLimitContext = outputLimitContext;
   }
 
   initialChunks(): EncodedChunk[] {
@@ -1090,7 +1110,7 @@ export class DataStreamMapper {
     yield* this.closeOpenArgsStreamIfNeeded();
     const usage = extractFinishUsage(chunk);
     const finishReason = resolveFinishReason(chunk);
-    const abnormalFinishMessage = getAbnormalFinishMessage(finishReason);
+    const abnormalFinishMessage = getAbnormalFinishMessage(finishReason, this.outputLimitContext);
     if (abnormalFinishMessage) {
       this.pendingRunErrorText = abnormalFinishMessage;
       this.terminalFailureText = abnormalFinishMessage;
