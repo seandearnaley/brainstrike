@@ -196,8 +196,27 @@ async function runCapacityBackfill(
   if (options.foregroundPressure) {
     await startForegroundDatabasePressure(activeWindow);
   }
+  let foregroundPressureActive = options.foregroundPressure;
   try {
     await backfillButton.click({ timeout: 5000 });
+
+    if (foregroundPressureActive) {
+      // The regression is starvation, not bulk-throughput policy: keep the
+      // foreground lane continuously active until the background worker has
+      // both claimed and completed real work. Before BST-1231 this remains at
+      // zero forever because the claim query itself cannot enter the DB host.
+      await expect
+        .poll(
+          async () => (await getEmbeddingSetCounts(activeWindow, embeddingSetId)).embeddedChunks,
+          {
+            intervals: [1000],
+            timeout: 45_000,
+          }
+        )
+        .toBeGreaterThan(0);
+      await stopForegroundDatabasePressure(activeWindow);
+      foregroundPressureActive = false;
+    }
 
     await expect
       .poll(
@@ -212,7 +231,7 @@ async function runCapacityBackfill(
     // A terminal backfill must not leave the control stuck in its in-flight label.
     await expect(backfillButton).toContainText('Backfill', { timeout: 15_000 });
   } finally {
-    if (options.foregroundPressure) {
+    if (foregroundPressureActive) {
       await stopForegroundDatabasePressure(activeWindow);
     }
   }
