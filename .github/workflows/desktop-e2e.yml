@@ -215,30 +215,30 @@ jobs:
         run: |
           unset NO_COLOR
           if [[ "$DESKTOP_E2E_SUITE" == "memory-baseline" ]]; then
-            test_files=(e2e/embedding-worker-renderer.memory.desktop.test.ts)
-            test_grep="@desktop-embedding-memory"
-            max_failures=0
+            BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
+              e2e/embedding-worker-renderer.memory.desktop.test.ts \
+              --project=regression \
+              --workers=1 \
+              --retries=0 \
+              --max-failures=0 \
+              --global-timeout=3000000 \
+              --grep="@desktop-embedding-memory"
           else
-            test_files=(
-              e2e/embedding-worker-renderer.smoke.desktop.test.ts
-              e2e/embedding-worker-renderer.backfill-search.desktop.test.ts
-              e2e/embedding-worker-renderer.memory.desktop.test.ts
-              e2e/embedding-worker-renderer.diagnostics.desktop.test.ts
-              e2e/embedding-worker-renderer.crash-a.desktop.test.ts
-              e2e/embedding-worker-renderer.crash-b.desktop.test.ts
-              e2e/embedding-backfill-capacity.desktop.test.ts
-            )
-            test_grep="@desktop-embedding-"
-            max_failures=1
+            BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
+              e2e/embedding-worker-renderer.smoke.desktop.test.ts \
+              e2e/embedding-worker-renderer.backfill-search.desktop.test.ts \
+              e2e/embedding-worker-renderer.memory.desktop.test.ts \
+              e2e/embedding-worker-renderer.diagnostics.desktop.test.ts \
+              e2e/embedding-worker-renderer.crash-a.desktop.test.ts \
+              e2e/embedding-worker-renderer.crash-b.desktop.test.ts \
+              e2e/embedding-backfill-capacity.desktop.test.ts \
+              --project=regression \
+              --workers=1 \
+              --retries=0 \
+              --max-failures=1 \
+              --global-timeout=3000000 \
+              --grep="@desktop-embedding-"
           fi
-          BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
-            "${test_files[@]}" \
-            --project=regression \
-            --workers=1 \
-            --retries=0 \
-            --max-failures="${max_failures}" \
-            --global-timeout=3000000 \
-            --grep="${test_grep}"
 
       - name: Upload desktop embedding traces
         if: failure()

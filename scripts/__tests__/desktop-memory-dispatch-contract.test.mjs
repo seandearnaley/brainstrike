@@ -34,6 +34,11 @@ test('desktop workflow exposes an untruncated memory-baseline dispatch', async (
   assert.match(runStep?.env?.DESKTOP_E2E_SUITE ?? '', /^\$\{\{ inputs\.suite \|\| 'full' \}\}$/);
   assert.match(runStep?.run ?? '', /memory-baseline/);
   assert.match(runStep?.run ?? '', /e2e\/embedding-worker-renderer\.memory\.desktop\.test\.ts/);
-  assert.match(runStep?.run ?? '', /--max-failures="\$\{max_failures\}"/);
-  assert.match(runStep?.run ?? '', /max_failures=0/);
+  assert.doesNotMatch(
+    runStep?.run ?? '',
+    /test_files|max_failures|test_grep/,
+    'the reachability gate must see literal Playwright files and options in each branch'
+  );
+  assert.match(runStep?.run ?? '', /--max-failures=0/);
+  assert.match(runStep?.run ?? '', /--max-failures=1/);
 });
