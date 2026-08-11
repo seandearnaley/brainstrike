@@ -197,6 +197,7 @@ test('desktop database cleanup fails closed when cleanup cannot be verified', as
 
   for (const invocationPattern of [
     /failClosedOnUnverifiedCleanup\(`bulk delete threw: \$\{[^}]+\}`\);/,
+    /failClosedOnUnverifiedCleanup\('bulk delete returned a malformed response'\);/,
     /failClosedOnUnverifiedCleanup\(`bulk delete failed: \$\{[^}]+\}`\);/,
     /failClosedOnUnverifiedCleanup\(`record-count verification threw: \$\{[^}]+\}`\);/,
     /failClosedOnUnverifiedCleanup\(\s*'bulk delete reported success but the remaining record count could not be verified'\s*\);/,
@@ -218,6 +219,11 @@ test('desktop database cleanup fails closed when cleanup cannot be verified', as
     source,
     /typeof remainingCount !== 'number' \|\|\s*!Number\.isSafeInteger\(remainingCount\) \|\|\s*remainingCount < 0/,
     'cleanup verification must reject non-numeric, non-integer, non-finite, and negative counts'
+  );
+  assert.match(
+    source,
+    /typeof bulkDeleteResult !== 'object' \|\|\s*bulkDeleteResult === null[\s\S]*?typeof bulkDeleteResult\.success !== 'boolean'[\s\S]*?typeof bulkDeleteResult\.message !== 'string'/,
+    'cleanup must validate the bulk-delete response shape before trusting its success flag'
   );
 });
 

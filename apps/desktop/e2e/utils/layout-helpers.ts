@@ -371,7 +371,7 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
 
     // Try using the bulk delete API (available in Electron environment)
     verboseLog('🚀 Attempting bulk delete via Electron API...');
-    let bulkDeleteResult: { message: string; success: boolean };
+    let bulkDeleteResult: unknown;
     try {
       bulkDeleteResult = await activePage.evaluate(async () => {
         // Check if we're in Electron and have the API available
@@ -384,6 +384,17 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
       console.warn('⚠️ Bulk delete API failed:', bulkError);
       const detail = bulkError instanceof Error ? bulkError.message : String(bulkError);
       failClosedOnUnverifiedCleanup(`bulk delete threw: ${detail}`);
+    }
+
+    if (
+      typeof bulkDeleteResult !== 'object' ||
+      bulkDeleteResult === null ||
+      !('success' in bulkDeleteResult) ||
+      typeof bulkDeleteResult.success !== 'boolean' ||
+      !('message' in bulkDeleteResult) ||
+      typeof bulkDeleteResult.message !== 'string'
+    ) {
+      failClosedOnUnverifiedCleanup('bulk delete returned a malformed response');
     }
 
     if (!bulkDeleteResult.success) {
