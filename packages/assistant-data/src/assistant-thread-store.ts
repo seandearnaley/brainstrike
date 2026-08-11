@@ -732,20 +732,42 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         if (get().loadStateByResourceId[resourceId]?.status !== 'ready') {
           return;
         }
+        const metadataSnapshotByThreadId = new Map(
+          (get().threadsByResourceId[resourceId] ?? []).map((thread) => [
+            thread.id,
+            thread.metadata,
+          ])
+        );
         const loaded = (await repository.listThreads(resourceId)).map(serializeThread);
         if (loaded.length === 0) {
           return;
         }
-        set((state) => ({
-          threadIdsByResourceId: {
-            ...state.threadIdsByResourceId,
-            [resourceId]: loaded.map((thread) => thread.id),
-          },
-          threadsByResourceId: {
-            ...state.threadsByResourceId,
-            [resourceId]: loaded,
-          },
-        }));
+        set((state) => {
+          const currentThreadById = new Map(
+            (state.threadsByResourceId[resourceId] ?? []).map((thread) => [thread.id, thread])
+          );
+          const refreshedThreads = loaded.map((thread) => {
+            const currentThread = currentThreadById.get(thread.id);
+            if (
+              !currentThread ||
+              currentThread.metadata === metadataSnapshotByThreadId.get(thread.id) ||
+              currentThread.metadata === undefined
+            ) {
+              return thread;
+            }
+            return { ...thread, metadata: currentThread.metadata };
+          });
+          return {
+            threadIdsByResourceId: {
+              ...state.threadIdsByResourceId,
+              [resourceId]: refreshedThreads.map((thread) => thread.id),
+            },
+            threadsByResourceId: {
+              ...state.threadsByResourceId,
+              [resourceId]: refreshedThreads,
+            },
+          };
+        });
       },
       renameThread: async (
         repository: AssistantThreadRepository,

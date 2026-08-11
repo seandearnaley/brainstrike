@@ -11,9 +11,9 @@ const ASSISTANT_UI_PANEL_ROOT_NAME = 'assistant-ui-panel';
 const ASSISTANT_UI_PANEL_TREE = {
   'README.md': '# BrainStrike test workspace',
 };
-// A local metadata write plus the user-visible row/tab transition must finish
-// inside one interaction-scale second. This measures the complete click-to-paint
-// path rather than an internal store callback.
+// Report interaction latency separately from functional visibility assertions,
+// so a loaded runner identifies a performance-budget miss rather than disguising
+// it as a missing icon/color regression.
 const THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS = 1000;
 
 type MockProgressPayload =
@@ -327,20 +327,23 @@ test.describe('Assistant UI panel (web, assistant-ui mode) @stateful @web-assist
     await threadRow.getByRole('button', { name: /Thread actions/i }).click();
     const threadActions = page.getByRole('dialog');
     await threadActions.getByRole('button', { name: 'Customize' }).click();
+    const iconCustomizationStartedAt = Date.now();
     await threadActions.getByRole('button', { name: 'Use Bug icon' }).click();
-    await expect(threadRow.getByTestId('thread-icon-bug')).toBeVisible({
-      timeout: THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS,
-    });
-    await expect(threadTab.getByTestId('assistant-thread-tab-glyph-bug')).toBeVisible({
-      timeout: THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS,
-    });
+    await expect(threadRow.getByTestId('thread-icon-bug')).toBeVisible();
+    await expect(threadTab.getByTestId('assistant-thread-tab-glyph-bug')).toBeVisible();
+    expect(
+      Date.now() - iconCustomizationStartedAt,
+      'Thread icon customization exceeded the click-to-paint performance budget.'
+    ).toBeLessThan(THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS);
+
+    const colorCustomizationStartedAt = Date.now();
     await threadActions.getByRole('button', { name: 'Use Rose color' }).click();
-    await expect(threadRow.getByTestId('thread-color-rose')).toBeVisible({
-      timeout: THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS,
-    });
-    await expect(threadTab.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible({
-      timeout: THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS,
-    });
+    await expect(threadRow.getByTestId('thread-color-rose')).toBeVisible();
+    await expect(threadTab.getByTestId('assistant-thread-tab-icon-rose')).toBeVisible();
+    expect(
+      Date.now() - colorCustomizationStartedAt,
+      'Thread color customization exceeded the click-to-paint performance budget.'
+    ).toBeLessThan(THREAD_CUSTOMIZATION_FEEDBACK_BUDGET_MS);
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('thread-customization-panel')).toHaveCount(0);
 

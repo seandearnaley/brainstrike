@@ -1983,8 +1983,13 @@ invalidation, or assistant-panel remount; a failed write performs no store
 transition and remains visibly failed in the panel. `listThreads` returns the
 thread row plus its latest-run badge data in ONE SQL snapshot; splitting those
 reads permits a metadata write to interleave before a stale title refresh lands
-in the store. The single statement removes that lost-update race and one local
-database round trip rather than papering over it with polling or retries.
+in the store. The refresh captures each loaded metadata object before its read;
+if an immutable metadata transition lands while that read is in flight, the
+refresh preserves the current metadata while still applying refreshed titles,
+run badges, and ordering. That store-side ordering guard closes the stale
+metadata overwrite, while the single SQL statement removes the intra-read
+inconsistency and one local database round trip. Neither path uses polling or
+retries.
 The persisted store contains tab/selection ids but not `mastra_threads` rows.
 After restore, `loadStateByResourceId` therefore remains `idle`/`loading` until
 `ensureResourceThreads` hydrates the selected row and its metadata. Composer

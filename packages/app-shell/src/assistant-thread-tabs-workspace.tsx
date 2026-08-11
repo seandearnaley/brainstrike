@@ -667,8 +667,8 @@ export function AssistantThreadTabsWorkspace({
                 const isActive = threadId === activeThreadId;
                 const colorId = thread?.metadata?.color;
                 const colorSurface = getAssistantThreadColorSurface(colorId);
-                const iconId = thread?.metadata?.icon ?? 'message';
-                const ThreadIcon = getAssistantThreadIconPresentation(iconId).iconComponent;
+                const iconPresentation = getAssistantThreadIconPresentation(thread?.metadata?.icon);
+                const ThreadIcon = iconPresentation.iconComponent;
                 return (
                   <AssistantThreadTabDndShell key={threadId} threadId={threadId}>
                     {(dragHandleRef) => (
@@ -703,7 +703,7 @@ export function AssistantThreadTabsWorkspace({
                           >
                             <ThreadIcon
                               className="h-3 w-3"
-                              data-testid={`assistant-thread-tab-glyph-${iconId}`}
+                              data-testid={`assistant-thread-tab-glyph-${iconPresentation.iconId}`}
                             />
                           </span>
                           <span className={THREAD_CONTROL_TITLE_CLASS_NAME}>{title}</span>

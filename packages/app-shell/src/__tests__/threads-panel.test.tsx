@@ -498,7 +498,9 @@ beforeEach(() => {
     if (sql.includes('FROM brainstrike_assistant_thread_placements')) {
       return { rows: [...placementRows] };
     }
-    if (sql.includes('FROM mastra_threads')) {
+    // The joined list query also names the run table; match its outer source
+    // explicitly so this branch cannot become order-dependent with the run read.
+    if (sql.includes('FROM mastra_threads AS threads')) {
       return {
         rows: threadRows.map((thread) => {
           const latestRun = latestRunByThreadId.get(String(thread['id']));

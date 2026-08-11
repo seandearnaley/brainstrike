@@ -24,6 +24,19 @@ describe('assistant thread presentation', () => {
       'rocket',
     ]);
     expect(ASSISTANT_THREAD_ICON_PRESENTATION.research.label).toBe('Research');
+    expect(
+      Object.entries(ASSISTANT_THREAD_ICON_PRESENTATION).map(([iconId, presentation]) => [
+        iconId,
+        presentation.iconId,
+      ])
+    ).toEqual([
+      ['bug', 'bug'],
+      ['code', 'code'],
+      ['message', 'message'],
+      ['plan', 'plan'],
+      ['research', 'research'],
+      ['rocket', 'rocket'],
+    ]);
     expect(getAssistantThreadIconPresentation(undefined)).toBe(
       ASSISTANT_THREAD_ICON_PRESENTATION.message
     );

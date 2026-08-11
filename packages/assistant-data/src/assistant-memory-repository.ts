@@ -664,6 +664,25 @@ export interface AssistantThreadRunEventListOptions {
 export const ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT = 80;
 
 const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
+const LATEST_THREAD_RUNS_BY_RESOURCE_SQL = `SELECT DISTINCT ON (thread_id)
+    id,
+    resource_id,
+    thread_id,
+    provider,
+    model,
+    model_settings,
+    provider_options,
+    runtime_kind,
+    status,
+    error,
+    started_at,
+    completed_at,
+    created_at,
+    updated_at,
+    turn_message_id
+  FROM ${ASSISTANT_THREAD_RUNS_TABLE}
+  WHERE resource_id = $1
+  ORDER BY thread_id, started_at DESC, id DESC`;
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
@@ -2837,25 +2856,23 @@ export function createPgliteAssistantThreadRepository(
   ): Promise<readonly AssistantThreadRunRecord[]> => {
     await initialize();
     const result = await database.query<Record<string, unknown>>(
-      `SELECT DISTINCT ON (thread_id)
-          id,
-          resource_id AS "resourceId",
-          thread_id AS "threadId",
-          provider,
-          model,
-          model_settings AS "modelSettings",
-          provider_options AS "providerOptions",
-          runtime_kind AS "runtimeKind",
-          status,
-          error,
-          started_at AS "startedAt",
-          completed_at AS "completedAt",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          turn_message_id AS "turnMessageId"
-       FROM ${ASSISTANT_THREAD_RUNS_TABLE}
-       WHERE resource_id = $1
-       ORDER BY thread_id, started_at DESC, id DESC`,
+      `SELECT
+          latest_run.id,
+          latest_run.resource_id AS "resourceId",
+          latest_run.thread_id AS "threadId",
+          latest_run.provider,
+          latest_run.model,
+          latest_run.model_settings AS "modelSettings",
+          latest_run.provider_options AS "providerOptions",
+          latest_run.runtime_kind AS "runtimeKind",
+          latest_run.status,
+          latest_run.error,
+          latest_run.started_at AS "startedAt",
+          latest_run.completed_at AS "completedAt",
+          latest_run.created_at AS "createdAt",
+          latest_run.updated_at AS "updatedAt",
+          latest_run.turn_message_id AS "turnMessageId"
+       FROM (${LATEST_THREAD_RUNS_BY_RESOURCE_SQL}) AS latest_run`,
       [resourceId]
     );
     return result.rows.map(toThreadRunRecord);
@@ -3436,25 +3453,7 @@ export function createPgliteAssistantThreadRepository(
            latest_run.turn_message_id AS "latestRunTurnMessageId"
          FROM ${MASTRA_MEMORY_TABLES.threads} AS threads
          LEFT JOIN (
-           SELECT DISTINCT ON (thread_id)
-             id,
-             resource_id,
-             thread_id,
-             provider,
-             model,
-             model_settings,
-             provider_options,
-             runtime_kind,
-             status,
-             error,
-             started_at,
-             completed_at,
-             created_at,
-             updated_at,
-             turn_message_id
-           FROM ${ASSISTANT_THREAD_RUNS_TABLE}
-           WHERE resource_id = $1
-           ORDER BY thread_id, started_at DESC, id DESC
+           ${LATEST_THREAD_RUNS_BY_RESOURCE_SQL}
          ) AS latest_run ON latest_run.thread_id = threads.id
          WHERE threads."resourceId" = $1
          ORDER BY threads."updatedAt" DESC, threads.id DESC`,

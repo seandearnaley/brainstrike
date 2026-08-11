@@ -11,6 +11,7 @@ import {
 
 export interface AssistantThreadIconPresentation {
   readonly iconComponent: LucideIcon;
+  readonly iconId: AssistantThreadIconId;
   readonly label: string;
 }
 
@@ -21,12 +22,12 @@ export interface AssistantThreadIconPresentation {
  * durable metadata value.
  */
 export const ASSISTANT_THREAD_ICON_PRESENTATION = {
-  bug: { iconComponent: Bug, label: 'Bug' },
-  code: { iconComponent: Code2, label: 'Code' },
-  message: { iconComponent: MessageSquare, label: 'Message' },
-  plan: { iconComponent: ClipboardList, label: 'Plan' },
-  research: { iconComponent: Search, label: 'Research' },
-  rocket: { iconComponent: Rocket, label: 'Rocket' },
+  bug: { iconComponent: Bug, iconId: 'bug', label: 'Bug' },
+  code: { iconComponent: Code2, iconId: 'code', label: 'Code' },
+  message: { iconComponent: MessageSquare, iconId: 'message', label: 'Message' },
+  plan: { iconComponent: ClipboardList, iconId: 'plan', label: 'Plan' },
+  research: { iconComponent: Search, iconId: 'research', label: 'Research' },
+  rocket: { iconComponent: Rocket, iconId: 'rocket', label: 'Rocket' },
 } satisfies Record<AssistantThreadIconId, AssistantThreadIconPresentation>;
 
 /**
