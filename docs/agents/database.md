@@ -64,8 +64,8 @@ When changing the model catalog:
 3. Preserve user choices on kept rows with `ON CONFLICT (id) DO UPDATE SET ... is_enabled = models.is_enabled`.
    - INVARIANT: never use `is_enabled = EXCLUDED.is_enabled` for a catalog refresh — it clobbers the user's toggle. Force on/off only for a deliberate (e.g. security) swap.
 4. Remap dropped IDs in the preference stores so persisted selections don't dangle:
-   - MODEL_ID_MIGRATIONS in packages/preferences/src/stores/assistant-preferences-store.ts (bump its store version)
-   - MEMORY_MODEL_TARGET_MIGRATIONS in packages/preferences/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
+   - MODEL_ID_MIGRATIONS in packages/app-state/src/stores/assistant-preferences-store.ts (bump its store version)
+   - MEMORY_MODEL_TARGET_MIGRATIONS in packages/app-state/src/stores/assistant-memory-preferences-store.ts (also self-heals on every rehydration)
    - The guard canonicalizes discovered migration identifiers with
      `path.posix.join` so diagnostics and downstream checks are platform-neutral.
      Its version parser still accepts `/` or `\` for direct analyzer callers and
@@ -132,6 +132,184 @@ shape change with both migration and bootstrap parity tests, explicit
 thread-deletion cleanup, and all three table-enumerating reset paths. Full
 contract: `docs/agents/assistant-persistence.md` § RUN ERROR PROVIDER
 FORENSICS.
+
+Migration 082 owns the FK-less `brainstrike_canvas_versions` ledger. Register
+it in both the numbered runner and Drizzle's append-only custom ledger, mirror
+its DDL in the renderer-lazy assistant bootstrap, and keep thread-delete plus
+factory-reset ownership explicit. A Canvas document is the rows sharing one
+app-side uuidv7 `canvas_id`; greatest `version` is current. Full contract:
+`docs/agents/assistant-persistence.md` § CANVAS DOCUMENT VERSIONS.
+
+Migration 083 owns the FK-less `brainstrike_tool_call_telemetry` ledger for
+durable model-facing per-tool counts and sizes. Register it in both migration
+runners and the reset/thread-delete registries. Mirror its DDL in the renderer-
+lazy assistant bootstrap: although only the migrated desktop main-process
+assistant server writes rows, the renderer repository's thread-delete CTE
+references every registered sidecar unconditionally. Rows contain only thread/
+run/tool ids, timestamps, numeric sizes, and booleans; raw tool inputs and
+outputs are prohibited. Migration 074's default-privilege grant makes the
+later-created table readable by the `brainstrike.querySelf` sandbox role.
+The primary key uses `crypto.randomUUID()` (matching the sibling
+`brainstrike_assistant_run_usage` writer), not a uuidv7 — this table is a
+net-new counters ledger outside any sync-related rework, so AGENTS.md's
+uuidv7-groundwork carve-out does not apply.
+
+**Retention (BST-1198, closes the BST-1190 deferral):** rows older than 60
+days are pruned by the existing scheduled-database-maintenance mechanism —
+`runScheduledDatabaseMaintenance` in
+`packages/db/src/services/scheduled-database-maintenance.ts`, the same
+idle-triggered pass that runs the #1716 `ANALYZE`/`VACUUM` sweep for
+`file_chunks`/`file_records`/`embedding_cache` and the terminal-job prune. No
+new scheduler or timer was added, but retention did require one small
+migration:
+- `DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS` (60 days) is
+  the default; callers may override it via
+  `ScheduledDatabaseMaintenanceOptions.toolCallTelemetryRetentionMs`, resolved
+  and validated (non-negative) on every pass, like the sibling job-queue
+  options.
+- Migration 083's `brainstrike_tool_call_telemetry_tool_time_idx` is
+  `(tool_id, occurred_at DESC)` — `tool_id`-leading, so it cannot serve a bare
+  `occurred_at` range predicate as an index scan; both retention deletes
+  filter on `occurred_at` alone. **Migration 085** (version 84 is skipped —
+  claimed by the still-open BST-1192 PR #2333) adds a dedicated
+  `brainstrike_tool_call_telemetry_occurred_at_idx` on `occurred_at` so the
+  guard probe and both deletes below are real index scans, not sequential
+  scans of the whole table. Registered in both migration runners and mirrored
+  in the renderer-lazy assistant bootstrap DDL
+  (`packages/assistant-data/src/assistant-memory-repository.ts`), same as 083.
+- Idle passes (`status: 'completed'`) run a full, unbounded-by-count
+  age-DELETE — the same shape as `pruneTerminalJobs`.
+- Passes while the job queue is active (`status: 'partial'`) first run a
+  cheap `SELECT EXISTS (...)` guard probe on `occurred_at` (an index scan that
+  stops at the first match); only when it finds an expired row does an
+  `activePruneLimit`-bounded age-DELETE run, `ORDER BY occurred_at ASC` so an
+  over-limit backlog evicts oldest-first — the same oldest-first shape as
+  `DiagnosticEventsRepository.purge()`. The guard exists because the common
+  case on a ~10-minute tick is that nothing is expired yet, and without it
+  every tick would still pay for planning/running the bounded DELETE for zero
+  deletions. This still bounds telemetry growth while a long-running backfill
+  keeps the job queue busy, for the same reason job rows once needed it.
+- `brainstrike_tool_call_telemetry` is in
+  `DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES` alongside `job_queue`, so the
+  idle path's `VACUUM (ANALYZE)` actually reclaims the dead tuples the idle
+  DELETE creates (PGlite has no autovacuum launcher — without this the table's
+  heap/index disk usage would keep growing at the same rate, just as dead
+  pages instead of live rows) and gives the `token-spend-by-tool` lens planner
+  fresh column statistics it previously never got. Only the active-queue path
+  defers `VACUUM` until idle; the idle path now genuinely runs it for both
+  tables.
+- The result's `prunedToolCallTelemetryRows` field reports the count for both
+  branches; the desktop scheduler logs it alongside `prunedTerminalJobs`.
+Paired tests: `packages/db/__tests__/scheduled-database-maintenance.test.ts`
+(`tool_call_telemetry retention (BST-1198)` describe block) proves old rows
+are pruned and newer rows survive on both the idle and active-queue paths,
+that the active-queue guard probe skips the DELETE when nothing is expired,
+that an over-limit active-queue backlog evicts oldest-first, that
+`brainstrike_tool_call_telemetry` is VACUUMed on the idle path, and that the
+`token-spend-by-tool` lens output for an in-window query is unaffected by
+pruning outside that window. Migration coverage:
+`packages/db/__tests__/migration-085-tool-call-telemetry-occurred-at-index.test.ts`
+(index created on both runners; a forced-seqscan-off `EXPLAIN` probe proves
+the bare `occurred_at` predicate resolves to an index scan on it).
+
+Migration 086 owns the FK-less
+`brainstrike_token_estimate_calibration` ledger. Each row stores a durable,
+model/provider-attributed run-end pair of `estimated_prompt_tokens` and
+`final_step_prompt_tokens`; the desktop writer derives `thread_id` from
+the existing `run_id` with `INSERT ... SELECT` rather than trusting a carried
+thread id. Rows contain numbers, ids, model/provider strings, and timestamps
+only—never message content, tool content, prompts, file paths, or command text.
+The table is registered in both migration runners, the shared factory-reset
+registry, and the thread-delete sidecar list. Its DDL is mirrored in the
+renderer-lazy assistant bootstrap because that repository references every
+sidecar unconditionally even though desktop main owns normal writes.
+
+Scope is intentionally explicit. The numerator, `estimated_prompt_tokens`, is
+`RunTokenDiagnostics`'s chars/4 backstop over model-visible tool-output
+projections plus tool definitions, each counted once. The denominator,
+`final_step_prompt_tokens`, is the single latest step's prompt count, which
+already contains every prior tool output once via Mastra's resend behavior—not
+the cross-step accumulated billing total. Both figures are comparable over the
+same final-prompt-content basis; conversation/system-prompt text outside tool
+outputs and definitions is excluded from both. Only completed runs with at
+least one measured tool output persist a row.
+
+Migration 089 adds nullable positive domain/transport resolved-budget token
+columns. New calibration rows persist the concrete run tier; historical rows
+remain NULL because backfilling an anchor would fabricate evidence. The
+renderer-lazy bootstrap mirrors both the fresh final shape and idempotent
+`ADD COLUMN IF NOT EXISTS` upgrade seam. Its ordinal column order matches the
+migrated path: migration 086's trailing `occurred_at` precedes the two columns
+migration 089 appends. The estimator lens groups by model plus both tier
+columns.
+
+Migration 091 adds nullable positive `prompt_baseline_tokens`, the same run's
+prompt-composition total of system instructions, task list, and tool
+definitions. The next turn's pre-request compaction trigger reads the newest
+thread-scoped calibration row because that baseline is not yet available when
+compaction runs. Historical rows remain NULL rather than receiving fabricated
+prompt evidence. This is an additive FK-less ledger extension registered in
+both migration runners and mirrored in the renderer-lazy bootstrap's fresh
+table shape plus its idempotent `ADD COLUMN IF NOT EXISTS` upgrade seam. It
+inherits the calibration table's existing 60-day retention and
+`occurred_at`-leading maintenance path; no new retention logic or privacy
+surface is introduced.
+
+The least-new-mechanism seam is a standalone table modeled on migration 083.
+Both figures already meet in the agent/main-process stream before the existing
+desktop persistence wrapper. Extending
+`brainstrike_assistant_run_usage` would require transporting the agent-only
+diagnostic backstop into its renderer-side `handleUsage` writer, adding a new
+process-boundary mechanism without improving attribution or fidelity.
+
+Retention exactly mirrors tool-call telemetry: rows older than 60 days are
+pruned unbounded on idle passes and oldest-first in bounded batches while the
+job queue is active, with a cheap expired-row guard probe. Migration 086 ships
+the `occurred_at`-leading index from the start plus a `thread_id` index for the
+thread-delete sidecar predicate, and idle maintenance includes the table in
+`VACUUM (ANALYZE)`. Factory reset clears the evidence while normal
+restarts retain it. Paired tests cover agent emission/omission, desktop
+run/thread attribution in real PGlite, migration/reset/bootstrap parity,
+60-day maintenance, and the checked-in `estimator-calibration.sql` lens golden
+path through `parseLensFile`, `coerceLensValues`, and `AgentSqlService.query`.
+
+Migration 084 owns the FK-less
+`brainstrike_assistant_tool_projection_rewrites` overlay used by BST-1192's
+transient stale-read replay processor. Register it in both migration runners,
+the reset registry, all three table-enumerating clear paths, and the shared
+thread-delete sidecar list. Mirror its final schema in renderer lazy
+assistant bootstrap because that repository's delete CTE references every
+sidecar unconditionally even though desktop main owns normal writes. Durable
+Mastra message content is never mutated. Migration 087 adds the
+supersession/prune discriminator and nullable superseder used by BST-1200's
+recency pruning; both the migration ledger and bootstrap mirror carry the final
+shape. Supersession rewind recovery remains the processor's current-prompt
+superseder-presence check, while prune rows remain active whenever their own
+call is visible. Full contract:
+`docs/agents/assistant-persistence.md` § STALE TOOL-PROJECTION REWRITE OVERLAYS.
+
+Migration 088 owns the FK-less
+`brainstrike_assistant_compaction_ranges` overlay used by BST-1200 Milestone
+2's durable conversation summaries. Persist an exact ordered JSONB set of
+compacted message IDs rather than interpreting opaque client/UUIDv4 message IDs
+as sortable range keys. Register it in both migration runners, the reset
+registry, all three table-enumerating clear paths, and the shared thread-delete
+sidecar list. Mirror the final schema in renderer lazy assistant bootstrap for
+the same unconditional thread-delete-CTE reason as migration 084. The overlay
+processor derives liveness from the summary message's presence in Mastra's
+already-tombstone-filtered ID-bearing input-step message list; neither raw
+Mastra content nor rewind state is mutated.
+
+Migration 090 widens `brainstrike_assistant_run_usage.run_kind` to admit
+`compaction-summary`, the provider-exact auxiliary summarizer call attributed
+under its parent run. Register the constraint replacement in both migration
+runners and keep the renderer-lazy bootstrap CHECK aligned; adding only the
+TypeScript union makes real PGlite inserts fail. The numbered migration must
+replace migration 077's existing same-name CHECK and therefore uses
+main-process-only `DROP CONSTRAINT` + `ADD CONSTRAINT`. The renderer-reachable
+bootstrap must never emit that destructive statement: it installs the final
+constraint only when the catalog says it is absent, because `db:exec` rejects
+renderer schema drops.
 
 ## PGLITE EXTENSION INVARIANT
 
@@ -366,6 +544,43 @@ fake-indexeddb over the production pipeline: durable fast bootstrap across
 reopen, strict post-ready writes, torn-store recovery),
 `wasm-loader-worker.test.ts` (worker runner protocol/timeout), and
 `db-provider-first-run-bootstrap.test.tsx` (wiring order + error surfacing).
+
+---
+
+## COLLECTIONS LIVE QUERY: ONE OWNER (settled 2026-08, BST-1212 — do not relitigate)
+
+`useCollections` (`packages/vector-management/src/collection-select/collection-select.tsx`)
+is the SINGLE writer of the shared `vectorStatusUIStore.cachedCollections`
+cache. It does not merely read that cache — it recomputes it through its own
+instance-local `pendingMutationsRef` and writes the result back.
+
+**At most one instance may be mounted at a time.** Two instances whose pending
+mutations differ each recompute a different "next" cache from the other's
+write and never converge: A writes X, B recomputes Y and writes it, A
+recomputes X, forever. The loop terminates as React error #185 ("maximum
+update depth"), which takes down the nearest error boundary — in the original
+report, the whole file Explorer panel, and it presented first as a Playwright
+"element was detached from the DOM" flake, not as a crash.
+
+A second surface that only needs to DISPLAY collections must:
+- read `cachedCollections` from the store,
+- seed it once with `fetchCollectionsSnapshot(db)` if it may be the first
+  surface up (that helper THROWS on an unusable handle and its rejection must
+  be surfaced, never rendered as an empty list — an empty picker reads as "no
+  collections exist" and invites a duplicate), and
+- stay current through the `onEmbeddingSetUpdated` browser event
+  (`removeCachedCollection` on `deleted`, `upsertCachedCollection` otherwise).
+  Both store mutations are idempotent, so this is safe alongside the live
+  owner. The rename dialog only DISPATCHES; it never touches the cache, so a
+  surface that skips this listener shows stale names.
+
+Reference implementation:
+`packages/db-explorer/src/components/explorer-collection-picker.tsx`.
+The sanctioned event-sync write path is
+`packages/db-explorer/src/hooks/use-collection-cache-sync.ts`; mount it on the
+dialog-hosting surface (`explorer-import-action.tsx`), never on the picker
+itself, because the popover unmounts before the outcome is announced. Seeding
+stays with each caller via `fetchCollectionsSnapshot`.
 
 ---
 

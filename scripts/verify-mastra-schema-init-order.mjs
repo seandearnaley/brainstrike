@@ -4,7 +4,7 @@
 // evaluation (BST-558).
 //
 // THE DEFECT THIS EXISTS FOR, measured on PR #1978 and not theorised:
-// `packages/app-shell/src/assistant-memory-repository.ts` built its bootstrap
+// `packages/assistant-data/src/assistant-memory-repository.ts` built its bootstrap
 // DDL in a module-scope template literal that interpolated
 // `MASTRA_MEMORY_TABLES.threads`. Module-scope initializers run at CHUNK
 // INITIALIZATION, and the renderer's bundle chunk graph does not guarantee the

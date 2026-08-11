@@ -4,12 +4,15 @@ import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brain
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { BINARY_CONTENT_MESSAGE, FileContentError } from '@brainstrike/types';
-import { fileContent } from '@brainstrike/utils/file-content';
+import { fileContent, getKnownFileSize } from '@brainstrike/utils/file-content';
 import {
   createFileContentWorker,
+  type FileContentReadResult,
   type FileContentWorker,
   type FileReadRequest,
 } from '@brainstrike/workers/file-content-worker';
+
+export type FileContentResult = FileContentReadResult;
 
 export interface FileContentProcessor {
   processFiles: (
@@ -18,20 +21,13 @@ export interface FileContentProcessor {
     options?: {
       abortSignal?: AbortSignal;
     }
-  ) => Promise<Record<string, string>>;
+  ) => Promise<Record<string, FileContentResult>>;
 }
 
 export interface FileContentRequest {
   compositeKey: string;
   fileNode: IFileNode;
   fileSystemAdapter: FileSystemAdapter;
-}
-
-function getKnownFileSize(size: unknown): number | null {
-  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
-    return null;
-  }
-  return size;
 }
 
 function getConfiguredMaxFileSize(): number {
@@ -52,6 +48,27 @@ function getCanonicalFileHandlePath(fileNode: IFileNode): string {
     return handlePath;
   }
   return fileNode.path;
+}
+
+function buildFileHandle(fileNode: IFileNode, fileSystemAdapter: FileSystemAdapter): FileHandle {
+  const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
+  const platform: Platform = fileSystemAdapter.platform ?? handlePlatform ?? 'web';
+
+  const fileHandle: FileHandle = {
+    _internal: fileNode.handle,
+    kind: 'file',
+    name: fileNode.name,
+    path: getCanonicalFileHandlePath(fileNode),
+    platform,
+    rootFolderId: fileNode.rootFolderId,
+  };
+
+  const knownFileSize = getKnownFileSize(fileNode.size);
+  if (knownFileSize !== null) {
+    fileHandle.size = knownFileSize;
+  }
+
+  return fileHandle;
 }
 
 function createAbortError(): Error {
@@ -85,37 +102,15 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
     options?: {
       abortSignal?: AbortSignal;
     }
-  ): Promise<Record<string, string>> {
+  ): Promise<Record<string, FileContentResult>> {
     throwIfAborted(options?.abortSignal);
     const fileReadRequests: FileReadRequest[] = requests.map((req) => ({
       compositeKey: req.compositeKey,
-      handle: this.createFileHandle(req.fileNode, req.fileSystemAdapter),
+      handle: buildFileHandle(req.fileNode, req.fileSystemAdapter),
       path: req.fileNode.path,
     }));
 
     return this.worker(fileReadRequests, onProgress, options);
-  }
-
-  private createFileHandle(fileNode: IFileNode, fileSystemAdapter: FileSystemAdapter): FileHandle {
-    const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
-    const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-    const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
-
-    const fileHandle: FileHandle = {
-      _internal: fileNode.handle,
-      kind: 'file',
-      name: fileNode.name,
-      path: getCanonicalFileHandlePath(fileNode),
-      platform,
-      rootFolderId: fileNode.rootFolderId,
-    };
-
-    const knownFileSize = getKnownFileSize(fileNode.size);
-    if (knownFileSize !== null) {
-      fileHandle.size = knownFileSize;
-    }
-
-    return fileHandle;
   }
 }
 
@@ -129,8 +124,8 @@ export class DirectFileContentProcessor implements FileContentProcessor {
     options?: {
       abortSignal?: AbortSignal;
     }
-  ): Promise<Record<string, string>> {
-    const results: Record<string, string> = {};
+  ): Promise<Record<string, FileContentResult>> {
+    const results: Record<string, FileContentResult> = {};
     let completed = 0;
     const total = requests.length;
 
@@ -138,10 +133,10 @@ export class DirectFileContentProcessor implements FileContentProcessor {
       throwIfAborted(options?.abortSignal);
       try {
         const content = await this.processFile(request);
-        results[request.compositeKey] = content;
+        results[request.compositeKey] = { content, status: 'accessible' };
       } catch (err: unknown) {
         const msg = err instanceof FileContentError ? err.message : 'Error accessing file';
-        results[request.compositeKey] = msg;
+        results[request.compositeKey] = { message: msg, status: 'inaccessible' };
       }
 
       completed++;
@@ -166,22 +161,7 @@ export class DirectFileContentProcessor implements FileContentProcessor {
       );
     }
 
-    const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
-    const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-    const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
-
-    const fileHandle: FileHandle = {
-      _internal: fileNode.handle,
-      kind: 'file',
-      name: fileNode.name,
-      path: getCanonicalFileHandlePath(fileNode),
-      platform,
-      rootFolderId: fileNode.rootFolderId,
-    };
-
-    if (knownFileSize !== null) {
-      fileHandle.size = knownFileSize;
-    }
+    const fileHandle = buildFileHandle(fileNode, fileSystemAdapter);
 
     const content = await fileSystemAdapter.readFile(fileHandle);
     const extension = fileExplorer.getFileExtension(fileNode.path);

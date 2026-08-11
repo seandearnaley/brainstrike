@@ -24,7 +24,7 @@ test.describe('File System Integration', () => {
 
   async function selectMockRoot(window: Page): Promise<void> {
     const selectRootButton = window
-      .getByRole('button', { name: /add folder to workspace|browse/i })
+      .getByRole('button', { name: /add folder to workspace|^browse$/i })
       .first();
     await expect(selectRootButton).toBeVisible({ timeout: 10_000 });
     await selectRootButton.click();
@@ -41,7 +41,7 @@ test.describe('File System Integration', () => {
     // The button text comes from FileExplorerStrings.addFolderToWorkspace
     // ('Add Folder to Workspace'); we keep 'browse' for backward compatibility.
     const fileSystemButton = window.getByRole('button', {
-      name: /add folder to workspace|browse/i,
+      name: /add folder to workspace|^browse$/i,
     });
 
     // Wait for the button to be actionable before interacting
@@ -201,7 +201,7 @@ test.describe('File System Integration', () => {
     // "Select All" bulk button, and .first() then clicked a permanently
     // disabled control until timeout.
     const fileSystemButtons = window.getByRole('button', {
-      name: /add folder to workspace|browse/i,
+      name: /add folder to workspace|^browse$/i,
     });
 
     if (

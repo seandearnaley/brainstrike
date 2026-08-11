@@ -1,0 +1,354 @@
+import type { Changeset } from '@brainstrike/types';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { useChangesNavigationStore } from '../changes-navigation-store';
+
+const AGENT_RUN: Changeset = { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' };
+const LATER_RUN: Changeset = { kind: 'agent-run', runId: 'run-2', threadId: 'thread-1' };
+const GIT_SCOPE: Changeset = {
+  kind: 'git-scope',
+  repositoryRoot: '/repo',
+  scope: { kind: 'uncommitted' },
+  worktreePath: '/repo',
+};
+
+describe('useChangesNavigationStore', () => {
+  beforeEach(() => {
+    useChangesNavigationStore.setState({
+      activeChangeset: null,
+      activeThreadIdentity: null,
+      activeWorkspacePanelTab: 'context-explorer',
+      changesTabMounted: false,
+      handoffThreadIdentity: null,
+      isOnLastTurn: false,
+    });
+  });
+
+  it('starts with nothing selected and Context Explorer active', () => {
+    expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
+    expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
+    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+    expect(useChangesNavigationStore.getState().changesTabMounted).toBe(false);
+  });
+
+  it('makes a requested changeset the active one', () => {
+    useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+
+    expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+  });
+
+  it('does NOT switch the workspace-panel tab on a plain requestChangeset call', () => {
+    // The surface's own internal source picker calls this while already
+    // visible — there is nothing to switch to.
+    useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+
+    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+  });
+
+  it('records the thread identity an agent-run handoff carried', () => {
+    useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+
+    expect(useChangesNavigationStore.getState().handoffThreadIdentity).toEqual({
+      latestRunId: 'run-1',
+      threadId: 'thread-1',
+    });
+  });
+
+  it('keeps that identity after the user moves on to a git scope', () => {
+    useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+    useChangesNavigationStore.getState().requestChangeset(GIT_SCOPE);
+
+    // The active changeset follows the user; the identity deliberately
+    // outlives it so "Last Turn" and run-range selection stay offerable.
+    expect(useChangesNavigationStore.getState().activeChangeset).toEqual(GIT_SCOPE);
+    expect(useChangesNavigationStore.getState().handoffThreadIdentity).toEqual({
+      latestRunId: 'run-1',
+      threadId: 'thread-1',
+    });
+  });
+
+  it('never synthesises an identity from a git-scope changeset', () => {
+    useChangesNavigationStore.getState().requestChangeset(GIT_SCOPE);
+
+    expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
+  });
+
+  it('advances the identity to the newest agent-run handoff', () => {
+    useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+    useChangesNavigationStore.getState().requestChangeset(LATER_RUN);
+
+    expect(useChangesNavigationStore.getState().activeChangeset).toEqual(LATER_RUN);
+    expect(useChangesNavigationStore.getState().handoffThreadIdentity).toEqual({
+      latestRunId: 'run-2',
+      threadId: 'thread-1',
+    });
+  });
+
+  it('re-applies the same changeset on a repeat request (a second "Review" click)', () => {
+    // The old pending/consume shape swallowed this: the first click consumed
+    // and cleared the value, and a later identical request looked like nothing
+    // had changed. One owned value has no such edge.
+    useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+    useChangesNavigationStore.getState().requestChangeset(GIT_SCOPE);
+    useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+
+    expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+  });
+
+  it('reset() clears the active changeset, handoff identity, and workspace-panel tab', () => {
+    useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+    expect(useChangesNavigationStore.getState().activeChangeset).not.toBeNull();
+    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
+
+    useChangesNavigationStore.getState().reset();
+
+    expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
+    expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
+    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+    expect(useChangesNavigationStore.getState().changesTabMounted).toBe(false);
+  });
+
+  it('reset() also clears the standing active-thread identity and the "on Last Turn" flag', () => {
+    useChangesNavigationStore.setState({
+      activeThreadIdentity: { latestRunId: 'run-1', threadId: 'thread-1' },
+    });
+    useChangesNavigationStore.getState().selectLastTurn();
+    expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(true);
+
+    useChangesNavigationStore.getState().reset();
+
+    expect(useChangesNavigationStore.getState().activeThreadIdentity).toBeNull();
+    expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(false);
+  });
+
+  // BST-1115 smoke feedback: "Last Turn" as a live standing scope.
+  describe('activeThreadIdentity / selectLastTurn / setActiveThreadIdentity', () => {
+    it('starts null', () => {
+      expect(useChangesNavigationStore.getState().activeThreadIdentity).toBeNull();
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(false);
+    });
+
+    it('setActiveThreadIdentity publishes the identity as-is when the user is not on Last Turn', () => {
+      useChangesNavigationStore
+        .getState()
+        .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-1' });
+
+      expect(useChangesNavigationStore.getState().activeThreadIdentity).toEqual({
+        latestRunId: null,
+        threadId: 'thread-1',
+      });
+      expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
+    });
+
+    it('selectLastTurn resolves the CURRENT identity into an agent-run changeset and sets isOnLastTurn', () => {
+      useChangesNavigationStore.setState({
+        activeThreadIdentity: { latestRunId: 'run-1', threadId: 'thread-1' },
+      });
+
+      useChangesNavigationStore.getState().selectLastTurn();
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(true);
+      // Same write-through as any agent-run requestChangeset — the handoff
+      // field's own semantics are untouched.
+      expect(useChangesNavigationStore.getState().handoffThreadIdentity).toEqual({
+        latestRunId: 'run-1',
+        threadId: 'thread-1',
+      });
+    });
+
+    it('selectLastTurn is a no-op (no fabrication) when the thread has no completed runs yet', () => {
+      useChangesNavigationStore.setState({
+        activeThreadIdentity: { latestRunId: null, threadId: 'thread-1' },
+      });
+
+      useChangesNavigationStore.getState().selectLastTurn();
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(false);
+    });
+
+    it('selectLastTurn is a no-op when no thread is active', () => {
+      useChangesNavigationStore.getState().selectLastTurn();
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(false);
+    });
+
+    it('a plain requestChangeset call (e.g. picking a git scope) clears isOnLastTurn', () => {
+      useChangesNavigationStore.setState({
+        activeThreadIdentity: { latestRunId: 'run-1', threadId: 'thread-1' },
+      });
+      useChangesNavigationStore.getState().selectLastTurn();
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(true);
+
+      useChangesNavigationStore.getState().requestChangeset(GIT_SCOPE);
+
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(false);
+    });
+
+    it('retargets the active changeset to the new run when a fresh run finishes while on Last Turn', () => {
+      useChangesNavigationStore.setState({
+        activeThreadIdentity: { latestRunId: 'run-1', threadId: 'thread-1' },
+      });
+      useChangesNavigationStore.getState().selectLastTurn();
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+
+      useChangesNavigationStore
+        .getState()
+        .setActiveThreadIdentity({ latestRunId: 'run-2', threadId: 'thread-1' });
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(LATER_RUN);
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(true);
+      expect(useChangesNavigationStore.getState().activeThreadIdentity).toEqual({
+        latestRunId: 'run-2',
+        threadId: 'thread-1',
+      });
+    });
+
+    it('never retargets a git-scope changeset even while a NEW run finishes', () => {
+      useChangesNavigationStore.setState({
+        activeThreadIdentity: { latestRunId: 'run-1', threadId: 'thread-1' },
+      });
+      useChangesNavigationStore.getState().selectLastTurn();
+      useChangesNavigationStore.getState().requestChangeset(GIT_SCOPE);
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(false);
+
+      useChangesNavigationStore
+        .getState()
+        .setActiveThreadIdentity({ latestRunId: 'run-2', threadId: 'thread-1' });
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(GIT_SCOPE);
+    });
+
+    it('never retargets a specific run the user explicitly pinned, even if it was the latest at pin time', () => {
+      // The user picks Last Turn (run-1 is latest), THEN it stops being
+      // "Last Turn" once they re-pick that exact run via a plain
+      // requestChangeset call (e.g. a run-range/specific-run control) — id
+      // equality with the new latestRunId must never resurrect live tracking.
+      useChangesNavigationStore.setState({
+        activeThreadIdentity: { latestRunId: 'run-1', threadId: 'thread-1' },
+      });
+      useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(false);
+
+      useChangesNavigationStore
+        .getState()
+        .setActiveThreadIdentity({ latestRunId: 'run-2', threadId: 'thread-1' });
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+    });
+
+    it('does not retarget across a different thread than the pinned changeset', () => {
+      useChangesNavigationStore.setState({
+        activeThreadIdentity: { latestRunId: 'run-1', threadId: 'thread-1' },
+      });
+      useChangesNavigationStore.getState().selectLastTurn();
+
+      // A run finished on a DIFFERENT thread — must never bleed into this one.
+      useChangesNavigationStore
+        .getState()
+        .setActiveThreadIdentity({ latestRunId: 'run-9', threadId: 'thread-other' });
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+    });
+  });
+
+  describe('openChangeset', () => {
+    it('sets the active changeset the same way requestChangeset does', () => {
+      useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+      expect(useChangesNavigationStore.getState().handoffThreadIdentity).toEqual({
+        latestRunId: 'run-1',
+        threadId: 'thread-1',
+      });
+    });
+
+    it('switches the workspace-panel tab to "changes" and marks it mounted, unlike a plain requestChangeset call', () => {
+      useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+
+      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
+      expect(useChangesNavigationStore.getState().changesTabMounted).toBe(true);
+    });
+
+    it('re-activates the "changes" tab on a second click for the SAME changeset, even after the user switched away', () => {
+      useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('context-explorer');
+      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+
+      useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
+
+      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+    });
+  });
+
+  describe('setActiveWorkspacePanelTab', () => {
+    it('switches tabs without touching the active changeset', () => {
+      useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+
+      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('changes');
+
+      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
+      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
+    });
+
+    it('marks changesTabMounted sticky — it does not revert to false when switching back', () => {
+      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('changes');
+      expect(useChangesNavigationStore.getState().changesTabMounted).toBe(true);
+
+      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('context-explorer');
+
+      expect(useChangesNavigationStore.getState().changesTabMounted).toBe(true);
+      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+    });
+  });
+
+  describe('requestLiveLastTurnRefresh', () => {
+    function arriveOnLastTurn(): void {
+      useChangesNavigationStore
+        .getState()
+        .setActiveThreadIdentity({ latestRunId: 'run-1', threadId: 'thread-1' });
+      useChangesNavigationStore.getState().selectLastTurn();
+    }
+
+    it('bumps the nonce while the surface is on THIS thread\u2019s Last Turn', () => {
+      arriveOnLastTurn();
+      const before = useChangesNavigationStore.getState().liveRefreshNonce;
+
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-1');
+
+      expect(useChangesNavigationStore.getState().liveRefreshNonce).toBe(before + 1);
+    });
+
+    it('is a no-op for a DIFFERENT thread\u2019s run', () => {
+      arriveOnLastTurn();
+      const before = useChangesNavigationStore.getState().liveRefreshNonce;
+
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-other');
+
+      expect(useChangesNavigationStore.getState().liveRefreshNonce).toBe(before);
+    });
+
+    it('is a no-op once the user pins a specific run (isOnLastTurn cleared)', () => {
+      arriveOnLastTurn();
+      useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+      const before = useChangesNavigationStore.getState().liveRefreshNonce;
+
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-1');
+
+      expect(useChangesNavigationStore.getState().isOnLastTurn).toBe(false);
+      expect(useChangesNavigationStore.getState().liveRefreshNonce).toBe(before);
+    });
+
+    it('is a no-op while a git scope is showing', () => {
+      arriveOnLastTurn();
+      useChangesNavigationStore.getState().requestChangeset(GIT_SCOPE);
+      const before = useChangesNavigationStore.getState().liveRefreshNonce;
+
+      useChangesNavigationStore.getState().requestLiveLastTurnRefresh('thread-1');
+
+      expect(useChangesNavigationStore.getState().liveRefreshNonce).toBe(before);
+    });
+  });
+});

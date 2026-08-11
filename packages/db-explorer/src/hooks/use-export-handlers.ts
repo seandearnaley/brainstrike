@@ -1,5 +1,6 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
 import type { useToast } from '@brainstrike/ui';
+import { downloadBlobFile } from '@brainstrike/utils/browser-download';
 import { useCallback } from 'react';
 import {
   createCSVBlob,
@@ -34,16 +35,12 @@ export function useExportHandlers(
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('files');
 
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+      // The desktop save never overwrites — a same-second re-export lands on a
+      // ` (n)`-countered name — so the toast names the file actually written.
+      const saved = await downloadBlobFile({ blob, filename });
 
       toast({
-        description: `Exported ${records.length} files to ${filename}`,
+        description: `Exported ${records.length} files to ${saved.path?.split(/[\\/]/).pop() ?? filename}`,
         title: 'Export Successful',
       });
     } catch (error) {
@@ -71,16 +68,10 @@ export function useExportHandlers(
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('chunks');
 
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+      const saved = await downloadBlobFile({ blob, filename });
 
       toast({
-        description: `Exported ${chunks.length} chunks to ${filename}`,
+        description: `Exported ${chunks.length} chunks to ${saved.path?.split(/[\\/]/).pop() ?? filename}`,
         title: 'Export Successful',
       });
     } catch (error) {
@@ -109,16 +100,10 @@ export function useExportHandlers(
       const blob = createCSVBlob(csvContent);
       const filename = generateCSVFilename('embeddings');
 
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
+      const saved = await downloadBlobFile({ blob, filename });
 
       toast({
-        description: `Exported ${chunksWithEmbeddings.length} embeddings to ${filename}`,
+        description: `Exported ${chunksWithEmbeddings.length} embeddings to ${saved.path?.split(/[\\/]/).pop() ?? filename}`,
         title: 'Export Successful',
       });
     } catch (error) {

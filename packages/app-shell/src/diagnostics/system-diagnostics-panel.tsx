@@ -10,6 +10,10 @@
  * without navigating to multiple places.
  */
 
+import {
+  databaseStatusSelectors,
+  useDatabaseStatusStore,
+} from '@brainstrike/app-state/stores/database-status-store';
 import { type DatabaseQueryTelemetrySnapshot, databaseQueryTelemetry } from '@brainstrike/db';
 import {
   assertEmbeddingTelemetrySnapshot,
@@ -19,10 +23,6 @@ import {
   subscribeEmbeddingTelemetryThrottled,
 } from '@brainstrike/embeddings';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
-import {
-  databaseStatusSelectors,
-  useDatabaseStatusStore,
-} from '@brainstrike/preferences/stores/database-status-store';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import {
   Activity,

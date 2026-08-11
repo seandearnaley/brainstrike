@@ -1,5 +1,9 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import { isValidWebSearchCitationUrl } from './web-search-citation-url';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from './workspace-model-projection-helpers';
 
 export interface WebSearchTextModelOutput {
   type: 'text';
@@ -70,7 +74,9 @@ function parseWebSearchResult(raw: unknown): WebSearchResult {
       typeof raw['truncated'] === 'boolean'
     )
   ) {
-    throw new TypeError('webSearch model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'webSearch model projection received a malformed result'
+    );
   }
 
   const result = raw as unknown as WebSearchResult;
@@ -109,7 +115,9 @@ function parseWebSearchResult(raw: unknown): WebSearchResult {
       : !hasHint && result.count === result.totalResults);
 
   if (!(validUnavailable || validError || validSuccess)) {
-    throw new TypeError('webSearch model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'webSearch model projection received a malformed result'
+    );
   }
   return result;
 }
@@ -165,10 +173,6 @@ function output(lines: readonly string[]): WebSearchTextModelOutput {
   return { type: 'text', value: lines.join('\n') };
 }
 
-function serializedChars(lines: readonly string[]): number {
-  return JSON.stringify(output(lines)).length;
-}
-
 function status(result: WebSearchResult): 'available' | 'error' | 'unavailable' {
   if (!result.available) {
     return 'unavailable';
@@ -216,7 +220,10 @@ function buildLines(
   ];
 }
 
-export function projectWebSearchModelOutput(raw: unknown): WebSearchTextModelOutput {
+export function projectWebSearchModelOutput(
+  raw: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): WebSearchTextModelOutput {
   const result = parseWebSearchResult(raw);
   const projectedItems: string[] = [];
   let kept = 0;
@@ -224,7 +231,7 @@ export function projectWebSearchModelOutput(raw: unknown): WebSearchTextModelOut
   for (const [index, item] of result.results.entries()) {
     const nextItem = itemLines(item, index + 1);
     const candidate = buildLines(result, [...projectedItems, ...nextItem], kept + 1);
-    if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > domainModelResultCharBudget) {
       break;
     }
     projectedItems.push(...nextItem);
@@ -232,7 +239,7 @@ export function projectWebSearchModelOutput(raw: unknown): WebSearchTextModelOut
   }
 
   const lines = buildLines(result, projectedItems, kept);
-  if (serializedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > domainModelResultCharBudget) {
     throw new RangeError('webSearch model projection cannot fit required metadata');
   }
   return output(lines);

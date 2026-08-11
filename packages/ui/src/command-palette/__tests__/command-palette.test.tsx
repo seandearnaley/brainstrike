@@ -1,5 +1,5 @@
-import type { Command, CommandContext } from '@brainstrike/commands';
 import type { ActionOutcome } from '@brainstrike/context-actions';
+import type { Command, CommandContext } from '@brainstrike/context-actions/commands';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommandPalette } from '../command-palette';

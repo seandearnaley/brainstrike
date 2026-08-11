@@ -14,17 +14,9 @@ function readPackageFile(relativePath: string): string {
   return readFileSync(path.join(APP_SHELL_PACKAGE_ROOT, relativePath), 'utf8');
 }
 
+// assistant-data's own boundary suite (contract-boundary.test.ts there) now
+// owns the moved data layer's import hygiene; this file guards app-shell only.
 describe('app-shell assistant contract boundary', () => {
-  it('reads assistant run events from assistant-contract instead of agent runtime', () => {
-    expect(readSource('assistant-memory-repository.ts')).not.toMatch(
-      /@brainstrike\/agent\/run-events/
-    );
-  });
-
-  it('keeps thread draft runtime data structurally typed inside app-shell', () => {
-    expect(readSource('assistant-thread-store.ts')).not.toMatch(/@brainstrike\/agent['"]/);
-  });
-
   it('reads provider and tool metadata from assistant-contract instead of agent runtime packages', () => {
     const wrapperSource = readSource('assistant-ui-panel-wrapper.tsx');
 
@@ -107,7 +99,35 @@ describe('app-shell assistant contract boundary', () => {
     // Bumped 1740 → 1790 after rebasing onto main's thread auto-naming
     // (#2060): the union of that wrapper wiring and the BST-953 review fixes
     // (live-sum terminal clears + zero-baseline hydration) measures 1780.
-    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1790);
+    // Bumped 1790 → 1800 for the BST-1113 changeset lifecycle refresh: the
+    // wrapper only calls useChangeset (hook + policy in
+    // packages/app-shell/src/changes/use-changeset.ts) and composes its
+    // `refresh` into the existing handleRunFinished/handleRunFailed callbacks
+    // beside refetchCheckpoints — no changeset SELECTION UI lands until W4, so
+    // the changeset argument is hardcoded null and the call is inert today.
+    // Bumped 1800 → 1810 for BST-1115 W5 T4b (rewind finalization): the
+    // wrapper adds ONE hook call and ONE prop. The two-signal trigger, the
+    // arming flag, the `prepareRequestData` composition and all failure
+    // surfacing live in changes/use-rewind-finalization.ts — the wrapper only
+    // supplies the seam and the thread id, and forwards `onThreadRunStart`.
+    // NOT bumped for the BST-1115 re-hydration counter: the wrapper reads one
+    // number from `changes/rewind-store.ts` and forwards it as one prop, which
+    // is what a composition module is allowed to grow by. The counter's
+    // rationale, the panel's `key` mechanics and the Changes-surface
+    // invalidation all live outside this file.
+    // Bumped 1810 → 1850 for BST-1115 smoke feedback ("Last Turn" as a live
+    // standing scope): the wrapper adds ONE `setActiveThreadIdentity` selector,
+    // ONE effect publishing it on thread selection, and two `if` branches
+    // inside the existing handleRunFinished/handleRunFailed callbacks that
+    // publish the finished run's id. The retarget policy (is-on-Last-Turn
+    // tracking, the actual changeset swap) lives entirely in
+    // `changes/changes-navigation-store.ts` — the wrapper only reports facts
+    // it uniquely knows (the active thread, a run's completion) into the store.
+    // NOT bumped for the live-run retarget + mid-run refresh: the whole rewind
+    // wiring (finalization seam, historyGeneration, standing identity, the
+    // throttled live refresh) moved into changes/use-wrapper-rewind-wiring.ts;
+    // the wrapper is back to one hook call plus seam forwarding.
+    expect(wrapperSource.split('\n').length).toBeLessThanOrEqual(1850);
   });
 
   it('keeps the assistant panel wrapper executable test under the test-file budget', () => {
@@ -120,7 +140,21 @@ describe('app-shell assistant contract boundary', () => {
     // Bumped 2025 → 2075 for the composer attachment gating tests: the
     // transport-hidden case plus the vision-unsupported disabled-with-reason /
     // vision-supported enabled transitions under the data-stream transport.
-    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2075);
+    // Bumped 2075 → 2100 for the BST-1113 changeset lifecycle refresh
+    // composition test (mocked `useChangeset`, proving both
+    // handleRunFinished/handleRunFailed call `refresh` and that every call is
+    // wired with a null changeset until W4 lands a selection).
+    // Bumped 2100 → 2240 for BST-1115 smoke feedback ("Last Turn" as a live
+    // standing scope): a new describe block asserting what the wrapper
+    // publishes into the REAL `useChangesNavigationStore` — the
+    // thread-selection publish, the run-finished/run-failed advance, the live
+    // retarget while on Last Turn, and the "never retargets a pinned git
+    // scope" guard. The store's own full retarget-policy matrix is unit-tested
+    // separately in `changes/__tests__/changes-navigation-store.test.ts`.
+    // The BST-1115 standing-identity suite has since moved WHOLE (assertions
+    // intact) into assistant-ui-panel-wrapper-rewind.test.tsx, mirroring the
+    // assistant-ui-panel-wrapper-rewind-finalization.test.tsx split.
+    expect(wrapperTestSource.split('\n').length).toBeLessThanOrEqual(2240);
   });
 
   it('reads built-in local LLM availability from assistant-contract instead of agent runtime packages', () => {
@@ -137,7 +171,6 @@ describe('app-shell assistant contract boundary', () => {
       dependencies?: Record<string, string>;
     };
 
-    expect(readSource('assistant-memory-repository.ts')).not.toMatch(/@brainstrike\/agent/);
     expect(readSource('assistant-ui-panel-wrapper.tsx')).not.toMatch(/@brainstrike\/agent/);
     expect(readSource('__tests__/assistant-ui-panel-wrapper.test.tsx')).not.toMatch(
       /@brainstrike\/agent/

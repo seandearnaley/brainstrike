@@ -9,9 +9,11 @@ import {
   TOOL_DESCRIPTIONS,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
+import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
+import { requireTool, requireToolExecute } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -79,6 +81,10 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 // one suite per service seam, sharing the fixture module and repeating the
 // vi.mock preamble per file (hoisting is per-importing-module).
 describe('assistant-tools multi-root read tools', () => {
+  beforeEach(() => {
+    resetToolCallLoopGuards();
+  });
+
   async function createTwoRootWorkspace(): Promise<{
     rootA: string;
     rootB: string;
@@ -125,36 +131,44 @@ describe('assistant-tools multi-root read tools', () => {
         boundWorkspaceRootId: 'id-b',
       } as RuntimeData;
       const tools = buildDesktopAssistantTools(runtime);
+      const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+      const executeReplaceTool = requireToolExecute(
+        tools,
+        'brainstrike.stringReplaceWorkspaceFile'
+      );
+      const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
-      const first = await tools['brainstrike.readWorkspaceFile'].execute({
+      const first = await executeReadTool({
         maxChars: 14,
         path: '/README.md',
       });
       expect(first.rootName).toBe('ProjectB');
       expect(first.content).toContain('Project B');
 
-      const continued = await tools['brainstrike.readWorkspaceFile'].execute({
+      const continued = await executeReadTool({
         cursor: first.nextCursor,
         maxChars: 40,
       });
       expect(continued.rootName).toBe('ProjectB');
 
-      const replaced = await tools['brainstrike.stringReplaceWorkspaceFile'].execute({
+      const replaced = await executeReplaceTool({
         newStr: '# Bound Project B',
         oldStr: '# Project B',
         path: '/README.md',
       });
       expect(replaced.rootName).toBe('ProjectB');
+      expect(replaced.rootId).toBe('id-b');
 
-      const written = await tools['brainstrike.writeWorkspaceFile'].execute({
+      const written = await executeWriteTool({
         content: 'bound',
         path: '/bound.txt',
       });
       expect(written.rootName).toBe('ProjectB');
+      expect(written.rootId).toBe('id-b');
       expect(await fsPromises.readFile(path.join(rootB, 'bound.txt'), 'utf8')).toBe('bound');
       await expect(fsPromises.access(path.join(rootA, 'bound.txt'))).rejects.toThrow();
 
-      const explicitCrossRoot = await tools['brainstrike.readWorkspaceFile'].execute({
+      const explicitCrossRoot = await executeReadTool({
         path: '/README.md',
         root: 'id-a',
       });
@@ -167,15 +181,16 @@ describe('assistant-tools multi-root read tools', () => {
   it('reads the file from the root named by `root` and labels the result', async () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
-      const tool = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
-      ];
+      );
 
-      const fromB = await tool.execute({ path: '/README.md', root: 'ProjectB' });
+      const fromB = await executeTool({ path: '/README.md', root: 'ProjectB' });
       expect(fromB.rootName).toBe('ProjectB');
       expect(fromB.content).toContain('Project B');
 
-      const fromA = await tool.execute({ path: '/README.md', root: 'ProjectA' });
+      const fromA = await executeTool({ path: '/README.md', root: 'ProjectA' });
       expect(fromA.rootName).toBe('ProjectA');
       expect(fromA.content).toContain('Project A');
     } finally {
@@ -192,17 +207,18 @@ describe('assistant-tools multi-root read tools', () => {
     await fsPromises.utimes(path.join(rootB, 'same.txt'), fixedMtime, fixedMtime);
 
     try {
-      const tool = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
-      ];
-      const first = await tool.execute({
+      );
+      const first = await executeTool({
         maxChars: 10,
         path: '/same.txt',
         root: 'id-a',
       });
 
       await expect(
-        tool.execute({
+        executeTool({
           cursor: first.nextCursor,
           maxChars: 10,
           root: 'id-b',
@@ -217,16 +233,17 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
 
     try {
-      const tool = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
-      ];
-      const first = await tool.execute({
+      );
+      const first = await executeTool({
         maxChars: 14,
         path: '/README.md',
         root: 'id-a',
       });
 
-      const continued = await tool.execute({
+      const continued = await executeTool({
         cursor: first.nextCursor,
         maxChars: 40,
       });
@@ -247,10 +264,11 @@ describe('assistant-tools multi-root read tools', () => {
     );
 
     try {
-      const tool = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
-      ];
-      const first = await tool.execute({
+      );
+      const first = await executeTool({
         endLine: 80,
         maxChars: 30,
         path: '/replayed-range.txt',
@@ -259,14 +277,14 @@ describe('assistant-tools multi-root read tools', () => {
       });
 
       await expect(
-        tool.execute({
+        executeTool({
           cursor: first.nextCursor,
           endLine: 81,
           maxChars: 30,
         } as never)
       ).rejects.toThrow(/original startLine\/endLine unchanged/i);
 
-      const continued = await tool.execute({ cursor: first.nextCursor, maxChars: 30 });
+      const continued = await executeTool({ cursor: first.nextCursor, maxChars: 30 });
 
       expect(continued.rootName).toBe('ProjectA');
       expect(continued.startLine).toBeGreaterThan(1);
@@ -286,15 +304,21 @@ describe('assistant-tools multi-root read tools', () => {
 
     try {
       const runtime = twoRootRuntime(rootA, rootB);
-      const tool = buildDesktopAssistantTools(runtime)['brainstrike.readWorkspaceFile'];
-      const first = await tool.execute({
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(runtime),
+        'brainstrike.readWorkspaceFile'
+      );
+      const first = await executeTool({
         maxChars: 30,
         path: '/default-range.txt',
         root: 'id-a',
       });
 
-      const rebuiltTool = buildDesktopAssistantTools(runtime)['brainstrike.readWorkspaceFile'];
-      const continued = await rebuiltTool.execute({ cursor: first.nextCursor, maxChars: 30 });
+      const executeRebuiltTool = requireToolExecute(
+        buildDesktopAssistantTools(runtime),
+        'brainstrike.readWorkspaceFile'
+      );
+      const continued = await executeRebuiltTool({ cursor: first.nextCursor, maxChars: 30 });
 
       expect(continued.rootName).toBe('ProjectA');
       expect(continued.startLine).toBeGreaterThan(1);
@@ -307,9 +331,11 @@ describe('assistant-tools multi-root read tools', () => {
   it('resolves `root` by id as well as by display name', async () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
-      const result = await buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
-      ].execute({ path: '/README.md', root: 'id-b' });
+      );
+      const result = await executeTool({ path: '/README.md', root: 'id-b' });
       expect(result.content).toContain('Project B');
     } finally {
       await cleanup();
@@ -319,11 +345,13 @@ describe('assistant-tools multi-root read tools', () => {
   it('errors and lists the open folders when `root` is omitted and several are open', async () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
-      await expect(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
-          'brainstrike.readWorkspaceFile'
-        ].execute({ path: '/README.md' })
-      ).rejects.toThrow(/multiple folders.*ProjectA.*ProjectB/is);
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        'brainstrike.readWorkspaceFile'
+      );
+      await expect(executeTool({ path: '/README.md' })).rejects.toThrow(
+        /multiple folders.*ProjectA.*ProjectB/is
+      );
     } finally {
       await cleanup();
     }
@@ -332,11 +360,13 @@ describe('assistant-tools multi-root read tools', () => {
   it('errors with the available folders for an unknown `root`', async () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
-      await expect(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
-          'brainstrike.readWorkspaceFile'
-        ].execute({ path: '/README.md', root: 'Nope' })
-      ).rejects.toThrow(/no folder "Nope".*ProjectA.*ProjectB/is);
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        'brainstrike.readWorkspaceFile'
+      );
+      await expect(executeTool({ path: '/README.md', root: 'Nope' })).rejects.toThrow(
+        /no folder "Nope".*ProjectA.*ProjectB/is
+      );
     } finally {
       await cleanup();
     }
@@ -345,9 +375,11 @@ describe('assistant-tools multi-root read tools', () => {
   it('lists a directory from the chosen root and labels it', async () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
-      const result = await buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceDirectory'
-      ].execute({ path: '/', root: 'ProjectA' });
+      );
+      const result = await executeTool({ path: '/', root: 'ProjectA' });
       expect(result.rootName).toBe('ProjectA');
       expect(result.entries.some((entry: { path: string }) => entry.path === '/README.md')).toBe(
         true
@@ -360,9 +392,11 @@ describe('assistant-tools multi-root read tools', () => {
   it('finds a symbol in the chosen root and labels the result', async () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
-      const result = await buildDesktopAssistantTools(twoRootRuntime(rootA, rootB))[
+      const executeTool = requireToolExecute(
+        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.findWorkspaceSymbol'
-      ].execute({ path: '/README.md', query: 'fromB', root: 'ProjectB' });
+      );
+      const result = await executeTool({ path: '/README.md', query: 'fromB', root: 'ProjectB' });
       expect(result.rootName).toBe('ProjectB');
       expect(result.totalMatches).toBeGreaterThan(0);
     } finally {
@@ -444,10 +478,14 @@ describe('assistant-tools multi-root read tools', () => {
 
       expect(Object.keys(tools).sort()).toEqual([...DESKTOP_NATIVE_TOOL_IDS].sort());
       for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {
-        const tool = tools[toolId];
-        expect(tool?.id).toBe(toolId);
-        expect(tool?.description).toBe(TOOL_DESCRIPTIONS[toolId]);
-        expect(tool?.inputSchema).toBe(NATIVE_TOOL_INPUT_SCHEMAS[toolId]);
+        const tool = requireTool(tools, toolId) as {
+          description?: string;
+          id?: string;
+          inputSchema?: unknown;
+        };
+        expect(tool.id).toBe(toolId);
+        expect(tool.description).toBe(TOOL_DESCRIPTIONS[toolId]);
+        expect(tool.inputSchema).toBe(NATIVE_TOOL_INPUT_SCHEMAS[toolId]);
       }
     });
   });
@@ -570,12 +608,17 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-thread' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+        const executeReplaceTool = requireToolExecute(
+          tools,
+          'brainstrike.stringReplaceWorkspaceFile'
+        );
         // Read first so the R8 staleness guard has a fresh observation.
-        await tools['brainstrike.readWorkspaceFile'].execute({
+        await executeReadTool({
           context: { path: '/src/typed.ts' },
         });
 
-        const result = await tools['brainstrike.stringReplaceWorkspaceFile'].execute({
+        const result = await executeReplaceTool({
           context: {
             newStr: 'export const value: number = "not a number";',
             oldStr: 'export const value: number = 1;',
@@ -600,8 +643,9 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-thread-2' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
-        const result = await tools['brainstrike.writeWorkspaceFile'].execute({
+        const result = await executeTool({
           context: { content: '# Notes\n', path: '/notes.md' },
         });
 
@@ -624,8 +668,9 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-inspect' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
-        const result = await tools['brainstrike.lspInspect'].execute({
+        const result = await executeTool({
           context: {
             line: 2,
             match: 'export const echo = <<<greeting;',
@@ -654,12 +699,13 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-inspect-fragment' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         // A fragment of line 2 (not the full line): the cursor column must be
         // fragment-start-in-line + marker-offset-in-fragment, pointing at the
         // SECOND `greeting`. Raw indexOf on the fragment would yield column 3
         // (mid-"export") and silently inspect nothing.
-        const result = await tools['brainstrike.lspInspect'].execute({
+        const result = await executeTool({
           context: {
             line: 2,
             match: 'b: <<<greeting',
@@ -688,8 +734,9 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
-        const result = await tools['brainstrike.lspInspect'].execute({
+        const result = await executeTool({
           context: { line: 2, match: 'greeting', path: '/src/sym.ts' },
         });
 
@@ -713,9 +760,10 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless-repeated' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
-          tools['brainstrike.lspInspect'].execute({
+          executeTool({
             context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
           })
         ).rejects.toThrow(/pass a unique line fragment with exactly one "<<<"/i);
@@ -736,9 +784,10 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless-boundary' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
-          tools['brainstrike.lspInspect'].execute({
+          executeTool({
             context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
           })
         ).rejects.toThrow(/identifier occurs on line 2; retry with line 2/i);
@@ -759,15 +808,16 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless-line' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
-          tools['brainstrike.lspInspect'].execute({
+          executeTool({
             context: { line: 1, match: 'export const x', path: '/src/sym.ts' },
           })
         ).rejects.toThrow(/must be one JavaScript\/TypeScript identifier/i);
 
         await expect(
-          tools['brainstrike.lspInspect'].execute({
+          executeTool({
             context: { line: 1, match: 'inspectTarget', path: '/src/sym.ts' },
           })
         ).rejects.toThrow(/occurs on line 2.*retry with line 2/i);
@@ -788,8 +838,9 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-stale-match' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
-        const inspection = tools['brainstrike.lspInspect'].execute({
+        const inspection = executeTool({
           // Model quoted a line that isn't the real line 1 → must refuse with
           // the actual line text, never inspect a wrong column.
           context: { line: 1, match: 'const nonexistent = <<<thing;', path: '/src/x.ts' },
@@ -814,9 +865,10 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-ambiguous' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
-          tools['brainstrike.lspInspect'].execute({
+          executeTool({
             // "value" appears twice on line 1 → the column is ambiguous.
             context: { line: 1, match: '<<<value', path: '/src/dup.ts' },
           })
@@ -847,8 +899,9 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-big-target' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
-        const result = await tools['brainstrike.lspInspect'].execute({
+        const result = await executeTool({
           context: {
             line: 2,
             match: 'export const use = <<<bigSym;',
@@ -877,9 +930,10 @@ describe('assistant-tools multi-root read tools', () => {
           memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-bad-cursor' },
           workspaceRootPath,
         } as RuntimeData);
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
-          tools['brainstrike.lspInspect'].execute({
+          executeTool({
             // Two markers → invalid.
             context: { line: 1, match: 'export <<<const <<<x = 1;', path: '/src/x.ts' },
           })

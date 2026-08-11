@@ -1,3 +1,5 @@
+import { useDatabaseStatusStore } from '@brainstrike/app-state/stores/database-status-store';
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import {
   ACTIVE_COLLECTION_LIVE_COUNTS_QUERY,
   type DrizzleFileChunkRepository,
@@ -13,8 +15,6 @@ import {
   usePGliteLiveQuery,
 } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
-import { useDatabaseStatusStore } from '@brainstrike/preferences/stores/database-status-store';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import type { useToast } from '@brainstrike/ui';
 import { onQueueDrained } from '@brainstrike/utils/browser-events';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -43,40 +43,6 @@ import {
 } from './database-demo-data-mappers';
 
 const logger = createLogger('DatabaseDemoData');
-
-interface PageSnapshotIdentity {
-  collectionId: string;
-  page: number;
-  pageSize: number;
-}
-
-function pageHasSnapshot({
-  activeCollectionId,
-  globalSnapshot,
-  loadedPageKeys,
-  page,
-  pageCacheKey,
-  pageSize,
-}: {
-  activeCollectionId: string | null;
-  globalSnapshot: PageSnapshotIdentity | null;
-  loadedPageKeys: ReadonlySet<string>;
-  page: number;
-  pageCacheKey: string | null;
-  pageSize: number;
-}): boolean {
-  if (pageCacheKey && loadedPageKeys.has(pageCacheKey)) {
-    return true;
-  }
-  if (!(activeCollectionId && globalSnapshot)) {
-    return false;
-  }
-  return (
-    globalSnapshot.collectionId === activeCollectionId &&
-    globalSnapshot.page === page &&
-    globalSnapshot.pageSize === pageSize
-  );
-}
 
 /**
  * Resolve the storage location label based on the repository type.
@@ -121,7 +87,6 @@ export interface UseDatabaseDemoDataOptions {
 }
 
 interface DatabaseLoaders {
-  loadChunkDetail: (chunkId: string) => Promise<FileChunk | null>;
   loadChunks: () => Promise<void>;
   loadCollectionExportData: () => Promise<{
     chunks: FileChunk[];
@@ -182,11 +147,9 @@ export interface DatabaseRecordPagination {
 }
 
 export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
-  chunks: DatabaseFileChunkSummary[];
   collectionCounts: DatabaseCollectionCounts;
   collectionCountsStatus: DatabaseCollectionCountsStatus;
   dbInfo: DatabaseInfo | null;
-  initialLoading: boolean;
   recordPagination: DatabaseRecordPagination;
   records: DatabaseFileRecordSummary[];
   refreshing: boolean;
@@ -925,22 +888,6 @@ export function useDatabaseDemoData({
     });
   }, [loadFileChunkSummaries, recordPageCacheKey, runManualRefresh, toast]);
 
-  const loadChunkDetail = useCallback(
-    async (chunkId: string): Promise<FileChunk | null> => {
-      if (!chunkId) {
-        throw new Error('Chunk detail requests require a chunk id.');
-      }
-      if (!_chunkRepository) {
-        throw new Error('Chunk detail repository is unavailable.');
-      }
-      if (!('findById' in _chunkRepository) || typeof _chunkRepository.findById !== 'function') {
-        throw new Error('Chunk detail repository does not support findById.');
-      }
-      return _chunkRepository.findById(chunkId);
-    },
-    [_chunkRepository]
-  );
-
   const loadCollectionExportData = useCallback(async (): Promise<{
     chunks: FileChunk[];
     records: FileRecord[];
@@ -1016,10 +963,19 @@ export function useDatabaseDemoData({
         includeTotalRecords: true,
       });
     });
+
+    // Records, totals and collection counts do not cover ALREADY-EXPANDED
+    // per-file chunk rows, and a re-import replaces a file's chunks outright —
+    // leaving those rows pointing at chunk ids that no longer exist. The
+    // Database panel's own import handler used to call this; since BST-1212 the
+    // import runs in the explorer, which cannot reach it, so the refresh that
+    // follows an import has to. `loadChunks` no-ops when nothing is expanded.
+    await loadChunks();
   }, [
     activeCollectionId,
     database,
     fetchSnapshot,
+    loadChunks,
     liveQueryEnabled,
     refreshCollectionCountsInBackground,
     refreshRecordsQuery,
@@ -1309,19 +1265,6 @@ export function useDatabaseDemoData({
   }, [database]);
 
   const refreshing = manualRefreshing || recordsLoading || totalRecordsLoading || fallbackLoading;
-  const hasCurrentPageSnapshot = pageHasSnapshot({
-    activeCollectionId,
-    globalSnapshot: globalCachedFileData,
-    loadedPageKeys: loadedRecordPageKeys,
-    page: normalizedRecordPage,
-    pageCacheKey: recordPageCacheKey,
-    pageSize: normalizedRecordPageSize,
-  });
-  const initialLoading = Boolean(
-    activeCollectionId &&
-      !hasCurrentPageSnapshot &&
-      (recordsLoading || totalRecordsLoading || fallbackLoading)
-  );
 
   // Sync local dbInfo state to global store for status bar
   useEffect(() => {
@@ -1336,12 +1279,9 @@ export function useDatabaseDemoData({
   }, [dbInfo]);
 
   return {
-    chunks: cachedChunks,
     collectionCounts: resolvedCollectionCounts,
     collectionCountsStatus: resolvedCollectionCountsStatus,
     dbInfo,
-    initialLoading,
-    loadChunkDetail,
     loadChunks,
     loadCollectionExportData,
     loadFileChunkSummaries,

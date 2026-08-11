@@ -1,13 +1,12 @@
 import './assistant-ui-panel-wrapper-test-support';
-import { type SupportedProvider, WEB_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
+import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
+import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { WEB_NATIVE_TOOL_IDS } from '@brainstrike/assistant-contract';
 import { HOSTED_WEB_ASSISTANT_REQUEST_BODY_LIMIT_BYTES } from '@brainstrike/assistant-contract/assistant-request-body-limit';
+import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
-import {
-  useAssistantMemoryPreferencesStore,
-  useAssistantPreferencesStore,
-  usePanelLayoutStore,
-} from '@brainstrike/preferences';
-import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
@@ -17,10 +16,10 @@ import {
   acquireAssistantForegroundActivity,
   getAssistantForegroundActivitySnapshot,
 } from '../assistant-foreground-activity';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
+import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import {
+  changesetRefreshMock,
   fileExplorerMocks,
   hasDesktopLlmHostMock,
   loadTestLocalLlmBackend,
@@ -35,6 +34,7 @@ import {
   type SelectionUpdateHandler,
   setMcpApi,
   testEnabledModels,
+  useChangesetMock,
 } from './assistant-ui-panel-wrapper-test-support';
 
 describe('AssistantUiPanelWrapper', () => {
@@ -63,6 +63,30 @@ describe('AssistantUiPanelWrapper', () => {
     await waitFor(() => {
       expect(countCheckpointReads()).toBeGreaterThan(beforeRunFinished);
     });
+  });
+
+  test('composes the changeset refresh into run-finished and run-failed, inert until W4 wires a selection', async () => {
+    const user = userEvent.setup();
+    await renderAssistantThreadPanel(['openai'], 'thread-existing');
+    await screen.findByTestId('assistant-ui-panel');
+    changesetRefreshMock.mockClear();
+
+    await act(async () => {
+      await user.click(screen.getByTestId('trigger-run-finished'));
+    });
+    expect(changesetRefreshMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await user.click(screen.getByTestId('trigger-run-failed'));
+    });
+    expect(changesetRefreshMock).toHaveBeenCalledTimes(2);
+
+    // No selection UI lands until W4: every call is wired with a null
+    // changeset, so `useChangeset`'s own inertness (unit-tested separately)
+    // guarantees today's composed refresh never reaches the bridge.
+    for (const call of useChangesetMock.mock.calls) {
+      expect(call[1]).toBeNull();
+    }
   });
 
   test('bridges only the active thread command into the composer and acknowledges it', async () => {
@@ -547,10 +571,14 @@ describe('AssistantUiPanelWrapper', () => {
     // Re-render component
     await act(async () => {
       rerender(
-        <AssistantUiPanelWrapper
-          initialProviders={['openai', 'anthropic', 'google']}
-          loadLocalLlmBackend={loadTestLocalLlmBackend}
-        />
+        <AssistantProviderSourceProvider
+          source={{
+            kind: 'authoritative',
+            providers: ['openai', 'anthropic', 'google'],
+          }}
+        >
+          <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+        </AssistantProviderSourceProvider>
       );
     });
 
@@ -2039,10 +2067,9 @@ describe('AssistantUiPanelWrapper', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const { unmount } = render(
-      <AssistantUiPanelWrapper
-        initialProviders={['openai'] as SupportedProvider[]}
-        loadLocalLlmBackend={loadTestLocalLlmBackend}
-      />
+      <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
+        <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+      </AssistantProviderSourceProvider>
     );
 
     unmount();

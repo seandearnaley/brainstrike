@@ -78,6 +78,18 @@ import { migration076AssistantRunErrors } from './076-assistant-run-errors.js';
 import { migration077RunUsageKind } from './077-run-usage-kind.js';
 import { migration078JobQueueDedupeActiveIndex } from './078-job-queue-dedupe-active-index.js';
 import { migration079MindOpsLog } from './079-mind-ops-log.js';
+import { migration080AssistantMessageTombstones } from './080-assistant-message-tombstones.js';
+import { migration081WorkspaceSnapshots } from './081-workspace-snapshots.js';
+import { migration082CanvasDocuments } from './082-canvas-documents.js';
+import { migration083ToolCallTelemetry } from './083-tool-call-telemetry.js';
+import { migration084AssistantToolProjectionRewrites } from './084-assistant-tool-projection-rewrites.js';
+import { migration085ToolCallTelemetryOccurredAtIndex } from './085-tool-call-telemetry-occurred-at-index.js';
+import { migration086TokenEstimateCalibration } from './086-token-estimate-calibration.js';
+import { migration087ToolProjectionRewriteKinds } from './087-tool-projection-rewrite-kinds.js';
+import { migration088AssistantCompactionRanges } from './088-assistant-compaction-ranges.js';
+import { migration089TokenEstimateCalibrationResolvedBudgets } from './089-token-estimate-calibration-resolved-budgets.js';
+import { migration090CompactionSummaryRunUsageKind } from './090-compaction-summary-run-usage-kind.js';
+import { migration091TokenEstimateCalibrationPromptBaseline } from './091-token-estimate-calibration-prompt-baseline.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -162,6 +174,18 @@ export const migrations: Migration[] = [
   migration077RunUsageKind,
   migration078JobQueueDedupeActiveIndex,
   migration079MindOpsLog,
+  migration080AssistantMessageTombstones,
+  migration081WorkspaceSnapshots,
+  migration082CanvasDocuments,
+  migration083ToolCallTelemetry,
+  migration084AssistantToolProjectionRewrites,
+  migration085ToolCallTelemetryOccurredAtIndex,
+  migration086TokenEstimateCalibration,
+  migration087ToolProjectionRewriteKinds,
+  migration088AssistantCompactionRanges,
+  migration089TokenEstimateCalibrationResolvedBudgets,
+  migration090CompactionSummaryRunUsageKind,
+  migration091TokenEstimateCalibrationPromptBaseline,
 ];
 
 // Export base migrations (without chunks table) for test environments

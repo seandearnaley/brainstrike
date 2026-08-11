@@ -1,4 +1,4 @@
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { useCallback, useEffect, useState } from 'react';
 import type {
   EmbeddingRuntimeController,

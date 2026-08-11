@@ -49,7 +49,7 @@
       "path": "../ui"
     },
     {
-      "path": "../preferences"
+      "path": "../app-state"
     },
     {
       "path": "../text-splitter"

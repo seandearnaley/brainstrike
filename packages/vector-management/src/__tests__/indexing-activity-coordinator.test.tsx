@@ -1,22 +1,22 @@
 import {
   __resetBackgroundIndexingPreferencesStoreForTests,
   useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/preferences/stores/background-indexing-preferences-store';
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import {
   __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
   type IndexingDatabaseWorkSnapshot,
   type IndexingManagedCollectionStats,
   useIndexingActivityStore,
-} from '@brainstrike/preferences/stores/indexing-activity-store';
+} from '@brainstrike/app-state/stores/indexing-activity-store';
 import {
   __resetVectorStatusUIStoreForTests,
   useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { act, render, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IndexingActivityCoordinator } from '../indexing-activity-coordinator';

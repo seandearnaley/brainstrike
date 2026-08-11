@@ -1,6 +1,6 @@
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 
 const usePGliteLiveQueryMock = vi.fn();
 

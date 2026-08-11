@@ -42,6 +42,15 @@ vi.mock('electron', () => ({
     defaultSession: {
       webRequest: { onHeadersReceived: vi.fn() },
     },
+    // Browser pane (BST-1174) resolves its own partition; a factory reset
+    // clears it. Provide an inert partition session so those paths run.
+    fromPartition: vi.fn(() => ({
+      clearStorageData: vi.fn(async () => undefined),
+      on: vi.fn(),
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
+      webRequest: { onHeadersReceived: vi.fn() },
+    })),
   },
   shell: {
     openPath: vi.fn().mockResolvedValue(''),
@@ -119,57 +128,68 @@ const mockElectronAPI = {
   },
 };
 
-// Mock window.electronAPI
-Object.defineProperty(window, 'electronAPI', {
-  value: mockElectronAPI,
-  writable: true,
-});
+// Guard: this file's `Object.defineProperty(window, ...)` calls below are
+// jsdom-only bootstrapping. `window` is always defined under this package's
+// default jsdom test environment (every existing test), but a handful of
+// files opt into `@vitest-environment node` to run real Node-only checks
+// (e.g. main-process-bundle-external-requires.test.ts, which needs esbuild —
+// esbuild does not run under jsdom, see build-main-config.test.ts's header
+// comment) — this shared setup file must not crash for them.
+if (typeof window !== 'undefined') {
+  // Mock window.electronAPI
+  Object.defineProperty(window, 'electronAPI', {
+    value: mockElectronAPI,
+    writable: true,
+  });
 
-// Mock window.secrets
-const mockSecrets = {
-  clearAll: vi.fn().mockResolvedValue({ success: true } as const),
-  deleteKey: vi.fn().mockResolvedValue(true),
-  getKey: vi.fn().mockResolvedValue(null as string | null),
-  list: vi.fn().mockResolvedValue([] as ProviderKeySource<SupportedProvider | 'tavily'>[]),
-  listStored: vi.fn().mockResolvedValue([] as string[]),
-  saveKey: vi.fn().mockResolvedValue(true as const),
-};
-Object.defineProperty(window, 'secrets', {
-  value: mockSecrets,
-  writable: true,
-});
+  // Mock window.secrets
+  const mockSecrets = {
+    clearAll: vi.fn().mockResolvedValue({ success: true } as const),
+    deleteKey: vi.fn().mockResolvedValue(true),
+    getKey: vi.fn().mockResolvedValue(null as string | null),
+    list: vi.fn().mockResolvedValue([] as ProviderKeySource<SupportedProvider | 'tavily'>[]),
+    listStored: vi.fn().mockResolvedValue([] as string[]),
+    saveKey: vi.fn().mockResolvedValue(true as const),
+  };
+  Object.defineProperty(window, 'secrets', {
+    value: mockSecrets,
+    writable: true,
+  });
 
-// Mock window.agent
-const mockAgent = {
-  chat: vi.fn().mockResolvedValue([
-    { name: 'plan', status: 'start', type: 'tool-event' },
-    { type: 'text-delta', value: 'Hello' },
-    { type: 'text-delta', value: ' world' },
-    { name: 'plan', status: 'success', type: 'tool-event' },
-  ]),
-};
-Object.defineProperty(window, 'agent', {
-  value: mockAgent,
-  writable: true,
-});
+  // Mock window.agent
+  const mockAgent = {
+    chat: vi.fn().mockResolvedValue([
+      { name: 'plan', status: 'start', type: 'tool-event' },
+      { type: 'text-delta', value: 'Hello' },
+      { type: 'text-delta', value: ' world' },
+      { name: 'plan', status: 'success', type: 'tool-event' },
+    ]),
+  };
+  Object.defineProperty(window, 'agent', {
+    value: mockAgent,
+    writable: true,
+  });
 
-Object.defineProperty(window, 'llmHost', {
-  value: {
-    ensureStarted: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
-    generate: vi.fn().mockResolvedValue(null),
-    getStatus: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
-    onProgress: vi.fn(() => () => {}),
-    onRequest: vi.fn(() => () => {}),
-    onStatus: vi.fn(() => () => {}),
-    reportProgress: vi.fn(),
-    reportResponse: vi.fn(),
-    reportStatus: vi.fn(),
-    reset: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
-    stop: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'stopped' }),
-    warmup: vi.fn().mockResolvedValue(undefined),
-  },
-  writable: true,
-});
+  Object.defineProperty(window, 'llmHost', {
+    value: {
+      ensureStarted: vi
+        .fn()
+        .mockResolvedValue({ active: false, lastError: null, state: 'running' }),
+      generate: vi.fn().mockResolvedValue(null),
+      getStatus: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
+      onProgress: vi.fn(() => () => {}),
+      onRequest: vi.fn(() => () => {}),
+      onStatus: vi.fn(() => () => {}),
+      reportProgress: vi.fn(),
+      reportResponse: vi.fn(),
+      reportStatus: vi.fn(),
+      reset: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'running' }),
+      stop: vi.fn().mockResolvedValue({ active: false, lastError: null, state: 'stopped' }),
+      warmup: vi.fn().mockResolvedValue(undefined),
+    },
+    writable: true,
+  });
+}
 
 process.env['BRAINSTRIKE_AGENT_TEST_MODE'] = '1';
 
@@ -244,12 +264,15 @@ const mockProviderDefaultEnabledModels = Object.fromEntries(
   ])
 ) as Record<MockProviderId, string[]>;
 
+type MockModelDefinition = (typeof mockProviderDefinitions)[number]['models'][number];
+type MockEmbeddingModelDefinition = Extract<MockModelDefinition, { type: 'embedding' }>;
+
 const mockEmbeddingModels = Object.fromEntries(
   mockProviderDefinitions.map((definition) => [
     definition.id,
     definition.models.filter((model) => model.type === 'embedding'),
   ])
-) as Record<MockProviderId, (typeof mockProviderDefinitions)[number]['models']>;
+) as Record<MockProviderId, MockEmbeddingModelDefinition[]>;
 
 const mockProviderDisplayNames = Object.fromEntries(
   mockProviderDefinitions.map((definition) => [definition.id, definition.displayName])
@@ -268,10 +291,7 @@ function ensureDefinition(provider: string): (typeof mockProviderDefinitions)[nu
 }
 
 function cloneDefinition(definition: (typeof mockProviderDefinitions)[number]) {
-  return {
-    ...definition,
-    models: definition.models.map((model) => ({ ...model })),
-  } as (typeof mockProviderDefinitions)[number];
+  return structuredClone(definition);
 }
 
 const mockMcpToolRegistry = {

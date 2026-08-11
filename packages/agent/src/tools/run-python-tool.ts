@@ -49,6 +49,7 @@ const OUTPUT_ENVELOPE_CHARS = 1200;
 const RUN_PYTHON_MAX_OUTPUT_BYTES = Math.min(4 * 1024 * 1024, MAX_EXEC_OUTPUT_BYTES);
 
 export type RunPythonUnavailableReason =
+  | 'approval_confirmation_unavailable'
   | 'executor_kind_unavailable'
   | 'executor_tier_mismatch'
   | 'interpreter_unavailable'
@@ -56,7 +57,8 @@ export type RunPythonUnavailableReason =
   | 'network_confirmation_unavailable'
   | 'network_unsupported'
   | 'no_sandbox_configured'
-  | 'resolve_timed_out';
+  | 'resolve_timed_out'
+  | 'resume_unrecognized';
 
 /**
  * The model-facing result. A discriminated union rather than a flat object
@@ -110,6 +112,19 @@ export type RunPythonResult = (
       /** The exact domains the user declined. The model can rewrite offline. */
       readonly deniedDomains: readonly string[];
       readonly kind: 'network_denied';
+    }
+  | {
+      /**
+       * LEGACY (pre-@mastra/core-1.56 history only): the user declined Gate A
+       * back when the tool raised its own approval suspension and reported
+       * the decline itself. Since the 1.56 approval rework Gate A is the
+       * framework's pre-execution gate; a decline never reaches execute() and
+       * produces NO tool result — the approval card's "Declined" state owns
+       * the UX, identical to every other ask-gated tool. This arm stays only
+       * so threads persisted before the rework keep rendering their declined
+       * result panes.
+       */
+      readonly kind: 'declined';
     }
   | {
       readonly detail: string;
@@ -189,9 +204,10 @@ function splitStreamBudget(
 /**
  * How much of the budget JSON escaping will consume for this output. Measured
  * on the portion that would actually be kept, so plain ASCII pays nothing and
- * escape-heavy output pays what it really costs.
+ * escape-heavy output pays what it really costs. Shared with runSkillScript's
+ * output fit, which must uphold the same serialized self-bound contract.
  */
-function serializationOverhead(stdout: string, stderr: string, budget: number): number {
+export function serializationOverhead(stdout: string, stderr: string, budget: number): number {
   const sampleStdout = sliceTailCodePoints(stdout, budget);
   const sampleStderr = sliceTailCodePoints(stderr, budget);
   const raw = sampleStdout.length + sampleStderr.length;
@@ -364,10 +380,22 @@ async function removeScratchDir(scratchDir: string): Promise<RunPythonScratchCle
 }
 
 /**
- * Gate B transport schemas (BST-1070). Mastra validates `suspend()` payloads
- * and resume data against these; the payload mirrors
- * {@link RunPythonNetworkSuspendPayload} and the resume shape mirrors
- * `RunPythonNetworkDecision` from the contract.
+ * Suspend/resume transport schemas for Gate B (BST-1070; Gate A moved to the
+ * framework's pre-execution approval at the @mastra/core 1.56 rework — the
+ * permission gate's per-tool `requireApproval` clone raises the ordinary
+ * `tool-call-approval` pause BEFORE execute() runs, so no approval suspension
+ * exists in-tool any more). The tool wrapper validates every `suspend()`
+ * payload against the suspend schema and every incoming resume against the
+ * resume schema.
+ *
+ * - Gate B (network): payload mirrors {@link RunPythonNetworkSuspendPayload};
+ *   resume mirrors `RunPythonNetworkDecision` from the contract, plus an
+ *   OPTIONAL `approved: true` rider. The rider is the 1.56+ contract for
+ *   resuming ANY suspension of an approval-gated tool: Mastra re-checks the
+ *   gate on every resume leg and converts a resume without `approved: true`
+ *   into its generic denial before execute() runs. The repo's resume
+ *   transport attaches it for ask-gated tools (agent-streaming.ts); it is a
+ *   statement of fact — the call WAS approved at its pre-execution gate.
  */
 const RunPythonNetworkSuspendSchema = z
   .object({
@@ -376,29 +404,199 @@ const RunPythonNetworkSuspendSchema = z
   })
   .strict();
 
-const RunPythonNetworkResumeSchema = z.object({ action: z.enum(['allow', 'deny']) }).strict();
+const RunPythonSuspendSchema = RunPythonNetworkSuspendSchema;
+
+const RunPythonNetworkResumeSchema = z
+  .object({ action: z.enum(['allow', 'deny']), approved: z.literal(true).optional() })
+  .strict();
+
+const RunPythonResumeSchema = RunPythonNetworkResumeSchema;
+
+/** The narrowed resume shapes execute() dispatches on. */
+type RunPythonResume =
+  | { readonly kind: 'none' }
+  | { readonly action: 'allow' | 'deny'; readonly kind: 'network' }
+  | { readonly kind: 'unrecognized' };
 
 /**
- * Narrows the Gate B resume data to a decision, treating ANYTHING
- * unrecognised as DENY. Mastra already validates against
- * {@link RunPythonNetworkResumeSchema}, but this layer must fail SAFE on its
- * own: a schema drift or a hand-crafted resume must never become a silent
- * network grant (design §3.1).
+ * Narrows the resume data to the Gate B answer, strictly: the `action` key
+ * with an exact value, optionally accompanied by the 1.56+ `approved: true`
+ * rider (see the schema comment) and NOTHING else. Mastra already validates
+ * against {@link RunPythonResumeSchema}, but this layer must fail SAFE on its
+ * own — a schema drift or a hand-crafted resume must never become a silent
+ * network grant (design §3.1), so anything else is `unrecognized` and the
+ * caller denies the pending gate. A bare `{approved: boolean}` is DELIBERATELY
+ * unrecognized here: since the 1.56 rework the framework consumes approval
+ * resumes before execute(), so one arriving in-tool is a drifted shape.
  */
-function readNetworkDecision(resume: unknown): 'allow' | 'deny' {
-  if (
-    resume !== null &&
-    typeof resume === 'object' &&
-    !Array.isArray(resume) &&
-    Reflect.ownKeys(resume).length === 1 &&
-    (resume as { action?: unknown }).action === 'allow'
-  ) {
-    return 'allow';
+function readRunPythonResume(resume: unknown): RunPythonResume {
+  if (resume === undefined) {
+    return { kind: 'none' };
   }
-  return 'deny';
+  if (resume !== null && typeof resume === 'object' && !Array.isArray(resume)) {
+    const keys = Reflect.ownKeys(resume);
+    const record = resume as { action?: unknown; approved?: unknown };
+    const riderOnly =
+      keys.length === 2 && Object.hasOwn(resume, 'approved') && record.approved === true;
+    if (
+      (keys.length === 1 || riderOnly) &&
+      Object.hasOwn(resume, 'action') &&
+      (record.action === 'allow' || record.action === 'deny')
+    ) {
+      return { action: record.action, kind: 'network' };
+    }
+  }
+  return { kind: 'unrecognized' };
+}
+
+interface RunPythonAgentContext {
+  readonly resumeData?: unknown;
+  readonly suspend?: (payload: unknown, suspendOptions?: unknown) => Promise<unknown>;
+}
+
+/** What the serial gate pass decided: run, stop with a result, or pause. */
+type RunPythonGateOutcome =
+  | { readonly kind: 'run'; readonly networkGranted: boolean }
+  | { readonly kind: 'settled'; readonly result: RunPythonResult }
+  | { readonly kind: 'suspended' };
+
+/**
+ * The SERIAL two-gate pass under the @mastra/core 1.56+ approval idiom
+ * (BST-1070 §3.1 + BST-1097, mechanism re-based at the ^1.57 adoption).
+ * `suspend()` returns Promise<void> and never resolves to the decision:
+ * Mastra re-runs execute from the top with the answer in
+ * `context.agent.resumeData` (the `createAskUserTool` control flow). Every
+ * pause fires BEFORE the host is resolved — no executor, no scratch dir,
+ * nothing to leak if the run is never resumed.
+ *
+ * Gate A — "may this code run at all?" (BST-1097) — is the FRAMEWORK's
+ * pre-execution approval: under an 'ask' policy the permission gate registers
+ * this tool as a `requireApproval` clone (permission-tool-gate.ts, the same
+ * idiom as every other ask-gated tool), Mastra emits the ordinary
+ * `tool-call-approval` chunk before execute() runs, approve consumes the
+ * answer and runs the tool, decline never reaches the tool (the framework
+ * mints the denial and streams NO tool result — the approval card's
+ * "Declined" state owns the UX, as for every other ask-gated tool; the typed
+ * `declined` arm below is legacy, for pre-rework persisted threads only).
+ * execute() itself only guards the DIRECT-invocation hole: 'ask'
+ * with no suspension channel refuses rather than running unprompted.
+ *
+ * Gate B — "may it reach these specific domains?" (BST-1070 §3.1) — stays a
+ * PLAIN suspension raised in here: per-call, argument-aware, and structurally
+ * ungrantable (the plain suspension channel has no grant surface, so no
+ * session grant, per-tool override, or yolo posture ever pre-answers it).
+ * Its resume carries `{action}` plus the 1.56+ `approved: true` rider the
+ * resume transport attaches for approval-gated tools — without the rider
+ * Mastra's per-leg re-check converts the resume into a denial before this
+ * code runs (the pre-1.56 reason the flag was forbidden here; the rider is
+ * what makes flag + suspension compose now). A network answer can only exist
+ * for a call whose Gate B suspension was raised, which only happens after
+ * Gate A settled; the suspend-resume transport additionally refuses to
+ * deliver a generic resume to an approval pause
+ * (`assertResumedCallIsSuspendPause`), so the shapes cannot leapfrog.
+ */
+async function passRunPythonGates(params: {
+  readonly agentContext: RunPythonAgentContext | undefined;
+  readonly requestedDomains: readonly string[];
+  readonly resolveApprovalDecision: () => 'allow' | 'ask';
+}): Promise<RunPythonGateOutcome> {
+  const { agentContext, requestedDomains, resolveApprovalDecision } = params;
+  const resume = readRunPythonResume(
+    agentContext && 'resumeData' in agentContext ? agentContext.resumeData : undefined
+  );
+
+  let networkGranted = false;
+  switch (resume.kind) {
+    case 'none': {
+      if (resolveApprovalDecision() === 'ask' && !agentContext?.suspend) {
+        // Direct invocation outside an agent run while the policy asks for
+        // approval: there is no framework gate and no way to ask, so refuse.
+        // Running would be unprompted execution — the exact thing 'ask'
+        // exists to prevent. INSIDE an agent run this branch is unreachable
+        // under 'ask': the permission gate's `requireApproval` clone makes
+        // Mastra collect the approval BEFORE execute() runs (1.56+ Gate A).
+        return {
+          kind: 'settled',
+          result: {
+            detail:
+              'No suspension channel is available, so the required run approval could not be requested.',
+            kind: 'unavailable',
+            reason: 'approval_confirmation_unavailable',
+          },
+        };
+      }
+      break;
+    }
+    case 'network': {
+      if (resume.action !== 'allow') {
+        return {
+          kind: 'settled',
+          result: { deniedDomains: requestedDomains, kind: 'network_denied' },
+        };
+      }
+      networkGranted = requestedDomains.length > 0;
+      break;
+    }
+    default: {
+      // Unrecognized resume data: fail SAFE and fail VISIBLE — never run,
+      // and never attribute the outcome to a user decision the user did not
+      // make. `declined` means the user clicked Decline and `network_denied`
+      // means they clicked Don't allow; a drifted shape is neither, so
+      // labelling it as either would tell an approving user they refused.
+      // The typed refusal keeps both gates unanswered: asking again yields a
+      // fresh prompt.
+      return {
+        kind: 'settled',
+        result: {
+          detail:
+            'The resume data did not match either gate decision shape, so the answer could not be read.',
+          kind: 'unavailable',
+          reason: 'resume_unrecognized',
+        },
+      };
+    }
+  }
+
+  if (requestedDomains.length > 0 && !networkGranted) {
+    if (!agentContext?.suspend) {
+      // Direct invocation outside an agent run. askUser degrades to a
+      // readable answer here; run_python MUST NOT — degrading would run the
+      // script with network and no prompt, the exact bypass Gate B exists to
+      // prevent (and running it offline instead would be a wrong result
+      // dressed as a stronger sandbox).
+      return {
+        kind: 'settled',
+        result: {
+          detail: 'No suspension channel is available, so network access could not be confirmed.',
+          kind: 'unavailable',
+          reason: 'network_confirmation_unavailable',
+        },
+      };
+    }
+    await agentContext.suspend({
+      allowedDomains: requestedDomains,
+      kind: 'network',
+    } satisfies RunPythonNetworkSuspendPayload);
+    return { kind: 'suspended' };
+  }
+
+  return { kind: 'run', networkGranted };
 }
 
 export interface RunPythonToolOptions {
+  /**
+   * The Gate A permission decision for THIS call (BST-1097). Since the
+   * @mastra/core 1.56 approval rework, Gate A itself is armed by the
+   * permission gate's per-tool `requireApproval` clone (the framework's
+   * pre-execution approval — see permission-tool-gate.ts); inside an agent
+   * run this injected decision no longer raises anything. It is REQUIRED
+   * regardless because it closes the DIRECT-invocation hole: a call outside
+   * an agent run (no suspension channel, no framework gate) under 'ask' must
+   * refuse rather than run unprompted. Composition roots derive it from the
+   * request's trusted permission snapshot via `resolveSelfApprovalDecision`
+   * (permission-tool-gate.ts) so the tool and the gate cannot disagree.
+   */
+  readonly resolveApprovalDecision: () => 'allow' | 'ask';
   /**
    * Resolves the host's executor capabilities for THIS call. Async because the
    * bundled CPython (BST-1061) may still need a first-run unpack, and because
@@ -437,51 +635,22 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
       // all agree — a repeated host is harmless intent, not a reason to fail.
       const requestedDomains = [...new Set(parsed.allowedDomains ?? [])];
 
-      // ── Gate B (BST-1070 design §3.1), resume-FIRST. `suspend()` returns
-      // Promise<void> and never resolves to the decision: Mastra re-runs this
-      // execute from the top with the answer in `context.agent.resumeData`
-      // (the `createAskUserTool` control flow). The pause fires BEFORE the
-      // host is resolved — no executor, no scratch dir, nothing to leak if
-      // the run is never resumed — and only when this call actually asked for
-      // domains: an offline call never consults resumeData, so a stray
-      // allow-shaped resume cannot grant network to a call that never
-      // requested it.
-      let networkGranted = false;
-      if (requestedDomains.length > 0) {
-        const agentContext = (
-          context as
-            | {
-                agent?: {
-                  resumeData?: unknown;
-                  suspend?: (payload: unknown) => Promise<unknown>;
-                };
-              }
-            | undefined
-        )?.agent;
-        if (agentContext && 'resumeData' in agentContext && agentContext.resumeData !== undefined) {
-          if (readNetworkDecision(agentContext.resumeData) !== 'allow') {
-            return { deniedDomains: requestedDomains, kind: 'network_denied' };
-          }
-          networkGranted = true;
-        } else if (agentContext?.suspend) {
-          await agentContext.suspend({
-            allowedDomains: requestedDomains,
-            kind: 'network',
-          } satisfies RunPythonNetworkSuspendPayload);
-          return;
-        } else {
-          // Direct invocation outside an agent run. askUser degrades to a
-          // readable answer here; run_python MUST NOT — degrading would run
-          // the script with network and no prompt, the exact bypass Gate B
-          // exists to prevent (and running it offline instead would be a
-          // wrong result dressed as a stronger sandbox).
-          return {
-            detail: 'No suspension channel is available, so network access could not be confirmed.',
-            kind: 'unavailable',
-            reason: 'network_confirmation_unavailable',
-          };
-        }
+      // ── The serial two-gate pass (Gate A approval + Gate B network); see
+      // passRunPythonGates for the full contract. Every pause fires before
+      // the host is resolved.
+      const agentContext = (context as { agent?: RunPythonAgentContext } | undefined)?.agent;
+      const gateOutcome = await passRunPythonGates({
+        agentContext,
+        requestedDomains,
+        resolveApprovalDecision: options.resolveApprovalDecision,
+      });
+      if (gateOutcome.kind === 'suspended') {
+        return;
       }
+      if (gateOutcome.kind === 'settled') {
+        return gateOutcome.result;
+      }
+      const { networkGranted } = gateOutcome;
 
       const timeoutMs = parsed.timeoutMs ?? RUN_PYTHON_DEFAULT_TIMEOUT_MS;
       // The seam REQUIRES a real AbortSignal so user Stop kills the process
@@ -584,7 +753,7 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
     id: RUN_PYTHON_TOOL_ID,
     inputSchema: RunPythonInputSchema,
     outputSchema: RunPythonOutputSchema,
-    resumeSchema: RunPythonNetworkResumeSchema,
-    suspendSchema: RunPythonNetworkSuspendSchema,
+    resumeSchema: RunPythonResumeSchema,
+    suspendSchema: RunPythonSuspendSchema,
   });
 }

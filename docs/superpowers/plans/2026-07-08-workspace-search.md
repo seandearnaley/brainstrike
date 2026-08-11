@@ -624,7 +624,7 @@ Run: `cd packages/workspace-search && pnpm vitest run core` → FAIL.
 - [ ] **Step 2: Implement.**
 - `escapeRegExpLiteral`: standard `s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')`.
 - `buildGrepPattern`: literal+wholeWord → `\b${escaped}\b` as regex; regex+wholeWord → `\b(?:${source})\b`; otherwise pass-through.
-- `searchText`: bump an internal `requestSeq`; call `grepService.search({ pattern, isRegex, caseSensitive, embeddingSetId, rootIds, maxResults: req.maxResults ?? 200, contextLines: 1 })`; if a newer seq started since, return null; group matches into `WorkspaceSearchFileResult[]` keyed `${rootId} ${path}` (Map preserves first-seen order; service output is already root/path/line sorted); matches missing `chunkId`/`chunkStartLine`/`chunkEndLine` are skipped with `notices.skippedMissingLineMetadata += 1`; every child gets `provenance: 'index'`.
+- `searchText`: bump an internal `requestSeq`; call `grepService.search({ pattern, isRegex, caseSensitive, embeddingSetId, rootIds, maxResults: req.maxResults ?? 200, contextLines: 1 })`; if a newer seq started since, return null; group matches into `WorkspaceSearchFileResult[]` keyed `${rootId}\0${path}` (Map preserves first-seen order; service output is already root/path/line sorted); matches missing `chunkId`/`chunkStartLine`/`chunkEndLine` are skipped with `notices.skippedMissingLineMetadata += 1`; every child gets `provenance: 'index'`.
 
 - [ ] **Step 3: Verify** — `pnpm vitest run && pnpm type-check` → PASS.
 

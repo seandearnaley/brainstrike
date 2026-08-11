@@ -22,9 +22,6 @@
       ],
       "@brainstrike/utils/*": [
         "../utils/dist/*.d.ts"
-      ],
-      "@brainstrike/preferences/*": [
-        "../preferences/dist/*.d.ts"
       ]
     },
     "types": [
@@ -44,6 +41,9 @@
     "src/**/__tests__/**"
   ],
   "references": [
+    {
+      "path": "../app-state"
+    },
     {
       "path": "../assistant-contract"
     },
@@ -76,9 +76,6 @@
     },
     {
       "path": "../platform-utils"
-    },
-    {
-      "path": "../preferences"
     },
     {
       "path": "../pipeline"

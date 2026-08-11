@@ -36,9 +36,6 @@
       ],
       "@brainstrike/utils/*": [
         "../../packages/utils/src/*"
-      ],
-      "@brainstrike/preferences/*": [
-        "../../packages/preferences/src/*"
       ]
     },
     "types": [
@@ -49,7 +46,7 @@
   },
   "include": [
     "src",
-    "playwright.config.ts"
+    "playwright.config.mts"
   ],
   "exclude": [
     "node_modules",
@@ -67,7 +64,16 @@
   ],
   "references": [
     {
+      "path": "../../packages/app-state"
+    },
+    {
       "path": "../../packages/app-shell"
+    },
+    {
+      "path": "../../packages/assistant-data"
+    },
+    {
+      "path": "../../packages/assistant-ui"
     },
     {
       "path": "../../packages/agent/tsconfig.build.json"
@@ -97,7 +103,7 @@
       "path": "../../packages/queue"
     },
     {
-      "path": "../../packages/server-config"
+      "path": "../../packages/settings-ui"
     },
     {
       "path": "../../packages/types"

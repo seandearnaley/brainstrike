@@ -10,12 +10,17 @@
  * - `'allow'`→ tool KEPT, NOT in `askToolIds`.
  * - a session grant / YOLO downgrades `'ask'`→`'allow'`, so the tool is kept but
  *   NOT recorded as ask (it runs free, no approval).
+ * - a SUSPENDING tool gated to `'ask'` (BST-1097, 1.56+ idiom) takes the SAME
+ *   `requireApproval` clone as every other ask tool — the framework's
+ *   pre-execution approval is Gate A, and the resume transport's
+ *   `approved: true` rider keeps its own suspensions resumable under the flag.
  */
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import { describe, expect, it } from 'vitest';
 import {
   filterToolsByPermissionWithMetadata,
   type PermissionToolGateLogger,
+  resolveSelfApprovalDecision,
 } from '../mastra/permission-tool-gate';
 
 function noopLogger(): PermissionToolGateLogger {
@@ -187,5 +192,126 @@ describe('filterToolsByPermissionWithMetadata', () => {
     const input = { ...TOOLS };
     filterToolsByPermissionWithMetadata(input, snapshot(), NAME_MAP, noopLogger());
     expect(Object.keys(input).sort()).toEqual(['edit_tool', 'execute_tool', 'read_tool']);
+  });
+});
+
+describe('ask-gated suspending tools (BST-1097, 1.56+ idiom)', () => {
+  const RUN_PYTHON_NAME_MAP: ReadonlyMap<string, string> = new Map([
+    ['brainstrike_runPython', 'brainstrike.runPython'],
+  ]);
+
+  function runPythonSnapshot(): PermissionToolGateSnapshot {
+    return snapshot({ riskByTool: { 'brainstrike.runPython': 'execute' } });
+  }
+
+  it("clones run_python with requireApproval on 'ask' — the framework pre-execution gate is Gate A (1.56+ idiom)", () => {
+    // Since the @mastra/core 1.56 approval rework, run_python takes the SAME
+    // requireApproval clone as every other ask tool: the framework collects
+    // the approval BEFORE execute() runs, and the resume transport's
+    // `approved: true` rider keeps its Gate B suspension resumable
+    // (agent-streaming.ts). The old self-approving exception is gone.
+    const tool = { id: 'brainstrike.runPython', suspendSchema: { kind: 'union' } };
+    const result = filterToolsByPermissionWithMetadata(
+      { brainstrike_runPython: tool },
+      runPythonSnapshot(),
+      RUN_PYTHON_NAME_MAP,
+      noopLogger()
+    );
+
+    const gated = result.tools['brainstrike_runPython'] as {
+      requireApproval?: unknown;
+      suspendSchema?: unknown;
+    };
+    expect(gated).not.toBe(tool);
+    expect(gated.requireApproval).toBe(true);
+    // The clone preserves the suspension surface — Gate B still works.
+    expect(gated.suspendSchema).toBe(tool.suspendSchema);
+    // Still an ask tool: the approval chunk's risk metadata and the
+    // no-storage fail-safe both key on this record.
+    expect(result.askToolIds.has('brainstrike_runPython')).toBe(true);
+    expect(result.askTools.get('brainstrike_runPython')).toEqual({
+      originalName: 'brainstrike.runPython',
+      riskCategory: 'execute',
+    });
+  });
+
+  it("still resolves 'allow'/'deny' for run_python exactly like any other tool", () => {
+    const tool = { id: 'brainstrike.runPython', suspendSchema: {} };
+    const allowed = filterToolsByPermissionWithMetadata(
+      { brainstrike_runPython: tool },
+      snapshot({
+        riskByTool: { 'brainstrike.runPython': 'execute' },
+        sessionGrants: ['execute'],
+      }),
+      RUN_PYTHON_NAME_MAP,
+      noopLogger()
+    );
+    expect(allowed.tools['brainstrike_runPython']).toBe(tool);
+    expect(allowed.askToolIds.size).toBe(0);
+
+    const denied = filterToolsByPermissionWithMetadata(
+      { brainstrike_runPython: tool },
+      snapshot({
+        perToolOverrides: { 'brainstrike.runPython': 'deny' },
+        riskByTool: { 'brainstrike.runPython': 'execute' },
+      }),
+      RUN_PYTHON_NAME_MAP,
+      noopLogger()
+    );
+    expect(denied.tools).not.toHaveProperty('brainstrike_runPython');
+  });
+});
+
+describe('resolveSelfApprovalDecision', () => {
+  const TOOL_ID = 'brainstrike.runPython';
+
+  function executeAskSnapshot(
+    overrides: Partial<PermissionToolGateSnapshot> = {}
+  ): PermissionToolGateSnapshot {
+    return snapshot({ riskByTool: { [TOOL_ID]: 'execute' }, ...overrides });
+  }
+
+  it("returns 'allow' when no snapshot is enforced (the passthrough posture)", () => {
+    expect(resolveSelfApprovalDecision(undefined, TOOL_ID)).toBe('allow');
+  });
+
+  it("mirrors the gate: execute:'ask' → 'ask'", () => {
+    expect(resolveSelfApprovalDecision(executeAskSnapshot(), TOOL_ID)).toBe('ask');
+  });
+
+  it("mirrors every grant surface: per-tool override, session grant, and yolo all resolve 'allow'", () => {
+    expect(
+      resolveSelfApprovalDecision(
+        executeAskSnapshot({ perToolOverrides: { [TOOL_ID]: 'allow' } }),
+        TOOL_ID
+      )
+    ).toBe('allow');
+    expect(
+      resolveSelfApprovalDecision(executeAskSnapshot({ sessionGrants: ['execute'] }), TOOL_ID)
+    ).toBe('allow');
+    expect(resolveSelfApprovalDecision(executeAskSnapshot({ yolo: true }), TOOL_ID)).toBe('allow');
+  });
+
+  it("maps 'deny' to 'ask' — the fail-safe direction for a direct invocation (in-agent, the gate already omitted the tool)", () => {
+    expect(
+      resolveSelfApprovalDecision(
+        executeAskSnapshot({ perToolOverrides: { [TOOL_ID]: 'deny' } }),
+        TOOL_ID
+      )
+    ).toBe('ask');
+  });
+
+  it('resolves risk under EITHER name form, exactly like the gate (a sanitized-keyed riskByTool must not fall back to mcc/allow)', () => {
+    // The gate resolves risk as riskByTool[original] ?? riskByTool[sanitized]
+    // ?? defaultRisk. If this helper looked up only the dotted form, a
+    // sanitized-keyed snapshot would miss, fall back to defaultRisk 'mcp'
+    // (→ 'allow'), and Gate A would never be raised while the gate kept the
+    // tool uncloned — an unprompted run (PR #2236 review).
+    expect(
+      resolveSelfApprovalDecision(
+        snapshot({ riskByTool: { brainstrike_runPython: 'execute' } }),
+        TOOL_ID
+      )
+    ).toBe('ask');
   });
 });

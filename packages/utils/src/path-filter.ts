@@ -20,13 +20,35 @@ export const DEFAULT_IGNORE_PATTERNS = [
   '.DS_Store',
 ];
 
-// Pre-compile the ignore regex for performance
-// Matches any path segment that equals one of the ignore patterns
-// (?:^|[\\/]) matches start of string or a separator
-// (?:$|[\\/]) matches end of string or a separator
-const IGNORE_REGEX = new RegExp(
-  `(?:^|[\\\\/])(?:${DEFAULT_IGNORE_PATTERNS.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?:$|[\\\\/])`
-);
+/**
+ * Builds a regex that matches any path segment equal to one of `patterns`.
+ * Exported so callers that need a DIFFERENT ignore-pattern set (e.g. a
+ * per-subscription watcher override, BST-1112) can build a matching regex
+ * without reimplementing the escaping/anchoring logic here.
+ *
+ * An empty pattern list means "ignore nothing": returns a regex that never
+ * matches. A naive empty alternation (`(?:)`) would match the EMPTY STRING,
+ * which would make every path match — the opposite of "ignore nothing" — so
+ * the empty case is handled explicitly.
+ *
+ * (?:^|[\\/]) matches start of string or a separator
+ * (?:$|[\\/]) matches end of string or a separator
+ */
+export function buildIgnorePatternRegex(patterns: readonly string[]): RegExp {
+  if (patterns.length === 0) {
+    return /(?!)/;
+  }
+  if (patterns.some((pattern) => pattern === '')) {
+    throw new Error('buildIgnorePatternRegex: empty-string pattern would match every path');
+  }
+  return new RegExp(
+    `(?:^|[\\\\/])(?:${patterns.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?:$|[\\\\/])`
+  );
+}
+
+// Pre-compiled for performance: the default-pattern regex used by
+// `shouldIgnorePath` below.
+const IGNORE_REGEX = buildIgnorePatternRegex(DEFAULT_IGNORE_PATTERNS);
 
 // Module-level caches for compiled regex, wildcard matchers, and known-invalid patterns.
 // Intentionally unbounded: expected pattern cardinality is small in this flow.

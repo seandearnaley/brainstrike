@@ -1,7 +1,9 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../preview/preview-panel';
+import { useWorkspaceContextCurationStore } from '../workspace-context-curation-store';
 
 type PreviewPanelMocksModule = typeof import('./__mocks__/preview-panel-mocks');
 
@@ -35,128 +37,119 @@ const mockUsePreviewPanelState = vi.mocked(
 
 const { resetPreviewPanelPaginationMockState } = await previewPanelMocksPromise;
 
+interface TestFileItem {
+  compositeKey: string;
+  folderId: string;
+  path: string;
+  size?: number;
+  tokens?: number;
+  type: 'file';
+}
+
+const buildItem = (index: number, overrides: Partial<TestFileItem> = {}): TestFileItem => ({
+  compositeKey: `file${index}`,
+  folderId: 'root',
+  path: `path/to/file${index}.txt`,
+  size: 1024 + index,
+  tokens: 100 + index,
+  type: 'file',
+  ...overrides,
+});
+
+const buildState = (items: TestFileItem[]) => ({
+  flatListItems: items,
+  loadingFiles: new Set<string>(),
+  totalStats: {
+    pendingCount: 0,
+    totalFiles: items.length,
+    totalTokens: items.reduce((total, item) => total + (item.tokens ?? 0), 0),
+  },
+});
+
+const baseItems: TestFileItem[] = [
+  buildItem(1, { folderId: 'folder-file1', size: 1024, tokens: 500 }),
+  buildItem(2, { folderId: 'folder-file2', size: 2048, tokens: 750 }),
+  buildItem(3, { folderId: 'folder-file3', size: 512, tokens: 250 }),
+];
+
+const baseProps: ComponentProps<typeof PreviewPanel> = {
+  decodeFileSelection: vi.fn((key: string) => ({
+    folderId: `folder-${key}`,
+    path: `path/to/${key}.txt`,
+  })),
+  fileContents: {
+    file1: 'content1',
+    file2: 'content2',
+    file3: 'content3',
+  },
+  fileSizes: {
+    file1: 1024,
+    file2: 2048,
+    file3: 512,
+  },
+  loadingFiles: new Set<string>(),
+  onSelectionChange: vi.fn(),
+  performUndoableAction: vi.fn(),
+  selectedFiles: new Set(['file1', 'file2', 'file3']),
+  tokenCounting: {
+    countTokens: vi.fn(async (content: string) => content.length),
+    loading: false,
+    mode: 'accurate',
+    reason: null,
+  },
+};
+
+const selectGroupingOption = (label: string): void => {
+  fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+  fireEvent.click(screen.getByRole('menuitemradio', { name: label }));
+};
+
+const renderWithItems = (
+  items: TestFileItem[],
+  props: Partial<ComponentProps<typeof PreviewPanel>> = {}
+) => {
+  mockUsePreviewPanelState.mockReturnValue(buildState(items));
+  const keys = items.map((item) => item.compositeKey);
+  return render(
+    <PreviewPanel
+      {...baseProps}
+      fileContents={Object.fromEntries(keys.map((key) => [key, `content for ${key}`]))}
+      selectedFiles={new Set(keys)}
+      {...props}
+    />
+  );
+};
+
 beforeEach(() => {
   resetPreviewPanelPaginationMockState();
-  // Clear localStorage to ensure clean test state for preferences hook
   localStorage.removeItem('previewPanelPreferences.v1');
+  useWorkspaceContextCurationStore.getState().reset();
+  vi.clearAllMocks();
+  mockUsePreviewPanelState.mockReturnValue(buildState(baseItems));
 });
 
 describe('PreviewPanel', () => {
-  const selectGroupingOption = (label: string) => {
-    fireEvent.click(screen.getByRole('button', { name: 'Group by' }));
-    fireEvent.click(screen.getByRole('menuitemradio', { name: label }));
-  };
-
-  const mockProps = {
-    decodeFileSelection: vi.fn((key: string) => ({
-      folderId: `folder-${key}`,
-      path: `path/to/${key}.txt`,
-    })),
-    estimateTokenCost: vi.fn((tokens: number) => tokens * 0.001),
-    fileContents: {
-      file1: 'content1',
-      file2: 'content2',
-      file3: 'content3',
-    },
-    fileSizes: {
-      file1: 1024,
-      file2: 2048,
-      file3: 512,
-    },
-    loadingFiles: new Set<string>(),
-    onFileClick: vi.fn(),
-    onSelectionChange: vi.fn(),
-    performUndoableAction: vi.fn(),
-    selectedFiles: new Set(['file1', 'file2', 'file3']),
-    tokenCounting: {
-      countTokens: vi.fn(async (content: string) => content.length),
-      loading: false,
-      mode: 'accurate' as const,
-      reason: null,
-    },
-  };
-
-  const mockState = {
-    batchSelectedFiles: new Set<string>(),
-    collapseAllFolders: vi.fn(),
-    collapsedFolders: new Set<string>(),
-    expandAllFolders: vi.fn(),
-    flatListItems: [
-      {
-        compositeKey: 'file1',
-        folderId: 'folder-file1',
-        path: 'path/to/file1.txt',
-        size: 1024,
-        tokens: 500,
-        type: 'file' as const,
-      },
-      {
-        compositeKey: 'file2',
-        folderId: 'folder-file2',
-        path: 'path/to/file2.txt',
-        size: 2048,
-        tokens: 750,
-        type: 'file' as const,
-      },
-      {
-        compositeKey: 'file3',
-        folderId: 'folder-file3',
-        path: 'path/to/file3.txt',
-        size: 512,
-        tokens: 250,
-        type: 'file' as const,
-      },
-    ],
-    formatFileSize: vi.fn((bytes?: number) => {
-      if (bytes === undefined) {
-        return 'Unknown';
-      }
-      return `${bytes} B`;
-    }),
-    handleBatchRemove: vi.fn(),
-    handleDeselectAll: vi.fn(),
-    handleRemoveFile: vi.fn(),
-    handleSelectAll: vi.fn(),
-    isAllFilesSelected: false,
-    loadingFiles: new Set<string>(),
-    toggleFileSelection: vi.fn(),
-    toggleFolderCollapse: vi.fn(),
-    totalStats: {
-      pendingCount: 0,
-      totalFiles: 3,
-      totalTokens: 1500,
-    },
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockUsePreviewPanelState.mockReturnValue(mockState);
-  });
-
-  describe('Empty State', () => {
-    it('should render empty state when no files are selected', () => {
-      render(<PreviewPanel {...mockProps} selectedFiles={new Set()} />);
+  describe('surface and footer', () => {
+    it('renders the empty state when no files are selected', () => {
+      render(<PreviewPanel {...baseProps} selectedFiles={new Set()} />);
 
       expect(screen.getByText('No files selected')).toBeInTheDocument();
+      expect(
+        screen.getByText('Select files from the explorer to include them in your project context')
+      ).toBeInTheDocument();
     });
-  });
 
-  describe('View chrome', () => {
-    it('replaces the table toolbar with the spatial dock in Tapestry view', () => {
-      render(<PreviewPanel {...mockProps} />);
+    it('renders Tapestry as the only preview surface', () => {
+      render(<PreviewPanel {...baseProps} />);
 
-      expect(screen.getByTestId('preview-view-toolbar')).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole('tab', { name: 'Tapestry View' }));
-
-      expect(screen.queryByTestId('preview-view-toolbar')).toBeNull();
       expect(screen.getByTestId('tapestry-command-dock')).toBeInTheDocument();
+      expect(screen.getByTestId('tapestry-gallery')).toBeInTheDocument();
       expect(screen.getByRole('slider', { name: 'Gallery scale' })).toBeInTheDocument();
+      expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+      expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument();
     });
-  });
 
-  describe('Context Actions', () => {
-    it('renders context actions and wires callbacks', async () => {
+    it('renders context actions and wires their callbacks', async () => {
       const user = userEvent.setup();
       const onDownloadContext = vi.fn();
       const onCopyContext = vi.fn();
@@ -165,7 +158,7 @@ describe('PreviewPanel', () => {
 
       render(
         <PreviewPanel
-          {...mockProps}
+          {...baseProps}
           includeProjectTree={true}
           onCopyContext={onCopyContext}
           onDownloadContext={onDownloadContext}
@@ -174,29 +167,25 @@ describe('PreviewPanel', () => {
         />
       );
 
-      const downloadButton = screen.getByRole('button', { name: /download context/i });
-      const copyButton = screen.getByRole('button', { name: /copy context/i });
-      expect(downloadButton).not.toBeDisabled();
-      expect(copyButton).not.toBeDisabled();
+      await user.click(screen.getByRole('button', { name: /download context/i }));
+      await user.click(screen.getByRole('button', { name: /copy context/i }));
+      expect(onDownloadContext).toHaveBeenCalledWith(
+        expect.objectContaining({ selectedLineRangesByFile: {} })
+      );
+      expect(onCopyContext).toHaveBeenCalledWith(
+        expect.objectContaining({ selectedLineRangesByFile: {} })
+      );
 
-      fireEvent.click(downloadButton);
-      fireEvent.click(copyButton);
-      expect(onDownloadContext).toHaveBeenCalledTimes(1);
-      expect(onCopyContext).toHaveBeenCalledTimes(1);
-
-      const treeSwitch = screen.getByRole('switch', { name: /include project tree/i });
-      await user.click(treeSwitch);
+      await user.click(screen.getByRole('switch', { name: /include project tree/i }));
       expect(onIncludeProjectTreeChange).toHaveBeenCalledWith(false);
-
-      const filteredTreeSwitch = screen.getByRole('switch', { name: /use filtered project tree/i });
-      await user.click(filteredTreeSwitch);
+      await user.click(screen.getByRole('switch', { name: /use filtered project tree/i }));
       expect(onProjectTreeUsesViewFiltersChange).toHaveBeenCalledWith(true);
     });
 
-    it('hides filtered tree toggle when project tree is disabled', () => {
+    it('hides the filtered-tree control when the project tree is disabled', () => {
       render(
         <PreviewPanel
-          {...mockProps}
+          {...baseProps}
           includeProjectTree={false}
           onProjectTreeUsesViewFiltersChange={vi.fn()}
         />
@@ -207,822 +196,459 @@ describe('PreviewPanel', () => {
       ).not.toBeInTheDocument();
     });
 
-    it('renders summary mode controls above the view tabs without footer resize affordances', () => {
-      render(<PreviewPanel {...mockProps} />);
+    it('renders summary modes without footer resize affordances', async () => {
+      const user = userEvent.setup();
+      render(<PreviewPanel {...baseProps} />);
 
-      const compactButton = screen.getByRole('button', { name: /compact summary mode/i });
-      const balancedButton = screen.getByRole('button', { name: /balanced summary mode/i });
-      const insightsButton = screen.getByRole('button', { name: /insights summary mode/i });
-      const tabsList = screen.getByRole('tablist');
-
-      expect(compactButton).toBeInTheDocument();
-      expect(balancedButton).toBeInTheDocument();
-      expect(insightsButton).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /compact summary mode/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /balanced summary mode/i })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      );
+      expect(screen.getByRole('button', { name: /insights summary mode/i })).toBeInTheDocument();
       expect(
         screen.queryByRole('separator', { name: /resize context explorer footer/i })
-      ).toBeNull();
-      expect(screen.queryByRole('button', { name: /collapse footer/i })).toBeNull();
-      expect(screen.queryByRole('button', { name: /expand footer/i })).toBeNull();
-
-      expect(compactButton.compareDocumentPosition(tabsList)).toBe(
-        Node.DOCUMENT_POSITION_FOLLOWING
-      );
-    });
-
-    it('switches to compact summary mode and never renders the retired tapestry-ranges toggle', async () => {
-      const user = userEvent.setup();
-      render(<PreviewPanel {...mockProps} />);
-
-      expect(
-        screen.queryByRole('switch', { name: /use tapestry ranges in context output/i })
       ).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /collapse footer/i })).not.toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: /compact summary mode/i }));
-
-      expect(
-        screen.queryByRole('switch', { name: /use tapestry ranges in context output/i })
-      ).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /compact summary mode/i })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      );
       expect(screen.getByRole('button', { name: /download context/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /copy context/i })).toBeInTheDocument();
     });
 
-    it('disables context buttons when no files are selected', () => {
-      const onDownloadContext = vi.fn();
-      const onCopyContext = vi.fn();
-
+    it('disables context actions when there is no selection', () => {
       render(
         <PreviewPanel
-          {...mockProps}
-          onCopyContext={onCopyContext}
-          onDownloadContext={onDownloadContext}
+          {...baseProps}
+          onCopyContext={vi.fn()}
+          onDownloadContext={vi.fn()}
           selectedFiles={new Set()}
         />
       );
 
-      expect(screen.getByText('No files selected')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /download context/i })).toBeDisabled();
       expect(screen.getByRole('button', { name: /copy context/i })).toBeDisabled();
     });
-  });
 
-  describe('File Display', () => {
-    it('should render file list with proper data', () => {
-      render(<PreviewPanel {...mockProps} />);
+    it('shows file totals, token mode, and the accessible token meter', () => {
+      render(<PreviewPanel {...baseProps} />);
 
-      // Check stats display - range-aware UI shows output + source tokens
       expect(screen.getByText(/1,500 output/i)).toBeInTheDocument();
       expect(screen.getByText(/1,500 source/i)).toBeInTheDocument();
-
-      // Check files are displayed
-      expect(screen.getByText('file1.txt')).toBeInTheDocument();
-      expect(screen.getByText('file2.txt')).toBeInTheDocument();
-      expect(screen.getByText('file3.txt')).toBeInTheDocument();
-
-      // Check folder IDs are displayed
-      expect(screen.getByText('folder-file1')).toBeInTheDocument();
-      expect(screen.getByText('folder-file2')).toBeInTheDocument();
-      expect(screen.getByText('folder-file3')).toBeInTheDocument();
-    });
-
-    it('should display token counting status badge', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      // New UI shows compact "WASM" badge for accurate mode
       expect(screen.getByText('WASM')).toBeInTheDocument();
+      expect(screen.getByRole('meter')).toHaveAttribute(
+        'aria-label',
+        expect.stringContaining('Token usage')
+      );
     });
 
-    it('should surface explicit heuristic messaging when configured', () => {
-      mockUsePreviewPanelState.mockReturnValue(mockState);
-      const props = {
-        ...mockProps,
-        tokenCounting: {
-          countTokens: vi.fn(async () => 0),
-          loading: false,
-          mode: 'heuristic' as const,
-          reason: 'preference-disabled' as const,
-        },
-      };
+    it('surfaces explicit heuristic token-counting mode', () => {
+      render(
+        <PreviewPanel
+          {...baseProps}
+          tokenCounting={{
+            countTokens: vi.fn(async () => 0),
+            loading: false,
+            mode: 'heuristic',
+            reason: 'preference-disabled',
+          }}
+        />
+      );
 
-      render(<PreviewPanel {...props} />);
-
-      // New UI shows "Heuristic" badge for heuristic mode
       expect(screen.getByText('Heuristic')).toBeInTheDocument();
     });
 
-    it('should handle file click events', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      const fileButton = screen.getByRole('button', { name: 'file1.txt' });
-      if (fileButton) {
-        fireEvent.click(fileButton);
-        expect(mockProps.onFileClick).toHaveBeenCalledWith('file1');
-      }
-    });
-
-    it('should render token meter with proper aria label', () => {
-      const totalTokens = 2000;
-      mockUsePreviewPanelState.mockReturnValue({
-        ...mockState,
-        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens },
-      });
-
-      render(<PreviewPanel {...mockProps} />);
-
-      // New UI uses a meter role with aria-label for token usage
-      const meter = screen.getByRole('meter');
-      expect(meter).toHaveAttribute('aria-label', expect.stringContaining('Token usage'));
-    });
-
-    it('should display tree tokens in summary when include project tree is enabled', () => {
-      mockUsePreviewPanelState.mockReturnValue({
-        ...mockState,
-        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 50_000 },
-      });
-
-      render(
+    it('shows included, excluded, loading, and over-budget tree states', () => {
+      const { rerender } = render(
         <PreviewPanel
-          {...mockProps}
+          {...baseProps}
           includeProjectTree={true}
           projectTreeTokenCount={25_000}
           tokenBudget={100_000}
         />
       );
-
-      // The TokenSummaryBar should show tree token count
       expect(screen.getByText(/25,000 tree/i)).toBeInTheDocument();
-    });
 
-    it('should show muted tree indicator when include project tree is disabled', () => {
-      mockUsePreviewPanelState.mockReturnValue({
-        ...mockState,
-        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 50_000 },
-      });
-
-      render(
+      rerender(
         <PreviewPanel
-          {...mockProps}
+          {...baseProps}
           includeProjectTree={false}
           projectTreeTokenCount={25_000}
           tokenBudget={100_000}
         />
       );
-
-      // The tree indicator should still be visible but show 0 when disabled
       expect(screen.getByText(/0 tree/i)).toBeInTheDocument();
-    });
 
-    it('should show zero tokens text when selected tokens are zero', () => {
-      mockUsePreviewPanelState.mockReturnValue({
-        ...mockState,
-        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 0 },
-      });
-
-      render(
+      rerender(
         <PreviewPanel
-          {...mockProps}
-          includeProjectTree={true}
-          projectTreeTokenCount={25_000}
-          tokenBudget={100_000}
-        />
-      );
-
-      // Should show 0 output (range-aware context estimate)
-      expect(screen.getByText(/0 output/i)).toBeInTheDocument();
-    });
-
-    it('should show over budget status when over budget', () => {
-      mockUsePreviewPanelState.mockReturnValue({
-        ...mockState,
-        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 50_000 },
-      });
-
-      render(
-        <PreviewPanel
-          {...mockProps}
-          includeProjectTree={true}
-          projectTreeTokenCount={120_000}
-          tokenBudget={100_000}
-        />
-      );
-
-      // The BudgetStatus component has "over" text in a separate span
-      // Match just the "over" text (exact word match to avoid tooltip matches)
-      expect(screen.getByText(/^over$/i)).toBeInTheDocument();
-    });
-
-    it('should surface tree loading state in the summary', () => {
-      mockUsePreviewPanelState.mockReturnValue({
-        ...mockState,
-        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 50_000 },
-      });
-
-      render(
-        <PreviewPanel
-          {...mockProps}
+          {...baseProps}
           includeProjectTree={true}
           projectTreeTokenCount={0}
           projectTreeTokenCountLoading={true}
           tokenBudget={100_000}
         />
       );
-
-      // When treeLoading is true, the StatItem value shows just "…"
-      // (without " tree" suffix - that's only shown when not loading)
       expect(screen.getByText('…')).toBeInTheDocument();
+
+      rerender(
+        <PreviewPanel
+          {...baseProps}
+          includeProjectTree={true}
+          projectTreeTokenCount={120_000}
+          tokenBudget={100_000}
+        />
+      );
+      expect(screen.getByText(/^over$/i)).toBeInTheDocument();
     });
 
-    it('allows editing the token budget', async () => {
-      const onTokenBudgetChange = vi.fn();
+    it('shows zero output tokens', () => {
+      mockUsePreviewPanelState.mockReturnValue({
+        ...buildState(baseItems),
+        totalStats: { pendingCount: 0, totalFiles: 3, totalTokens: 0 },
+      });
 
+      render(<PreviewPanel {...baseProps} />);
+
+      expect(screen.getByText(/0 output/i)).toBeInTheDocument();
+    });
+
+    it('edits the token budget', () => {
+      const onTokenBudgetChange = vi.fn();
       render(
         <PreviewPanel
-          {...mockProps}
+          {...baseProps}
           onTokenBudgetChange={onTokenBudgetChange}
           tokenBudget={100_000}
         />
       );
 
-      // Click the trigger button to open the popover
-      const editButton = screen.getByRole('button', { name: /click to edit token budget/i });
-      fireEvent.click(editButton);
-
-      const input = screen.getByLabelText(/token budget input/i);
-      fireEvent.change(input, { target: { value: '1,000,000' } });
-
-      // Use "apply budget" instead of "save token budget"
-      const saveButton = screen.getByRole('button', { name: /apply budget/i });
-      fireEvent.click(saveButton);
+      fireEvent.click(screen.getByRole('button', { name: /click to edit token budget/i }));
+      fireEvent.change(screen.getByLabelText(/token budget input/i), {
+        target: { value: '1,000,000' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: /apply budget/i }));
 
       expect(onTokenBudgetChange).toHaveBeenCalledWith(1_000_000);
     });
   });
 
-  describe('Sorting', () => {
-    it('should handle column sorting', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      // Click on folder header to sort - use the sortable header specifically
-      const folderHeader = screen.getByRole('columnheader', { name: 'Folder' });
-      const folderSortButton = within(folderHeader).getByRole('button', {
-        name: 'Sort by Folder',
+  describe('file rendering and selection', () => {
+    it('renders file cards in fixed root order while preserving source order within a root', () => {
+      const items = [
+        buildItem(1, { folderId: 'root-z' }),
+        buildItem(2, { folderId: 'root-a' }),
+        buildItem(3, { folderId: 'root-a' }),
+      ];
+      renderWithItems(items, {
+        decodeFileSelection: vi.fn((key: string) => ({
+          folderId: key === 'file1' ? 'root-z' : 'root-a',
+          path: `path/to/${key}.txt`,
+        })),
       });
 
-      // Verify header is clickable and has proper attributes
-      expect(folderSortButton).toHaveAttribute('type', 'button');
-
-      // Click to trigger sorting
-      fireEvent.click(folderSortButton);
-
-      // Verify the header remains interactive after click
-      expect(folderHeader).toBeInTheDocument();
+      const names = screen
+        .getAllByTestId('tapestry-document-card')
+        .map((card) => within(card).getByText(/file\d+\.txt/).textContent);
+      expect(names).toEqual(['file2.txt', 'file3.txt', 'file1.txt']);
     });
 
-    it('should toggle sort direction on repeated clicks', () => {
-      render(<PreviewPanel {...mockProps} />);
+    it('toggles an individual file selection', () => {
+      render(<PreviewPanel {...baseProps} />);
 
-      const folderHeader = screen.getByRole('columnheader', { name: 'Folder' });
-      const folderSortButton = within(folderHeader).getByRole('button', {
-        name: 'Sort by Folder',
+      const checkbox = screen.getByLabelText('Select path/to/file1.txt');
+      fireEvent.click(checkbox);
+      expect(checkbox).toBeChecked();
+      fireEvent.click(checkbox);
+      expect(checkbox).not.toBeChecked();
+    });
+
+    it('selects and deselects every file on the current page', () => {
+      render(<PreviewPanel {...baseProps} />);
+
+      const pageCheckbox = screen.getByLabelText('Select all files on current page');
+      fireEvent.click(pageCheckbox);
+      expect(screen.getByLabelText('Select path/to/file1.txt')).toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file2.txt')).toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file3.txt')).toBeChecked();
+
+      fireEvent.click(pageCheckbox);
+      expect(screen.getByLabelText('Select path/to/file1.txt')).not.toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file2.txt')).not.toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file3.txt')).not.toBeChecked();
+    });
+
+    // The grouped branch of `getVisibleFilesOnPage` has its own index walk (it
+    // counts group headers as page slots), and it is the path the desktop e2e
+    // hook reads `renderedFilePaths` from. Ungrouped page select-all above does
+    // NOT exercise it.
+    it('selects every file on the current page across groups', () => {
+      const items = [
+        buildItem(1, { folderId: 'root-a' }),
+        buildItem(2, { folderId: 'root-b' }),
+        buildItem(3, { folderId: 'root-b' }),
+      ];
+      renderWithItems(items, {
+        decodeFileSelection: vi.fn((key: string) => ({
+          folderId: key === 'file1' ? 'root-a' : 'root-b',
+          path: `path/to/${key}.txt`,
+        })),
       });
+      selectGroupingOption('By Root Folder');
+      expect(screen.getAllByTestId('tapestry-group-header')).toHaveLength(2);
 
-      // First click - should trigger sorting
-      fireEvent.click(folderSortButton);
-      expect(folderHeader).toBeInTheDocument();
+      fireEvent.click(screen.getByLabelText('Select all files on current page'));
 
-      // Second click - should toggle direction
-      fireEvent.click(folderSortButton);
-      expect(folderHeader).toBeInTheDocument();
-
-      // Verify the header remains interactive
-      expect(folderSortButton).toHaveAttribute('type', 'button');
-    });
-
-    it('should sort by tokens ascending and descending', async () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      fireEvent.click(screen.getByRole('button', { name: 'Sort by Tokens' })); // ascending
-
-      await waitFor(() => {
-        const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
-        expect(fileButtons[0]).toHaveAttribute('aria-label', 'file3.txt');
+      for (const name of ['file1', 'file2', 'file3']) {
+        expect(screen.getByLabelText(`Select path/to/${name}.txt`)).toBeChecked();
+      }
+      // Both group headings reflect the page-wide selection, not just the one
+      // that happened to own the first slot.
+      const groupCheckboxes = screen.getAllByRole('checkbox', {
+        name: /^Select all items in group /,
       });
-
-      fireEvent.click(screen.getByRole('button', { name: 'Sort by Tokens' })); // descending
-
-      await waitFor(() => {
-        const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
-        expect(fileButtons[0]).toHaveAttribute('aria-label', 'file2.txt');
-      });
+      expect(groupCheckboxes).toHaveLength(2);
+      for (const checkbox of groupCheckboxes) {
+        expect(checkbox).toBeChecked();
+      }
+      expect(within(screen.getByTestId('bulk-action-bar')).getByText('3 selected')).toBeVisible();
     });
 
-    it('should sort by size ascending and descending', async () => {
-      render(<PreviewPanel {...mockProps} />);
+    it('deselects one file after selecting the page and reports the remaining selection', () => {
+      render(<PreviewPanel {...baseProps} />);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Sort by Size' })); // ascending
+      fireEvent.click(screen.getByLabelText('Select all files on current page'));
+      fireEvent.click(screen.getByLabelText('Select path/to/file2.txt'));
 
-      await waitFor(() => {
-        const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
-        expect(fileButtons[0]).toHaveAttribute('aria-label', 'file3.txt');
-      });
-
-      fireEvent.click(screen.getByRole('button', { name: 'Sort by Size' })); // descending
-
-      await waitFor(() => {
-        const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
-        expect(fileButtons[0]).toHaveAttribute('aria-label', 'file2.txt');
-      });
+      expect(screen.getByLabelText('Select path/to/file1.txt')).toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file2.txt')).not.toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file3.txt')).toBeChecked();
+      expect(within(screen.getByTestId('bulk-action-bar')).getByText('2 selected')).toBeVisible();
     });
 
-    it('should reset sort when reset button is clicked', () => {
-      render(<PreviewPanel {...mockProps} />);
+    it('clears the current preview selection from the bulk bar', () => {
+      render(<PreviewPanel {...baseProps} />);
+      fireEvent.click(screen.getByLabelText('Select path/to/file1.txt'));
 
-      // Change sort first
-      fireEvent.click(screen.getByRole('button', { name: 'Sort by File Path' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Clear context selection' }));
 
-      // Reset sort
-      const resetButton = screen.getByTestId('reset-sort-button');
-      fireEvent.click(resetButton);
-
-      // Should no longer show reset button
-      expect(screen.queryByTestId('reset-sort-button')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Selection', () => {
-    it('should handle individual file selection', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      // Find the checkbox for a specific file using aria-label
-      const fileCheckbox = screen.getByLabelText('Select path/to/file1.txt');
-      expect(fileCheckbox).toBeInTheDocument();
-
-      fireEvent.click(fileCheckbox);
-
-      // Should update selection state (tested through internal state)
-      expect(fileCheckbox).toBeChecked();
+      expect(screen.queryByTestId('bulk-action-bar')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Select path/to/file1.txt')).not.toBeChecked();
     });
 
-    it('should handle select all on current page', () => {
-      render(<PreviewPanel {...mockProps} />);
+    it('removes selected files through the bulk action overlay', async () => {
+      const onSelectionChange = vi.fn();
+      const performUndoableAction = vi.fn();
+      render(
+        <PreviewPanel
+          {...baseProps}
+          onSelectionChange={onSelectionChange}
+          performUndoableAction={performUndoableAction}
+        />
+      );
+      fireEvent.click(screen.getByLabelText('Select path/to/file1.txt'));
 
-      const selectAllCheckbox = screen.getByLabelText('Select all files on current page');
-      expect(selectAllCheckbox).toBeInTheDocument();
-      fireEvent.click(selectAllCheckbox);
-
-      // All file checkboxes should be checked
-      const file1Checkbox = screen.getByLabelText('Select path/to/file1.txt');
-      const file2Checkbox = screen.getByLabelText('Select path/to/file2.txt');
-      const file3Checkbox = screen.getByLabelText('Select path/to/file3.txt');
-
-      expect(file1Checkbox).toBeChecked();
-      expect(file2Checkbox).toBeChecked();
-      expect(file3Checkbox).toBeChecked();
-    });
-
-    it('should handle select all via header checkbox', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      const headerCheckbox = screen.getByLabelText('Select all files on current page');
-      fireEvent.click(headerCheckbox);
-
-      expect(headerCheckbox).toBeChecked();
-    });
-
-    it('should allow deselecting a single context row after select-all on page', async () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      const headerCheckbox = screen.getByLabelText('Select all files on current page');
-      fireEvent.click(headerCheckbox);
-
-      const file1Checkbox = screen.getByLabelText('Select path/to/file1.txt');
-      const file2Checkbox = screen.getByLabelText('Select path/to/file2.txt');
-      const file3Checkbox = screen.getByLabelText('Select path/to/file3.txt');
-
-      expect(file1Checkbox).toBeChecked();
-      expect(file2Checkbox).toBeChecked();
-      expect(file3Checkbox).toBeChecked();
-
-      fireEvent.click(file2Checkbox);
-
-      expect(file1Checkbox).toBeChecked();
-      expect(file2Checkbox).not.toBeChecked();
-      expect(file3Checkbox).toBeChecked();
-
-      await waitFor(() => {
-        const bulkActionBar = screen.getByTestId('bulk-action-bar');
-        expect(within(bulkActionBar).getByText('2 selected')).toBeInTheDocument();
-      });
-    });
-
-    it('should handle batch removal', async () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      // Select files first using aria-label
-      const fileCheckbox = screen.getByLabelText('Select path/to/file1.txt');
-      expect(fileCheckbox).toBeInTheDocument();
-      fireEvent.click(fileCheckbox); // Select first file
-
-      // Should show action bar
-      await waitFor(() => {
-        const bulkActionBar = screen.getByTestId('bulk-action-bar');
-        expect(within(bulkActionBar).getByText('1 file selected')).toBeInTheDocument();
-      });
       expect(screen.getByTestId('selection-action-overlay')).toHaveClass(
         'flex',
         'justify-center',
         'px-3'
       );
-      expect(screen.getByTestId('bulk-action-bar')).toHaveClass('w-full', 'max-w-3xl');
+      fireEvent.click(screen.getByText('Remove Selected from Project'));
 
-      // Click remove button
-      const removeButton = screen.getByText('Remove Selected from Project');
-      fireEvent.click(removeButton);
-
-      expect(mockProps.performUndoableAction).toHaveBeenCalled();
-      expect(mockProps.onSelectionChange).toHaveBeenCalled();
+      expect(performUndoableAction).toHaveBeenCalledWith(
+        'batch-remove',
+        'batch-remove',
+        expect.objectContaining({ itemDescription: 'Removed 1 files from selection' })
+      );
+      await waitFor(() => {
+        const nextSelection = onSelectionChange.mock.calls[0]?.[0] as Set<string> | undefined;
+        expect(nextSelection).toEqual(new Set(['file2', 'file3']));
+      });
+      expect(screen.queryByTestId('bulk-action-bar')).not.toBeInTheDocument();
     });
   });
 
-  describe('Pagination', () => {
-    const largeMockState = {
-      ...mockState,
-      collapseAllFolders: vi.fn(),
-      expandAllFolders: vi.fn(),
-      flatListItems: Array.from({ length: 120 }, (_, i) => ({
-        compositeKey: `file${i}`,
-        folderId: `folder-file${i}`,
-        path: `path/to/file${i}.txt`,
-        size: 1024,
-        tokens: 100,
-        type: 'file' as const,
-      })),
-    };
+  describe('pagination', () => {
+    const pageItems = Array.from({ length: 49 }, (_, index) =>
+      buildItem(index, { folderId: 'root' })
+    );
 
-    beforeEach(() => {
-      mockUsePreviewPanelState.mockReturnValue(largeMockState);
-    });
+    it('uses a fixed page size of 24 and renders navigation controls', () => {
+      renderWithItems(pageItems);
 
-    it('should show pagination controls for large datasets', () => {
-      render(
-        <PreviewPanel
-          {...mockProps}
-          selectedFiles={new Set(Array.from({ length: 120 }, (_, i) => `file${i}`))}
-        />
-      );
-
-      expect(screen.getByRole('button', { name: 'Go to previous page' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Go to next page' })).toBeInTheDocument();
       expect(screen.getByTestId('page-info')).toHaveTextContent('of 3');
-    });
-
-    it('should handle next page navigation', () => {
-      render(
-        <PreviewPanel
-          {...mockProps}
-          selectedFiles={new Set(Array.from({ length: 120 }, (_, i) => `file${i}`))}
-        />
-      );
-
-      const nextButton = screen.getByRole('button', { name: 'Go to next page' });
-      fireEvent.click(nextButton);
-
-      // Page input shows current page (2), total pages shown as "of 3"
-      expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(2);
-    });
-
-    it('should handle previous page navigation', () => {
-      render(
-        <PreviewPanel
-          {...mockProps}
-          selectedFiles={new Set(Array.from({ length: 120 }, (_, i) => `file${i}`))}
-        />
-      );
-
-      // Go to next page first
-      const nextButton = screen.getByRole('button', { name: 'Go to next page' });
-      fireEvent.click(nextButton);
-
-      // Then go back
-      const prevButton = screen.getByRole('button', { name: 'Go to previous page' });
-      fireEvent.click(prevButton);
-
-      // Back to page 1
-      expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(1);
-    });
-
-    it('should handle direct page navigation via last page button', () => {
-      render(
-        <PreviewPanel
-          {...mockProps}
-          selectedFiles={new Set(Array.from({ length: 120 }, (_, i) => `file${i}`))}
-        />
-      );
-
-      const lastPageButton = screen.getByRole('button', { name: 'Go to last page' });
-      fireEvent.click(lastPageButton);
-
-      // Should be on last page (page 3)
-      expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(3);
-    });
-
-    it('should disable navigation buttons at boundaries', () => {
-      render(
-        <PreviewPanel
-          {...mockProps}
-          selectedFiles={new Set(Array.from({ length: 120 }, (_, i) => `file${i}`))}
-        />
-      );
-
-      // First page and previous should be disabled on first page
-      expect(screen.getByRole('button', { name: 'Go to first page' })).toBeDisabled();
+      expect(screen.getByTestId('item-range')).toHaveTextContent('1-24 of 49');
+      expect(screen.getAllByTestId('tapestry-document-card')).toHaveLength(24);
       expect(screen.getByRole('button', { name: 'Go to previous page' })).toBeDisabled();
+    });
 
-      // Go to last page
-      const lastPageButton = screen.getByRole('button', { name: 'Go to last page' });
-      fireEvent.click(lastPageButton);
+    it('navigates forward, backward, and directly to the last page', () => {
+      renderWithItems(pageItems);
 
-      // Next and last page should be disabled on last page
+      fireEvent.click(screen.getByRole('button', { name: 'Go to next page' }));
+      expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(2);
+      expect(screen.getByTestId('item-range')).toHaveTextContent('25-48 of 49');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Go to previous page' }));
+      expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(1);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Go to last page' }));
+      expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(3);
       expect(screen.getByRole('button', { name: 'Go to next page' })).toBeDisabled();
       expect(screen.getByRole('button', { name: 'Go to last page' })).toBeDisabled();
     });
 
-    it('resets to first page when current page becomes out of bounds', () => {
-      const fileSet = new Set(Array.from({ length: 25 }, (_, i) => `file${i}`));
-      const stateWith25 = {
-        ...largeMockState,
-        flatListItems: Array.from({ length: 25 }, (_, i) => ({
-          compositeKey: `file${i}`,
-          folderId: `folder-file${i}`,
-          path: `path/to/file${i}.txt`,
-          size: 1024,
-          tokens: 100,
-          type: 'file' as const,
-        })),
-      };
+    it('resets to the first page when the current page goes out of bounds', async () => {
+      const { rerender } = renderWithItems(pageItems);
+      fireEvent.click(screen.getByRole('button', { name: 'Go to last page' }));
+      expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(3);
 
-      mockUsePreviewPanelState.mockReturnValue(stateWith25);
-      const { rerender } = render(
-        <PreviewPanel {...mockProps} pageSize={10} selectedFiles={fileSet} />
+      const smallerItems = pageItems.slice(0, 5);
+      mockUsePreviewPanelState.mockReturnValue(buildState(smallerItems));
+      rerender(
+        <PreviewPanel
+          {...baseProps}
+          fileContents={Object.fromEntries(
+            smallerItems.map((item) => [item.compositeKey, `content for ${item.compositeKey}`])
+          )}
+          selectedFiles={new Set(smallerItems.map((item) => item.compositeKey))}
+        />
       );
 
-      // Should show three pages
-      expect(screen.getByTestId('page-info')).toHaveTextContent('of 3');
-
-      // Go to page 3 (last page) via last page button
-      const lastPageButton = screen.getByRole('button', { name: 'Go to last page' });
-      fireEvent.click(lastPageButton);
-
-      // Shrink to 5 files (only 1 page now), making page 3 out of bounds
-      const smallerFileSet = new Set(Array.from({ length: 5 }, (_, i) => `file${i}`));
-      const stateWith5 = {
-        ...stateWith25,
-        flatListItems: Array.from({ length: 5 }, (_, i) => ({
-          compositeKey: `file${i}`,
-          folderId: `folder-file${i}`,
-          path: `path/to/file${i}.txt`,
-          size: 1024,
-          tokens: 100,
-          type: 'file' as const,
-        })),
-      };
-
-      mockUsePreviewPanelState.mockReturnValue(stateWith5);
-      rerender(<PreviewPanel {...mockProps} pageSize={10} selectedFiles={smallerFileSet} />);
-
-      // Should reset to page 1 since page 3 is now out of bounds
-      expect(screen.getByTestId('page-info')).toHaveTextContent('of 1');
-    });
-  });
-
-  describe('Loading States', () => {
-    it('should handle loading files', () => {
-      const loadingProps = {
-        ...mockProps,
-        loadingFiles: new Set(['file1']),
-      };
-
-      render(<PreviewPanel {...loadingProps} />);
-
-      // Component should still render, loading is handled by parent
-      expect(screen.getByText('file1.txt')).toBeInTheDocument();
-    });
-  });
-
-  describe('Error Boundaries', () => {
-    it('should handle missing file content gracefully', () => {
-      const propsWithMissingContent = {
-        ...mockProps,
-        fileContents: {
-          file1: 'content1',
-          // file2 and file3 missing
-        },
-      };
-
-      render(<PreviewPanel {...propsWithMissingContent} />);
-
-      // Should still render available files
-      expect(screen.getByText('file1.txt')).toBeInTheDocument();
-    });
-
-    it('should handle malformed file keys gracefully', () => {
-      const mockDecodeWithError = vi.fn((key: string) => {
-        if (key === 'malformed') {
-          throw new Error('Invalid key format');
-        }
-        return { folderId: `folder-${key}`, path: `path/to/${key}.txt` };
+      await waitFor(() => {
+        expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(1);
+        expect(screen.getByTestId('page-info')).toHaveTextContent('of 1');
       });
-
-      const propsWithMalformedKey = {
-        ...mockProps,
-        decodeFileSelection: mockDecodeWithError,
-        selectedFiles: new Set(['file1', 'malformed', 'file3']),
-      };
-
-      // Should not throw and render other files
-      expect(() => render(<PreviewPanel {...propsWithMalformedKey} />)).not.toThrow();
     });
   });
 
-  describe('Grouping', () => {
-    beforeEach(() => {
-      vi.clearAllMocks();
-      mockUsePreviewPanelState.mockReturnValue(mockState);
+  describe('loading and invalid data', () => {
+    it('renders a loading file without blocking the gallery', () => {
+      render(
+        <PreviewPanel
+          {...baseProps}
+          fileContents={{ file2: 'content2', file3: 'content3' }}
+          loadingFiles={new Set(['file1'])}
+        />
+      );
+
+      expect(
+        screen.getByRole('button', { name: 'Loading file content for file1.txt' })
+      ).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.getAllByTestId('tapestry-document-card')).toHaveLength(3);
+      expect(screen.getAllByTestId('tapestry-track')[0]).toHaveAttribute('aria-busy', 'true');
     });
 
-    it('should render grouping dropdown with all options', () => {
-      render(<PreviewPanel {...mockProps} />);
+    it('renders files with missing content as unavailable previews', () => {
+      render(<PreviewPanel {...baseProps} fileContents={{ file1: 'content1' }} />);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Group by' }));
+      expect(screen.getByText('file2.txt')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Loading file content for file2.txt' })
+      ).toHaveAttribute('aria-disabled', 'true');
+      expect(screen.getByText('file3.txt')).toBeInTheDocument();
+    });
 
+    it('skips malformed composite keys and keeps valid files visible', () => {
+      const malformedItem = buildItem(4, {
+        compositeKey: 'malformed',
+        path: 'path/to/malformed.txt',
+      });
+      const items = [baseItems[0]!, malformedItem, baseItems[2]!];
+      mockUsePreviewPanelState.mockReturnValue(buildState(items));
+
+      expect(() =>
+        render(
+          <PreviewPanel
+            {...baseProps}
+            decodeFileSelection={(key: string) => {
+              if (key === 'malformed') {
+                throw new Error('Invalid key format');
+              }
+              return { folderId: `folder-${key}`, path: `path/to/${key}.txt` };
+            }}
+            selectedFiles={new Set(['file1', 'malformed', 'file3'])}
+          />
+        )
+      ).not.toThrow();
+
+      expect(screen.getByText('file1.txt')).toBeInTheDocument();
+      expect(screen.getByText('file3.txt')).toBeInTheDocument();
+      expect(screen.queryByText('malformed.txt')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('grouping', () => {
+    it('offers every surviving grouping mode', () => {
+      render(<PreviewPanel {...baseProps} />);
+      fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+
+      expect(screen.getByTestId('tapestry-command-dock')).toBeInTheDocument();
       expect(screen.getAllByRole('menuitemradio')).toHaveLength(6);
+      for (const label of [
+        'By Directory',
+        'By Root Folder',
+        'By File Type',
+        'By Size Range',
+        'By Token Range',
+        'No Grouping',
+      ]) {
+        expect(screen.getByRole('menuitemradio', { name: label })).toBeInTheDocument();
+      }
     });
 
-    it('should migrate legacy "folder" grouping to "rootFolder"', () => {
-      // Simulate legacy stored preference
+    it('migrates the legacy folder preference to root-folder grouping', () => {
       localStorage.setItem(
         'previewPanelPreferences.v1',
         JSON.stringify({ groupingConfig: 'folder' })
       );
 
-      render(<PreviewPanel {...mockProps} />);
+      render(<PreviewPanel {...baseProps} />);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Group by' }));
       expect(screen.getByRole('menuitemradio', { name: 'By Root Folder' })).toHaveAttribute(
         'aria-checked',
         'true'
       );
-
-      // Clean up
-      localStorage.removeItem('previewPanelPreferences.v1');
+      expect(screen.getAllByTestId('tapestry-group-header')).toHaveLength(3);
     });
 
-    it('should change grouping when dropdown selection changes', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      selectGroupingOption('By Directory');
-
-      fireEvent.click(screen.getByRole('button', { name: 'Group by' }));
-      expect(screen.getByRole('menuitemradio', { name: 'By Directory' })).toHaveAttribute(
-        'aria-checked',
-        'true'
-      );
-    });
-
-    it('should hide the folder column when grouping by directory', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      selectGroupingOption('By Directory');
-
-      expect(screen.queryByRole('columnheader', { name: 'Folder' })).not.toBeInTheDocument();
-    });
-
-    it('should hide the folder column when grouping by root folder', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      selectGroupingOption('By Root Folder');
-
-      expect(screen.queryByRole('columnheader', { name: 'Folder' })).not.toBeInTheDocument();
-    });
-
-    it('should keep the folder column visible for non-folder grouping modes', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      for (const label of ['By File Type', 'By Size Range', 'By Token Range']) {
-        selectGroupingOption(label);
-        expect(screen.getByRole('columnheader', { name: 'Folder' })).toBeInTheDocument();
-      }
-    });
-
-    it('should show group control buttons when grouping is enabled', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      selectGroupingOption('By Root Folder');
-
-      expect(screen.getByTestId('expand-all-groups-button')).toBeInTheDocument();
-      expect(screen.getByTestId('collapse-all-groups-button')).toBeInTheDocument();
-    });
-
-    it('should handle group expansion and collapse', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      selectGroupingOption('By Root Folder');
-
-      const expandAllButton = screen.getByTestId('expand-all-groups-button');
-      const collapseAllButton = screen.getByTestId('collapse-all-groups-button');
-
-      expect(expandAllButton).toBeInTheDocument();
-      expect(collapseAllButton).toBeInTheDocument();
-
-      fireEvent.click(collapseAllButton);
-      fireEvent.click(expandAllButton);
-    });
-
-    it('hides grouped selection checkboxes when selection controls are toggled off', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      selectGroupingOption('By Root Folder');
-      expect(screen.getAllByLabelText(/Select all files in group/i).length).toBeGreaterThan(0);
-
-      fireEvent.click(screen.getByRole('button', { name: 'Toggle multi-select' }));
-
-      expect(screen.queryByLabelText(/Select all files in group/i)).not.toBeInTheDocument();
-      expect(screen.queryByLabelText('Select all files on current page')).not.toBeInTheDocument();
-    });
-
-    it('should group files by directory correctly', () => {
-      const mixedDirectoriesState = {
-        ...mockState,
-        flatListItems: [
-          {
-            compositeKey: 'file1',
-            folderId: 'project',
-            path: 'src/components/file1.tsx',
-            size: 1024,
-            tokens: 500,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file2',
-            folderId: 'project',
-            path: 'src/components/file2.tsx',
-            size: 2048,
-            tokens: 750,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file3',
-            folderId: 'project',
-            path: 'src/utils/file3.ts',
-            size: 512,
-            tokens: 250,
-            type: 'file' as const,
-          },
-        ],
-      };
-
-      const propsWithMixedDirectories = {
-        ...mockProps,
+    it('groups directory paths with root-prefixed labels', () => {
+      const items = [
+        buildItem(1, { folderId: 'project', path: 'src/components/file1.tsx' }),
+        buildItem(2, { folderId: 'project', path: 'src/components/file2.tsx' }),
+        buildItem(3, { folderId: 'project', path: 'src/utils/file3.ts' }),
+      ];
+      renderWithItems(items, {
         decodeFileSelection: vi.fn((key: string) => ({
           folderId: 'project',
           path: key === 'file3' ? 'src/utils/file3.ts' : `src/components/${key}.tsx`,
         })),
-      };
-
-      mockUsePreviewPanelState.mockReturnValue(mixedDirectoriesState);
-      render(<PreviewPanel {...propsWithMixedDirectories} />);
+      });
 
       selectGroupingOption('By Directory');
 
-      // Should show directory groups with the root-prefixed display contract.
-      expect(screen.getAllByText('project/src/components').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('project/src/utils').length).toBeGreaterThan(0);
+      const headers = screen.getAllByTestId('tapestry-group-header');
+      expect(headers).toHaveLength(2);
+      expect(within(headers[0]!).getByText('project/src/components')).toBeInTheDocument();
+      expect(within(headers[1]!).getByText('project/src/utils')).toBeInTheDocument();
+      expect(screen.getAllByTestId('tapestry-group-token-count')).toHaveLength(2);
     });
 
-    it('shows root-prefixed directory group labels for desktop-style absolute paths', () => {
-      const absoluteDirectoriesState = {
-        ...mockState,
-        flatListItems: [
-          {
-            compositeKey: 'file1',
-            folderId: '/Users/me/BrainStrike',
-            path: '/Users/me/BrainStrike/README.md',
-            size: 1024,
-            tokens: 500,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file2',
-            folderId: '/Users/me/BrainStrike',
-            path: '/Users/me/BrainStrike/source/index.ts',
-            size: 2048,
-            tokens: 750,
-            type: 'file' as const,
-          },
-        ],
-      };
-
-      const propsWithAbsoluteDirectories = {
-        ...mockProps,
+    it('uses root-prefixed directory labels for absolute desktop paths', () => {
+      const items = [
+        buildItem(1, {
+          folderId: '/Users/me/BrainStrike',
+          path: '/Users/me/BrainStrike/README.md',
+        }),
+        buildItem(2, {
+          folderId: '/Users/me/BrainStrike',
+          path: '/Users/me/BrainStrike/source/index.ts',
+        }),
+      ];
+      renderWithItems(items, {
         decodeFileSelection: vi.fn((key: string) => ({
           folderId: '/Users/me/BrainStrike',
           path:
@@ -1030,514 +656,181 @@ describe('PreviewPanel', () => {
               ? '/Users/me/BrainStrike/README.md'
               : '/Users/me/BrainStrike/source/index.ts',
         })),
-      };
-
-      mockUsePreviewPanelState.mockReturnValue(absoluteDirectoriesState);
-      render(<PreviewPanel {...propsWithAbsoluteDirectories} />);
+      });
 
       selectGroupingOption('By Directory');
 
-      expect(screen.getAllByText('BrainStrike').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('BrainStrike/source').length).toBeGreaterThan(0);
+      const headers = screen.getAllByTestId('tapestry-group-header');
+      expect(headers[0]).toHaveTextContent('BrainStrike');
+      expect(headers[1]).toHaveTextContent('BrainStrike/source');
       expect(screen.queryByText('.')).not.toBeInTheDocument();
     });
 
-    it('should group files by root folder correctly', () => {
-      const mixedFoldersState = {
-        ...mockState,
-        flatListItems: [
-          {
-            compositeKey: 'file1',
-            folderId: 'folder-a',
-            path: 'path/to/file1.txt',
-            size: 1024,
-            tokens: 500,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file2',
-            folderId: 'folder-a',
-            path: 'path/to/file2.txt',
-            size: 2048,
-            tokens: 750,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file3',
-            folderId: 'folder-b',
-            path: 'path/to/file3.txt',
-            size: 512,
-            tokens: 250,
-            type: 'file' as const,
-          },
-        ],
-      };
-
-      const propsWithMixedFolders = {
-        ...mockProps,
-        decodeFileSelection: vi.fn((key: string) => ({
-          folderId: key === 'file3' ? 'folder-b' : 'folder-a',
-          path: `path/to/${key}.txt`,
-        })),
-      };
-
-      mockUsePreviewPanelState.mockReturnValue(mixedFoldersState);
-      render(<PreviewPanel {...propsWithMixedFolders} />);
-
-      selectGroupingOption('By Root Folder');
-
-      // Should show grouped structure by root folder
-      expect(screen.getAllByText('folder-a').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('folder-b').length).toBeGreaterThan(0);
-    });
-
-    it('shows root folder group labels using the full absolute root identity', () => {
-      const absoluteFolderState = {
-        ...mockState,
-        flatListItems: [
-          {
-            compositeKey: 'file1',
-            folderId: '/Users/me/project',
-            path: '/Users/me/project/src/file1.ts',
-            size: 1024,
-            tokens: 500,
-            type: 'file' as const,
-          },
-        ],
-      };
-
-      const propsWithAbsoluteFolder = {
-        ...mockProps,
+    it('groups by root folder and preserves an absolute root identity', () => {
+      const items = [
+        buildItem(1, { folderId: '/Users/me/project', path: '/Users/me/project/src/file1.ts' }),
+      ];
+      renderWithItems(items, {
         decodeFileSelection: vi.fn(() => ({
           folderId: '/Users/me/project',
           path: '/Users/me/project/src/file1.ts',
         })),
-      };
-
-      mockUsePreviewPanelState.mockReturnValue(absoluteFolderState);
-      render(<PreviewPanel {...propsWithAbsoluteFolder} />);
+      });
 
       selectGroupingOption('By Root Folder');
 
-      expect(screen.getByText('/Users/me/project')).toBeInTheDocument();
+      expect(screen.getByTestId('tapestry-group-header')).toHaveTextContent('/Users/me/project');
     });
 
-    it('should group files by size ranges correctly', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      selectGroupingOption('By Size Range');
-
-      // Should create size-based groups (based on mockState file sizes)
-      // file1: 1024 bytes = 'Small (< 1 KB)' -> wait, 1024 = 1KB, so 'Medium (1-10 KB)'
-      // file2: 2048 bytes = 'Medium (1-10 KB)'
-      // file3: 512 bytes = 'Small (< 1 KB)'
-      expect(screen.getByText('Small (< 1 KB)')).toBeInTheDocument();
-      expect(screen.getByText('Medium (1-10 KB)')).toBeInTheDocument();
-    });
-
-    it('should group files by token ranges correctly', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      selectGroupingOption('By Token Range');
-
-      // Should create token-based groups (based on mockState file tokens)
-      // file1: 500 tokens = 'Large (500-1K)'
-      // file2: 750 tokens = 'Large (500-1K)'
-      // file3: 250 tokens = 'Medium (100-500)'
-      expect(screen.getByText('Medium (100-500)')).toBeInTheDocument();
-      expect(screen.getByText('Large (500-1K)')).toBeInTheDocument();
-    });
-
-    it('should group files by file type correctly', () => {
-      const mixedTypesState = {
-        ...mockState,
-        flatListItems: [
-          {
-            compositeKey: 'file1',
-            folderId: 'folder-file1',
-            path: 'path/to/file1.js',
-            size: 1024,
-            tokens: 500,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file2',
-            folderId: 'folder-file2',
-            path: 'path/to/file2.ts',
-            size: 2048,
-            tokens: 750,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file3',
-            folderId: 'folder-file3',
-            path: 'path/to/file3.js',
-            size: 512,
-            tokens: 250,
-            type: 'file' as const,
-          },
-        ],
-      };
-
-      const propsWithMixedTypes = {
-        ...mockProps,
+    it.each([
+      ['By File Type', ['js', 'ts']],
+      ['By Size Range', ['Small (< 1 KB)', 'Medium (1-10 KB)']],
+      ['By Token Range', ['Medium (100-500)', 'Large (500-1K)']],
+    ])('groups files with %s', (label, expectedGroups) => {
+      const items = [
+        buildItem(1, { path: 'src/file1.js', size: 512, tokens: 250 }),
+        buildItem(2, { path: 'src/file2.ts', size: 2048, tokens: 750 }),
+        buildItem(3, { path: 'src/file3.js', size: 1024, tokens: 500 }),
+      ];
+      renderWithItems(items, {
         decodeFileSelection: vi.fn((key: string) => ({
-          folderId: `folder-${key}`,
-          path: key === 'file2' ? `path/to/${key}.ts` : `path/to/${key}.js`,
+          folderId: 'root',
+          path: key === 'file2' ? `src/${key}.ts` : `src/${key}.js`,
         })),
-      };
+      });
 
-      mockUsePreviewPanelState.mockReturnValue(mixedTypesState);
-      render(<PreviewPanel {...propsWithMixedTypes} />);
+      selectGroupingOption(label);
 
-      selectGroupingOption('By File Type');
-
-      // Should show file type groups
-      expect(screen.getAllByText('js').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('ts').length).toBeGreaterThan(0);
-    });
-
-    it('should allow selecting all files across different groups', () => {
-      const mixedFoldersState = {
-        ...mockState,
-        flatListItems: [
-          {
-            compositeKey: 'file1',
-            folderId: 'folder-a',
-            path: 'path/to/file1.txt',
-            size: 1024,
-            tokens: 500,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file2',
-            folderId: 'folder-b',
-            path: 'path/to/file2.txt',
-            size: 2048,
-            tokens: 750,
-            type: 'file' as const,
-          },
-        ],
-      };
-
-      const propsWithMixedFolders = {
-        ...mockProps,
-        decodeFileSelection: vi.fn((key: string) => ({
-          folderId: key === 'file1' ? 'folder-a' : 'folder-b',
-          path: `path/to/${key}.txt`,
-        })),
-      };
-
-      mockUsePreviewPanelState.mockReturnValue(mixedFoldersState);
-      render(<PreviewPanel {...propsWithMixedFolders} />);
-
-      selectGroupingOption('By Directory');
-
-      // Grouped mode exposes an all-grouped-results affordance in the header.
-      const headerCheckbox = screen.getByLabelText('Select all files in grouped results');
-      fireEvent.click(headerCheckbox);
-
-      expect(headerCheckbox).toBeChecked();
-      expect(screen.getByLabelText('Select path/to/file1.txt')).toBeChecked();
-      expect(screen.getByLabelText('Select path/to/file2.txt')).toBeChecked();
-      expect(screen.getByTestId('bulk-action-bar')).toHaveTextContent('2 selected');
-    });
-  });
-
-  describe('Accessibility', () => {
-    it('should have proper ARIA labels', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      // Check checkbox labels
-      expect(screen.getByLabelText('Select all files on current page')).toBeInTheDocument();
-      expect(screen.getByLabelText('Select path/to/file1.txt')).toBeInTheDocument();
-
-      // Check button labels
-      expect(screen.getByLabelText('file1.txt')).toBeInTheDocument();
-    });
-
-    it('should support keyboard navigation for sorting', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      const headers = screen.getAllByRole('columnheader');
-      expect(headers.length).toBeGreaterThan(0);
-
-      // Test that headers can receive keyboard events
-      const firstHeader = headers[0];
-      if (firstHeader) {
-        // Verify it's a proper header element
-        expect(firstHeader.tagName).toBe('TH');
-
-        // Test Enter key handling
-        act(() => {
-          fireEvent.keyDown(firstHeader, { key: 'Enter' });
-        });
-
-        // Test Space key handling
-        act(() => {
-          fireEvent.keyDown(firstHeader, { key: ' ' });
-        });
-
-        // Just verify the headers exist and are rendered properly
-        expect(firstHeader).toBeInTheDocument();
+      // Exactly-one, not `.some(...)`: a membership check passes just as happily
+      // with a duplicated band or a third unexpected group.
+      const headerLabels = screen
+        .getAllByTestId('tapestry-group-header')
+        .map((header) => header.textContent ?? '');
+      for (const expectedGroup of expectedGroups) {
+        expect(headerLabels.filter((label) => label.includes(expectedGroup))).toHaveLength(1);
       }
+      expect(headerLabels).toHaveLength(expectedGroups.length);
     });
 
-    it('should have proper table structure', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      // Check that we have table headers (the actual scope attribute is set in the real component)
-      const headers = screen.getAllByRole('columnheader');
-      expect(headers.length).toBeGreaterThan(0);
-
-      // Check that the shared treegrid structure exists
-      expect(screen.getByRole('treegrid', { name: 'Context explorer table' })).toBeInTheDocument();
-    });
-
-    it('should have proper ARIA labels for group headers', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      selectGroupingOption('By Directory');
-
-      const groupToggles = screen.getAllByRole('button', { name: 'Collapse' });
-      expect(groupToggles.length).toBeGreaterThan(0);
-      for (const toggle of groupToggles) {
-        expect(toggle).toHaveAttribute('aria-label');
-      }
-    });
-
-    it('should have checkboxes for group selection', () => {
-      render(<PreviewPanel {...mockProps} />);
-
-      selectGroupingOption('By Directory');
-
-      // Should have group selection checkboxes
-      const groupCheckboxes = screen.getAllByLabelText(/Select all files in group/);
-      expect(groupCheckboxes.length).toBeGreaterThan(0);
-    });
-
-    it('should select all files in a group when group checkbox is clicked', () => {
-      const mixedFoldersState = {
-        ...mockState,
-        flatListItems: [
-          {
-            compositeKey: 'file1',
-            folderId: 'folder-a',
-            path: 'path/to/file1.txt',
-            size: 1024,
-            tokens: 500,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file2',
-            folderId: 'folder-a',
-            path: 'path/to/file2.txt',
-            size: 2048,
-            tokens: 750,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file3',
-            folderId: 'folder-b',
-            path: 'path/to/file3.txt',
-            size: 512,
-            tokens: 250,
-            type: 'file' as const,
-          },
-        ],
-      };
-
-      const propsWithMixedFolders = {
-        ...mockProps,
-        decodeFileSelection: vi.fn((key: string) => ({
-          folderId: key === 'file3' ? 'folder-b' : 'folder-a',
-          path: `path/to/${key}.txt`,
-        })),
-      };
-
-      mockUsePreviewPanelState.mockReturnValue(mixedFoldersState);
-      render(<PreviewPanel {...propsWithMixedFolders} />);
-
-      selectGroupingOption('By Directory');
-
-      // Click group checkbox for folder-a
-      const groupCheckboxes = screen.getAllByLabelText(/Select all files in group/);
-      expect(groupCheckboxes.length).toBeGreaterThan(0);
-
-      if (groupCheckboxes[0]) {
-        fireEvent.click(groupCheckboxes[0]); // Select first group
-      }
-
-      // Check that files in the group are selected
-      const fileCheckboxes = screen.getAllByTestId('checkbox');
-      // Should have group checkboxes + file checkboxes + page select all checkbox
-      expect(fileCheckboxes.length).toBeGreaterThan(3);
-    });
-
-    it('should show indeterminate state for partially selected groups', () => {
-      const mixedFoldersState = {
-        ...mockState,
-        flatListItems: [
-          {
-            compositeKey: 'file1',
-            folderId: 'folder-a',
-            path: 'path/to/file1.txt',
-            size: 1024,
-            tokens: 500,
-            type: 'file' as const,
-          },
-          {
-            compositeKey: 'file2',
-            folderId: 'folder-a',
-            path: 'path/to/file2.txt',
-            size: 2048,
-            tokens: 750,
-            type: 'file' as const,
-          },
-        ],
-      };
-
-      const propsWithMixedFolders = {
-        ...mockProps,
+    it('collapses and expands an individual group', () => {
+      const items = [
+        buildItem(1, { folderId: 'folder-a' }),
+        buildItem(2, { folderId: 'folder-a' }),
+      ];
+      renderWithItems(items, {
         decodeFileSelection: vi.fn((key: string) => ({
           folderId: 'folder-a',
           path: `path/to/${key}.txt`,
         })),
-      };
-
-      mockUsePreviewPanelState.mockReturnValue(mixedFoldersState);
-      render(<PreviewPanel {...propsWithMixedFolders} />);
-
+      });
       selectGroupingOption('By Root Folder');
 
-      // Select only one file in the group
-      const fileCheckboxes = screen.getAllByTestId('checkbox');
-      const firstFileCheckbox = fileCheckboxes.find((cb) =>
-        cb.getAttribute('aria-label')?.includes('file1.txt')
-      );
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse group folder-a' }));
+      expect(screen.queryByText('file1.txt')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('tapestry-gallery')).not.toBeInTheDocument();
 
-      if (firstFileCheckbox) {
-        fireEvent.click(firstFileCheckbox);
-
-        // Group checkbox should show indeterminate state
-        const groupCheckbox = screen.getByLabelText(/Select all files in group folder-a/);
-        expect(groupCheckbox).toBeInTheDocument();
-      }
+      fireEvent.click(screen.getByRole('button', { name: 'Expand group folder-a' }));
+      expect(screen.getByText('file1.txt')).toBeInTheDocument();
+      expect(screen.getByTestId('tapestry-gallery')).toBeInTheDocument();
     });
 
-    it('should fix checkbox selection when grouping is enabled', () => {
-      render(<PreviewPanel {...mockProps} />);
+    it('clears collapsed groups when the grouping mode changes', () => {
+      const items = [
+        buildItem(1, { folderId: 'folder-a', path: 'src/file1.txt' }),
+        buildItem(2, { folderId: 'folder-a', path: 'src/file2.txt' }),
+      ];
+      renderWithItems(items, {
+        decodeFileSelection: vi.fn((key: string) => ({
+          folderId: 'folder-a',
+          path: `src/${key}.txt`,
+        })),
+      });
+      selectGroupingOption('By Root Folder');
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse group folder-a' }));
 
       selectGroupingOption('By Directory');
 
-      // Should still be able to select individual files
-      const fileCheckboxes = screen.getAllByTestId('checkbox');
-      const individualFileCheckbox = fileCheckboxes.find((cb) =>
-        cb.getAttribute('aria-label')?.includes('file1.txt')
+      expect(screen.getByRole('button', { name: 'Collapse group folder-a/src' })).toHaveAttribute(
+        'aria-expanded',
+        'true'
       );
-
-      if (individualFileCheckbox) {
-        fireEvent.click(individualFileCheckbox);
-        expect(individualFileCheckbox).toBeChecked();
-      }
+      expect(screen.getByText('file1.txt')).toBeInTheDocument();
     });
 
-    it('should handle checkbox state when switching grouping modes', async () => {
-      render(<PreviewPanel {...mockProps} />);
+    it('selects, deselects, and reports partial selection for a group', () => {
+      const items = [
+        buildItem(1, { folderId: 'folder-a' }),
+        buildItem(2, { folderId: 'folder-a' }),
+      ];
+      renderWithItems(items, {
+        decodeFileSelection: vi.fn((key: string) => ({
+          folderId: 'folder-a',
+          path: `path/to/${key}.txt`,
+        })),
+      });
+      selectGroupingOption('By Root Folder');
 
-      // First select a file without grouping
-      const fileCheckboxes = screen.getAllByTestId('checkbox');
-      const file1Checkbox = fileCheckboxes.find((cb) =>
-        cb.getAttribute('aria-label')?.includes('file1.txt')
-      );
+      const groupCheckbox = screen.getByLabelText('Select all items in group folder-a');
+      fireEvent.click(groupCheckbox);
+      expect(screen.getByLabelText('Select path/to/file1.txt')).toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file2.txt')).toBeChecked();
 
-      if (file1Checkbox) {
-        expect(file1Checkbox).not.toBeChecked();
-        fireEvent.click(file1Checkbox);
-        expect(file1Checkbox).toBeChecked();
-      }
+      fireEvent.click(groupCheckbox);
+      expect(screen.getByLabelText('Select path/to/file1.txt')).not.toBeChecked();
+      expect(screen.getByLabelText('Select path/to/file2.txt')).not.toBeChecked();
 
-      // Enable grouping
-      selectGroupingOption('By Directory');
-
-      // After grouping change, the checkbox should still work for new selections
-      const groupedFileCheckboxes = screen.getAllByTestId('checkbox');
-      const groupedFile1Checkbox = groupedFileCheckboxes.find((cb) =>
-        cb.getAttribute('aria-label')?.includes('file1.txt')
-      );
-
-      if (groupedFile1Checkbox) {
-        // Test that checkbox interactions work in grouped mode
-        // (current behavior: selections may or may not persist across grouping changes)
-        fireEvent.change(groupedFile1Checkbox, { target: { checked: true } });
-        await waitFor(() => {
-          expect(groupedFile1Checkbox).toBeChecked();
-        });
-
-        // Test that it can be unchecked
-        fireEvent.change(groupedFile1Checkbox, { target: { checked: false } });
-        await waitFor(() => {
-          expect(groupedFile1Checkbox).not.toBeChecked();
-        });
-      }
+      fireEvent.click(screen.getByLabelText('Select path/to/file1.txt'));
+      expect(groupCheckbox).toHaveAttribute('aria-checked', 'mixed');
     });
 
-    it('should handle individual file selection properly in different grouping modes', () => {
-      const testGroupings = ['folder', 'fileType', 'sizeSteps', 'tokenSteps'] as const;
-      const groupingLabels = {
-        fileType: 'By File Type',
-        folder: 'By Root Folder',
-        sizeSteps: 'By Size Range',
-        tokenSteps: 'By Token Range',
-      } as const;
+    it('hides group and page selection controls from view options and clears selection', () => {
+      const items = [
+        buildItem(1, { folderId: 'folder-a' }),
+        buildItem(2, { folderId: 'folder-a' }),
+      ];
+      renderWithItems(items, {
+        decodeFileSelection: vi.fn((key: string) => ({
+          folderId: 'folder-a',
+          path: `path/to/${key}.txt`,
+        })),
+      });
+      selectGroupingOption('By Root Folder');
+      fireEvent.click(screen.getByLabelText('Select path/to/file1.txt'));
+      expect(screen.getByTestId('bulk-action-bar')).toBeInTheDocument();
 
-      for (const grouping of testGroupings) {
-        const { unmount } = render(<PreviewPanel {...mockProps} />);
+      fireEvent.click(screen.getByRole('button', { name: 'View options' }));
+      fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'File selection controls' }));
 
-        selectGroupingOption(groupingLabels[grouping]);
-
-        // Find and click a file checkbox
-        const fileCheckboxes = screen.getAllByTestId('checkbox');
-        const fileCheckbox = fileCheckboxes.find((cb) =>
-          cb.getAttribute('aria-label')?.includes('file1.txt')
-        );
-
-        if (fileCheckbox) {
-          expect(fileCheckbox).not.toBeChecked();
-          fireEvent.click(fileCheckbox);
-          expect(fileCheckbox).toBeChecked();
-
-          // Uncheck it
-          fireEvent.click(fileCheckbox);
-          expect(fileCheckbox).not.toBeChecked();
-        }
-
-        unmount();
-      }
+      expect(screen.queryByLabelText('Select all items in group folder-a')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Select all files on current page')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Select path/to/file1.txt')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('bulk-action-bar')).not.toBeInTheDocument();
     });
   });
 
-  describe('Performance', () => {
-    it('should handle large file sets without blocking', async () => {
-      const largeFileSet = new Set(Array.from({ length: 1000 }, (_, i) => `file${i}`));
-      const largeMockState = {
-        ...mockState,
-        flatListItems: Array.from({ length: 1000 }, (_, i) => ({
-          compositeKey: `file${i}`,
-          folderId: `folder-file${i}`,
-          path: `path/to/file${i}.txt`,
-          size: 1024,
-          tokens: 100,
-          type: 'file' as const,
-        })),
-      };
+  describe('scale and performance', () => {
+    it('updates the gallery scale from the command dock', () => {
+      render(<PreviewPanel {...baseProps} />);
+      const gallery = screen.getByTestId('tapestry-gallery');
+      const scale = screen.getByRole('slider', { name: 'Gallery scale' });
 
-      mockUsePreviewPanelState.mockReturnValue(largeMockState);
+      fireEvent.change(scale, { target: { value: '8' } });
 
-      render(<PreviewPanel {...mockProps} pageSize={50} selectedFiles={largeFileSet} />);
+      expect(scale).toHaveValue('8');
+      expect(gallery.style.gridTemplateColumns).toContain('256px');
+    });
 
-      // Should only show first page (50 items) even with large datasets
-      expect(screen.getByTestId('page-info')).toHaveTextContent('of 20');
+    it('renders only the current Tapestry page for a large dataset', () => {
+      const items = Array.from({ length: 1000 }, (_, index) =>
+        buildItem(index, { folderId: 'root' })
+      );
+
+      renderWithItems(items);
+
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 42');
+      expect(screen.getAllByTestId('tapestry-document-card')).toHaveLength(24);
+      expect(screen.getByText('file0.txt')).toBeInTheDocument();
+      expect(screen.queryByText('file24.txt')).not.toBeInTheDocument();
     });
   });
 });

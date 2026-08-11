@@ -110,14 +110,17 @@ describe('main-process bundle config', () => {
     expect(MAIN_PROCESS_BUILD_OPTIONS.tsconfigRaw).toBe('{}');
   });
 
-  it('inlines @brainstrike/notes-vault/core from source (sole packages-external exception)', () => {
-    // The notes-vault dist is bundler-target ESM with extensionless relative
-    // imports — Node's runtime resolver cannot require() it from the CJS main
-    // bundle, so this ONE subpath is aliased to source and bundled. Dropping
-    // the alias would crash app launch on the welcome-note constants import
-    // in notes-vault-ipc-handlers.ts.
+  it('inlines the two audited ESM-only main-process subpaths from source', () => {
     const aliases = MAIN_PROCESS_BUILD_OPTIONS.alias as Record<string, string>;
-    expect(Object.keys(aliases)).toEqual(['@brainstrike/notes-vault/core']);
+    expect(Object.keys(aliases)).toEqual([
+      '@brainstrike/assistant-data/assistant-thread-run-reaper',
+      '@brainstrike/notes-vault/core',
+    ]);
+    expect(
+      aliases['@brainstrike/assistant-data/assistant-thread-run-reaper']?.endsWith(
+        path.join('packages', 'assistant-data', 'src', 'assistant-thread-run-reaper.ts')
+      )
+    ).toBe(true);
     expect(
       aliases['@brainstrike/notes-vault/core']?.endsWith(
         path.join('packages', 'notes-vault', 'src', 'core', 'index.ts')

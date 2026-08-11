@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: '53 7 * * *'
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Desktop E2E suite to run
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - memory-baseline
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,8 +35,10 @@ env:
 jobs:
   desktop-full-regression:
     name: Desktop Full Regression
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'full'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    # 30m broad regression + 2m AI Tools nightly lane + setup/build headroom.
+    timeout-minutes: 40
     # NOT folded into the setup-workspace composite (Series C R9a): the
     # Electron-version lookup + binary cache below must run BETWEEN Node setup
     # and `pnpm install`, which the composite's fixed step order cannot
@@ -199,21 +210,35 @@ jobs:
       # don't fill the log with `[ERROR:dbus/bus.cc:405] Failed to connect`.
       - name: Run desktop embedding regression
         working-directory: apps/desktop
+        env:
+          DESKTOP_E2E_SUITE: ${{ inputs.suite || 'full' }}
         run: |
           unset NO_COLOR
-          BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
-            e2e/embedding-worker-renderer.smoke.desktop.test.ts \
-            e2e/embedding-worker-renderer.backfill-search.desktop.test.ts \
-            e2e/embedding-worker-renderer.memory.desktop.test.ts \
-            e2e/embedding-worker-renderer.diagnostics.desktop.test.ts \
-            e2e/embedding-worker-renderer.crash-a.desktop.test.ts \
-            e2e/embedding-worker-renderer.crash-b.desktop.test.ts \
-            --project=regression \
-            --workers=1 \
-            --retries=0 \
-            --max-failures=1 \
-            --global-timeout=3000000 \
-            --grep="@desktop-embedding-"
+          if [[ "$DESKTOP_E2E_SUITE" == "memory-baseline" ]]; then
+            BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
+              e2e/embedding-worker-renderer.memory.desktop.test.ts \
+              --project=regression \
+              --workers=1 \
+              --retries=0 \
+              --max-failures=0 \
+              --global-timeout=3000000 \
+              --grep="@desktop-embedding-memory"
+          else
+            BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
+              e2e/embedding-worker-renderer.smoke.desktop.test.ts \
+              e2e/embedding-worker-renderer.backfill-search.desktop.test.ts \
+              e2e/embedding-worker-renderer.memory.desktop.test.ts \
+              e2e/embedding-worker-renderer.diagnostics.desktop.test.ts \
+              e2e/embedding-worker-renderer.crash-a.desktop.test.ts \
+              e2e/embedding-worker-renderer.crash-b.desktop.test.ts \
+              e2e/embedding-backfill-capacity.desktop.test.ts \
+              --project=regression \
+              --workers=1 \
+              --retries=0 \
+              --max-failures=1 \
+              --global-timeout=3000000 \
+              --grep="@desktop-embedding-"
+          fi
 
       - name: Upload desktop embedding traces
         if: failure()

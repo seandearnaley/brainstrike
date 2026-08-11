@@ -1,5 +1,5 @@
+import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory-reset';
 import * as fileExplorer from '@brainstrike/file-explorer';
-import { clearPersistentUiStateWithResult } from '@brainstrike/preferences/settings/system/factory-reset-helpers';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';

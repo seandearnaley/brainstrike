@@ -45,7 +45,7 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 1. **`baseUrl` deprecated (TS5101, error-level).** TS 6.0 deprecates `baseUrl` ahead of 7.0 removal. Every `tsconfig*.json` in the repo declared `"baseUrl": "."` purely to support `paths` mappings — removed `baseUrl` everywhere and, per the documented migration, prefixed the root `tsconfig.json`'s previously-bare `paths` values (e.g. `packages/types/src`) with `./` so they stay resolvable without `baseUrl` (TS5090: non-relative `paths` values require `baseUrl`; every other tsconfig's `paths` values already used a `../` prefix and needed no change).
 2. **tsup 8.5.1 re-injects `baseUrl: "."` in its DTS bundling step** (confirmed upstream bug, [egoist/tsup#1388](https://github.com/egoist/tsup/issues/1388) — tsup unconditionally passes `baseUrl: compilerOptions.baseUrl || "."` to its internal `rollup-plugin-dts` TypeScript program regardless of the project's own tsconfig). Not fixable from this repo's config. Added `"ignoreDeprecations": "6.0"` to the shared `packages/config/tsconfig/base.json` as the documented bridge flag — it only silences the deprecation diagnostic, it does not change type-checking behavior. Remove once tsup ships a fix.
 3. **`FileSystemDirectoryHandle` mock shape (the originally-documented blocker).** TS 6.0's DOM lib always includes the async-iterable members (`keys()`, `values()`, `[Symbol.asyncIterator]()`) on `FileSystemDirectoryHandle`. `packages/utils/src/__tests__/report-generator.test.ts` asserted partial mocks directly `as FileSystemDirectoryHandle` (a same-shape structural cast); TS 6.0 now rejects that because the mocks don't implement the new members. Fixed by routing the cast through `as unknown as FileSystemDirectoryHandle`, matching the pattern every other test file in the package already used for the same scenario — the mock's shape and the tests' actual behavior are unchanged.
-4. **Stricter composite-project `rootDir`/file-list enforcement (TS6059/TS6307).** TS 6.0 tightened enforcement so that a `paths` mapping resolving into another package's `src/*` (instead of its built `dist/*.d.ts`) is now a hard error in any `composite: true` + explicit `rootDir` project, because the sibling package's source files fall outside the consuming project's `rootDir` and aren't in its `include` file list. This was a **pre-existing latent inconsistency** (most tsconfigs already pointed at `dist`, a handful pointed at `src`) that only surfaced under 6.0's stricter checking. Fixed the `src`-pointing `paths` entries to point at `dist/*.d.ts` (matching the already-correct majority pattern) in: `packages/hooks/tsconfig.json`, `packages/ui/tsconfig.json`, `packages/preferences/tsconfig.json`, `packages/db-explorer/tsconfig.json`, `packages/app-shell/tsconfig.json`, `packages/app-shell/tsconfig.typecheck.json`, `packages/workers/tsconfig.json` (dead/unused mapping, fixed for consistency), and `packages/agent/tsconfig.json` (also had a pre-existing wrong-depth `../../assistant-contract` path, corrected to `../assistant-contract/dist/*.d.ts` in the same edit).
+4. **Stricter composite-project `rootDir`/file-list enforcement (TS6059/TS6307).** TS 6.0 tightened enforcement so that a `paths` mapping resolving into another package's `src/*` (instead of its built `dist/*.d.ts`) is now a hard error in any `composite: true` + explicit `rootDir` project, because the sibling package's source files fall outside the consuming project's `rootDir` and aren't in its `include` file list. This was a **pre-existing latent inconsistency** (most tsconfigs already pointed at `dist`, a handful pointed at `src`) that only surfaced under 6.0's stricter checking. Fixed the `src`-pointing `paths` entries to point at `dist/*.d.ts` (matching the already-correct majority pattern) in: `packages/hooks/tsconfig.json`, `packages/ui/tsconfig.json`, `packages/app-state/tsconfig.json`, `packages/db-explorer/tsconfig.json`, `packages/app-shell/tsconfig.json`, `packages/app-shell/tsconfig.typecheck.json`, `packages/workers/tsconfig.json` (dead/unused mapping, fixed for consistency), and `packages/agent/tsconfig.json` (also had a pre-existing wrong-depth `../../assistant-contract` path, corrected to `../assistant-contract/dist/*.d.ts` in the same edit).
 5. **`noUncheckedSideEffectImports` defaults to `true`.** A bare side-effect import (`import '@xterm/xterm/css/xterm.css'` in `packages/app-shell/src/terminal-panel/terminal-panel.tsx`) now requires a resolvable module or an ambient declaration (TS2882). `vite/client`'s wildcard `declare module '*.css' {}` did not satisfy the check for this package-scoped (non-relative) specifier. Added a targeted `declare module '@xterm/xterm/css/xterm.css';` to the existing `packages/app-shell/src/types/vite-assets.d.ts` (which already held similar targeted ambient declarations for other Vite asset imports).
 
 **Validation:** `pnpm run type-check` (turbo-orchestrated, all 76 package tasks) green from a fully forced (`--force`, zero cache hits) run; `pnpm --filter @brainstrike/utils test` (666 tests) and the full `pnpm check --fast --no-e2e --no-install` gate (lint-all, build, type-check, test:fast — 1576 tests across 158 files — test:browser) all green.
@@ -357,6 +357,63 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 
 ---
 
+## Assistant UI (`@assistant-ui/react` 0.14.26 → 0.15.8, `@assistant-ui/react-markdown` 0.14.5 → 0.14.8, `assistant-stream` 0.3.25 → 0.3.34) — completed; scrolling moved IN-REPO
+
+**Status:** `@assistant-ui/react` bumped `~0.14.26` → `~0.15.8`, `@assistant-ui/react-markdown` `^0.14.5` → `^0.14.8` (its `@assistant-ui/react` peer range flips to `^0.15.0` at 0.14.8 — the two must move together), and the repo's `assistant-stream` pins (`packages/assistant-ui`, `packages/agent`) `0.3.25` → `0.3.34` in lockstep with `@assistant-ui/core@0.3.7`'s own `^0.3.34` dependency. Landed 2026-08-06/07 on `chore/deps-assistant-ui-0.15`. The upgrade's headline consequence: **tier-1 thread scrolling is now repo-owned** (`packages/assistant-ui/src/thread-scroll-follow.tsx`) and the library's viewport auto-scroll is out of the loop entirely — see below.
+
+**v0.15 breaking changes that actually hit this repo** (official guide: [Migration to v0.15](https://www.assistant-ui.com/docs/migrations/v0-15); the removed-hook surface here was tiny because the v0.14 migration already moved most code to the unified `useAui`/`useAuiState` API):
+
+- `useAttachment` removed → `useAuiState((s) => s.attachment)` (2 call sites in `packages/assistant-ui/src/composer-attachments.tsx` — extracted from packages/ui by BST-981).
+- `useComposerRuntime` removed → `useAui()` + `aui.composer.addAttachment(...)` (`composer-input.tsx`'s `AttachmentPasteFrame`).
+- `useMessage` removed → `useAuiState((s) => s.message...)` (`follow-up-queue-repin.browser.test.tsx`'s growing-message harness).
+- **Dual `assistant-stream` instances break the `Tool` type**: `@assistant-ui/core@0.3.x` resolves its own `assistant-stream@^0.3.34` while the repo pinned `0.3.25` — two structurally different `Tool` types coexist and `unstable_toolResultStream(context.tools ?? {}, ...)` in `data-stream-runtime.ts` fails to type-check. Fix is the lockstep pin bump, not a cast. (The 0.3.25/0.3.33 instances still in the lockfile belong to `@assistant-ui/react-data-stream@0.12.18` — declared as a dependency of `apps/web`/`apps/desktop` and listed in `packages/build-utils/src/vite.ts` externals, but no source module imports it — inert.)
+- TS2883 portability: `CHAIN_OF_THOUGHT_TOOL_COMPONENTS` in `todo-progress.tsx` now needs an explicit type annotation (`by_name: Record<string, ToolCallMessagePartComponent>; Fallback: ToolCallMessagePartComponent`) because its inferred type references a non-exported `ReadonlyJSONObject` path inside the pnpm store.
+- `aui.thread()` call sites (5) still type-check on 0.15 (the accessor remains callable) and were left as-is; the property form (`aui.thread`) is the documented forward direction if upstream drops the callable form in the next major.
+
+**UPSTREAM REGRESSION found by this repo's BST-1039 browser test — the reason scrolling moved in-repo:** on every `isRunning` flip (run start AND run end), 0.15 silently unpins stick-to-bottom for a bottom-pinned thread — the reply streams below the fold and the jump chip appears with no user act, on effectively every send. Reproduced deterministically by `packages/assistant-ui/src/__tests__/follow-up-queue-repin.browser.test.tsx` (fails on 0.15.0, 0.15.4, and 0.15.8; passes on 0.14.26).
+
+- **The regression also ships in the CURRENT 0.14 patch line.** Version sweep (same BST-1039 test, this repo): 0.14.26 green; **0.14.28 and 0.14.29 fail deterministically** — the `isRunning` subscription landed in 0.14.28's copy of the hook (0.14.27's hook is byte-identical to 0.14.26). Before this PR, the catalog range was `~0.14.26`, so ANY lockfile regeneration on main would float to 0.14.29 and ship the unpin — a latent hazard this PR closes by taking the library's engine out of the loop entirely; staying on the 0.14 line was never a safe alternative.
+- **App-level workaround ruled out empirically:** two principled no-patch variants (a run-transition re-pin bridge reading live `isAtBottom`, and a BST-1039-style pre-transition `wasPinned` subscription) both fail the BST-1039 test against the unpatched library — at the public API the clamp misread is indistinguishable from a real user scroll, and it can land before any app-side effect can order around it. The fix has to live where the causality is visible: inside the engine — which is why the repo now owns it (`thread-scroll-follow.tsx`).
+- **Root cause (proven by observer-instrumented trace):** 0.15's `useThreadViewportAutoScroll` added an `isRunning` subscription (`useAuiState((s) => s.thread.isRunning)`, used by the new top-anchor logic). The hook's `scrollRef = useManagedRef((el) => {...})` takes an **inline callback whose identity changes every render**; `useManagedRef` memoizes on that identity, so the returned ref changes too, and `useComposedRefs(resizeRef, scrollRef, divRef)` cascades — React detaches and re-attaches ALL viewport refs, tearing down and reconstructing the content `ResizeObserver` (`useOnResizeContent`) mid-commit. On 0.14 this instability was latent (the hook had no reason to re-render at run transitions); on 0.15 the re-render now lands in the exact commit where run-start/run-end content changes. A freshly constructed RO delivers its first observation at end-of-frame — AFTER the browser dispatches the scroll event from the content-growth clamp — so `handleScroll` reads the clamp with no in-flight-scroll bookkeeping armed, flips `isAtBottom` false, and auto-follow never re-sticks (trace: new RO pair constructed at run start → mutation commits → scroll event at stale `scrollTop` → `isAtBottom -> false` → RO's late initial fire is a no-op because the store already says unpinned).
+- **THE FIX — repo-owned follow engine (supersedes the interim pnpm patch):** a vendored 5-line patch (stabilizing the hook's ref-callback identity) shipped first and proved the root cause (BST-1039 red → green with only that change). It was then REPLACED by moving the whole mechanism in-repo: `thread-scroll-follow.tsx` is a parity port of the library's algorithm with a STABLE observer lifecycle (one engine per panel, observers attached once per scroller element), the tier-1 scroller is a plain div (`ThreadPrimitive.Viewport` removed on BOTH tiers — the architecture test pins this), the jump button and `data-pinned` read the engine, and the BST-1039 dispatch re-pin fires through it. All scroll browser suites (BST-896/897/1039) now run against the engine with the UNPATCHED library installed and pass; the catalog pin returned to a normal tilde range because the buggy code path is unreachable.
+- **Why ownership, not the patch or a pin-back:** upstream broke this same path twice in two lines (0.14.28, 0.15.x) while building the top-anchor mode, two app-level workarounds failed empirically (the misread is invisible at the public API), and tier 2 already owned its scrolling via the virtualizer — tier 1 now matches. The engine is ~200 lines whose bugs are ours to fix rather than re-diagnose per upstream release.
+- Known cosmetic residue on 0.15 (unrelated to the engine move): the tap 0.9.10 scheduler emits React "flushSync was called from inside a lifecycle method" console warnings during streaming, and vitest-browser logs occasional "ResizeObserver loop completed with undelivered notifications" — both library-internal, no test asserts on them.
+
+**Release-provenance note:** 0.15.6/0.15.7/0.15.8 were published manually by the lead maintainer (no OIDC attestation, unlike the project's usual GitHub Actions publishes) within ~30 minutes on 2026-08-06, out of order. Upstream's changelog explains: 0.15.8 is a republish of 0.15.6 after registry staged-version conflicts blocked 0.15.6/0.15.7. Details recorded next to the `minimumReleaseAgeExclude` entries in `pnpm-workspace.yaml`.
+
+**Pointers**
+
+- [Migration to v0.15](https://www.assistant-ui.com/docs/migrations/v0-15)
+- [`@assistant-ui/react` CHANGELOG](https://github.com/assistant-ui/assistant-ui/blob/main/packages/react/CHANGELOG.md)
+- Follow-up: report the ref-instability regression upstream (assistant-ui/assistant-ui) with the trace + patch from this repo.
+
+---
+
+## TanStack Table (`@tanstack/react-table` 8.21.3 → 9.0.0) — completed
+
+**Status:** Catalog bumped `^8.21.3` → `^9.0.0`, 2026-08-06 on `chore/deps-react-table-9` (v9.0.0 stable shipped 2026-08-04). Blast radius was exactly the settings-ui log viewer (`packages/settings-ui/src/settings/system/log-viewer-components/`, 4 files + 1 new).
+
+**v9's architectural change:** every non-core capability is an explicit opt-in plugin registered through `tableFeatures()` (which also carries row-model factories and sort/filter-fn registries), `useReactTable(options)` becomes `useTable({ features, ...options })`, and the `TFeatures` generic threads through `Table`/`Row`/`ColumnDef`/`CellContext`. `table.getState()`/top-level `onStateChange` are removed in favor of TanStack Store atoms — this repo never used either (per-slice `on*Change` handlers, which survive unchanged, were already the pattern).
+
+**What the migration actually touched here:**
+
+- New `log-table-features.ts`: module-scope `tableFeatures({ columnSizingFeature, columnVisibilityFeature, paginatedRowModel: createPaginatedRowModel(), rowPaginationFeature, rowSortingFeature, sortedRowModel: createSortedRowModel() })` + exported `LogTableFeatures` type. `columnSizingFeature` is required because v9 gates the per-column `size` option AND `column.getSize()` (log-list's header widths) behind it — the compiler catches the option (`TS2353`), but `getSize()` alone would be a runtime gap.
+- `log-viewer.tsx`: `useTable({ features: logTableFeatures, ... })`, row-model factories dropped from options (core row model is automatic in v9), `getPrePaginationRowModel()` → `getPrePaginatedRowModel()`, `VisibilityState` → `ColumnVisibilityState`, `ColumnDef`/`CellContext` gain the `LogTableFeatures` first generic.
+- `log-list.tsx` / `log-toolbar.tsx` / `log-row.tsx`: `Table<TData>`/`Row<TData>` → `Table<LogTableFeatures, TData>`/`Row<LogTableFeatures, TData>`.
+- **No `sortFns` registry needed:** the only sortable column (`timestamp`) is numeric, and v9's `'auto'` resolution falls back to the built-in `sortFn_basic` for non-string, non-Date values (verified in `rowSortingFeature.utils.js`). A string-sorted column would need `sortFns: { text: sortFn_text, ... }` registered or it warns and falls back.
+
+**v9 traps checked and NOT present in this code:** no destructured instance methods (they moved to prototypes and lose binding), no row selection (`getIsSomeRowsSelected()` semantics changed), no pinning (left/right → start/end renames), no `table.getState()`/`onStateChange`, no underscore-internal APIs, no CJS consumer of the now-ESM-only package (settings-ui is renderer/browser-bundled only).
+
+**Validation:** settings-ui 509 unit tests, desktop 2353, web 396, full workspace type-check, and settings-ui/desktop/web production builds all green in the same run.
+
+**Pointers**
+
+- Migration guide: [Migrating to v9](https://tanstack.com/table/latest/docs/framework/react/guide/migrating).
+- Upstream agent skill used for this migration: [migrate-v8-to-v9 SKILL.md](https://github.com/TanStack/table/blob/main/packages/table-core/skills/migrate-v8-to-v9/SKILL.md).
+- Announcement: [TanStack Table v9](https://tanstack.com/blog/tanstack-table-v9-taking-form).
+
+---
+
 ## Turborepo (`turbo` 2.8.x → 2.9.x)
 
 **Why it matters:** Minor releases add features and sometimes deprecations ahead of v3.
@@ -430,6 +487,41 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 **Pointers**
 
 - Mastra PR adding `LanguageModelV4`/AI SDK v7 support: [mastra-ai/mastra#18477](https://github.com/mastra-ai/mastra/pull/18477).
+
+### `@mastra/core` 1.51.0 → ^1.57.0, `@mastra/memory` 1.22.1 → 1.26.0 — completed; BST-1097 approval flow re-based on the 1.56+ idiom
+
+**Status:** `@mastra/core` `^1.57.0` and `@mastra/memory` `1.26.0` in `packages/agent` (the only manifest declaring them). Landed in two stages: 2026-08-06 held at `~1.55.0` below the 1.56 approval rework (`chore/deps-mastra-1.57`, PR #2295); 2026-08-07 the hold was lifted by ADAPTING the BST-1097 approval flow to the new idiom (`feat/mastra-approval-idioms`, user-directed).
+
+**What 1.56 changed (bisect-proven; the reason the hold existed):** the approval-recovery rework makes the framework treat any resume of an approval-gated call as its own business — a bare `{approved: true}` is consumed and the tool re-runs with NO resume data, and `{approved: false}` becomes Mastra's minted denial without the tool running. The old BST-1097 design (tool raises Gate A itself via `suspend(…, {requireToolApproval: true})` and reads the answer) therefore looped forever on approve and lost the tool-owned declined result on decline.
+
+**The adaptation (all repo-side, no framework workarounds):**
+
+1. **Gate A → the framework's pre-execution approval.** The permission gate's `requireApproval` clone — the exact idiom every other ask tool already used — now covers run_python too; the self-approving exception and its registry (`SELF_APPROVING_NATIVE_TOOL_IDS`) are deleted. Same `tool-call-approval` chunk, card, grant surface, and approve/decline transport.
+2. **Gate B stays a plain suspension, resumable under the flag via the `approved: true` rider.** 1.56+ re-checks `requireApproval` on every leg and converts a riderless resume into a denial; the suspend-resume transport (`createToolResumeIteratorFromRuntime`) attaches the rider for ask-registered tools, and run_python's resume schema admits it. This inverts the old "never combine the requireApproval flag with a suspendSchema" rule — the rider is precisely what makes the combination sound now.
+3. **Decline is framework-owned and streams NO tool result** — matching the long-standing contract for every other declined ask tool (the approval card's "Declined" state owns the UX). run_python's typed `declined` result arm is legacy, kept for pre-rework persisted threads.
+4. **Direct invocations stay guarded in-tool**: `'ask'` with no suspension channel refuses (`approval_confirmation_unavailable`); a bare `{approved}` resume reaching the tool is schema-rejected loudly (drifted shape, never a silent run).
+
+**Verification:** `mastra-tool-suspend-resume.integration.spec.ts` 15/15 at 1.57.0 (the two former Gate A canaries now pin the NEW contract: approve → Gate B → allow executes the script; decline streams no tool event and never touches the executor), agent 1629 unit + 293 integration, permission-gate/approval-chunks/run-python unit suites re-pinned to the new mechanism, `suspending-tool-registry-contract` guard updated. Contract docs updated in the same change: code-execution.md (Gate A section), assistant-runtime.md (permission engine step 2/4), mastra-boundary.md.
+
+**Breaking changes in 1.52–1.55 that did NOT apply here:** Channels reaction tools no longer auto-injected (1.53), `ChannelHandler` `ctx` param (1.54), Braintrust exporter config (SDK v2→v3, 1.52), AgentController canonical `MastraDBMessage` shape (1.52) — none of these surfaces are used by this repo.
+
+**Compile-time changes hit and fixed (both land by 1.55):**
+
+1. **`ToolExecutionContext.observe` became required** (tool-observability helpers) while `createTool`'s execute callback context is statically only `{ requestContext }`. `packages/agent/src/mastra/mcp-runtime-client.ts` now types its inbound context as a `McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortSignal'> & { requestContext?: unknown }` slice.
+2. **`ToolsInput[string]` widened** with execute-less members (provider-defined tools, web-search placeholders): `.execute` probes must `'execute' in tool`-narrow first — fixed in `apps/desktop/src/ipc-tools.ts` (`tryExecuteAssistantRuntimeTool`) and `capture-on-edit.integration.test.ts` (new `executeTool` helper that throws on a non-executable tool).
+
+**Behavioral notes verified:**
+
+- **`EmbeddingModelV4` still absent** from `MastraEmbeddingModel` (verified in installed types at both 1.55 and 1.57) — the documented casts in `provider-factory.ts` stay.
+- The `@ai-sdk/ui-utils` `zod@^3` unmet-peer warning disappeared at 1.55 (Mastra dropped that chain); only the pre-existing `@codecov/vite-plugin` vite-range warning remains workspace-wide.
+- Deferred by the hold (ships in 1.56/1.57): approval refresh-recovery, parallel-approval persistence, the suspended-run warm-state TTL (`MASTRA_SUSPENDED_RUN_TTL_MS`, 30 min default, durable-snapshot fallback), transient signals, `processToolResult` hook.
+
+**Validation:** boundary guard `scripts/__tests__/mastra-boundary-contract.test.mjs` 6/6; `lint:mastra-stream-chunk-contract` + `lint:mastra-schema-init-order` clean; agent 1629 unit + 293 integration (all 15 suspend-resume tests), assistant-service 59, desktop 2341 unit + 852 integration (real-PGlite capture-on-edit suite included), workspace type-check green. `docs/agents/mastra-boundary.md` re-verified and updated in the same change.
+
+**Pointers**
+
+- [@mastra/core CHANGELOG](https://github.com/mastra-ai/mastra/blob/main/packages/core/CHANGELOG.md), [@mastra/memory CHANGELOG](https://github.com/mastra-ai/mastra/blob/main/packages/memory/CHANGELOG.md).
+- Upstream agent-approval docs (current sanctioned patterns): [Agent approval](https://mastra.ai/docs/agents/agent-approval).
 
 ---
 

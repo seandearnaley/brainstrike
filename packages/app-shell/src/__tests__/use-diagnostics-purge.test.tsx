@@ -1,5 +1,5 @@
+import { __resetDiagnosticsRetentionStoreForTests } from '@brainstrike/app-state/stores/diagnostics-retention-store';
 import type { DiagnosticEventsDatabase } from '@brainstrike/db';
-import { __resetDiagnosticsRetentionStoreForTests } from '@brainstrike/preferences/stores/diagnostics-retention-store';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,7 +18,7 @@ vi.mock('@brainstrike/db/react', async (importOriginal) => ({
   useOptionalPGliteDatabase: useOptionalPGliteDatabaseMock,
 }));
 
-import { useDiagnosticsRetentionStore } from '@brainstrike/preferences/stores/diagnostics-retention-store';
+import { useDiagnosticsRetentionStore } from '@brainstrike/app-state/stores/diagnostics-retention-store';
 import { useDiagnosticsPurge } from '../diagnostics/use-diagnostics-purge';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;

@@ -699,7 +699,7 @@ test('the Playwright lanes run under CI semantics, and nothing else does', () =>
 
   for (const step of plan) {
     if (playwrightIds.has(step.id)) {
-      // Without this, playwright.config.ts loads in local mode: forbidOnly is
+      // Without this, playwright.config.mts loads in local mode: forbidOnly is
       // false, so a stray `test.only` passes the lane while the required Web
       // E2E job rejects the same source.
       assert.match(step.command, /\bCI=true\b/, `${step.id} must mirror CI's environment`);

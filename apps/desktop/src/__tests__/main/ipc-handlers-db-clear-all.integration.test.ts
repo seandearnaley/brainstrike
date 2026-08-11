@@ -19,7 +19,7 @@
  * present EXCEPT the lazily created Mastra relations) on a real PGlite and
  * asserts the clear actually commits.
  */
-import { wasmLoader } from '@brainstrike/db';
+import { getMastraResetTables, getResetTables, wasmLoader } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getDatabaseMock,
@@ -48,13 +48,21 @@ const PRESENT_RELATIONS = [
   'brainstrike_assistant_task_lists',
   'brainstrike_assistant_edit_checkpoints',
   'brainstrike_assistant_message_parents',
+  'brainstrike_assistant_message_tombstones',
+  'brainstrike_assistant_compaction_ranges',
+  'brainstrike_assistant_tool_projection_rewrites',
   'brainstrike_assistant_thread_groups',
   'brainstrike_assistant_thread_placements',
   'prompt_items',
   'brainstrike_assistant_tool_output_artifacts',
+  'brainstrike_canvas_versions',
+  'brainstrike_tool_call_telemetry',
+  'brainstrike_token_estimate_calibration',
   'brainstrike_diagnostic_events',
+  'brainstrike_mind_ops',
   'brainstrike_thread_message_index',
   'brainstrike_thread_search_state',
+  'brainstrike_workspace_snapshots',
 ] as const;
 
 /**
@@ -86,10 +94,9 @@ async function countRows(table: string): Promise<number> {
   if (!db) {
     throw new Error('Test database was not created.');
   }
-  const result = await db.query<{ count: string | number }>(
-    `SELECT COUNT(*) AS count FROM ${table}`
-  );
-  return Number(result.rows[0]?.count ?? -1);
+  const result = await db.query(`SELECT COUNT(*) AS count FROM ${table}`);
+  const rows = result.rows as Array<{ count: string | number }>;
+  return Number(rows[0]?.count ?? -1);
 }
 
 describe('db:clearAll (real PGlite transaction semantics)', () => {
@@ -107,7 +114,16 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
       "INSERT INTO brainstrike_assistant_thread_placements (id) VALUES ('sentinel-placement')"
     );
     await db.exec("INSERT INTO brainstrike_assistant_run_errors (id) VALUES ('sentinel')");
+    await db.exec(
+      "INSERT INTO brainstrike_assistant_message_tombstones (id) VALUES ('sentinel-tombstone')"
+    );
     await db.exec("INSERT INTO brainstrike_diagnostic_events (id) VALUES ('sentinel')");
+    // The mind op-log sits third-from-last in the delete order, so this
+    // sentinel is the deepest "the whole tail committed" probe — and an op-log
+    // row surviving a clear is a real product bug in its own right: tombstones
+    // for data the clear just destroyed must not reach a fresh database
+    // (migration 079, BST-993).
+    await db.exec("INSERT INTO brainstrike_mind_ops (id) VALUES ('sentinel-op')");
     getDatabaseMock.mockReturnValue(db as unknown as ReturnType<typeof getDatabaseMock>);
   });
 
@@ -130,7 +146,9 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_thread_placements')).toBe(0);
     expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
     expect(await countRows('brainstrike_assistant_run_errors')).toBe(0);
+    expect(await countRows('brainstrike_assistant_message_tombstones')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
+    expect(await countRows('brainstrike_mind_ops')).toBe(0);
   });
 
   /**
@@ -215,5 +233,27 @@ describe('db:clearAll (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_thread_placements')).toBe(0);
     expect(await countRows('brainstrike_assistant_thread_groups')).toBe(0);
     expect(await countRows('brainstrike_diagnostic_events')).toBe(0);
+  });
+});
+
+/**
+ * Drift guard for the ADDITION case the hand-written literals cannot catch: a
+ * new migration-created relation entering the reset registry without a fixture
+ * entry does not go red — it silently downgrades that table's coverage to the
+ * absent-relation branch (exactly how `brainstrike_mind_ops` went unexercised
+ * from BST-993 until BST-1115). The registry is imported for ASSERTION only:
+ * the fixtures stay independent literals feeding the SQL (see the rationale on
+ * LAZY_MASTRA_RELATIONS above), so an incorrect registry rename breaks this
+ * equality loudly instead of self-healing both sides.
+ */
+describe('clear-all fixture drift guard', () => {
+  it('PRESENT_RELATIONS matches the migration-created reset registry', () => {
+    const lazy = new Set<string>(getMastraResetTables());
+    const migrationCreated = getResetTables().filter((table) => !lazy.has(table));
+    expect([...PRESENT_RELATIONS].sort()).toEqual([...migrationCreated].sort());
+  });
+
+  it('LAZY_MASTRA_RELATIONS matches the lazy Mastra registry', () => {
+    expect([...LAZY_MASTRA_RELATIONS].sort()).toEqual([...getMastraResetTables()].sort());
   });
 });

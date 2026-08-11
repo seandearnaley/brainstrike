@@ -51,7 +51,7 @@ describe('mockBrowserApis', () => {
 describe('Fixture Loader Script', () => {
   const getInjectedScript = async (
     tree: import('../mock-fs').FileTree,
-    options: { clipboard?: boolean; directoryReadDelayMs?: number } = {}
+    options: { clipboard?: boolean; directoryReadDelayMs?: number; rootId?: string } = {}
   ) => {
     const addInitScript = vi.fn();
     const page = { addInitScript } as unknown as Page;
@@ -140,6 +140,40 @@ describe('Fixture Loader Script', () => {
       {
         directoryReadDelayMs: 25,
       }
+    );
+  });
+
+  it('passes a durable root id through the official fixture API', async () => {
+    const directoryHandle = { kind: 'directory', name: 'root', path: 'root', platform: 'web' };
+    const loadFixture = vi.fn().mockResolvedValue(directoryHandle);
+    (
+      window as unknown as {
+        __BRAINSTRIKE_LOAD_FIXTURE__?: (
+          fixture?: FixtureDefinition,
+          options?: FixtureLoadOptions
+        ) => Promise<typeof directoryHandle>;
+      }
+    ).__BRAINSTRIKE_LOAD_FIXTURE__ = loadFixture;
+
+    const rootId = '8a69fc45-04a2-4e48-92d1-2c974a7ced41';
+    const runScript = await getInjectedScript({ 'file.txt': null }, { rootId });
+
+    runScript();
+    await (
+      window as unknown as {
+        showDirectoryPicker: () => Promise<typeof directoryHandle>;
+      }
+    ).showDirectoryPicker();
+
+    expect(loadFixture).toHaveBeenCalledWith(
+      {
+        name: 'root',
+        rootId,
+        tree: {
+          'file.txt': null,
+        },
+      },
+      undefined
     );
   });
 

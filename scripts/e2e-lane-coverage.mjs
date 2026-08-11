@@ -23,15 +23,14 @@
 //
 // WHAT A GREEN HERE DOES *NOT* PROVE — read this before citing it.
 // This guard proves STATIC reachability: every spec is named by, or tagged into,
-// some lane that CI invokes. It says nothing about whether a spec actually RAN.
-// `test:e2e:lane:full-regression` is an `&&`-SEQUENTIAL chain (a broad pass then
-// N named lanes), so any lane that fails short-circuits every lane after it, and
-// those specs silently do not execute — the BST-1032 blind-window class. A spec
-// appended to the end of that chain is "covered" by this guard while never
-// running for weeks. Solving the dynamic problem needs a run-artifact diff and is
-// deliberately out of scope. What this guard does add against the chain risk is
-// the `uninvoked-lane` check below: a lane that no CI entrypoint reaches at all
-// (directly or through a chain) cannot silently supply coverage here.
+// some lane that CI invokes. `test:e2e:lane:full-regression` delegates its broad
+// pass and named lanes to an aggregate runner, so one lane failure no longer
+// short-circuits the rest. An externally cancelled or timed-out job can still
+// stop the process, however, and this static guard cannot prove that a CI run
+// actually finished. The nightly timeout covers the sum of the lanes' own
+// bounded Playwright budgets plus setup/build overhead. The `uninvoked-lane`
+// check below separately ensures a lane no CI entrypoint reaches at all cannot
+// silently supply coverage here.
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -61,11 +60,11 @@ const EXCLUDED_SPEC_DIRS = {
 };
 
 /**
- * Project-level `grep`/`grepInvert` from each app's playwright.config.ts.
+ * Project-level `grep`/`grepInvert` from each app's playwright.config.mts.
  *
  * Only `desktop:regression` changes any verdict today (its `grepInvert: /@smoke/`
- * means a `@smoke`-titled desktop spec absent from the smoke lane's file list
- * runs NOWHERE), but every project a lane targets must be modelled: an
+ * means smoke-tagged tests need an explicit smoke/nightly lane), but every
+ * project a lane targets must be modelled: an
  * unmodelled `--project=` throws rather than defaulting to "no filter", which
  * would silently over-report reachability.
  */
@@ -544,7 +543,7 @@ function assertFloor(actual, minimum, subject) {
   }
 }
 
-/** Lane scripts a CI entrypoint reaches, directly or through an `&&` chain. */
+/** Lane scripts a CI entrypoint reaches, directly or through script references. */
 function resolveCiInvokedLaneScripts(laneScripts, directlyInvoked) {
   const reached = new Set();
   const queue = [...directlyInvoked];

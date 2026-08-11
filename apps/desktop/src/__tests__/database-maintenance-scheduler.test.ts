@@ -4,7 +4,10 @@ import type {
   ScheduledDatabaseMaintenanceResult,
 } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
-import { createDesktopDatabaseMaintenanceScheduler } from '../database-maintenance-scheduler';
+import {
+  createDesktopDatabaseMaintenanceScheduler,
+  type DesktopDatabaseMaintenanceSchedulerOptions,
+} from '../database-maintenance-scheduler';
 
 const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   activeJobs: 0,
@@ -12,9 +15,15 @@ const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   completedAt: '2026-05-01T12:00:00.100Z',
   durationMs: 100,
   prunedTerminalJobs: 2,
+  prunedTokenEstimateCalibrationRows: 3,
+  prunedToolCallTelemetryRows: 7,
   startedAt: '2026-05-01T12:00:00.000Z',
   status: 'completed',
-  vacuumedTables: ['job_queue'],
+  vacuumedTables: [
+    'job_queue',
+    'brainstrike_tool_call_telemetry',
+    'brainstrike_token_estimate_calibration',
+  ],
 };
 
 function createQueuedCounts(
@@ -70,7 +79,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         capturedOptions = options;
         return await work();
       }
-    );
+    ) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'];
     const logger = {
       debug: vi.fn(),
       error: vi.fn(),
@@ -100,7 +109,13 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       expect.objectContaining({
         analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
         prunedTerminalJobs: 2,
-        vacuumedTables: ['job_queue'],
+        prunedTokenEstimateCalibrationRows: 3,
+        prunedToolCallTelemetryRows: 7,
+        vacuumedTables: [
+          'job_queue',
+          'brainstrike_tool_call_telemetry',
+          'brainstrike_token_estimate_calibration',
+        ],
       }),
       'Scheduled database maintenance completed'
     );
@@ -113,7 +128,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         _options: DatabaseWorkOptions,
         work: () => Promise<TResult>
       ): Promise<TResult> => await work()
-    );
+    ) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'];
     const logger = {
       debug: vi.fn(),
       error: vi.fn(),
@@ -125,6 +140,8 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
       completedAt: '2026-05-01T12:00:00.300Z',
       durationMs: 300,
       prunedTerminalJobs: 5000,
+      prunedTokenEstimateCalibrationRows: 6,
+      prunedToolCallTelemetryRows: 12,
       reason: 'active-job-queue',
       startedAt: '2026-05-01T12:00:00.000Z',
       status: 'partial',
@@ -165,7 +182,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
         _options: DatabaseWorkOptions,
         work: () => Promise<TResult>
       ): Promise<TResult> => await work()
-    );
+    ) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'];
     const runMaintenance = vi.fn(
       async () =>
         await new Promise<ScheduledDatabaseMaintenanceResult>((resolve) => {
@@ -198,7 +215,13 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     });
     expect(runScheduledWork).toHaveBeenCalledTimes(1);
 
-    resolveMaintenance?.(COMPLETED_MAINTENANCE_RESULT);
+    const finishMaintenance = resolveMaintenance as
+      | ((result: ScheduledDatabaseMaintenanceResult) => void)
+      | null;
+    if (!finishMaintenance) {
+      throw new Error('Expected database maintenance to be pending.');
+    }
+    finishMaintenance(COMPLETED_MAINTENANCE_RESULT);
     await firstRun;
   });
 
@@ -210,7 +233,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
           _options: DatabaseWorkOptions,
           work: () => Promise<TResult>
         ): Promise<TResult> => await work()
-      );
+      ) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'];
       const scheduler = createDesktopDatabaseMaintenanceScheduler({
         getDatabase: vi.fn(async () => ({ query: vi.fn() })),
         getSchedulerSnapshot: () => ({
@@ -249,7 +272,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
           _options: DatabaseWorkOptions,
           work: () => Promise<TResult>
         ): Promise<TResult> => await work()
-      );
+      ) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'];
       const scheduler = createDesktopDatabaseMaintenanceScheduler({
         getDatabase: vi.fn(async () => ({ query: vi.fn() })),
         getSchedulerSnapshot: () => ({

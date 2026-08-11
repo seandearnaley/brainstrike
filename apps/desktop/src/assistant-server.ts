@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { assistantDataStreamSessions } from '@brainstrike/agent';
+import { assistantDataStreamSessions, type RuntimeData } from '@brainstrike/agent';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
 import {
   respondAssistantRejection,
@@ -23,13 +23,19 @@ import {
   isAuthorizedAssistantToken,
   mintAssistantServerAuthToken,
 } from './assistant-server/auth';
+import { createCompactionRangeLookup } from './assistant-server/compaction-range-repository';
 import { handleCancelRequest, handleSteerRequest } from './assistant-server/control-endpoints';
+import {
+  createContextOverflowRecovery,
+  runPreRequestCompaction,
+} from './assistant-server/conversation-compaction';
 import {
   applyAssistantCorsHeaders,
   hasDisallowedAssistantOrigin,
   isAssistantCorsPreflight,
   respondForbiddenOrigin,
 } from './assistant-server/cors';
+import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
   finalizeHookedStream,
@@ -58,12 +64,21 @@ import { readLastEventId, resolveAssistantRoute } from './assistant-server/routi
 import {
   observeDesktopAssistantRunEvents,
   persistDesktopChildRunUsage,
+  persistDesktopTokenEstimateCalibration,
+  persistDesktopToolCallTelemetry,
   recordDesktopAssistantHookRunOutcome,
   recordDesktopAssistantThreadRunStatus,
 } from './assistant-server/run-persistence';
+import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
 import type { AssistantServerOptions } from './assistant-server/server-options';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
 import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
+import {
+  createTurnBoundaryController,
+  type LegPauseState,
+  observeTurnPauseChunks,
+  resolveTurnAnchorMessageId,
+} from './assistant-server/snapshot-turn-boundaries';
 import {
   handleAssistantStatus,
   handleOpenRouterModelMetadata,
@@ -74,12 +89,14 @@ import {
   resumeStreamIfAvailable,
 } from './assistant-server/stream-resume';
 import { readThreadTaskList } from './assistant-server/task-list-repository';
+import { createToolProjectionRewriteLookup } from './assistant-server/tool-projection-rewrite-repository';
 import { scanUserPersonas } from './assistant-server/user-personas-loader';
 import { WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS } from './assistant-server/web-extract-model-projection';
 import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
 import {
   BoundWorkspaceRootUnavailableError,
   enrichRuntimeDataWithWorkspaceRoots,
+  getWorkspaceRoots,
 } from './assistant-server/workspace-roots';
 import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
 import { type DesktopDatabase, getDatabase } from './db-main';
@@ -88,6 +105,8 @@ import { loadMcpConfig } from './mcp-loader';
 import { resolveDesktopPythonExecutable } from './python-runtime';
 
 const logger = desktopAssistantServerLogger;
+const compactionOverlayLookup = createCompactionRangeLookup(getDatabase);
+const toolProjectionRewriteLookup = createToolProjectionRewriteLookup(getDatabase);
 
 /**
  * Desktop's instantiation of the service's opaque capability kinds
@@ -126,9 +145,14 @@ export const desktopAgentStreamCapabilities: AgentStreamCapabilities<DesktopAgen
   artifacts: {
     createRepository: (database) => new ToolOutputArtifactRepository(database),
   },
+  compaction: {
+    createContextOverflowRecovery,
+    runPreRequest: runPreRequestCompaction,
+  },
   contextInjectors: {
     activatedSkills: injectActivatedSkillsContext,
     referencedFiles: injectReferencedFilesContext,
+    selfImprovementSignal: injectSelfImprovementSignalContext,
     workspaceInstructions: injectWorkspaceInstructionsContext,
   },
   hooks: {
@@ -154,6 +178,8 @@ export const desktopAgentStreamCapabilities: AgentStreamCapabilities<DesktopAgen
   runPersistence: {
     observeRunEvents: observeDesktopAssistantRunEvents,
     persistChildRunUsage: persistDesktopChildRunUsage,
+    persistTokenEstimateCalibration: persistDesktopTokenEstimateCalibration,
+    persistToolCallTelemetry: persistDesktopToolCallTelemetry,
     recordHookRunOutcome: recordDesktopAssistantHookRunOutcome,
   },
   skills: {
@@ -340,6 +366,25 @@ export async function handleAssistantRequest(
   await handleAssistantPost(req, res, options);
 }
 
+/** Same narrowing cast the changes IPC handlers use for the shared handle. */
+async function resolveEditCheckpointDatabase(): Promise<EditCheckpointDatabase> {
+  return (await getDatabase()) as unknown as EditCheckpointDatabase;
+}
+
+/**
+ * EVERY workspace root a turn-boundary snapshot must cover (plan T2: the
+ * turn-start/turn-end snapshots span every root, not only the bound one).
+ * Reuses the authoritative enrichment (`workspaceRoots` trusted when present,
+ * otherwise resolved from the DB roots table) so snapshot root ids match
+ * `file_records.root_id` and the edit-checkpoint journal's `rootId`.
+ */
+async function resolveSnapshotWorkspaceRoots(
+  runtimeData: RuntimeData
+): Promise<readonly { readonly path: string; readonly rootId: string }[]> {
+  const enriched = await enrichRuntimeDataWithWorkspaceRoots(runtimeData, await getDatabase());
+  return getWorkspaceRoots(enriched).map((root) => ({ path: root.path, rootId: root.rootId }));
+}
+
 async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -370,6 +415,62 @@ async function handleAssistantPost(
   const { signal: requestSignal, cleanup } = registerRequestAbort(req, res);
   const executionAbortController = new AbortController();
   const runId = runtimeData.memory?.runId;
+  const threadId = runtimeData.memory?.threadId;
+
+  // W7 T2 (BST-1164): shadow-git turn boundaries on the run-persistence seam.
+  // Only a persisted run (runId + threadId) with the snapshot deps wired
+  // participates; snapshot bookkeeping NEVER blocks or fails the run.
+  const turnBoundaries =
+    options.snapshots && runId && threadId
+      ? createTurnBoundaryController({
+          resolveDatabase: resolveEditCheckpointDatabase,
+          snapshots: options.snapshots,
+        })
+      : null;
+  const legPause: LegPauseState = { paused: false };
+  if (turnBoundaries && runId && threadId) {
+    try {
+      await turnBoundaries.beginLeg({
+        // TURN ANCHOR: the triggering user message, never the run row (a turn
+        // is not a run — approval/suspend resumes mint additional run rows).
+        anchorMessageId: resolveTurnAnchorMessageId(messages),
+        isResume: toolApprovalAction !== undefined || toolResumeAction !== undefined,
+        roots: await resolveSnapshotWorkspaceRoots(runtimeData),
+        runId,
+        threadId,
+      });
+    } catch (error) {
+      // beginLeg itself never throws; this guards the roots resolution. A run
+      // is never blocked by snapshot bookkeeping — the turn simply has no
+      // recorded start and its changeset resolves to the typed honest error.
+      logger.error('Turn-start snapshot bookkeeping failed; the run proceeds', {
+        error,
+        runId,
+        threadId,
+      });
+    }
+  }
+  // Turn-end snapshots complete BEFORE the terminal thread_runs status write
+  // (plan global constraint 5): the port wrapper runs completeLeg first, so
+  // by the time the run reads terminal the turn-end ledger rows exist.
+  const persistence =
+    turnBoundaries && threadId
+      ? {
+          recordThreadRunStatus: async (
+            legRunId: string,
+            status: 'cancelled' | 'completed' | 'failed',
+            error: string | null
+          ) => {
+            await turnBoundaries.completeLeg({
+              paused: legPause.paused,
+              runId: legRunId,
+              status,
+              threadId,
+            });
+            await desktopRunPersistencePort.recordThreadRunStatus(legRunId, status, error);
+          },
+        }
+      : desktopRunPersistencePort;
   // Only THIS leg's registration may be torn down below: on the defensive
   // duplicate-runId throw the entry belongs to the ORIGINAL still-streaming
   // leg, and unregistering it would make a genuinely active run un-steerable
@@ -393,10 +494,11 @@ async function handleAssistantPost(
       apiKey,
       assistantMessageId,
       executionSignal: executionAbortController.signal,
-      initializeStream: async (core) =>
-        initializeAgentStream({
+      initializeStream: async (core) => {
+        const result = await initializeAgentStream({
           apiKey: core.apiKey,
           capabilities: desktopAgentStreamCapabilities,
+          compactionOverlayLookup,
           getDatabase,
           logger,
           mcpConfig: (await loadMcpConfig()).config,
@@ -410,10 +512,19 @@ async function handleAssistantPost(
             embeddingHostManager: options.embeddingHostManager,
             llmHostManager: options.llmHostManager,
           },
+          toolProjectionRewriteLookup,
           toolResumeAction: core.toolResumeAction,
-        }),
+        });
+        if (!(turnBoundaries && result.ok)) {
+          return result;
+        }
+        // Pause observation (W7 T2): a leg that ends in a resumable
+        // approval/suspend pause is NOT the turn's last run, so its terminal
+        // status write must not trigger turn-end snapshots. Pure passthrough.
+        return { ...result, stream: observeTurnPauseChunks(result.stream, legPause) };
+      },
       messages,
-      persistence: desktopRunPersistencePort,
+      persistence,
       runId,
       runtimeData,
       sessions: assistantDataStreamSessions,
@@ -428,6 +539,16 @@ async function handleAssistantPost(
     await turn.completion();
   } catch (error) {
     await handleAssistantPostStreamError({
+      completeTurnLeg:
+        turnBoundaries && threadId
+          ? (legRunId, status) =>
+              turnBoundaries.completeLeg({
+                paused: legPause.paused,
+                runId: legRunId,
+                status,
+                threadId,
+              })
+          : null,
       error,
       res,
       runId,
@@ -442,11 +563,16 @@ async function handleAssistantPost(
 }
 
 async function handleAssistantPostStreamError({
+  completeTurnLeg,
   res,
   runId,
   signal,
   error,
 }: {
+  /** W7 T2: turn-end snapshot hook, run BEFORE the terminal status write. */
+  readonly completeTurnLeg:
+    | ((runId: string, status: 'cancelled' | 'failed') => Promise<void>)
+    | null;
   readonly res: http.ServerResponse;
   readonly runId: string | undefined;
   readonly signal: AbortSignal;
@@ -454,12 +580,11 @@ async function handleAssistantPostStreamError({
 }): Promise<void> {
   const message = error instanceof Error ? error.message : String(error);
   if (runId) {
-    await recordDesktopAssistantThreadRunStatus(
-      runId,
-      signal.aborted ? 'cancelled' : 'failed',
-      message,
-      getDatabase
-    );
+    const status = signal.aborted ? 'cancelled' : 'failed';
+    if (completeTurnLeg) {
+      await completeTurnLeg(runId, status);
+    }
+    await recordDesktopAssistantThreadRunStatus(runId, status, message, getDatabase);
   }
   if (signal.aborted) {
     return;

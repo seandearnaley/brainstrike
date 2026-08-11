@@ -1,10 +1,10 @@
+import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import type { HookTrustRequest, RuntimeData } from '@brainstrike/assistant-contract';
 import type {
   RuntimeAssistantMemorySettings,
   RuntimeAssistantObservationalMemorySettings,
   RuntimeAssistantSemanticRecallSettings,
 } from '@brainstrike/assistant-contract/memory-settings';
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
 import { useMemo } from 'react';
 import {
   buildAssistantRequestData,
@@ -42,12 +42,16 @@ interface UseAssistantThreadRequestDataArgs {
   /** Plan mode (opt-in); forwarded to the request only when `true`. */
   readonly planMode?: boolean;
   readonly providerOptions: Record<string, unknown> | undefined;
+  /** Explicit selection only; absent means Auto. */
+  readonly requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
   readonly runtimeWorkspaceContext: RuntimeData['workspaceContext'] | null;
   readonly selectedMemoryThreadId: string | undefined;
   readonly selectionData: {
     readonly filePaths: string[];
     readonly folderId: string | null | undefined;
   };
+  /** Desktop-only opt-in self-improvement signal preference. */
+  readonly selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   readonly semanticRecallSettings: RuntimeAssistantSemanticRecallSettings;
   /**
    * Opt-in Agent Skills preference; only set on the desktop data-stream
@@ -93,10 +97,12 @@ export function useAssistantThreadRequestData({
   permissionPolicyRequest,
   planMode,
   providerOptions,
+  requestedReasoningEffort,
   runtimeWorkspaceContext,
   selectedMemoryThreadId,
   selectionData,
   semanticRecallSettings,
+  selfImprovementSignalPreference,
   skillsPreference,
   subagentPersonasRequest,
   workspaceInstructionsPreference,
@@ -128,8 +134,10 @@ export function useAssistantThreadRequestData({
         permissionPolicyRequest,
         ...(planMode ? { planMode: true } : {}),
         providerOptions,
+        requestedReasoningEffort,
         selectedMemoryThreadId,
         selectionData,
+        ...(selfImprovementSignalPreference ? { selfImprovementSignalPreference } : {}),
         workspaceContext: runtimeWorkspaceContext,
         ...(skillsPreference ? { skillsPreference } : {}),
         ...(subagentPersonasRequest ? { subagentPersonasRequest } : {}),
@@ -151,10 +159,12 @@ export function useAssistantThreadRequestData({
       permissionPolicyRequest,
       planMode,
       providerOptions,
+      requestedReasoningEffort,
       runtimeMemorySettings,
       selectedMemoryThreadId,
       selectionData,
       runtimeWorkspaceContext,
+      selfImprovementSignalPreference,
       skillsPreference,
       subagentPersonasRequest,
       workspaceInstructionsPreference,

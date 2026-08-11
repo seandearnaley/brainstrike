@@ -11,6 +11,27 @@
       "@brainstrike/assistant-contract/*": [
         "./packages/assistant-contract/src/*"
       ],
+      "@brainstrike/assistant-data": [
+        "./packages/assistant-data/src"
+      ],
+      "@brainstrike/assistant-data/cost-tracking": [
+        "./packages/assistant-data/src/cost-tracking/index.ts"
+      ],
+      "@brainstrike/assistant-data/assistant-thread-run-reaper": [
+        "./packages/assistant-data/src/assistant-thread-run-reaper.ts"
+      ],
+      "@brainstrike/assistant-ui": [
+        "./packages/assistant-ui/src"
+      ],
+      "@brainstrike/assistant-ui/context-usage-store": [
+        "./packages/assistant-ui/src/context-usage-store.ts"
+      ],
+      "@brainstrike/assistant-ui/follow-up-queue-store": [
+        "./packages/assistant-ui/src/follow-up-queue-store.ts"
+      ],
+      "@brainstrike/assistant-ui/rewind-composer-store": [
+        "./packages/assistant-ui/src/rewind-composer-store.ts"
+      ],
       "@brainstrike/local-runtime": [
         "./packages/local-runtime/src"
       ],
@@ -107,9 +128,6 @@
       "@brainstrike/app-shell": [
         "./packages/app-shell/src"
       ],
-      "@brainstrike/preferences": [
-        "./packages/preferences/src"
-      ],
       "@brainstrike/vector-management": [
         "./packages/vector-management/src"
       ],
@@ -128,8 +146,8 @@
       "@brainstrike/context-actions": [
         "./packages/context-actions/src"
       ],
-      "@brainstrike/commands": [
-        "./packages/commands/src"
+      "@brainstrike/context-actions/commands": [
+        "./packages/context-actions/src/commands/index.ts"
       ],
       "@brainstrike/pipeline": [
         "./packages/pipeline/src"
@@ -154,9 +172,6 @@
       ],
       "@brainstrike/file-system/path-validation": [
         "./packages/file-system/src/path-validation.ts"
-      ],
-      "@brainstrike/server-config": [
-        "./packages/server-config/src"
       ],
       "@brainstrike/test-utils": [
         "./packages/test-utils/src"
@@ -205,6 +220,12 @@
   "references": [
     {
       "path": "./packages/assistant-contract"
+    },
+    {
+      "path": "./packages/assistant-data"
+    },
+    {
+      "path": "./packages/assistant-ui"
     },
     {
       "path": "./packages/local-runtime"
@@ -264,7 +285,10 @@
       "path": "./packages/queue"
     },
     {
-      "path": "./packages/preferences"
+      "path": "./packages/app-state"
+    },
+    {
+      "path": "./packages/settings-ui"
     },
     {
       "path": "./packages/vector-management"
@@ -285,9 +309,6 @@
       "path": "./packages/context-actions"
     },
     {
-      "path": "./packages/commands"
-    },
-    {
       "path": "./packages/pipeline"
     },
     {
@@ -295,9 +316,6 @@
     },
     {
       "path": "./packages/file-system"
-    },
-    {
-      "path": "./packages/server-config"
     },
     {
       "path": "./packages/test-utils/tsconfig.references.json"

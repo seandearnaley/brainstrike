@@ -1,7 +1,9 @@
+import {
+  hasDurableAssistantUsageCapability,
+  resolveAssistantMemoryResourceId,
+} from '@brainstrike/assistant-data';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { hasDurableAssistantUsageCapability } from '../assistant-durable-usage-capability';
-import { resolveAssistantMemoryResourceId } from '../assistant-memory-resource';
 import {
   getLedgerCostTrend,
   getModelComparison,

@@ -18,7 +18,7 @@ interface FileExplorerTestSnapshot {
 }
 
 interface ContextExplorerPreviewTestSnapshot {
-  activeTab: string;
+  /** Paths visible on the current Tapestry page, grouped or not. */
   renderedFilePaths: string[];
   selectedFilesCount: number;
   totalRows: number;

@@ -20,6 +20,41 @@ import type { LocalLlmHostClient } from './providers/local/llm-host-client';
 import type { AssistantRunEvent } from './run-events';
 import type { AgentHookRunner } from './tools/hook-runner';
 
+interface ToolProjectionRewriteEntryBase {
+  readonly markerText: string;
+  readonly toolCallId: string;
+}
+
+export type ToolProjectionRewriteEntry =
+  | (ToolProjectionRewriteEntryBase & {
+      readonly kind: 'prune';
+      readonly supersededByToolCallId: null;
+    })
+  | (ToolProjectionRewriteEntryBase & {
+      readonly kind: 'supersession';
+      readonly supersededByToolCallId: string;
+    });
+
+/** Desktop-injected, read-only access to durable request-build overlays. */
+export interface ToolProjectionRewriteLookup {
+  readonly listActiveRewrites: (
+    threadId: string
+  ) => Promise<ReadonlyMap<string, ToolProjectionRewriteEntry>>;
+}
+
+/** One durable compaction summary and the exact raw message ids it replaces. */
+export interface CompactionRangeEntry {
+  readonly compactedMessageIds: readonly string[];
+  readonly compactionMessageId: string;
+}
+
+/** Desktop-injected, read-only access to durable compaction overlays. */
+export interface CompactionRangeLookup {
+  readonly listActiveCompactionRanges: (
+    threadId: string
+  ) => Promise<readonly CompactionRangeEntry[]>;
+}
+
 // The 7 supporting types below are byte-identical and dependency-free in both
 // @brainstrike/agent and @brainstrike/assistant-contract; the dependency-light
 // contract package owns them, agent re-exports for public-API stability.
@@ -103,7 +138,7 @@ export interface AssistantUiMessage {
 /**
  * Agent runtime data. Extends the dependency-light `assistant-contract`
  * `RuntimeData` (the canonical wire/UI contract) and overrides only the two
- * fields that bind to runtime libraries, plus three server-only fields. The
+ * fields that bind to runtime libraries, plus server-only fields. The
  * shared fields — including `provider` (which now inherits `'local'`) — live
  * in the contract; this is what removes the old "keep the two declarations in
  * sync" drift hazard.
@@ -115,6 +150,17 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * streamed UI state, and branch topology share one identity. Agent-only.
    */
   assistantMessageId?: string;
+  /**
+   * Desktop-injected lookup for durable conversation-compaction overlays.
+   * The input-step processor filters only the transient ID-bearing message
+   * list; durable Mastra rows remain unchanged. Server-side only.
+   */
+  compactionOverlayLookup?: CompactionRangeLookup;
+  /**
+   * Desktop-injected recovery callback for terminal provider context overflow.
+   * It may commit deterministic compaction, but never retries the current turn.
+   */
+  contextOverflowRecovery?: () => Promise<{ readonly applied: boolean }>;
   /**
    * Server-injected tool-lifecycle hook runner (desktop). Composed into the
    * tool-execute seam so PreToolUse hooks can block a permitted tool and
@@ -195,6 +241,13 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * Do NOT move this to assistant-contract.
    */
   providerOptions?: RuntimeProviderOptions;
+  /**
+   * Desktop-injected lookup for superseded native-tool projection overlays.
+   * The input processor consults it only while building a provider request;
+   * durable Mastra message content is never changed. Server-side only, never
+   * serialized over IPC/HTTP. Agent-only — mirrors `hookRunner`.
+   */
+  toolProjectionRewriteLookup?: ToolProjectionRewriteLookup;
   /**
    * Server-injected Agent Skills engine (desktop). When present (and the
    * provider is not the built-in local model), the runtime folds Mastra's
@@ -350,6 +403,48 @@ export interface StreamChunkChildRunUsage {
   type: 'child-run-usage';
   value: AssistantChildRunUsage;
 }
+/**
+ * Internal run-end payload consumed by the desktop durable telemetry sink.
+ * `occurredAt` is captured at the actual tool-call/projection moment (epoch
+ * ms), not at run-end flush time — a long run's calls must not all collapse
+ * onto the same timestamp (review fix).
+ */
+export interface ToolCallTelemetrySample {
+  readonly isPaginationFollowup: boolean;
+  readonly modelFacingChars: number;
+  readonly occurredAt: number;
+  readonly toolId: string;
+  readonly truncated: boolean;
+  readonly zeroMatch?: boolean;
+}
+export interface StreamChunkToolCallTelemetry {
+  readonly type: 'tool-call-telemetry';
+  readonly value: readonly ToolCallTelemetrySample[];
+}
+/**
+ * Run-end calibration pair over the final prompt's estimator-visible share.
+ * `estimatedPromptTokens` counts model-visible tool-output projections plus
+ * tool definitions once; `finalStepPromptTokens` is the most recent provider
+ * step's prompt size, which contains prior tool outputs once via Mastra's resend
+ * behavior. Conversation/system-prompt text outside those shares is excluded.
+ */
+export interface TokenEstimateCalibrationSample {
+  readonly estimatedPromptTokens: number;
+  readonly finalStepPromptTokens: number;
+  readonly model: string;
+  readonly modelVisibleProjectionCount: number;
+  readonly occurredAt: number;
+  /** System instructions + task list + tool definitions from this run's prompt breakdown. */
+  readonly promptBreakdownBaselineTokens?: number;
+  readonly provider: string;
+  readonly resolvedDomainBudgetTokens?: number;
+  readonly resolvedTransportBudgetTokens?: number;
+  readonly stepCount: number;
+}
+export interface StreamChunkTokenEstimateCalibration {
+  readonly type: 'token-estimate-calibration';
+  readonly value: TokenEstimateCalibrationSample;
+}
 export interface StreamChunkToolApprovalRequired extends AssistantToolApprovalRequest {
   type: 'tool-approval-required';
 }
@@ -406,6 +501,8 @@ export type StreamChunk =
   | StreamChunkRunEvent
   | StreamChunkShellOutput
   | StreamChunkText
+  | StreamChunkTokenEstimateCalibration
+  | StreamChunkToolCallTelemetry
   | StreamChunkTool
   | StreamChunkToolApprovalRequired
   | StreamChunkToolSuspendRequired

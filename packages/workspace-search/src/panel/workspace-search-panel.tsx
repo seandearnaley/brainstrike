@@ -189,7 +189,11 @@ export function WorkspaceSearchPanel({
         {status === 'error' ? (
           <div className="p-2">
             <div className="flex flex-col gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3">
-              <p className="flex items-center gap-2 text-destructive text-sm" role="alert">
+              <p
+                className="flex items-center gap-2 text-destructive text-sm"
+                data-testid="workspace-search-results-error"
+                role="alert"
+              >
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 {error ?? 'Search failed'}
               </p>

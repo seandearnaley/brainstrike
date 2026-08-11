@@ -1,6 +1,5 @@
+import type { AssistantMemoryThread, ThreadListView } from '@brainstrike/assistant-data';
 import { describe, expect, it } from 'vitest';
-import type { AssistantMemoryThread } from '../assistant-memory-repository';
-import type { ThreadListView } from '../thread-list-sections';
 import {
   resolveThreadPanelContentState,
   type ThreadPanelLoadState,

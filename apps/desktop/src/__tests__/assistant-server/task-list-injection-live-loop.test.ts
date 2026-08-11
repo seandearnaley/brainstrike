@@ -23,7 +23,10 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { app } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleAssistantRequest } from '../../assistant-server';
-import { writeThreadTaskList } from '../../assistant-server/task-list-repository';
+import {
+  type TaskListDatabase,
+  writeThreadTaskList,
+} from '../../assistant-server/task-list-repository';
 
 let capturedInstructions: string | undefined;
 
@@ -106,7 +109,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
     sanitizeAssistantRunEventMetadata: vi.fn((metadata) => metadata),
     toAiSdkStyleStream: vi.fn(async (_messages: unknown, runtime?: RuntimeData) => {
       const runtimeResult = await actual.createMastraAgentRuntime({ runtime });
-      capturedInstructions = runtimeResult.agent.getInstructions();
+      const instructions = await runtimeResult.agent.getInstructions();
+      if (typeof instructions !== 'string') {
+        throw new Error('expected string agent instructions');
+      }
+      capturedInstructions = instructions;
       await runtimeResult.dispose();
       return {
         async *[Symbol.asyncIterator]() {
@@ -170,7 +177,7 @@ class MockRequest extends Readable {
     this.payload = input.body;
   }
 
-  _read(): void {
+  override _read(): void {
     if (this.payload !== undefined) {
       this.push(this.payload);
     }
@@ -281,7 +288,7 @@ describe('task-list read→inject seam', () => {
   });
 
   it('threads a persisted task list into the REAL built instructions for a hosted provider', async () => {
-    await writeThreadTaskList(mockDesktopDatabase, {
+    await writeThreadTaskList(mockDesktopDatabase as unknown as TaskListDatabase, {
       resourceId: 'workspace-a',
       tasks: [
         {

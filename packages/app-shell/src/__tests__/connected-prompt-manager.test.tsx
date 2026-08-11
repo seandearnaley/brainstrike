@@ -1,11 +1,10 @@
 import '@testing-library/jest-dom/vitest';
+import { useAssistantThreadStore, WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import type { PromptItem } from '@brainstrike/db';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '../assistant-memory-resource';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { ConnectedPromptManager } from '../connected-prompt-manager';
 
 const testItem: PromptItem = {
@@ -140,11 +139,11 @@ vi.mock('@brainstrike/db-explorer/embedding-models', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),
 }));
 
-vi.mock('@brainstrike/preferences/stores/assistant-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', () => ({
   useAssistantPreferencesStore: (
     selector: (state: {
       getAvailableProviders: typeof mocks.getAvailableProviders;
@@ -188,7 +187,7 @@ const registryState = {
   ],
 };
 
-vi.mock('@brainstrike/preferences/stores/model-registry-store', () => ({
+vi.mock('@brainstrike/app-state/stores/model-registry-store', () => ({
   useModelRegistryStore: (selector?: (state: typeof registryState) => unknown) =>
     selector ? selector(registryState) : registryState,
 }));
@@ -197,12 +196,16 @@ vi.mock('@brainstrike/vector-management', () => ({
   useSharedSearchEmbedder: () => mocks.sharedEmbedder,
 }));
 
-vi.mock('../assistant-memory-repository', () => ({
-  createPgliteAssistantThreadRepository: () => ({
-    createThread: mocks.createThread,
-    renameThread: mocks.renameThread,
-  }),
-}));
+vi.mock('@brainstrike/assistant-data', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/assistant-data')>();
+  return {
+    ...actual,
+    createPgliteAssistantThreadRepository: () => ({
+      createThread: mocks.createThread,
+      renameThread: mocks.renameThread,
+    }),
+  };
+});
 
 vi.mock('../prompt-library-embedding', async () => {
   const actual = await vi.importActual<typeof import('../prompt-library-embedding')>(

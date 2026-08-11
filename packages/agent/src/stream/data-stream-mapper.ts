@@ -1,3 +1,8 @@
+import {
+  findLlmModelDefinition,
+  type OpenAiReasoningEffort,
+  type ProviderId,
+} from '@brainstrike/assistant-contract';
 import { CONTEXT_BREAKDOWN_DATA_NAME } from '@brainstrike/assistant-contract/context-breakdown';
 import { CHILD_RUN_USAGE_DATA_NAME } from '@brainstrike/assistant-contract/run-usage';
 import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract/shell-output';
@@ -64,6 +69,12 @@ export interface DataStreamTerminalOutcome {
   readonly status: 'completed' | 'failed';
 }
 
+export interface OutputLimitContext {
+  readonly model?: string;
+  readonly provider?: ProviderId;
+  readonly reasoningEffort?: OpenAiReasoningEffort;
+}
+
 const RUN_FAILURE_VISIBLE_PREFIX = "I couldn't complete the assistant response:";
 const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop signal.';
 /**
@@ -72,6 +83,9 @@ const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop 
  * through to `completed` merely because no message was attached.
  */
 const ERROR_FINISH_FALLBACK_TEXT = 'Assistant run failed.';
+const GENERIC_OUTPUT_LIMIT_MESSAGE =
+  'Assistant stopped because the model reached its output token limit before completing the response.';
+const KIMI_K3_OPENROUTER_MODEL_ID = 'moonshotai/kimi-k3';
 const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action because it failed:";
 const TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX =
   "I couldn't complete some tool actions because they failed:";
@@ -204,10 +218,13 @@ function resolveFinishReason(
   }
 }
 
-function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefined {
+function getAbnormalFinishMessage(
+  reason: StreamFinishReason,
+  outputLimitContext?: OutputLimitContext
+): string | undefined {
   switch (reason) {
     case 'length':
-      return 'Assistant stopped because the model reached its output token limit before completing the response.';
+      return getKimiK3OutputLimitMessage(outputLimitContext) ?? GENERIC_OUTPUT_LIMIT_MESSAGE;
     case 'content-filter':
       return 'Assistant stopped because the provider content filter ended the response.';
     case 'other':
@@ -223,6 +240,22 @@ function getAbnormalFinishMessage(reason: StreamFinishReason): string | undefine
     default:
       return;
   }
+}
+
+function getKimiK3OutputLimitMessage(context?: OutputLimitContext): string | undefined {
+  if (
+    context?.provider !== 'openrouter' ||
+    context.model !== KIMI_K3_OPENROUTER_MODEL_ID ||
+    (context.reasoningEffort !== 'high' && context.reasoningEffort !== 'max')
+  ) {
+    return;
+  }
+  const model = findLlmModelDefinition('openrouter', context.model);
+  if (!model?.reasoning?.supportedEfforts?.includes('low')) {
+    return;
+  }
+  const modelLabel = model.label?.replace(/\s+\(OpenRouter\)$/u, '') ?? 'Kimi K3';
+  return `Assistant stopped because ${modelLabel} reached its output token limit before completing the response. Retry with reasoning effort set to Low or Auto.`;
 }
 
 function toProtocolFinishReason(
@@ -286,6 +319,7 @@ function toArgsObject(value: unknown, fallbackText?: string): unknown {
 
 export class DataStreamMapper {
   private readonly messageId: string;
+  private readonly outputLimitContext: OutputLimitContext | undefined;
   private readonly toolState = new Map<string, ToolState>();
   /**
    * Tool calls whose result/error already settled on the wire. Late events for
@@ -341,8 +375,9 @@ export class DataStreamMapper {
   private openArgsCallId: string | null = null;
   private pendingRunEventChunks: EncodedChunk[] = [];
 
-  constructor(messageId: string) {
+  constructor(messageId: string, outputLimitContext?: OutputLimitContext) {
     this.messageId = messageId;
+    this.outputLimitContext = outputLimitContext;
   }
 
   initialChunks(): EncodedChunk[] {
@@ -372,6 +407,14 @@ export class DataStreamMapper {
         return;
       case 'child-run-usage':
         yield* this.handleChildRunUsage(chunk);
+        return;
+      case 'tool-call-telemetry':
+        // Internal desktop persistence payload. A run without a durable run id
+        // has no writer wrapper, so never expose it to the renderer.
+        return;
+      case 'token-estimate-calibration':
+        // Internal desktop persistence payload. A run without a durable run id
+        // has no writer wrapper, so never expose it to the renderer.
         return;
       case 'tool-event':
         yield* this.handleToolEvent(chunk);
@@ -1082,7 +1125,7 @@ export class DataStreamMapper {
     yield* this.closeOpenArgsStreamIfNeeded();
     const usage = extractFinishUsage(chunk);
     const finishReason = resolveFinishReason(chunk);
-    const abnormalFinishMessage = getAbnormalFinishMessage(finishReason);
+    const abnormalFinishMessage = getAbnormalFinishMessage(finishReason, this.outputLimitContext);
     if (abnormalFinishMessage) {
       this.pendingRunErrorText = abnormalFinishMessage;
       this.terminalFailureText = abnormalFinishMessage;

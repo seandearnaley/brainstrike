@@ -130,17 +130,35 @@
       "@brainstrike/app-shell": [
         "../../packages/app-shell/src"
       ],
-      "@brainstrike/app-shell/assistant-memory-repository": [
-        "../../packages/app-shell/src/assistant-memory-repository.ts"
+      "@brainstrike/assistant-data": [
+        "../../packages/assistant-data/src"
+      ],
+      "@brainstrike/assistant-data/cost-tracking": [
+        "../../packages/assistant-data/src/cost-tracking/index.ts"
+      ],
+      "@brainstrike/assistant-data/assistant-thread-run-reaper": [
+        "../../packages/assistant-data/src/assistant-thread-run-reaper.ts"
+      ],
+      "@brainstrike/app-shell/changes/availability": [
+        "../../packages/app-shell/src/changes/availability.ts"
+      ],
+      "@brainstrike/app-shell/git-panel/availability": [
+        "../../packages/app-shell/src/git-panel/availability.ts"
+      ],
+      "@brainstrike/app-shell/platform-bridge": [
+        "../../packages/app-shell/src/platform-bridge.ts"
+      ],
+      "@brainstrike/app-shell/terminal-panel/availability": [
+        "../../packages/app-shell/src/terminal-panel/availability.ts"
+      ],
+      "@brainstrike/app-shell/user-commands-bridge": [
+        "../../packages/app-shell/src/user-commands-bridge.ts"
+      ],
+      "@brainstrike/notes-vault/desktop-contract": [
+        "../../packages/notes-vault/src/desktop/bridge-contract.ts"
       ],
       "@brainstrike/platform-utils": [
         "../../packages/platform-utils/src"
-      ],
-      "@brainstrike/preferences": [
-        "../../packages/preferences/src"
-      ],
-      "@brainstrike/preferences/*": [
-        "../../packages/preferences/src/*"
       ],
       "@brainstrike/embeddings": [
         "../../packages/embeddings/src"
@@ -165,14 +183,23 @@
     "node_modules",
     "dist",
     "e2e/**/*",
-    "playwright.config.ts",
+    "playwright.config.mts",
     "src/**/__tests__/**",
     "src/**/*.test.*",
     "src/**/*.spec.*"
   ],
   "references": [
     {
+      "path": "../../packages/app-state"
+    },
+    {
       "path": "../../packages/app-shell"
+    },
+    {
+      "path": "../../packages/assistant-data"
+    },
+    {
+      "path": "../../packages/assistant-ui"
     },
     {
       "path": "../../packages/db"
@@ -188,6 +215,9 @@
     },
     {
       "path": "../../packages/logging"
+    },
+    {
+      "path": "../../packages/settings-ui"
     },
     {
       "path": "../../packages/tokenization"

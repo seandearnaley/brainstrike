@@ -10,6 +10,7 @@ import {
   resumeDimensionIndexBuilds,
   suspendDimensionIndexBuilds,
 } from '@brainstrike/db';
+import { buildEmbedJobDedupeKey } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { canonicalizeProviderModelKey } from '@brainstrike/utils';
 import { isExpectedBackfillTeardown } from './desktop-shutdown-state';
@@ -86,6 +87,11 @@ interface BackfillBatchResult {
 interface QueueCapacitySnapshot {
   queued: number;
   running: number;
+  /**
+   * Consumer-liveness signal, read in the SAME round trip as the depth counts so
+   * the capacity wait never needs a second query to tell "slow" from "stopped".
+   */
+  succeeded: number;
 }
 
 type EmbeddingBackfillJobQueue = Pick<JobQueue, 'enqueueBatch' | 'repairUnclaimableQueued'>;
@@ -135,15 +141,33 @@ async function waitForQueueCapacity(
   assertCanContinue?: () => void | Promise<void>,
   observeMaintenance?: () => void | Promise<void>
 ): Promise<number> {
-  const startedAt = now();
+  const waitStartedAt = now();
+  // The deadline measures CONSUMER LIVENESS, not total wait. Queue depth can only
+  // fall when the embedding worker settles a job, and this loop neither owns nor
+  // paces that worker — so a fixed wall-clock budget fails a perfectly healthy
+  // backfill purely because the collection is large or the worker is throttled.
+  // Every settled job (succeeded or failed) restarts the clock; the deadline is
+  // only reached when the consumer has settled NOTHING for `timeoutMs`, which is
+  // the one condition this loop can never resolve by waiting longer.
+  let deadlineStartedAt = waitStartedAt;
+  let lastSucceeded: number | null = null;
   let pollCount = 0;
   const throwTimeout = async (): Promise<never> => {
     const backlog = await getEmbeddingSetQueueCounts(db, embeddingSetId);
     throw new Error(
       `Backfill timed out while waiting for queue capacity below ${maxQueueDepth} jobs ` +
-        `(queued=${backlog.queued}, running=${backlog.running}, failed=${backlog.failed}, succeeded=${backlog.succeeded}).`
+        `(queued=${backlog.queued}, running=${backlog.running}, failed=${backlog.failed}, succeeded=${backlog.succeeded}). ` +
+        `The embedding worker completed no jobs for ${timeoutMs}ms, so queue depth cannot fall — ` +
+        'check that the embedding runtime is running and not paused by foreground pressure.'
     );
   };
+  const observeConsumerProgress = (succeeded: number): void => {
+    if (lastSucceeded !== null && succeeded > lastSucceeded) {
+      deadlineStartedAt = now();
+    }
+    lastSucceeded = succeeded;
+  };
+  const hasExpired = (): boolean => now() - deadlineStartedAt >= timeoutMs;
   while (true) {
     await assertCanContinue?.();
     const backlog = await getEmbeddingSetCapacitySnapshot(db, embeddingSetId);
@@ -153,7 +177,7 @@ async function waitForQueueCapacity(
       if (pollCount > 1) {
         logger.info('Backfill queue capacity wait completed', {
           capacity,
-          durationMs: now() - startedAt,
+          durationMs: now() - waitStartedAt,
           embeddingSetId,
           maxQueueDepth,
           pollCount,
@@ -163,11 +187,12 @@ async function waitForQueueCapacity(
       }
       return capacity;
     }
-    if (now() - startedAt >= timeoutMs) {
+    observeConsumerProgress(backlog.succeeded);
+    if (hasExpired()) {
       return throwTimeout();
     }
     await observeMaintenance?.();
-    if (now() - startedAt >= timeoutMs) {
+    if (hasExpired()) {
       return throwTimeout();
     }
     await sleep(backlogPollMs);
@@ -275,10 +300,12 @@ async function getEmbeddingSetCapacitySnapshot(
   const result = await db.query<{
     queued: number | string | null;
     running: number | string | null;
+    succeeded: number | string | null;
   }>(
     `SELECT
        COUNT(*) FILTER (WHERE state = 'queued')::int AS queued,
-       COUNT(*) FILTER (WHERE state = 'running')::int AS running
+       COUNT(*) FILTER (WHERE state = 'running')::int AS running,
+       COUNT(*) FILTER (WHERE state = 'succeeded')::int AS succeeded
      FROM job_queue
      WHERE queue = $1
        AND job_type = 'embed_chunk'
@@ -289,6 +316,7 @@ async function getEmbeddingSetCapacitySnapshot(
   return {
     queued: Number(row?.queued ?? 0),
     running: Number(row?.running ?? 0),
+    succeeded: Number(row?.succeeded ?? 0),
   };
 }
 
@@ -933,7 +961,7 @@ async function enqueueEmbeddingChunkJobsBatch(
 
   const jobs = await jobQueue.enqueueBatch(
     batch.map((row) => ({
-      dedupeKey: `${row.id}:${embeddingSetId}:${row.contentHash}`,
+      dedupeKey: buildEmbedJobDedupeKey(row.id, embeddingSetId, row.contentHash),
       jobType: 'embed_chunk' as const,
       maxAttempts: 5,
       payload: {

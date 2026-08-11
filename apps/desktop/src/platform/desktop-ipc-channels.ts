@@ -9,8 +9,38 @@ export const DESKTOP_IPC_CHANNELS = {
     workspaceContextTapestryUpdate: 'assistant:workspace-context-tapestry-update',
   },
   assistantCheckpoint: {
+    availability: 'assistant-checkpoint:availability',
     revertEntry: 'assistant-checkpoint:revert-entry',
     revertRun: 'assistant-checkpoint:revert-run',
+  },
+  // Embedded browser pane (BST-1174). Invoke channels drive the main-process
+  // BrowserViewManager; `tabsChanged` is a one-way main→renderer push (like
+  // changes.invalidated) and is NEVER registered on the invoke registry.
+  browser: {
+    closeTab: 'browser:closeTab',
+    createTab: 'browser:createTab',
+    goBack: 'browser:goBack',
+    goForward: 'browser:goForward',
+    listTabs: 'browser:listTabs',
+    navigate: 'browser:navigate',
+    reload: 'browser:reload',
+    selectTab: 'browser:selectTab',
+    setBounds: 'browser:setBounds',
+    setOccluded: 'browser:setOccluded',
+    tabsChanged: 'browser:tabsChanged',
+  },
+  changes: {
+    applyRewind: 'changes:applyRewind',
+    fileDiff: 'changes:fileDiff',
+    finalizeRewinds: 'changes:finalizeRewinds',
+    // One-way main→renderer push (BST-1161, spec §6): the git-metadata
+    // watcher observed external git activity on a repository. NOT an
+    // ipcMain.handle channel — never registered on the registry.
+    invalidated: 'changes:invalidated',
+    inventory: 'changes:inventory',
+    redoRewind: 'changes:redoRewind',
+    resolveView: 'changes:resolveView',
+    rewindPreview: 'changes:rewindPreview',
   },
   clipboard: {
     writeText: 'clipboard:write-text',
@@ -52,6 +82,9 @@ export const DESKTOP_IPC_CHANNELS = {
   diagnostics: {
     getSnapshot: 'desktop-diagnostics:get-snapshot',
   },
+  fileExports: {
+    saveToDownloads: 'file-exports:save-to-downloads',
+  },
   files: {
     addRoot: 'fs:addRoot',
     exists: 'fs:exists',
@@ -74,7 +107,6 @@ export const DESKTOP_IPC_CHANNELS = {
   git: {
     aheadBehind: 'git:aheadBehind',
     commit: 'git:commit',
-    commitDiff: 'git:commitDiff',
     commitFiles: 'git:commitFiles',
     diff: 'git:diff',
     fetch: 'git:fetch',
@@ -84,6 +116,7 @@ export const DESKTOP_IPC_CHANNELS = {
     repository: 'git:repository',
     stage: 'git:stage',
     status: 'git:status',
+    structuredFileDiff: 'git:structuredFileDiff',
     switchBranch: 'git:switchBranch',
     unstage: 'git:unstage',
   },

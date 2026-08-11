@@ -21,7 +21,14 @@ function readMonotonicEpochTime(): number {
   return timeOrigin + elapsedMs;
 }
 
-export type RendererDiagnosticSurface = 'explorer' | 'git' | 'notes' | 'settings' | 'terminal';
+export type RendererDiagnosticSurface =
+  | 'browser'
+  | 'changes'
+  | 'explorer'
+  | 'git'
+  | 'notes'
+  | 'settings'
+  | 'terminal';
 
 export interface RendererLongTaskContext {
   /** Null means the app has no authoritative feature-flag source to provide. */

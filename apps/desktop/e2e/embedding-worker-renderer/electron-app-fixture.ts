@@ -1,19 +1,27 @@
 import net from 'node:net';
-import type { Locator, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
-import { expect } from '../fixtures/electron-fixture';
+import { resolveDesktopDevRendererConfig } from '../../src/desktop-renderer-config';
 import { loadElectronHelpers } from '../utils/load-electron-helpers';
 
 export { default as os } from 'node:os';
 export { default as path } from 'node:path';
 export type { Locator, Page } from '@playwright/test';
 export type { ElectronApplication } from 'playwright';
-export {
-  DESKTOP_DEV_RENDERER_PORT,
-  DESKTOP_DEV_RENDERER_URL,
-} from '../../src/desktop-renderer-url';
 export { expect, test } from '../fixtures/electron-fixture';
 export { showDatabaseDemoPanel } from '../utils/layout-helpers';
+
+const desktopDevRendererConfig = resolveDesktopDevRendererConfig(
+  process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']
+);
+if (desktopDevRendererConfig.kind === 'invalid-override') {
+  throw new Error(
+    `Invalid BRAINSTRIKE_DESKTOP_DEV_SERVER_URL override: ${desktopDevRendererConfig.configuredUrl}`
+  );
+}
+
+export const DESKTOP_DEV_RENDERER_PORT = desktopDevRendererConfig.port;
+export const DESKTOP_DEV_RENDERER_URL = desktopDevRendererConfig.url;
 
 export async function getBufferedElectronOutputInTest(
   app: ElectronApplication
@@ -49,19 +57,6 @@ export async function reloadRendererInTest(page: Page, reason: string): Promise<
 export async function waitForAppReadyInTest(page: Page): Promise<void> {
   const { waitForAppReady } = await loadElectronHelpers();
   await waitForAppReady(page);
-}
-
-export async function getHybridSearchBox(page: Page): Promise<Locator> {
-  const toggle = page.getByRole('button', { name: 'Hybrid search' });
-  await expect(toggle).toBeVisible({ timeout: 15_000 });
-
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
-    await toggle.click();
-  }
-
-  const searchBox = page.getByLabel('Hybrid search query');
-  await expect(searchBox).toBeVisible({ timeout: 15_000 });
-  return searchBox;
 }
 
 export function isDisposedElectronEvaluateError(error: unknown): error is Error {

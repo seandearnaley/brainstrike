@@ -1,5 +1,10 @@
 import type {
   AssistantPersonasListResult,
+  AssistantRewindFinalization,
+  AssistantRewindMode,
+  AssistantRewindPreviewResult,
+  AssistantRewindRedoResult,
+  AssistantRewindResult,
   SkillsScanResultSummary,
   UserSlashCommandsListResult,
 } from '@brainstrike/assistant-contract';
@@ -15,6 +20,8 @@ import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
+  Changeset,
+  ChangesetView,
   DatabaseWorkOptions,
   ElectronChunkInsert,
   ElectronInsertChunksAndEnqueueEmbeddingJobsOptions,
@@ -24,12 +31,15 @@ import type {
   GitDiff,
   GitDiffParams,
   GitHistoryPage,
+  GitInventory,
   GitPushPullResult,
   GitRepository,
   GitResult,
   GitStatus,
   GitSwitchBranchResult,
   IFileNode,
+  StructuredFileDiff,
+  StructuredFileDiffParams,
 } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
@@ -104,6 +114,102 @@ declare global {
      */
     assistantPersonas?: {
       list: () => Promise<AssistantPersonasListResult>;
+    };
+    /**
+     * Embedded browser pane bridge (BST-1174). Desktop-only; absent on web.
+     * MUST stay in sync with `BrowserBridge` in
+     * `@brainstrike/app-shell` `browser-pane/browser-bridge.ts` — a method
+     * present on one side only disables the whole pane surface via
+     * `resolveBrowserBridge()`.
+     */
+    browser?: {
+      createTab: (url?: string) => Promise<string>;
+      closeTab: (tabId: string) => Promise<void>;
+      selectTab: (tabId: string) => Promise<void>;
+      navigate: (tabId: string, url: string) => Promise<void>;
+      goBack: (tabId: string) => Promise<void>;
+      goForward: (tabId: string) => Promise<void>;
+      reload: (tabId: string) => Promise<void>;
+      setBounds: (rect: { height: number; width: number; x: number; y: number }) => Promise<void>;
+      setOccluded: (occluded: boolean) => Promise<void>;
+      listTabs: () => Promise<
+        ReadonlyArray<{
+          active: boolean;
+          canGoBack: boolean;
+          canGoForward: boolean;
+          tabId: string;
+          title: string;
+          url: string;
+        }>
+      >;
+      /** One-way main→renderer tab-state pushes. Returns unsubscribe. */
+      onTabsChanged: (
+        listener: (
+          tabs: ReadonlyArray<{
+            active: boolean;
+            canGoBack: boolean;
+            canGoForward: boolean;
+            tabId: string;
+            title: string;
+            url: string;
+          }>
+        ) => void
+      ) => () => void;
+    };
+    /**
+     * Desktop-only changeset diff bridge (BST-1113/BST-1114). Resolves any
+     * `Changeset` (agent-run / run-range / git-scope) to an eager
+     * `ChangesetView` and loads per-file `StructuredFileDiff`s lazily.
+     * Absent on web (no preload) — consumers MUST capability-check
+     * `window.changes` rather than `isElectron()`.
+     *
+     * ⚠️ MUST stay in sync with `ChangesBridge` in
+     * `packages/app-shell/src/changes/changes-bridge.ts` (the ambient module
+     * shims in `app-shell-shims.d.ts` keep this file from importing the type
+     * directly). `resolveChangesBridge()` rejects a bridge missing any
+     * method, so a method declared here but absent from the preload — or vice
+     * versa — disables the Changes surface at runtime.
+     */
+    changes?: {
+      /** Conversation Rewind: apply (BST-1115 W5 T4). */
+      applyRewind: (payload: {
+        acknowledgeConflicts?: boolean;
+        messageId: string;
+        mode: AssistantRewindMode;
+        threadId: string;
+      }) => Promise<GitResult<AssistantRewindResult>>;
+      fileDiff: (
+        rootId: string,
+        changeset: Changeset,
+        path: string
+      ) => Promise<GitResult<StructuredFileDiff>>;
+      /**
+       * Conversation Rewind: end the redo window for a thread (W5 T4b). Fired
+       * when a USER-authored message starts a new run. `value.finalized ===
+       * false` means the thread had no outstanding rewind — the ordinary case,
+       * not a failure.
+       */
+      finalizeRewinds: (payload: {
+        threadId: string;
+      }) => Promise<GitResult<AssistantRewindFinalization>>;
+      inventory: () => Promise<GitResult<GitInventory>>;
+      /**
+       * Live-refresh push subscription (BST-1161, spec §6): external git
+       * activity on a repository. Returns the unsubscribe function.
+       */
+      onInvalidated: (
+        callback: (event: import('@brainstrike/types').ChangesInvalidationEvent) => void
+      ) => () => void;
+      /** Conversation Rewind: undo the newest rewind, one level, until finalization. */
+      redoRewind: (payload: {
+        acknowledgeConflicts?: boolean;
+        rewindId: string;
+      }) => Promise<GitResult<AssistantRewindRedoResult>>;
+      resolveView: (rootId: string, changeset: Changeset) => Promise<GitResult<ChangesetView>>;
+      /** Conversation Rewind: pre-apply preview (range, tombstones, conflicts, view). */
+      rewindPreview: (
+        payload: { threadId: string } & ({ messageId: string } | { runId: string })
+      ) => Promise<GitResult<AssistantRewindPreviewResult>>;
     };
     chunkingHost: {
       ensureStarted: () => Promise<ChunkingHostStatus>;
@@ -235,11 +341,31 @@ declare global {
       reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
     };
     /**
+     * Desktop-only file-export save bridge. Absent on web (no preload) —
+     * consumers MUST capability-check `window.fileExports` (which
+     * `@brainstrike/utils`'s `downloadBlobFile` does; call sites should go
+     * through it rather than this bridge directly). Saves export bytes into
+     * the OS Downloads folder from MAIN, bypassing Chromium's fragile
+     * blob-download pipeline. Never overwrites: collisions get a ` (n)`
+     * counter. Resolves a structured result (never throws across IPC).
+     */
+    fileExports?: {
+      saveToDownloads: (payload: { bytes: Uint8Array; filename: string }) => Promise<{
+        error?: string;
+        ok: boolean;
+        path?: string;
+      }>;
+    };
+    /**
      * Desktop-only git bridge. Absent on web (no preload) — consumers MUST
      * capability-check `window.git` rather than `isElectron()`. Every call takes
      * the durable workspace `rootId`; main resolves + containment-checks it to an
      * absolute cwd and runs git via execFile (no shell). Each method resolves to
      * a structured `GitResult` (never throws across IPC).
+     *
+     * ⚠️ MUST stay in sync with `GitBridge` in
+     * `packages/app-shell/src/git-panel/git-bridge.ts`; `resolveGitBridge()`
+     * rejects a bridge missing any method.
      */
     git?: {
       status: (rootId: string) => Promise<GitResult<GitStatus>>;
@@ -250,10 +376,6 @@ declare global {
         rootId: string,
         params: { description?: string; summary: string }
       ) => Promise<GitResult<GitCommitResult>>;
-      commitDiff: (
-        rootId: string,
-        params: { commit: string; originalPath?: string; path: string }
-      ) => Promise<GitResult<GitDiff>>;
       commitFiles: (
         rootId: string,
         params: { commit: string }
@@ -267,6 +389,10 @@ declare global {
       push: (rootId: string, params?: { remote?: string }) => Promise<GitResult<GitPushPullResult>>;
       pull: (rootId: string) => Promise<GitResult<GitPushPullResult>>;
       repository: (rootId: string) => Promise<GitResult<GitRepository>>;
+      structuredFileDiff: (
+        rootId: string,
+        params: StructuredFileDiffParams
+      ) => Promise<GitResult<StructuredFileDiff>>;
       switchBranch: (
         rootId: string,
         params: { branch: string }
@@ -404,6 +530,17 @@ declare global {
       unwatch: (watchId: string) => Promise<NotesVaultResult<null>>;
       onChanged: (callback: (event: NotesVaultChangedEvent) => void) => () => void;
     };
+    /**
+     * OS shell integration bridge. Absent on web (no preload) — consumers MUST
+     * capability-check `window.platform`.
+     *
+     * ⚠️ MUST stay in sync with `PlatformBridge` in
+     * `packages/app-shell/src/platform-bridge.ts` (the ambient module shims in
+     * `app-shell-shims.d.ts` keep this file from importing the type directly).
+     * `resolvePlatformBridge()` rejects a bridge missing any method, so a
+     * method declared here but absent from the preload — or vice versa —
+     * disables shell actions AND markdown preview at runtime.
+     */
     platform?: {
       openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
       openPath: (absolutePath: string) => Promise<{ ok: boolean; error?: string }>;
@@ -442,6 +579,11 @@ declare global {
      * consumers MUST capability-check `window.skills`. The Settings → Skills
      * panel and the composer's "/" menu call `scan` to list every skill
      * discovered across `.brainstrike/skills` + `.claude/skills`.
+     *
+     * ⚠️ MUST stay in sync with `SkillsBridge` in
+     * `packages/assistant-contract/src/skills-bridge.ts` (shared by app-shell
+     * and settings-ui); `resolveSkillsBridge()` rejects a bridge missing any
+     * method.
      */
     skills?: {
       scan: () => Promise<SkillsScanResultSummary>;
@@ -505,6 +647,10 @@ declare global {
      * (no preload) — consumers MUST capability-check `window.userCommands`. The
      * composer's "/" menu calls `list` to load prompt-template commands scanned
      * from `.brainstrike/commands` + `.claude/commands`.
+     *
+     * ⚠️ MUST stay in sync with `UserCommandsBridge` in
+     * `packages/app-shell/src/user-commands-bridge.ts`;
+     * `resolveUserCommandsBridge()` rejects a bridge missing any method.
      */
     userCommands?: {
       list: () => Promise<UserSlashCommandsListResult>;

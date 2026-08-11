@@ -1,3 +1,4 @@
+import type { ExplorerSortState } from '@brainstrike/app-state/stores/explorer-sort-state-store';
 import { resolveQuerySelection } from '@brainstrike/file-explorer';
 import { memoizedFileExplorer as fileExplorer } from '@brainstrike/file-explorer/file-tree';
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
@@ -5,6 +6,7 @@ import type { FlattenedNode } from '@brainstrike/file-tree-worker';
 import { isDescendantPath } from '@brainstrike/file-tree-worker';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import type { TreeNode } from '@brainstrike/ui';
+import { fileNodeCollator } from '@brainstrike/utils/collator';
 import {
   hasNormalizedIncompleteDescendants,
   materializeNormalizedNodeStable,
@@ -52,12 +54,216 @@ export interface BuildFileTreeRowsOptions {
   loadingFiles: Set<string>;
   loadingPathForSelection?: string | null;
   loadingPaths?: Set<string>;
+  /** Present only for an explicit user sort; omitted for the loader's default order. */
+  sort?: FileTreeSortOptions;
+}
+
+export type FileTreeSortMetadataValue = number | 'excluded' | 'pending';
+
+export interface FileTreeSortMetadata {
+  size: FileTreeSortMetadataValue;
+  tokens: FileTreeSortMetadataValue;
+  type: string;
+}
+
+export interface FileTreeSortOptions {
+  getMetadata: (node: IFileNode) => FileTreeSortMetadata;
+  /**
+   * The metadata store's per-root revision at the time these options were
+   * built. Never read by the sort — it exists so the caller's memo depends on
+   * it through a real value instead of a discarded expression, which is what
+   * makes "re-sort when a count lands" survive a lint autofix.
+   */
+  metadataRevision?: number;
+  state: ExplorerSortState;
 }
 
 interface StackEntry {
   depth: number;
   node: IFileNode;
   parentId: string | null;
+}
+
+function compareDirectoryKind(a: IFileNode, b: IFileNode): number {
+  if (a.type === b.type) {
+    return 0;
+  }
+  if (a.type === 'directory') {
+    return -1;
+  }
+  if (b.type === 'directory') {
+    return 1;
+  }
+  return 0;
+}
+
+function compareNumericMetadata(
+  a: FileTreeSortMetadataValue,
+  b: FileTreeSortMetadataValue,
+  direction: ExplorerSortState['direction']
+): number {
+  const aIsResolved = typeof a === 'number';
+  const bIsResolved = typeof b === 'number';
+  // Pending and excluded are ABSENT, never zero. Resolved values always sort
+  // before absent values in BOTH directions; coercing absence to 0 would put
+  // unknown counts first in ascending order and misrepresent them as real.
+  if (aIsResolved !== bIsResolved) {
+    return aIsResolved ? -1 : 1;
+  }
+  if (!(aIsResolved && bIsResolved)) {
+    return 0;
+  }
+  const comparison = a - b;
+  return direction === 'desc' ? -comparison : comparison;
+}
+
+/**
+ * Compare one pair of siblings from ALREADY-READ metadata. Directories-first is
+ * invariant; direction applies only to the selected key, then locale-aware name
+ * order breaks ties.
+ *
+ * The metadata is a parameter rather than a seam read because the seam read is
+ * the expensive part (a composite-key string allocation plus a store lookup)
+ * and a comparison-time read pays it O(n log n) times. Callers precompute once
+ * per node — see `sortRowsPerDirectory`.
+ *
+ * `aMetadata`/`bMetadata` are null only for `field === 'name'`, which needs no
+ * metadata at all.
+ */
+function compareFileTreeSiblingsWithMetadata(
+  a: IFileNode,
+  b: IFileNode,
+  aMetadata: FileTreeSortMetadata | null,
+  bMetadata: FileTreeSortMetadata | null,
+  state: ExplorerSortState
+): number {
+  const directoryKind = compareDirectoryKind(a, b);
+  if (directoryKind !== 0) {
+    return directoryKind;
+  }
+
+  const { direction, field } = state;
+  let primary = 0;
+  let directionIsApplied = false;
+  if (field === 'name') {
+    primary = fileNodeCollator.compare(a.name, b.name);
+  } else {
+    if (!(aMetadata && bMetadata)) {
+      throw new Error(`Explorer sort field "${field}" requires precomputed row metadata`);
+    }
+    if (field === 'type') {
+      primary = fileNodeCollator.compare(aMetadata.type, bMetadata.type);
+    } else {
+      primary = compareNumericMetadata(aMetadata[field], bMetadata[field], direction);
+      directionIsApplied = true;
+    }
+  }
+
+  if (primary !== 0) {
+    return direction === 'desc' && !directionIsApplied ? -primary : primary;
+  }
+  return fileNodeCollator.compare(a.name, b.name);
+}
+
+/**
+ * Compare one pair of siblings, reading the metadata seam on demand. The
+ * single-pair entry point (tests, ad-hoc callers); row sorting goes through
+ * `sortRowsPerDirectory`, which precomputes instead.
+ */
+export function compareFileTreeSiblings(
+  a: IFileNode,
+  b: IFileNode,
+  sort: FileTreeSortOptions
+): number {
+  const needsMetadata = sort.state.field !== 'name';
+  return compareFileTreeSiblingsWithMetadata(
+    a,
+    b,
+    needsMetadata ? sort.getMetadata(a) : null,
+    needsMetadata ? sort.getMetadata(b) : null,
+    sort.state
+  );
+}
+
+/**
+ * Schwartzian transform: the seam read (composite-key allocation + store
+ * lookup, and for a directory a whole rollup) happens ONCE per row, not once
+ * per comparison. A 10k-row sort makes ~130k comparisons; reading inside the
+ * comparator made the seam, not the ordering, the cost of a sort change
+ * (BST-1209 review, important finding 3). Empty for a name sort, which reads
+ * no metadata at all.
+ */
+function readSortMetadataByRow(
+  rows: readonly TreeNode<FileTreeRowData>[],
+  sort: FileTreeSortOptions
+): Map<TreeNode<FileTreeRowData>, FileTreeSortMetadata> {
+  const metadataByRow = new Map<TreeNode<FileTreeRowData>, FileTreeSortMetadata>();
+  if (sort.state.field === 'name') {
+    return metadataByRow;
+  }
+  for (const row of rows) {
+    metadataByRow.set(row, sort.getMetadata(row.data.fileNode));
+  }
+  return metadataByRow;
+}
+
+/** Sort a pre-flattened DFS projection by siblings without moving descendants across parents. */
+function sortRowsPerDirectory(
+  rows: TreeNode<FileTreeRowData>[],
+  sort: FileTreeSortOptions | undefined
+): TreeNode<FileTreeRowData>[] {
+  if (!sort || rows.length < 2) {
+    return rows;
+  }
+
+  const metadataByRow = readSortMetadataByRow(rows, sort);
+  const childrenByParent = new Map<string | null, TreeNode<FileTreeRowData>[]>();
+  for (const row of rows) {
+    const siblings = childrenByParent.get(row.parentId);
+    if (siblings) {
+      siblings.push(row);
+    } else {
+      childrenByParent.set(row.parentId, [row]);
+    }
+  }
+
+  const sortSiblings = (siblings: TreeNode<FileTreeRowData>[]): TreeNode<FileTreeRowData>[] =>
+    [...siblings].sort((a, b) =>
+      compareFileTreeSiblingsWithMetadata(
+        a.data.fileNode,
+        b.data.fileNode,
+        metadataByRow.get(a) ?? null,
+        metadataByRow.get(b) ?? null,
+        sort.state
+      )
+    );
+  const ordered: TreeNode<FileTreeRowData>[] = [];
+  const stack = sortSiblings(childrenByParent.get(null) ?? []).reverse();
+  while (stack.length > 0) {
+    const row = stack.pop();
+    if (!row) {
+      continue;
+    }
+    ordered.push(row);
+    const children = childrenByParent.get(row.id);
+    if (!children) {
+      continue;
+    }
+    const sortedChildren = sortSiblings(children);
+    for (let index = sortedChildren.length - 1; index >= 0; index -= 1) {
+      const child = sortedChildren[index];
+      if (child) {
+        stack.push(child);
+      }
+    }
+  }
+
+  if (ordered.length !== rows.length) {
+    throw new Error(
+      `Cannot sort Explorer rows: projected ${ordered.length} of ${rows.length}; parent structure is incomplete`
+    );
+  }
+  return ordered;
 }
 
 export interface NodeSelectionState {
@@ -992,7 +1198,7 @@ export function buildRowsFromWorkerNodes(
     parentStack[depth] = fileNode.path;
   }
 
-  return rows;
+  return sortRowsPerDirectory(rows, options.sort);
 }
 
 function shouldIncludeNormalizedChildren(
@@ -1130,7 +1336,7 @@ export function buildRowsFromNormalizedTree(
     pushNormalizedChildrenOntoStack(stack, normalizedTree, entry.node, entry.depth, allowedPaths);
   }
 
-  return rows;
+  return sortRowsPerDirectory(rows, options.sort);
 }
 
 function createNormalizedRowData(
@@ -1227,6 +1433,19 @@ export function reuseEqualFileTreeRows(
 
 export interface FileTreeRowReuseCache {
   /**
+   * Monotonic counter that moves when the row SET or any row's CONTENT
+   * changed — and deliberately NOT when the same rows were merely reordered.
+   *
+   * This is the change signal for anything that must react to tree STRUCTURE
+   * (the metadata seam's rollup reconciliation, BST-1208). Row-array identity
+   * cannot serve that role once sorting exists: a sort reorders the array,
+   * a structural reconciliation clears rollups, cleared rollups bump the sort's
+   * metadata revision, and the row order flips back and forth once per
+   * macrotask forever (BST-1209 review, critical finding). A reorder reuses
+   * every previous row object, so it leaves this counter alone by construction.
+   */
+  getStructureRevision: () => number;
+  /**
    * Run the structural-sharing pass against the previous build and remember
    * the result. Returns the previous rows ARRAY (same identity) when every
    * row was reused in order, so downstream memos skip entirely on
@@ -1245,7 +1464,9 @@ export interface FileTreeRowReuseCache {
 export function createFileTreeRowReuseCache(): FileTreeRowReuseCache {
   let previousById: ReadonlyMap<string, TreeNode<FileTreeRowData>> = new Map();
   let previousRows: TreeNode<FileTreeRowData>[] = [];
+  let structureRevision = 0;
   return {
+    getStructureRevision: () => structureRevision,
     stabilize: (rows) => {
       const stabilized = reuseEqualFileTreeRows(previousById, rows);
       const next =
@@ -1254,6 +1475,16 @@ export function createFileTreeRowReuseCache(): FileTreeRowReuseCache {
           ? previousRows
           : stabilized;
       if (next !== previousRows) {
+        // A row object survives the reuse pass only when the previous build had
+        // the same id with value-equal content, and ids are unique — so "same
+        // length and every row came from the previous build" is exactly "the
+        // rows were permuted", the one case that must NOT count as structural.
+        const isReorderOnly =
+          next.length === previousRows.length &&
+          next.every((row) => previousById.get(row.id) === row);
+        if (!isReorderOnly) {
+          structureRevision += 1;
+        }
         previousById = new Map(next.map((row) => [row.id, row]));
         previousRows = next;
       }
@@ -1309,5 +1540,5 @@ export function buildFileTreeRows(
     addChildrenToStack(entry, stack, expandedDirectoryPaths);
   }
 
-  return rows;
+  return sortRowsPerDirectory(rows, options.sort);
 }

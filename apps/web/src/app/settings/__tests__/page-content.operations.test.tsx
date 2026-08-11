@@ -102,7 +102,7 @@ vi.mock('@brainstrike/app-shell/diagnostics', () => ({
   useDurableLogSource: () => undefined,
 }));
 
-vi.mock('@brainstrike/app-shell/cost-tracking', () => ({
+vi.mock('@brainstrike/app-shell/cost-tracking-settings', () => ({
   createCostTrackingSettingsCategory: (): MockSettingsCategory => ({
     content: <div data-testid="cost-tracking-category" />,
     id: 'cost-tracking',
@@ -141,9 +141,34 @@ vi.mock('@brainstrike/file-explorer-ui/indexing', () => ({
   useOptionalTokenCacheContext: () => null,
 }));
 
-vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal) => {
+vi.mock('@brainstrike/settings-ui/settings-page-content', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@brainstrike/preferences/settings-page-content')>();
+    await importOriginal<typeof import('@brainstrike/settings-ui/settings-page-content')>();
+  return {
+    ...actual,
+    SettingsPageContent: ({
+      categories,
+    }: {
+      categories: MockSettingsCategory[];
+      defaultCategoryId?: string;
+    }) => {
+      mockState.renderedCategoryIds = categories.map((category) => category.id);
+      return (
+        <div data-testid="settings-layout">
+          {categories.map((category) => (
+            <section data-testid={`category-${category.id}`} key={category.id}>
+              {category.content}
+            </section>
+          ))}
+        </div>
+      );
+    },
+  };
+});
+
+vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@brainstrike/settings-ui/settings-category-factories')>();
   return {
     ...actual,
     createAppearanceSettingsCategory: (): MockSettingsCategory => ({
@@ -166,27 +191,10 @@ vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal)
       id: 'token-counting',
       title: 'Token Counting',
     }),
-    SettingsPageContent: ({
-      categories,
-    }: {
-      categories: MockSettingsCategory[];
-      defaultCategoryId?: string;
-    }) => {
-      mockState.renderedCategoryIds = categories.map((category) => category.id);
-      return (
-        <div data-testid="settings-layout">
-          {categories.map((category) => (
-            <section data-testid={`category-${category.id}`} key={category.id}>
-              {category.content}
-            </section>
-          ))}
-        </div>
-      );
-    },
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/native-tool-preferences-store', () => ({
   useNativeToolPreferencesStore: {
     getState: () => ({
       isToolEnabled: (toolId: string) => mockState.nativeEnabledToolIds.has(toolId),
@@ -196,7 +204,7 @@ vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', () => (
   },
 }));
 
-vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
+vi.mock('@brainstrike/settings-ui/settings/tools/index', () => ({
   createToolsSettingsCategory: (options: CapturedToolsOptions): MockSettingsCategory => {
     mockState.capturedToolsOptions = options;
     return {
@@ -207,14 +215,14 @@ vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
   },
 }));
 
-vi.mock('@brainstrike/preferences/settings/system/logging-settings-section', () => ({
+vi.mock('@brainstrike/settings-ui/settings/system/logging-settings-section', () => ({
   LoggingSettingsSection: (props: CapturedLoggingProps) => {
     mockState.capturedLoggingProps = props;
     return <div data-testid="logging-settings-section" />;
   },
 }));
 
-vi.mock('@brainstrike/preferences/settings/models/model-selection-page', () => ({
+vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
   ModelSelectionPage: () => <div data-testid="model-selection-page" />,
 }));
 

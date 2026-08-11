@@ -2,74 +2,50 @@ import { createLogger } from '@brainstrike/logging';
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_TAPESTRY_SCALE, MAX_TAPESTRY_SCALE, MIN_TAPESTRY_SCALE } from '../tapestry/utils';
-import type { TableRowData } from '../utils/grouping-configs';
 import { GROUPING_CONFIGS } from '../utils/grouping-configs';
-import {
-  createDefaultColumnVisibility,
-  resolveColumnVisibility,
-} from './preview-column-visibility';
 import {
   inferPreviewFooterMode,
   PREVIEW_FOOTER_MODES,
   type PreviewFooterMode,
 } from './preview-footer-layout';
-import type { ColumnVisibility } from './use-preview-panel-persistence';
 
+/**
+ * Persisted preferences for the context preview surface.
+ *
+ * BST-1211 retired the Table View, and with it four stored keys: `activeTab`
+ * (there is only one surface now), `sortField` / `sortDirection` (the table
+ * headers were the only way to change them), `columnVisibility` (columns are
+ * an Explorer-grid concept) and `pageSize` (only the table's pagination bar
+ * offered a size selector). The storage key is deliberately unchanged: unknown
+ * keys are ignored on read and dropped on the next write, so a profile written
+ * by the old panel upgrades in place without a version bump — and without
+ * losing the grouping, collapse, footer and scale preferences it shares.
+ */
 const STORAGE_KEY = 'previewPanelPreferences.v1';
 const SAVE_DEBOUNCE_MS = 250;
 const logger = createLogger('PreviewPanelPreferences');
-const VALID_SORT_FIELDS = new Set<keyof TableRowData>([
-  'id',
-  'rootFolderId',
-  'path',
-  'type',
-  'size',
-  'tokens',
-  'compositeKey',
-]);
-const VALID_TABS = new Set(['table', 'tapestry']);
 const VALID_GROUPING_CONFIGS = new Set(Object.keys(GROUPING_CONFIGS));
-const COLUMN_VISIBILITY_KEYS = Object.keys(
-  createDefaultColumnVisibility()
-) as (keyof ColumnVisibility)[];
 const VALID_FOOTER_MODES = new Set<PreviewFooterMode>(PREVIEW_FOOTER_MODES);
 
-/** Default page size for preview panel pagination */
-export const DEFAULT_PAGE_SIZE = 50;
-const VALID_PAGE_SIZES = new Set([10, 25, 50, 100, 250, 500, 1000]);
-
 interface StoredPreferences {
-  activeTab?: string;
   collapsedGroups?: string[];
-  columnVisibility?: Partial<ColumnVisibility>;
   footerCollapsed?: boolean;
   footerHeight?: number;
   footerMode?: PreviewFooterMode;
   groupingConfig?: string;
-  pageSize?: number;
-  sortDirection?: 'asc' | 'desc';
-  sortField?: keyof TableRowData;
   tapestryScale?: number;
 }
 
 interface PreviewPanelPreferences {
-  activeTab: string;
   collapsedGroups: Set<string>;
-  columnVisibility: ColumnVisibility;
   footerMode: PreviewFooterMode;
   groupingConfig: string;
-  pageSize: number;
-  sortDirection: 'asc' | 'desc';
-  sortField: keyof TableRowData;
   tapestryScale: number;
 }
 
 interface PreviewPanelPreferencesDefaults {
-  activeTab: string;
   footerMode: PreviewFooterMode;
   groupingConfig: string;
-  sortDirection: 'asc' | 'desc';
-  sortField: keyof TableRowData;
 }
 
 function loadStoredPreferences(): StoredPreferences | null {
@@ -101,38 +77,6 @@ function migrateGroupingConfig(value: string): string {
   return value;
 }
 
-function sanitizeColumnVisibility(
-  value: StoredPreferences['columnVisibility']
-): StoredPreferences['columnVisibility'] {
-  if (!value || typeof value !== 'object') {
-    return;
-  }
-  const next: Partial<ColumnVisibility> = {};
-  for (const key of COLUMN_VISIBILITY_KEYS) {
-    const entry = value[key];
-    if (typeof entry === 'boolean') {
-      next[key] = entry;
-    }
-  }
-  return next;
-}
-
-function sanitizeSortField(value: StoredPreferences['sortField']): StoredPreferences['sortField'] {
-  if (value && VALID_SORT_FIELDS.has(value)) {
-    return value;
-  }
-  return;
-}
-
-function sanitizeSortDirection(
-  value: StoredPreferences['sortDirection']
-): StoredPreferences['sortDirection'] {
-  if (value === 'asc' || value === 'desc') {
-    return value;
-  }
-  return;
-}
-
 function sanitizeGroupingConfig(
   value: StoredPreferences['groupingConfig']
 ): StoredPreferences['groupingConfig'] {
@@ -146,13 +90,6 @@ function sanitizeGroupingConfig(
   return;
 }
 
-function sanitizeActiveTab(value: StoredPreferences['activeTab']): StoredPreferences['activeTab'] {
-  if (typeof value === 'string' && VALID_TABS.has(value)) {
-    return value;
-  }
-  return;
-}
-
 function sanitizeCollapsedGroups(
   value: StoredPreferences['collapsedGroups']
 ): StoredPreferences['collapsedGroups'] {
@@ -160,13 +97,6 @@ function sanitizeCollapsedGroups(
     return;
   }
   return value.filter((entry): entry is string => typeof entry === 'string');
-}
-
-function sanitizePageSize(value: StoredPreferences['pageSize']): StoredPreferences['pageSize'] {
-  if (typeof value === 'number' && VALID_PAGE_SIZES.has(value)) {
-    return value;
-  }
-  return;
 }
 
 function sanitizeTapestryScale(
@@ -208,33 +138,13 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
   }
 
   const sanitized: StoredPreferences = {};
-  const columnVisibility = sanitizeColumnVisibility(stored.columnVisibility);
-  if (columnVisibility) {
-    sanitized.columnVisibility = columnVisibility;
-  }
-  const sortField = sanitizeSortField(stored.sortField);
-  if (sortField !== undefined) {
-    sanitized.sortField = sortField;
-  }
-  const sortDirection = sanitizeSortDirection(stored.sortDirection);
-  if (sortDirection !== undefined) {
-    sanitized.sortDirection = sortDirection;
-  }
   const groupingConfig = sanitizeGroupingConfig(stored.groupingConfig);
   if (groupingConfig !== undefined) {
     sanitized.groupingConfig = groupingConfig;
   }
-  const activeTab = sanitizeActiveTab(stored.activeTab);
-  if (activeTab !== undefined) {
-    sanitized.activeTab = activeTab;
-  }
   const collapsedGroups = sanitizeCollapsedGroups(stored.collapsedGroups);
   if (collapsedGroups) {
     sanitized.collapsedGroups = collapsedGroups;
-  }
-  const pageSize = sanitizePageSize(stored.pageSize);
-  if (pageSize !== undefined) {
-    sanitized.pageSize = pageSize;
   }
   const tapestryScale = sanitizeTapestryScale(stored.tapestryScale);
   if (tapestryScale !== undefined) {
@@ -259,14 +169,9 @@ function isQuotaExceeded(error: unknown): boolean {
 }
 
 interface PreviewPanelPreferencesSetters {
-  setActiveTab: Dispatch<SetStateAction<string>>;
   setCollapsedGroups: Dispatch<SetStateAction<Set<string>>>;
-  setColumnVisibility: Dispatch<SetStateAction<ColumnVisibility>>;
   setFooterMode: Dispatch<SetStateAction<PreviewFooterMode>>;
   setGroupingConfig: Dispatch<SetStateAction<string>>;
-  setPageSize: Dispatch<SetStateAction<number>>;
-  setSortDirection: Dispatch<SetStateAction<'asc' | 'desc'>>;
-  setSortField: Dispatch<SetStateAction<keyof TableRowData>>;
   setTapestryScale: Dispatch<SetStateAction<number>>;
 }
 
@@ -275,26 +180,10 @@ export function usePreviewPanelPreferences(
 ): PreviewPanelPreferences & PreviewPanelPreferencesSetters {
   const storedPreferences = useMemo(() => loadStoredPreferences(), []);
 
-  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>(() =>
-    resolveColumnVisibility(storedPreferences?.columnVisibility)
-  );
-
-  const [sortField, setSortField] = useState<keyof TableRowData>(() =>
-    getStoredValue(storedPreferences, 'sortField', defaults.sortField)
-  );
-
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() =>
-    getStoredValue(storedPreferences, 'sortDirection', defaults.sortDirection)
-  );
-
   const [groupingConfig, setGroupingConfig] = useState<string>(() =>
     migrateGroupingConfig(
       getStoredValue(storedPreferences, 'groupingConfig', defaults.groupingConfig)
     )
-  );
-
-  const [activeTab, setActiveTab] = useState<string>(() =>
-    getStoredValue(storedPreferences, 'activeTab', defaults.activeTab)
   );
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
@@ -302,9 +191,6 @@ export function usePreviewPanelPreferences(
     return new Set(storedGroups);
   });
 
-  const [pageSize, setPageSize] = useState<number>(() =>
-    getStoredValue(storedPreferences, 'pageSize', DEFAULT_PAGE_SIZE)
-  );
   const [footerMode, setFooterMode] = useState<PreviewFooterMode>(() =>
     getStoredValue(storedPreferences, 'footerMode', defaults.footerMode)
   );
@@ -316,14 +202,9 @@ export function usePreviewPanelPreferences(
     const timeoutId = setTimeout(() => {
       try {
         const settings = {
-          activeTab,
           collapsedGroups: Array.from(collapsedGroups),
-          columnVisibility,
           footerMode,
           groupingConfig,
-          pageSize,
-          sortDirection,
-          sortField,
           tapestryScale,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
@@ -342,36 +223,16 @@ export function usePreviewPanelPreferences(
     }, SAVE_DEBOUNCE_MS);
 
     return () => clearTimeout(timeoutId);
-  }, [
-    columnVisibility,
-    sortField,
-    sortDirection,
-    groupingConfig,
-    collapsedGroups,
-    activeTab,
-    pageSize,
-    footerMode,
-    tapestryScale,
-  ]);
+  }, [groupingConfig, collapsedGroups, footerMode, tapestryScale]);
 
   return {
-    activeTab,
     collapsedGroups,
-    columnVisibility,
     footerMode,
     groupingConfig,
-    pageSize,
-    setActiveTab,
     setCollapsedGroups,
-    setColumnVisibility,
     setFooterMode,
     setGroupingConfig,
-    setPageSize,
-    setSortDirection,
-    setSortField,
     setTapestryScale,
-    sortDirection,
-    sortField,
     tapestryScale,
   };
 }

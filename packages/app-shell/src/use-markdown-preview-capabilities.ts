@@ -2,17 +2,10 @@ import { AdaptersContext } from '@brainstrike/file-explorer-hooks';
 import type { MarkdownPreviewCapabilities } from '@brainstrike/file-explorer-ui';
 import { createLogger } from '@brainstrike/logging';
 import { useContext, useMemo } from 'react';
+import { resolvePlatformBridge } from './platform-bridge';
 
 const logger = createLogger('MarkdownPreviewCapabilities');
 const ALLOWED_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
-
-interface PlatformOpenExternalBridge {
-  readonly openExternal?: (url: string) => Promise<{ ok: boolean; error?: string }>;
-}
-
-function getPlatformBridge(): PlatformOpenExternalBridge | undefined {
-  return (window as { platform?: PlatformOpenExternalBridge }).platform;
-}
 
 function validateLinkProtocol(url: string): string | null {
   try {
@@ -45,7 +38,7 @@ export function useMarkdownPreviewCapabilitiesValue(): MarkdownPreviewCapabiliti
   const fileSystemAdapter = adapters?.fileSystemAdapter;
 
   return useMemo<MarkdownPreviewCapabilities>(() => {
-    const bridge = getPlatformBridge();
+    const bridge = resolvePlatformBridge();
     return {
       openExternalLink: async (url) => {
         const protocolError = validateLinkProtocol(url);
@@ -53,7 +46,7 @@ export function useMarkdownPreviewCapabilitiesValue(): MarkdownPreviewCapabiliti
           logger.warn('Blocked external link', { protocolError, url });
           return { error: protocolError, ok: false };
         }
-        if (bridge?.openExternal) {
+        if (bridge) {
           return bridge.openExternal(url);
         }
         const opened = window.open(url, '_blank', 'noopener,noreferrer');

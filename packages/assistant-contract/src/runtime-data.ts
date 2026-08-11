@@ -202,6 +202,11 @@ export interface WorkspaceInstructionsContextRequest {
   oversizedOptInByRootId?: Record<string, boolean>;
 }
 
+/** Renderer-attached opt-in for the self-improvement signal injection (BST-1241). */
+export interface SelfImprovementSignalPreferenceRequest {
+  readonly enabled?: boolean;
+}
+
 /**
  * Renderer preference for subagent persona availability (see the
  * subagent-personas preferences store). Presence-means-non-default: the
@@ -292,6 +297,12 @@ export interface RuntimeData {
   projectId?: string;
   provider?: 'anthropic' | 'google' | 'local' | 'openai' | 'openrouter' | string;
   providerOptions?: RuntimeProviderOptions;
+  /**
+   * The user's explicit reasoning-effort selection. Absent means Auto; this is
+   * intentionally distinct from providerOptions, which carries the resolved
+   * wire effort after catalog defaults/auto profiles are applied.
+   */
+  requestedReasoningEffort?: OpenAiReasoningEffort;
   selectionFilePaths?: readonly string[];
   /**
    * Multi-root: selected files belonging to ACTIVE roots OTHER than the
@@ -303,6 +314,7 @@ export interface RuntimeData {
   selectionFilePathsFromOtherRoots?: number;
   selectionFolderId?: string;
   selectionSnapshotId?: string;
+  selfImprovementSignalPreference?: SelfImprovementSignalPreferenceRequest;
   signal?: AbortSignal;
   /**
    * Renderer-supplied Agent Skills preference (from the skills preferences

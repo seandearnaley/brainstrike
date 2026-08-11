@@ -57,6 +57,10 @@ component_management:
     name: pkg-app-shell
     paths:
       - packages/app-shell/**
+  - component_id: pkg-assistant-data
+    name: pkg-assistant-data
+    paths:
+      - packages/assistant-data/**
   - component_id: pkg-build-utils
     name: pkg-build-utils
     paths:
@@ -105,18 +109,10 @@ component_management:
     name: pkg-platform-utils
     paths:
       - packages/platform-utils/**
-  - component_id: pkg-server-config
-    name: pkg-server-config
-    paths:
-      - packages/server-config/**
   - component_id: pkg-storage
     name: pkg-storage
     paths:
       - packages/storage/**
-  - component_id: pkg-tailwind-config
-    name: pkg-tailwind-config
-    paths:
-      - packages/tailwind-config/**
   - component_id: pkg-test-utils
     name: pkg-test-utils
     paths:
@@ -129,6 +125,10 @@ component_management:
     name: pkg-types
     paths:
       - packages/types/**
+  - component_id: pkg-assistant-ui
+    name: pkg-assistant-ui
+    paths:
+      - packages/assistant-ui/**
   - component_id: pkg-ui
     name: pkg-ui
     paths:

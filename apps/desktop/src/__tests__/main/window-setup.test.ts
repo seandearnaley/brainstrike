@@ -17,7 +17,7 @@ const mockBrowserWindowInstance = {
   isFullScreen: vi.fn(() => false),
   isMaximized: vi.fn(() => false),
   loadFile: vi.fn(),
-  loadURL: vi.fn(),
+  loadURL: vi.fn<(url: string) => Promise<void>>(),
   maximize: vi.fn(),
   on: vi.fn(),
   once: vi.fn((event: string, handler: () => void) => {
@@ -129,7 +129,7 @@ const {
     level: 'info',
     redactPaths: [],
   })),
-  createLoggerMock: vi.fn(() => ({
+  createLoggerMock: vi.fn((_scope: string) => ({
     debug: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),
@@ -281,9 +281,7 @@ describe('window setup', () => {
     const { createWindow } = await import('../../main');
     await createWindow();
 
-    const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map(
-      (call: [string]) => call[0]
-    );
+    const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map((call) => call[0]);
     expect(attemptedUrls).toContain(DESKTOP_DEV_RENDERER_URL);
     for (const url of attemptedUrls.filter((value) => !value.includes('?mode=embedding-host'))) {
       expect(url).toBe(DESKTOP_DEV_RENDERER_URL);

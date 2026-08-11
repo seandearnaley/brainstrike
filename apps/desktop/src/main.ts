@@ -15,20 +15,40 @@ import {
   LogLevel,
 } from '@brainstrike/logging';
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import type { ChangesInvalidationEvent } from '@brainstrike/types';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
-import { registerAssetProtocol, registerAssetProtocolPrivileges } from './asset-protocol';
+import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
 import {
   configureDesktopCommandSessionManager,
   disposeDesktopCommandSessions,
 } from './assistant-server/command-session-manager';
+import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
+import {
+  createGitInventoryService,
+  type GitInventoryService,
+} from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { clearReadWorkspaceFileCursorRegistry } from './assistant-server/read-workspace-file-cursor-registry';
+import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
+import { createSnapshotRepository } from './assistant-server/snapshot-repository';
+import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
+import { runSnapshotStartupGc } from './assistant-server/snapshot-startup-gc';
+import { reapOrphanedThreadRuns } from './assistant-server/thread-run-startup-reaper';
+import { loadWorkspaceRootsFromDatabase } from './assistant-server/workspace-roots';
 import { collectBackgroundRuntimeMetrics } from './background-runtime-metrics';
 import { emitBootMeasurementMark, shouldQuitAfterBootMeasurement } from './boot-measurement';
+import { createBrowserPaneHost } from './browser/browser-pane-host';
+import {
+  clearActiveBrowserPaneHost,
+  setActiveBrowserPaneHost,
+} from './browser/browser-pane-registry';
+import { createBrowserIpcHandlers } from './browser-ipc-handlers';
+import { registerCanvasProtocol } from './canvas-protocol';
+import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
 import { createWindow, noteNextWindowReload } from './create-window';
 import {
@@ -65,9 +85,11 @@ import {
   type DesktopDimensionIndexMaintenanceScheduler,
 } from './dimension-index-maintenance-scheduler';
 import { EmbeddingHostManager } from './embedding-host-manager';
-import { createDatabaseRootResolver } from './git-ipc-handlers';
+import { createDatabaseRootResolver, execFileGitRunner } from './git-ipc-handlers';
 import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
+import { registerBrowserIpcHandlers } from './ipc-browser';
+import { registerChangesIpcHandlers } from './ipc-changes';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
@@ -75,6 +97,7 @@ import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics
 import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
 import { cancelAllDesktopEmbeddingBackfills } from './ipc-embedding-backfill';
 import { registerEmbeddingHostIpcHandlers } from './ipc-embedding-host';
+import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
@@ -112,6 +135,7 @@ import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
+import { registerPrivilegedSchemes } from './privileged-schemes';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -131,9 +155,10 @@ const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
   process.argv
 );
 
-// MUST run before app.whenReady(): privileged scheme registration is only
-// honored if it happens before the app is ready.
-registerAssetProtocolPrivileges();
+// MUST run before app.whenReady(), and exactly once for ALL privileged
+// schemes: Electron honors a single registerSchemesAsPrivileged call per
+// launch (see privileged-schemes.ts).
+registerPrivilegedSchemes();
 
 function isElectronE2ETestMode(): boolean {
   return process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
@@ -494,6 +519,12 @@ const loggingOptions: InitializeLoggingOptions = {
 };
 
 const logger = createLogger('DesktopMain');
+
+// Captured at module evaluation — BEFORE app.whenReady() and therefore before
+// any renderer (the only run-row minter) can exist. The thread-run startup
+// reaper's evidence rule compares run started_at stamps against this instant;
+// see assistant-server/thread-run-startup-reaper.ts.
+const mainProcessStartedAt = new Date();
 configureDesktopCommandSessionManager({ resolver: createDatabaseRootResolver(getDatabase) });
 logger.debug('Main process started');
 const mainLogBuffer = new LogBuffer({ size: 3000 });
@@ -716,8 +747,11 @@ let unregisterDesktopDiagnosticsIpcHandlers: null | (() => void) = null;
 let unregisterMcpIpcHandlers: null | (() => void) = null;
 let unregisterShellIpcHandlers: null | (() => void) = null;
 let unregisterClipboardIpcHandlers: null | (() => void) = null;
+let unregisterFileExportsIpcHandlers: null | (() => void) = null;
 let unregisterAssistantCheckpointIpcHandlers: null | (() => void) = null;
 let unregisterGitIpcHandlers: null | (() => void) = null;
+let unregisterChangesIpcHandlers: null | (() => void) = null;
+let unregisterBrowserIpcHandlers: null | (() => void) = null;
 let unregisterHooksIpcHandlers: null | (() => void) = null;
 let unregisterContextFilesIpcHandlers: null | (() => void) = null;
 let unregisterSkillsIpcHandlers: null | (() => void) = null;
@@ -725,6 +759,21 @@ let unregisterUserCommandsIpcHandlers: null | (() => void) = null;
 let unregisterUserPersonasIpcHandlers: null | (() => void) = null;
 let unregisterTerminalIpcHandlers: null | (() => void) = null;
 let unregisterNotesVaultIpcHandlers: null | (() => void) = null;
+// BST-1112: cross-workspace git worktree inventory. Constructed and started
+// inside `app.whenReady()` (NOT at module scope): its `start()` call performs
+// an eager build whose first step reads the database, which in turn spawns a
+// `utilityProcess` — an operation Electron rejects before the app is ready.
+// Stopped as a graceful-shutdown step, before the `database` step, since its
+// `loadRoots` dependency reads from the DB.
+let gitInventoryService: GitInventoryService | null = null;
+// BST-1164 (W7 T1): the ONE app-lifetime shadow-git SnapshotService.
+// Constructed inside `app.whenReady()` (never at module scope — the
+// gitInventoryService incident class: a module-scope construction would also
+// sit above the single-instance lock). Consumers resolve it LAZILY through
+// `() => snapshotService` because the changes IPC handlers register at module
+// load, before construction. There is exactly one instance; T2/T3 consume it
+// through the injected seams, never by constructing a second service.
+let snapshotService: SnapshotService | null = null;
 let desktopDatabaseMaintenanceScheduler: DesktopDatabaseMaintenanceScheduler | null = null;
 let desktopDimensionIndexMaintenanceScheduler: DesktopDimensionIndexMaintenanceScheduler | null =
   null;
@@ -855,6 +904,18 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     recordFailure(
       await runShutdownStep('llm-host', async () => {
         await llmHostManager.dispose();
+      })
+    );
+
+    recordFailure(
+      await runShutdownStep('git-inventory', async () => {
+        // BEFORE 'database' below: this service's `loadRoots` dependency
+        // reads the DB `roots` table, so its watchers/in-flight build must
+        // be torn down while the database is still available to it.
+        if (gitInventoryService) {
+          await gitInventoryService.stop();
+          gitInventoryService = null;
+        }
       })
     );
 
@@ -1204,8 +1265,30 @@ unregisterDesktopDiagnosticsIpcHandlers = registerDesktopDiagnosticsIpcHandlers(
 });
 unregisterShellIpcHandlers = registerShellIpcHandlers();
 unregisterClipboardIpcHandlers = registerClipboardIpcHandlers();
-unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers();
+unregisterFileExportsIpcHandlers = registerFileExportsIpcHandlers();
+// Lazy resolver for the same reason as `resolveSnapshotService` below: this
+// registration runs at module load, the ONE snapshot service is constructed
+// at app-ready. The checkpoint-undo engine restores from turn-start
+// snapshots (BST-1164 T4), so the handlers need the same seams as changes.
+unregisterAssistantCheckpointIpcHandlers = registerAssistantCheckpointIpcHandlers({
+  resolveSnapshotService: () => snapshotService,
+});
 unregisterGitIpcHandlers = registerGitIpcHandlers();
+// `resolveInventoryService` is a LAZY getter on purpose: this registration
+// runs at module load, while `gitInventoryService` is only constructed once
+// the app is ready (see `createGitInventoryService` below). Capturing the
+// value here would pin `null` forever.
+unregisterChangesIpcHandlers = registerChangesIpcHandlers(
+  createChangesIpcHandlers({
+    // T1 injection points (BST-1164): the snapshot-repository factory and the
+    // lazy service resolver are THREADED but not yet consumed — T2/T3 consume
+    // them here so neither has to edit main.ts. Lazy for the same reason as
+    // `resolveInventoryService` below.
+    createSnapshotRepository,
+    resolveInventoryService: () => gitInventoryService,
+    resolveSnapshotService: () => snapshotService,
+  })
+);
 unregisterHooksIpcHandlers = registerHooksIpcHandlers();
 unregisterContextFilesIpcHandlers = registerContextFilesIpcHandlers();
 unregisterSkillsIpcHandlers = registerSkillsIpcHandlers();
@@ -1312,6 +1395,177 @@ if (singleInstanceLockAcquired) {
       // renderer-supplied paths against the DB `roots` table — the SAME source
       // the git/read/search tools use — resolving the DB lazily per request.
       registerAssetProtocol(createDatabaseRootResolver(getDatabase));
+
+      // Static Canvas sandbox shell (BST-1173); no DB dependency, serves one
+      // reviewed document with its own CSP header (see canvas-protocol.ts).
+      registerCanvasProtocol();
+
+      // BST-1112: cross-workspace git worktree inventory service. Constructed
+      // and started HERE, inside app.whenReady() — never at module scope.
+      // `start()` kicks off an eager build whose very first step
+      // (`loadRoots`) reaches `getDatabase()` → `getRemoteDbHostManager()` →
+      // `utilityProcess.fork`, and Electron throws
+      // "utilityProcess cannot be created before app is ready." if that spawn
+      // is attempted pre-ready. A module-scope `start()` call sits above
+      // `app.whenReady()` entirely, so every production boot would hit this
+      // rejection silently (caught by `rebuild()`'s try/catch, logged
+      // nowhere, cached as a false "no repositories" snapshot for the full
+      // TTL — see BST-1112 review). It also sat ABOVE the single-instance
+      // lock guard, so a duplicate launch would walk every workspace root and
+      // spawn git without ever calling `stop()`. Uses a PRIVATE
+      // `ElectronFileSystemAdapter` instance — never the shared `fileSystem`
+      // above and never the renderer-owned `fs:watch` IPC pipeline
+      // (`ipc-domains/file-system-watch-ipc.ts` dedupes native subscriptions
+      // on `(ownerId, resolvedPath)` ONLY; the ignore-pattern set is not part
+      // of that key, so routing this module's fixed `ignorePatterns: []`
+      // through the shared pipeline could let an unrelated registration for
+      // the same resolved path silently share this filter set). See
+      // `ipc-notes-vault.ts:66-105` for the same private-adapter + inline
+      // `DirectoryHandle` pattern.
+      const gitInventoryWatcherAdapter = new ElectronFileSystemAdapter();
+      // BST-1161 (spec §6): each watcher invalidation is pushed to every live
+      // renderer as `changes:invalidated` so git-scope changeset views and the
+      // inventory refetch without polling. The monotonic generation lets the
+      // renderer drop stale/duplicate deliveries. Broadcast (ipc-mcp
+      // precedent): the Changes surface and git panel can live in any window.
+      let changesInvalidationGeneration = 0;
+      const broadcastChangesInvalidation = (event: {
+        gitCommonDir: string;
+        repositoryRoot: string | null;
+      }): void => {
+        changesInvalidationGeneration += 1;
+        const payload: ChangesInvalidationEvent = {
+          generation: changesInvalidationGeneration,
+          gitCommonDir: event.gitCommonDir,
+          repositoryRoot: event.repositoryRoot,
+        };
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (window.isDestroyed()) {
+            continue;
+          }
+          window.webContents.send(DESKTOP_IPC_CHANNELS.changes.invalidated, payload);
+        }
+      };
+      gitInventoryService = createGitInventoryService({
+        loadRoots: async () => {
+          const roots = await loadWorkspaceRootsFromDatabase(await getDatabase());
+          return roots.map((root) => ({ id: root.rootId, path: root.path }));
+        },
+        onInvalidate: broadcastChangesInvalidation,
+        run: execFileGitRunner,
+        // `ElectronFileSystemAdapter.watchDirectory` returns its disposer
+        // SYNCHRONOUSLY; `WatchGitCommonDir`'s DI shape is `Promise<() => void>` —
+        // adapting with `Promise.resolve(...)` is the documented intent in that
+        // type's own doc comment in `git-inventory-watcher.ts` (no health-
+        // transition gate needed here, unlike `ipc-notes-vault.ts`'s `startWatch`,
+        // because the returned disposer is already safe to use immediately).
+        watchDirectory: (commonDir, callback, onSignal, options) =>
+          Promise.resolve(
+            gitInventoryWatcherAdapter.watchDirectory(
+              {
+                kind: 'directory',
+                name: path.basename(commonDir),
+                path: commonDir,
+                platform: 'electron',
+              },
+              callback,
+              onSignal,
+              options
+            )
+          ),
+      });
+      gitInventoryService.start();
+
+      // BST-1164 (W7 T1): shadow-git snapshot backbone. Constructed HERE,
+      // inside app.whenReady() — `app.getPath('userData')` is the storage
+      // contract (`userData/snapshots/<rootId>/git`), and the factory-reset
+      // wholesale userData wipe is what covers it (pinned by
+      // desktop-factory-reset.test.ts). Same wiring posture as
+      // GitInventoryService above: ONE instance, never at module scope.
+      const snapshotsBaseDir = path.join(app.getPath('userData'), 'snapshots');
+      const constructedSnapshotService = createSnapshotService({
+        runner: execFileSnapshotGitRunner,
+        snapshotsBaseDir,
+      });
+      snapshotService = constructedSnapshotService;
+      // Startup orphan sweep: remove shadow repos whose workspace root row no
+      // longer EXISTS at all. Deliberately keyed on every `roots` row (any
+      // status), NOT on `status = 'live'`: disconnect ≠ delete (the row is
+      // kept and the root can reconnect), and sweeping a disconnected root
+      // here would irreversibly destroy its snapshot history. Fire-and-forget
+      // so startup never blocks on it; failures are logged visibly, never
+      // swallowed.
+      void (async () => {
+        try {
+          const database = await getDatabase();
+          // BST-1162: unstick rewind's in-flight gate. Rows a previous
+          // process left in 'running' are provably dead (see the reaper's
+          // evidence rule); marking them failed here is what re-enables
+          // Conversation Rewind on their threads. Runs before the snapshot
+          // GC on purpose (its retention floor walks run ranges), but in its
+          // OWN try/catch: a reap failure must neither skip the orphan sweep
+          // and GC below nor report itself under their step name.
+          try {
+            const reapReport = await reapOrphanedThreadRuns(
+              database as unknown as EditCheckpointDatabase,
+              mainProcessStartedAt
+            );
+            if (reapReport.runsTableMissing || reapReport.reaped.length > 0) {
+              logger.info('Startup thread-run reap completed', {
+                reapedRunIds: reapReport.reaped.map((row) => row.id),
+                runsTableMissing: reapReport.runsTableMissing,
+              });
+            }
+          } catch (reapError) {
+            logger.error('Startup thread-run reap failed', { error: reapError });
+          }
+          const rootRows = await database.query<{ id: string; path: string }>(
+            'SELECT id, path FROM roots'
+          );
+          const result = await constructedSnapshotService.sweepOrphans(
+            snapshotsBaseDir,
+            rootRows.rows.map((row) => row.id)
+          );
+          logger.info('Workspace snapshot orphan sweep completed', {
+            kept: result.kept.length,
+            removed: result.removed,
+            snapshotsBaseDir,
+          });
+          // T4 startup GC (after the orphan sweep so vanished-root repos are
+          // already gone): dead-thread rows + refs, ref-only residue, the
+          // 50-turn retention ring, and shallow-cut history reclamation.
+          // Same fire-and-forget block — logged, non-blocking, failures
+          // visible per item.
+          const gcDatabase = database as unknown as EditCheckpointDatabase;
+          const gcReport = await runSnapshotStartupGc({
+            db: gcDatabase,
+            liveRoots: rootRows.rows.map((row) => ({ path: row.path, rootId: row.id })),
+            snapshotRepository: createSnapshotRepository(gcDatabase),
+            snapshotService: constructedSnapshotService,
+          });
+          for (const failure of gcReport.failures) {
+            logger.error('Workspace snapshot GC item failed', { failure });
+          }
+          if (gcReport.skippedInaccessibleRoots.length > 0) {
+            // Expected condition (deleted directory / unmounted volume), so a
+            // single warn — not one error per boot forever.
+            logger.warn('Workspace snapshot GC skipped inaccessible roots', {
+              roots: gcReport.skippedInaccessibleRoots,
+            });
+          }
+          logger.info('Workspace snapshot startup GC completed', {
+            deadThreadsPruned: gcReport.deadThreadsPruned.length,
+            failures: gcReport.failures.length,
+            historyPrunedRoots: gcReport.historyPrunedRoots,
+            refOnlyPruned: gcReport.refOnlyPruned.length,
+            ringTrimmed: gcReport.ringTrimmed,
+            skippedInaccessibleRoots: gcReport.skippedInaccessibleRoots.length,
+            threadsTableMissing: gcReport.threadsTableMissing,
+          });
+        } catch (error) {
+          logger.error('Workspace snapshot orphan sweep failed', { error, snapshotsBaseDir });
+        }
+      })();
 
       // Keep macOS desktop E2E runs invisible while Playwright drives the hidden window.
       if (e2eTestMode && process.platform === 'darwin') {
@@ -1550,6 +1804,13 @@ if (singleInstanceLockAcquired) {
           embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,
+          // T1 injection point (BST-1164): the run-persistence seam's snapshot
+          // deps — threaded, not yet consumed (T2's turn-boundary triggers
+          // consume them without editing main.ts).
+          snapshots: {
+            createRepository: createSnapshotRepository,
+            service: constructedSnapshotService,
+          },
         });
         assistantUrl = url;
         assistantAuthToken = authToken;
@@ -1601,6 +1862,25 @@ if (singleInstanceLockAcquired) {
         // listeners + debounce timer on close so they don't accumulate per window.
         const disposeWindowStatePersistence = registerWindowStatePersistence(win, store);
         win.once('closed', disposeWindowStatePersistence);
+
+        // Embedded browser pane (BST-1174): each window owns its OWN pane host
+        // + IPC registration, so a macOS close→dock-reopen cycle (which calls
+        // createMainWindow again without quitting) rebinds the pane to the new
+        // window instead of leaving `window.browser` calls hitting a disposed
+        // host. The manager attaches views to THIS window's contentView.
+        const browserPaneHost = createBrowserPaneHost(win);
+        // Register for the assistant server's browser tools (BST-1176):
+        // executors resolve the ACTIVE host per call through this registry.
+        setActiveBrowserPaneHost(browserPaneHost);
+        unregisterBrowserIpcHandlers = registerBrowserIpcHandlers(
+          createBrowserIpcHandlers(browserPaneHost.manager)
+        );
+        win.once('closed', () => {
+          clearActiveBrowserPaneHost(browserPaneHost);
+          browserPaneHost.dispose();
+          unregisterBrowserIpcHandlers?.();
+          unregisterBrowserIpcHandlers = null;
+        });
         return win;
       };
 
@@ -1883,6 +2163,8 @@ app.on('will-quit', () => {
     unregisterClipboardIpcHandlers();
     unregisterClipboardIpcHandlers = null;
   }
+  unregisterFileExportsIpcHandlers?.();
+  unregisterFileExportsIpcHandlers = null;
   if (unregisterAssistantCheckpointIpcHandlers) {
     unregisterAssistantCheckpointIpcHandlers();
     unregisterAssistantCheckpointIpcHandlers = null;
@@ -1891,6 +2173,10 @@ app.on('will-quit', () => {
     unregisterGitIpcHandlers();
     unregisterGitIpcHandlers = null;
   }
+  unregisterChangesIpcHandlers?.();
+  unregisterChangesIpcHandlers = null;
+  unregisterBrowserIpcHandlers?.();
+  unregisterBrowserIpcHandlers = null;
   if (unregisterHooksIpcHandlers) {
     unregisterHooksIpcHandlers();
     unregisterHooksIpcHandlers = null;

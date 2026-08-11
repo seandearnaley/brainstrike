@@ -89,14 +89,17 @@ describe('CSP Utils', () => {
 
       expect(devCSP).toContain("frame-ancestors 'none'");
       expect(prodCSP).toContain("frame-ancestors 'none'");
+      // Canvas sandbox shell is the only framed document (BST-1173).
+      expect(devCSP).toContain("frame-src 'self'");
+      expect(prodCSP).toContain("frame-src 'self'");
     });
 
     it('formats CSP string correctly with semicolon separators', () => {
       const csp = getCSP('production');
       const directives = csp.split('; ');
 
-      // Should have all expected directives
-      expect(directives).toHaveLength(11);
+      // Should have all expected directives (12 since frame-src, BST-1173)
+      expect(directives).toHaveLength(12);
 
       // Each directive should have the correct format
       for (const directive of directives) {

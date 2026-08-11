@@ -1,4 +1,7 @@
 import {
+  type BrowserGetPageTextInput,
+  type BrowserNavigateInput,
+  type BrowserReadPageInput,
   createAskUserTool,
   createRunPythonTool,
   createSubmitPlanTool,
@@ -7,14 +10,18 @@ import {
   type FindWorkspaceSymbolInput,
   type GlobWorkspaceInput,
   type GrepSearchInput,
+  getActiveToolResultBudget,
   type HybridSearchInput,
   type InspectCommandSessionsInput,
   type ListEmbeddingSetsInput,
   type ListWorkspaceContextInput,
   type LspInspectInput,
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  type ManageCanvasInput,
   type ManageCommandSessionInput,
   type ManageTaskListInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
+  normalizeManageCanvasInput,
   projectToolOutputArtifactPage,
   type QueryDiagnosticsInput,
   type QueryEmbeddingSpaceInput,
@@ -26,7 +33,10 @@ import {
   type RenameWorkspaceFileInput,
   type RunSkillScriptInput,
   type RuntimeData,
-  readToolOutputArtifactPage,
+  readToolOutputArtifact,
+  resolveRequestPermissionPolicy,
+  resolveSelfApprovalDecision,
+  type ScaledToolResultBudget,
   type ScannedWorkspaceSkills,
   type ScopedToolOutputArtifactReader,
   type StringReplaceWorkspaceFileInput,
@@ -42,8 +52,14 @@ import {
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { resolveDesktopPythonExecutable } from '../python-runtime';
+import {
+  runBrowserGetPageText,
+  runBrowserNavigate,
+  runBrowserReadPage,
+} from './browser-agent-tools';
 import type { CommandSessionManager } from './command-session-manager';
 import {
   INSPECT_COMMAND_SESSIONS_TRANSFORM,
@@ -51,6 +67,7 @@ import {
   runInspectCommandSessions,
   runManageCommandSession,
 } from './command-session-tools';
+import { projectExecuteCommandModelOutput } from './execute-command-model-projection';
 import { runExecuteCommand } from './execute-command-tool';
 import {
   runDeleteWorkspaceFile,
@@ -63,6 +80,7 @@ import { runGrepSearch } from './grep-search-tool';
 import { runHybridSearch } from './hybrid-search-tool';
 import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
 import { runFindWorkspaceSymbol, runLspInspect } from './lsp-inspection-tools';
+import { runManageCanvas } from './manage-canvas-tool';
 import { runManageTaskList } from './manage-task-list-tool';
 import { runQueryDiagnostics } from './query-diagnostics-tool';
 import { projectQuerySelfModelOutput } from './query-self-model-projection';
@@ -72,9 +90,12 @@ import {
   type ReadWorkspaceFileCursorRegistry,
   readWorkspaceFileCursorRegistry,
 } from './read-workspace-file-cursor-registry';
+import { projectReadWorkspaceFileModelOutput } from './read-workspace-file-model-projection';
 import { runReadWorkspaceFile } from './read-workspace-file-tool';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { runSkillScript } from './run-skill-script-tool';
+import { withRepeatedCallGuard } from './tool-call-loop-guards';
+import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-call-telemetry';
 import {
   logToolFailure,
   parseToolExecuteInput,
@@ -85,6 +106,7 @@ import {
   type ToolExecuteInput,
   type ToolExecuteRunContext,
 } from './tool-execute-support';
+import { applyToolProjectionRewriteRecording } from './tool-projection-rewrite-repository';
 import { projectWebExtractModelOutput } from './web-extract-model-projection';
 import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool';
 import { projectWebSearchModelOutput } from './web-search-model-projection';
@@ -96,6 +118,7 @@ import {
   runUpdateWorkspaceContextSelection,
   runUpdateWorkspaceTapestrySelections,
 } from './workspace-context-tools';
+import { readStateScope } from './workspace-file-staleness';
 import {
   projectFindWorkspaceSymbolModelOutput,
   projectLspInspectModelOutput,
@@ -115,6 +138,7 @@ export interface DesktopAssistantToolDependencies {
   commandSessionManager?: CommandSessionManager | undefined;
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   readWorkspaceFileCursorRegistry?: ReadWorkspaceFileCursorRegistry | undefined;
+  resolvedToolResultBudget?: ScaledToolResultBudget | undefined;
   /**
    * BST-1061: test seam for the bundled-CPython capability used by the
    * `python3` skill-script runtime. Production omits it and gets the real
@@ -175,6 +199,11 @@ export function buildDesktopAssistantTools(
   const isLocalProvider = isLocalProviderRuntime(runtimeData);
   const readFileCursorRegistry =
     dependencies.readWorkspaceFileCursorRegistry ?? readWorkspaceFileCursorRegistry;
+  const resolvedDomainCharBudget =
+    dependencies.resolvedToolResultBudget?.domainModelResultCharBudget ??
+    MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
+  const resolveActiveDomainCharBudget = (): number =>
+    getActiveToolResultBudget()?.domainModelResultCharBudget ?? resolvedDomainCharBudget;
   const toolOutputArtifactReader = dependencies.toolOutputArtifactReader;
   const tools: MastraTools = {
     [NATIVE_TOOL_ID.findWorkspaceSymbol]: {
@@ -193,7 +222,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.findWorkspaceSymbol,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.findWorkspaceSymbol],
-      toModelOutput: projectFindWorkspaceSymbolModelOutput,
+      toModelOutput: (output: unknown) =>
+        projectFindWorkspaceSymbolModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.lspInspect]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.lspInspect],
@@ -211,7 +241,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.lspInspect,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.lspInspect],
-      toModelOutput: projectLspInspectModelOutput,
+      toModelOutput: (output: unknown) =>
+        projectLspInspectModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.grepSearch]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.grepSearch],
@@ -221,7 +252,16 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          return await runGrepSearch(resolvedInput, runtimeData);
+          return await withRepeatedCallGuard({
+            input: resolvedInput,
+            run: async () =>
+              attachGrepSearchTelemetry(
+                resolvedInput,
+                await runGrepSearch(resolvedInput, runtimeData)
+              ),
+            threadScope: readStateScope(runtimeData),
+            toolId: NATIVE_TOOL_ID.grepSearch,
+          });
         } catch (error) {
           logToolFailure('grepSearch failed', error, resolvedInput);
           throw error;
@@ -229,7 +269,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.grepSearch,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.grepSearch],
-      toModelOutput: projectGrepSearchModelOutput,
+      toModelOutput: (output: unknown) =>
+        projectGrepSearchModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.globWorkspace]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.globWorkspace],
@@ -239,7 +280,16 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          return await runGlobWorkspace(resolvedInput, runtimeData);
+          return await withRepeatedCallGuard({
+            input: resolvedInput,
+            run: async () =>
+              attachGlobWorkspaceTelemetry(
+                resolvedInput,
+                await runGlobWorkspace(resolvedInput, runtimeData)
+              ),
+            threadScope: readStateScope(runtimeData),
+            toolId: NATIVE_TOOL_ID.globWorkspace,
+          });
         } catch (error) {
           logToolFailure('globWorkspace failed', error, resolvedInput);
           throw error;
@@ -247,7 +297,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.globWorkspace,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.globWorkspace],
-      toModelOutput: projectGlobWorkspaceModelOutput,
+      toModelOutput: (output: unknown) =>
+        projectGlobWorkspaceModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.querySelf]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.querySelf],
@@ -273,7 +324,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.querySelf,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.querySelf],
-      toModelOutput: projectQuerySelfModelOutput,
+      toModelOutput: (output: unknown) =>
+        projectQuerySelfModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.queryDiagnostics]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.queryDiagnostics],
@@ -310,7 +362,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.webSearch,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
-      toModelOutput: projectWebSearchModelOutput,
+      toModelOutput: (output: unknown) =>
+        projectWebSearchModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.webExtract]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webExtract],
@@ -330,7 +383,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.webExtract,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webExtract],
-      toModelOutput: projectWebExtractModelOutput,
+      toModelOutput: (output: unknown) =>
+        projectWebExtractModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.readWorkspaceFile]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceFile],
@@ -340,7 +394,20 @@ export function buildDesktopAssistantTools(
           input
         );
         try {
-          return await runReadWorkspaceFile(resolvedInput, runtimeData, readFileCursorRegistry);
+          // BST-1188: readWorkspaceFile deliberately does NOT use the plain
+          // identical-args repeated-call guard (`withRepeatedCallGuard`)
+          // other read/search tools use below — an args-only streak has no
+          // way to know the file changed between calls, so it would either
+          // permanently refuse a legitimate re-read after an edit (the
+          // refusal short-circuits BEFORE the file is ever checked) or stamp
+          // a "results have not changed" warning on content that in fact did
+          // change (PR #2323 review). The mtime-aware `readWorkspaceFile`
+          // loop guard below is the ONLY mechanism — it always re-reads the
+          // file first, so it can never go stale in that way.
+          return await runReadWorkspaceFile(resolvedInput, runtimeData, readFileCursorRegistry, {
+            domainModelResultCharBudget: resolvedDomainCharBudget,
+            threadScope: readStateScope(runtimeData),
+          });
         } catch (error) {
           logToolFailure('readWorkspaceFile failed', error, resolvedInput);
           throw error;
@@ -348,7 +415,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.readWorkspaceFile,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceFile],
-      toModelOutput: (output: unknown) => ({ type: 'json', value: output }),
+      toModelOutput: (output: unknown) =>
+        projectReadWorkspaceFileModelOutput(output, resolveActiveDomainCharBudget()),
     },
     ...(toolOutputArtifactReader
       ? {
@@ -360,7 +428,7 @@ export function buildDesktopAssistantTools(
                 input
               );
               try {
-                return await readToolOutputArtifactPage(
+                return await readToolOutputArtifact(
                   { ...resolvedInput, mode: 'cursor' },
                   {
                     reader: toolOutputArtifactReader,
@@ -373,7 +441,8 @@ export function buildDesktopAssistantTools(
             },
             id: NATIVE_TOOL_ID.readToolOutputArtifact,
             inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
-            toModelOutput: projectToolOutputArtifactPage,
+            toModelOutput: (output: unknown) =>
+              projectToolOutputArtifactPage(output, resolveActiveDomainCharBudget()),
           },
         }
       : {}),
@@ -494,7 +563,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.listWorkspaceContext,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
-      toModelOutput: projectListWorkspaceContextModelOutput,
+      toModelOutput: (output: unknown) =>
+        projectListWorkspaceContextModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.readWorkspaceContext]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceContext],
@@ -583,6 +653,19 @@ export function buildDesktopAssistantTools(
           // error and no run event. Registering in this shape now means that
           // ticket changes the factory, not this call site.
           [NATIVE_TOOL_ID.runPython]: createRunPythonTool({
+            // Gate A decision (BST-1097): run_python raises its OWN approval
+            // suspension instead of carrying Mastra's per-tool
+            // `requireApproval` flag (the flag re-fires on the Gate B resume
+            // leg and denies it). Resolved lazily at execute() time from THIS
+            // request's permission snapshot through the SAME resolvers the
+            // permission gate uses (`resolveRequestPermissionPolicy` →
+            // `resolveSelfApprovalDecision`), so the tool and the gate cannot
+            // disagree about the decision.
+            resolveApprovalDecision: () =>
+              resolveSelfApprovalDecision(
+                resolveRequestPermissionPolicy(runtimeData?.permissionPolicyRequest),
+                NATIVE_TOOL_ID.runPython
+              ),
             resolveHost: async (signal) => {
               // LAZY import, deliberately. `@brainstrike/agent/fence-executor`
               // pulls in @anthropic-ai/sandbox-runtime AND evaluates
@@ -621,6 +704,68 @@ export function buildDesktopAssistantTools(
             },
           }),
           [NATIVE_TOOL_ID.submitPlan]: createSubmitPlanTool(),
+          // Browser pane read tools (BST-1176 PR2). The active pane host is
+          // resolved PER CALL from the registry — a window opened after the
+          // stream started still serves, and a closed window returns the
+          // structured browser_unavailable failure instead of a stale handle.
+          [NATIVE_TOOL_ID.browserGetPageText]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserGetPageText],
+            execute: (input: ToolExecuteInput<BrowserGetPageTextInput>) =>
+              runBrowserGetPageText(
+                parseToolExecuteInput(
+                  NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
+                  input
+                ),
+                getActiveBrowserPaneHost()
+              ),
+            id: NATIVE_TOOL_ID.browserGetPageText,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
+          },
+          [NATIVE_TOOL_ID.browserNavigate]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserNavigate],
+            execute: (input: ToolExecuteInput<BrowserNavigateInput>) =>
+              runBrowserNavigate(
+                parseToolExecuteInput(
+                  NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
+                  input
+                ),
+                getActiveBrowserPaneHost()
+              ),
+            id: NATIVE_TOOL_ID.browserNavigate,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
+          },
+          [NATIVE_TOOL_ID.browserReadPage]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserReadPage],
+            execute: (input: ToolExecuteInput<BrowserReadPageInput>) =>
+              runBrowserReadPage(
+                parseToolExecuteInput(
+                  NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
+                  input
+                ),
+                getActiveBrowserPaneHost()
+              ),
+            id: NATIVE_TOOL_ID.browserReadPage,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
+          },
+          [NATIVE_TOOL_ID.manageCanvas]: {
+            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCanvas],
+            execute: async (input: ToolExecuteInput<ManageCanvasInput>) => {
+              // Envelope-validate, then narrow to the clean action branch —
+              // tolerated cross-action extras are stripped here so the
+              // executor/repository receive exactly ManageCanvasInput.
+              const resolvedInput = normalizeManageCanvasInput(
+                parseToolExecuteInput(NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas], input)
+              );
+              try {
+                return await runManageCanvas(resolvedInput, runtimeData);
+              } catch (error) {
+                logToolFailure('manageCanvas failed', error, resolvedInput);
+                throw error;
+              }
+            },
+            id: NATIVE_TOOL_ID.manageCanvas,
+            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas],
+          },
           [NATIVE_TOOL_ID.manageTaskList]: {
             description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageTaskList],
             execute: async (input: ToolExecuteInput<ManageTaskListInput>) => {
@@ -654,7 +799,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.queryEmbeddingSpace,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace],
-      toModelOutput: projectQueryEmbeddingSpaceModelOutput,
+      toModelOutput: (output: unknown) =>
+        projectQueryEmbeddingSpaceModelOutput(output, resolveActiveDomainCharBudget()),
     },
     [NATIVE_TOOL_ID.hybridSearch]: {
       description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.hybridSearch],
@@ -674,7 +820,8 @@ export function buildDesktopAssistantTools(
       },
       id: NATIVE_TOOL_ID.hybridSearch,
       inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch],
-      toModelOutput: projectHybridSearchModelOutput,
+      toModelOutput: (output: unknown) =>
+        projectHybridSearchModelOutput(output, resolveActiveDomainCharBudget()),
     },
     ...(isLocalProvider
       ? {}
@@ -770,6 +917,8 @@ export function buildDesktopAssistantTools(
     },
     id: NATIVE_TOOL_ID.executeCommand,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.executeCommand],
+    toModelOutput: (output: unknown) =>
+      projectExecuteCommandModelOutput(output, resolveActiveDomainCharBudget()),
   };
 
   const skillScriptResolver = dependencies.skillScriptResolver;
@@ -851,5 +1000,5 @@ export function buildDesktopAssistantTools(
       enabledCount: Object.keys(filteredTools).length,
     });
   }
-  return filteredTools;
+  return applyToolProjectionRewriteRecording(filteredTools, runtimeData);
 }

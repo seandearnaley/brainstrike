@@ -17,10 +17,10 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import FileExplorerSidebar from '../shell/file-explorer-sidebar';
 import {
-  ForestTreeActionsProvider,
   type ForestTreeActionsValue,
   useOptionalForestTreeActions,
 } from '../shell/forest-tree-actions-context';
+import { ForestTreeActionsProvider } from '../shell/forest-tree-actions-provider';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 const ROOT_ID_A = 'aaaaaaaa-0000-4000-8000-0000000000aa';

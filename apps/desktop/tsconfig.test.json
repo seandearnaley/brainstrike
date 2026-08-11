@@ -1,6 +1,8 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
     "types": [
       "node",
       "electron",
@@ -8,11 +10,21 @@
       "vitest/globals",
       "@testing-library/jest-dom"
     ],
+    "paths": {},
     "strictNullChecks": true
   },
   "include": [
+    "src/**/*.d.ts",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/**/__tests__/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/types/pglite.d.ts",
+    "src/types/pglite-live.d.ts",
+    "src/types/pglite-trgm.d.ts",
+    "src/types/pglite-vector.d.ts"
   ]
 }

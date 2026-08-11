@@ -10,14 +10,6 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: /^@brainstrike\/preferences\/(.*)$/,
-        replacement: resolve(import.meta.dirname, '../preferences/src/$1'),
-      },
-      {
-        find: '@brainstrike/preferences',
-        replacement: resolve(import.meta.dirname, '../preferences/src/index.ts'),
-      },
-      {
         // Anchored exact-match: a bare-string find PREFIX-matches every
         // subpath ('@brainstrike/db/react' would resolve inside index.ts —
         // review #2164). Subpaths fall through to workspaceSrcAliases, which
@@ -74,7 +66,9 @@ export default defineConfig({
         replacement: resolve(import.meta.dirname, './src'),
       },
       {
-        find: '@brainstrike/context-actions',
+        // Anchored: a bare-string find would also capture the
+        // './commands' subpath export, which the registry spread resolves.
+        find: /^@brainstrike\/context-actions$/,
         replacement: resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
       // @brainstrike/workers has no src/ dir (worker files at the package root),

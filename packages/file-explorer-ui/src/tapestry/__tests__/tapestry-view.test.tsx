@@ -1,6 +1,10 @@
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import { TAPESTRY_COLOR_HEX } from '@brainstrike/types';
-import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
+import {
+  ActionRegistryProvider,
+  SELECTION_BAR_SCROLL_PADDING,
+  TooltipProvider,
+} from '@brainstrike/ui';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ComponentProps, memo, type ReactNode, useMemo, useState } from 'react';
@@ -213,6 +217,57 @@ describe('TapestryView', () => {
     });
 
     expect(screen.getAllByText(/file-\d+\.ts/i)).toHaveLength(12);
+  });
+
+  // BST-1211: the bulk-action bar moved here from the retired Table View, which
+  // owned the only guard of this geometry. The bar floats over the gallery, so
+  // the SCROLL OWNER (not the content) needs bottom clearance or the last row
+  // of cards is unreachable underneath it — and the clearance must disappear
+  // with the bar, otherwise every un-selected view carries dead space.
+  describe('selection action bar clearance', () => {
+    const getGalleryScrollport = (): HTMLElement => {
+      const gallery = screen.getAllByTestId('tapestry-gallery')[0];
+      const scrollport = gallery?.closest('.overflow-y-auto');
+      if (!(scrollport instanceof HTMLElement)) {
+        throw new Error('Tapestry gallery has no scrollport ancestor');
+      }
+      return scrollport;
+    };
+
+    it('clears the floating bar on the scrollport, not on the gallery', () => {
+      renderTapestryView({
+        selectionActionBar: <div data-testid="test-selection-bar">2 selected</div>,
+      });
+
+      expect(screen.getByTestId('test-selection-bar')).toBeInTheDocument();
+      const scrollport = getGalleryScrollport();
+      expect(scrollport).toHaveClass(SELECTION_BAR_SCROLL_PADDING);
+      // Padding on the scrolled content would move with the scroll and stop
+      // clearing the bar at the end of the list.
+      expect(screen.getAllByTestId('tapestry-gallery')[0]).not.toHaveClass(
+        SELECTION_BAR_SCROLL_PADDING
+      );
+    });
+
+    it('drops the clearance when no bar is rendered', () => {
+      renderTapestryView();
+
+      expect(screen.queryByTestId('test-selection-bar')).not.toBeInTheDocument();
+      expect(getGalleryScrollport()).not.toHaveClass(SELECTION_BAR_SCROLL_PADDING);
+    });
+
+    it('renders the bar below the gallery scrollport so it overlays the cards', () => {
+      renderTapestryView({
+        selectionActionBar: <div data-testid="test-selection-bar">2 selected</div>,
+      });
+
+      const scrollport = getGalleryScrollport();
+      const bar = screen.getByTestId('test-selection-bar');
+      const overlayHost = scrollport.parentElement;
+      expect(overlayHost).toHaveClass('relative');
+      expect(overlayHost?.contains(bar)).toBe(true);
+      expect(scrollport.contains(bar)).toBe(false);
+    });
   });
 
   it('toggles a range active state', async () => {

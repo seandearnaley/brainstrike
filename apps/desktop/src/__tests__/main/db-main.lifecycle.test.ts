@@ -61,12 +61,14 @@ const closeSyncMock = vi.fn();
 const unlinkSyncMock = vi.fn();
 const utimesSyncMock = vi.fn();
 const statSyncMock = vi.fn(() => ({ mtimeMs: Date.now() }));
-const readFileSyncMock = vi.fn(() => '');
-const readdirSyncMock = vi.fn(() => []);
-const lstatSyncMock = vi.fn(() => ({
-  isDirectory: () => false,
-  isFile: () => false,
-}));
+const readFileSyncMock = vi.fn((_candidate: string) => '');
+const readdirSyncMock = vi.fn((_path?: string, _options?: unknown): unknown[] => []);
+const lstatSyncMock = vi.fn(
+  (_candidate: string): { isDirectory: () => boolean; isFile: () => boolean } => ({
+    isDirectory: () => false,
+    isFile: () => false,
+  })
+);
 vi.mock('node:fs', () => ({
   closeSync: closeSyncMock,
   cpSync: cpSyncMock,
@@ -436,7 +438,7 @@ describe('db-main lifecycle', () => {
       throw lockError;
     });
     readFileSyncMock.mockReturnValueOnce('424242');
-    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => undefined);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
 
     try {
       const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');

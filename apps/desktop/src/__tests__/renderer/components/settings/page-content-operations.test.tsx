@@ -101,7 +101,7 @@ vi.mock('@brainstrike/app-shell', () => ({
   useAssistantAvailability: () => assistantAvailability.current,
 }));
 
-vi.mock('@brainstrike/app-shell/cost-tracking', () => ({
+vi.mock('@brainstrike/app-shell/cost-tracking-settings', () => ({
   createCostTrackingSettingsCategory: () => ({
     content: <div data-testid="cost-tracking-category" />,
     id: 'cost-tracking',
@@ -121,15 +121,15 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
     selector(fileExplorerMockState.current),
 }));
 
-vi.mock('@brainstrike/preferences/settings/models/model-runtime-services', () => ({
+vi.mock('@brainstrike/settings-ui/settings/models/model-runtime-services', () => ({
   configureModelRuntimeServices: vi.fn(),
 }));
 
-vi.mock('@brainstrike/preferences/settings/models/model-selection-page', () => ({
+vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
   ModelSelectionPage: modelSelectionPageMock,
 }));
 
-vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
+vi.mock('@brainstrike/settings-ui/settings/tools/index', () => ({
   createToolsSettingsCategory: createToolsSettingsCategoryMock.mockImplementation(
     ({ operations }: { operations: CapturedToolsOperations }) => {
       capturedOperations = operations;
@@ -142,7 +142,7 @@ vi.mock('@brainstrike/preferences/settings/tools/index', () => ({
   ),
 }));
 
-vi.mock('@brainstrike/preferences/settings/system/notification-settings-category', () => ({
+vi.mock('@brainstrike/settings-ui/settings/system/notification-settings-category', () => ({
   createNotificationSettingsCategory: () => ({
     content: <div data-testid="notifications-category" />,
     id: 'notifications',
@@ -150,12 +150,26 @@ vi.mock('@brainstrike/preferences/settings/system/notification-settings-category
   }),
 }));
 
-vi.mock('@brainstrike/preferences/settings-page-content', () => ({
-  createApiKeysSettingsCategory: () => ({
-    content: <div data-testid="api-keys-category" />,
-    id: 'api-keys',
-    title: 'API Keys',
-  }),
+vi.mock('@brainstrike/settings-ui/settings-page-content', () => ({
+  SettingsPageContent: ({
+    categories,
+    defaultCategoryId,
+  }: {
+    categories: Array<{ content: React.ReactNode; id: string; title: string }>;
+    defaultCategoryId: string;
+  }) => (
+    <div data-default-category-id={defaultCategoryId} data-testid="settings-layout">
+      {categories.map((category) => (
+        <span data-testid="settings-category-title" key={category.id}>
+          {category.title}
+        </span>
+      ))}
+      {categories.find(({ id }) => id === 'embedding-models')?.content}
+    </div>
+  ),
+}));
+
+vi.mock('@brainstrike/settings-ui/settings-category-factories', () => ({
   createAppearanceSettingsCategory: () => ({
     content: <div data-testid="appearance-category" />,
     id: 'appearance',
@@ -197,29 +211,13 @@ vi.mock('@brainstrike/preferences/settings-page-content', () => ({
       id: 'token-counting',
       title: 'Token Counting',
     })),
-  SettingsPageContent: ({
-    categories,
-    defaultCategoryId,
-  }: {
-    categories: Array<{ content: React.ReactNode; id: string; title: string }>;
-    defaultCategoryId: string;
-  }) => (
-    <div data-default-category-id={defaultCategoryId} data-testid="settings-layout">
-      {categories.map((category) => (
-        <span data-testid="settings-category-title" key={category.id}>
-          {category.title}
-        </span>
-      ))}
-      {categories.find(({ id }) => id === 'embedding-models')?.content}
-    </div>
-  ),
 }));
 
-vi.mock('@brainstrike/preferences/settings-test-runtime-access', () => ({
+vi.mock('@brainstrike/app-state/automation-overrides', () => ({
   getAccurateRuntimeAvailabilityTestOverride: () => undefined,
 }));
 
-vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/native-tool-preferences-store', () => ({
   useNativeToolPreferencesStore: {
     getState: () => ({
       isToolEnabled: (toolId: string) => toolId === 'native-read',
@@ -233,7 +231,7 @@ vi.mock('../../../../renderer/components/settings/logging-settings', () => ({
   DesktopLoggingSettings: () => <div data-testid="logging-settings" />,
 }));
 
-interface DesktopTestWindow extends Window {
+interface DesktopTestWindow {
   assistant?: {
     url: string;
   };
@@ -401,7 +399,11 @@ describe('desktop SettingsPageContent tool operations', () => {
       success: false,
     });
 
-    vi.mocked(getDesktopWindow().mcp?.setPath).mockResolvedValueOnce({
+    const setPath = getDesktopWindow().mcp?.setPath;
+    if (!setPath) {
+      throw new Error('Expected MCP setPath bridge to be available.');
+    }
+    vi.mocked(setPath).mockResolvedValueOnce({
       path: '/tmp/mcp.json',
       success: false,
     });

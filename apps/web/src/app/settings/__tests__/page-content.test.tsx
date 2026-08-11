@@ -1,16 +1,16 @@
-import { __resetNativeToolPreferencesStoreForTests } from '@brainstrike/preferences';
+import { __resetNativeToolPreferencesStoreForTests } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { HelmetProvider } from 'react-helmet-async';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import SettingsPageContent from '../page-content';
 
-vi.mock('@brainstrike/preferences/settings/models/model-selection-page', () => ({
+vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => ({
   ModelSelectionPage: vi.fn(() => <div data-testid="model-selection-page-mock" />),
 }));
 
-vi.mock('@brainstrike/preferences/settings-page-content', async (importOriginal) => {
+vi.mock('@brainstrike/settings-ui/settings-category-factories', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@brainstrike/preferences/settings-page-content')>();
+    await importOriginal<typeof import('@brainstrike/settings-ui/settings-category-factories')>();
   return {
     ...actual,
     createAppearanceSettingsCategory: vi.fn(() => ({

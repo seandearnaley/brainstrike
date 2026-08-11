@@ -19,7 +19,7 @@ const { tokenCacheStoreInstances, tokenCacheStoreOptions } = vi.hoisted(() => ({
 }));
 
 // Mock dependencies
-vi.mock('@brainstrike/preferences/stores/token-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/token-preferences-store', () => ({
   tokenPreferencesSelectors: { accurateCounting: {} },
   useTokenPreferencesStore: vi.fn(() => false),
 }));

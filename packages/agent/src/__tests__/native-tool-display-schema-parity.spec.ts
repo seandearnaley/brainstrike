@@ -47,6 +47,11 @@ function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
   }
 }
 
+/** Optional or defaulted in Zod means the display schema declares it optional. */
+function isOptionalField(field: z.ZodTypeAny): boolean {
+  return field instanceof z.ZodOptional || field instanceof z.ZodDefault;
+}
+
 function objectShape(schema: z.ZodTypeAny): Record<string, z.ZodTypeAny> | null {
   const unwrapped = unwrap(schema);
   return unwrapped instanceof z.ZodObject
@@ -54,24 +59,82 @@ function objectShape(schema: z.ZodTypeAny): Record<string, z.ZodTypeAny> | null 
     : null;
 }
 
+interface SchemaFieldContract {
+  readonly required: boolean;
+  readonly variants: readonly z.ZodTypeAny[];
+}
+
+function schemaFieldContracts(
+  schema: z.ZodTypeAny
+): ReadonlyMap<string, SchemaFieldContract> | null {
+  const unwrapped = unwrap(schema);
+  const object = objectShape(unwrapped);
+  if (object) {
+    return new Map(
+      Object.entries(object).map(([name, field]) => [
+        name,
+        { required: !isOptionalField(field), variants: [field] },
+      ])
+    );
+  }
+  if (!(unwrapped instanceof z.ZodDiscriminatedUnion)) {
+    return null;
+  }
+
+  const optionShapes = unwrapped.options.map((option) => objectShape(option));
+  if (optionShapes.some((shape) => shape === null)) {
+    return null;
+  }
+  const shapes = optionShapes as Record<string, z.ZodTypeAny>[];
+  const names = new Set(shapes.flatMap((shape) => Object.keys(shape)));
+  return new Map(
+    [...names].map((name) => {
+      const variants = shapes.flatMap((shape) => (shape[name] ? [shape[name]] : []));
+      return [
+        name,
+        {
+          required: shapes.every((shape) => {
+            const field = shape[name];
+            return field !== undefined && !isOptionalField(field);
+          }),
+          variants,
+        },
+      ];
+    })
+  );
+}
+
+function displayEnumValues(variants: readonly z.ZodTypeAny[]): readonly string[] | null {
+  const values: string[] = [];
+  for (const variant of variants) {
+    const inner = unwrap(variant);
+    if (inner instanceof z.ZodEnum) {
+      values.push(...(inner.options as string[]));
+      continue;
+    }
+    if (inner instanceof z.ZodLiteral) {
+      values.push(...[...inner.values].map(String));
+      continue;
+    }
+    return null;
+  }
+  return [...new Set(values)];
+}
+
 describe('native tool display schema parity', () => {
   const entries = Object.entries(NATIVE_TOOL_INPUT_SCHEMAS).filter(([toolId]) =>
     isDesktopNativeToolId(toolId)
   );
 
-  /** Optional or defaulted in Zod ⇒ the display schema must say `required: false`. */
-  function isOptionalField(field: z.ZodTypeAny): boolean {
-    return field instanceof z.ZodOptional || field instanceof z.ZodDefault;
-  }
-
   it.each(entries)('%s mirrors its Zod schema exactly', (toolId, zodSchema) => {
-    const shape = objectShape(zodSchema as z.ZodTypeAny);
-    // Asserted, not skipped: a non-object schema would silently exempt the tool
-    // from every check below.
-    expect(shape, `${toolId} input schema is not a Zod object, so parity is unverifiable`).not.toBe(
-      null
-    );
-    const fields = shape as Record<string, z.ZodTypeAny>;
+    const fields = schemaFieldContracts(zodSchema as z.ZodTypeAny);
+    // Asserted, not skipped: only a strict object or discriminated union of
+    // strict objects is mechanically checkable by this display format.
+    expect(
+      fields,
+      `${toolId} input schema is not a Zod object or discriminated object union, so parity is unverifiable`
+    ).not.toBe(null);
+    const contracts = fields as ReadonlyMap<string, SchemaFieldContract>;
 
     const display = NATIVE_TOOL_SCHEMAS[toolId as keyof typeof NATIVE_TOOL_SCHEMAS];
     const byName = new Map<string, ToolParameterDisplay>(
@@ -81,9 +144,9 @@ describe('native tool display schema parity', () => {
     expect(
       [...byName.keys()].sort(),
       `${toolId} display parameters drifted from the Zod field set`
-    ).toEqual(Object.keys(fields).sort());
+    ).toEqual([...contracts.keys()].sort());
 
-    for (const [name, field] of Object.entries(fields)) {
+    for (const [name, contract] of contracts) {
       const declared = byName.get(name);
       // Non-null asserted by the set comparison above; narrow for the compiler.
       if (declared === undefined) {
@@ -91,11 +154,11 @@ describe('native tool display schema parity', () => {
       }
 
       expect(declared.required === true, `${toolId}.${name} required-ness drifted`).toBe(
-        !isOptionalField(field)
+        contract.required
       );
 
-      const inner = unwrap(field);
-      if (!(inner instanceof z.ZodEnum)) {
+      const enumValues = displayEnumValues(contract.variants);
+      if (!enumValues) {
         continue;
       }
       // An enum field with no advertised options renders as a free-text box in
@@ -107,7 +170,7 @@ describe('native tool display schema parity', () => {
       expect(
         [...(declared.enumValues ?? [])].sort(),
         `${toolId}.${name} display enumValues drifted from the Zod enum`
-      ).toEqual([...(inner.options as string[])].sort());
+      ).toEqual([...enumValues].sort());
     }
   });
 
@@ -117,6 +180,19 @@ describe('native tool display schema parity', () => {
    * the runtime also required it for `mode=explain`, and the display schema's
    * `mode` description enumerated three of the four modes it accepts.
    */
+  it('pins the grepSearch contextLines default the display mirror advertises (BST-1193)', () => {
+    // The effective default lives in tool code (`input.contextLines ?? 0` in
+    // grep-search-tool.ts), not in Zod, so parity cannot be derived — pin it.
+    // A display mirror advertising a context default the tool no longer has
+    // would teach the settings inspector (and the model) stale behavior.
+    const display = NATIVE_TOOL_SCHEMAS['brainstrike.grepSearch'];
+    const contextLines = display.parameters.find((parameter) => parameter.name === 'contextLines');
+    expect(contextLines?.default).toBe(0);
+    // The mode description must not promise context that is now opt-in.
+    const outputMode = display.parameters.find((parameter) => parameter.name === 'outputMode');
+    expect(outputMode?.description ?? '').not.toContain('context');
+  });
+
   it('pins the querySelf prose that keeps going stale', () => {
     const display = NATIVE_TOOL_SCHEMAS['brainstrike.querySelf'];
     const zodShape = objectShape(

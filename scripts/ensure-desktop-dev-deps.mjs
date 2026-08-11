@@ -3,14 +3,14 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// Nested turbo must go through run-turbo-command.mjs: it resolves the same
-// cache directory as every other turbo invocation in the repo AND serializes
-// this run behind the wrapper's nested-run lock. A direct `pnpm turbo` here
-// gets neither, so under root `pnpm dev` it can execute the same task hash
-// concurrently with web's predev nested build (the rimraf-under-a-live-reader
-// race from PR #2132, dev flavor).
+// The same helper serves two lifecycle boundaries. Root `predev` runs it before
+// the outer Turbo watcher graph starts; desktop `predev` reaches it from inside
+// that graph and must skip because root preparation already completed. Outside
+// Turbo (standalone desktop dev), the helper still builds the complete desktop
+// dependency graph through the bounded wrapper and shared nested-run lock.
 const desktopDevDependencyBuildArgs = [
   'scripts/run-turbo-command.mjs',
+  '--skip-under-prepared-dev',
   '--',
   'run',
   'desktop-dev-dependencies',

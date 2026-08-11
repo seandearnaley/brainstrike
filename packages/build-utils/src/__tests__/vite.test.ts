@@ -170,9 +170,9 @@ describe('assistant vite helpers', () => {
   });
 
   test('returns database lazy-panel optimize-deps package ids', () => {
-    expect(getDatabaseOptimizeDepsInclude()).toEqual(
-      expect.arrayContaining(['jszip', 'file-saver', 'react-resizable-panels'])
-    );
+    // Exact match, not arrayContaining: reintroducing file-saver here must fail
+    // (platform-contracts.md calls it a regression).
+    expect(getDatabaseOptimizeDepsInclude()).toEqual(['jszip', 'react-resizable-panels']);
   });
 
   test('returns heavy runtime optimize-deps exclusions', () => {
@@ -193,8 +193,8 @@ describe('assistant vite helpers', () => {
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper-lazy.tsx'),
       expect.stringContaining('/packages/app-shell/src/assistant-ui-panel-wrapper.tsx'),
       expect.stringContaining('/packages/app-shell/src/database-tab.tsx'),
-      expect.stringContaining('/packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx'),
-      expect.stringContaining('/packages/ui/src/assistant-ui-panel/markdown-text.tsx'),
+      expect.stringContaining('/packages/assistant-ui/src/assistant-ui-panel.tsx'),
+      expect.stringContaining('/packages/assistant-ui/src/markdown-text.tsx'),
       expect.stringContaining('/packages/app-shell/src/database-tab-chunk.tsx'),
       expect.stringContaining('/packages/db-explorer/src/database-demo-panel.tsx'),
     ]);
@@ -221,7 +221,11 @@ describe('assistant vite helpers', () => {
     expect(
       isContextActionSystemModule('/workspace/packages/db-explorer/src/context-actions/actions.ts')
     ).toBe(true);
-    expect(isContextActionSystemModule('/workspace/packages/commands/src/registry.ts')).toBe(true);
+    expect(
+      isContextActionSystemModule(
+        '/workspace/packages/context-actions/src/commands/command-registry.ts'
+      )
+    ).toBe(true);
     // node_modules and unrelated app code stay under default chunking.
     expect(isContextActionSystemModule('/workspace/node_modules/context-actions/index.js')).toBe(
       false
@@ -249,12 +253,12 @@ describe('assistant vite helpers', () => {
   test('classifies only the shared sanitized persist merge helper', () => {
     expect(
       isSanitizedPersistMergeModule(
-        '/workspace/packages/preferences/src/stores/sanitized-persist-merge.ts'
+        '/workspace/packages/app-state/src/stores/sanitized-persist-merge.ts'
       )
     ).toBe(true);
     expect(
       isSanitizedPersistMergeModule(
-        String.raw`C:\workspace\packages\preferences\dist\stores\sanitized-persist-merge.js`
+        String.raw`C:\workspace\packages\app-state\dist\stores\sanitized-persist-merge.js`
       )
     ).toBe(true);
     expect(
@@ -264,7 +268,7 @@ describe('assistant vite helpers', () => {
     ).toBe(false);
     expect(
       isSanitizedPersistMergeModule(
-        '/workspace/packages/preferences/src/stores/diagnostics-retention-store.ts'
+        '/workspace/packages/app-state/src/stores/diagnostics-retention-store.ts'
       )
     ).toBe(false);
   });

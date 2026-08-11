@@ -50,7 +50,7 @@ describe('IPC Handlers - Auto-Restore Folder Functionality', () => {
       readFile: vi.fn(),
       requestDirectoryAccess: vi.fn(),
       watchDirectory: vi.fn(),
-    } as ElectronFileSystemAdapter;
+    } as unknown as ElectronFileSystemAdapter;
 
     // Mock storage adapter with proper vitest mock functions
     mockStorage = {

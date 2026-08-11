@@ -72,7 +72,7 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
 
   Paired tests: `apps/desktop/src/__tests__/assistant-server/user-personas-loader.test.ts`,
   `apps/desktop/src/__tests__/ipc-domains/ipc-user-personas-handlers.test.ts`,
-  `packages/preferences/src/__tests__/subagent-personas-settings-section.test.tsx`.
+  `packages/settings-ui/src/__tests__/subagent-personas-settings-section.test.tsx`.
 - **Per-request resolution:** `apps/desktop/src/assistant-server/request-personas.ts`
   (`resolveRequestPersonas`) merges built-ins + scanned user personas, applies
   the renderer's `subagentPersonasRequest` availability preference
@@ -83,8 +83,8 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   (server-set; a client-supplied value is STRIPPED, same posture as
   `permissionPolicy`). A scan failure degrades to built-ins with a warn — a
   broken agents dir must not take down chat. Settings UI:
-  `packages/preferences/src/settings/system/subagent-personas-settings-section.tsx`;
-  the store is factory-reset-registered in `factory-reset-helpers.ts`.
+  `packages/settings-ui/src/settings/system/subagent-personas-settings-section.tsx`;
+  the store is factory-reset-registered in `packages/app-state/src/factory-reset.ts`.
 - **Model pinning (v2):** a persona with `model: provider::modelId` builds its
   child on THAT model via `resolvePinnedModel`
   (`packages/agent/src/mastra/persona-pinned-model.ts`): same-provider pins
@@ -106,7 +106,11 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   and **no `memory`** (Mastra injects the parent's memory and scopes writes to a
   fresh delegation thread). The child `Agent` id EQUALS the persona id — Mastra
   sets `DelegationStartContext.primitiveId = agent.id`, and the caps resolve the
-  persona by that id.
+  persona by that id. Because the selected tools are the SAME parent-owned
+  objects, the outer model-projection wrapper installs the child's resolved
+  budget only for the synchronous custom-projector call and restores the prior
+  value in `finally`; desktop producers therefore narrow or widen per pinned
+  child instead of retaining their construction-time parent budget.
 - **Safety rails:** `packages/agent/src/mastra/subagent-delegation.ts`
   (`createDelegationConfig`): per-run `DelegationConfig` closure —
   `MAX_CONCURRENT_DELEGATIONS = 2`, `MAX_DELEGATIONS_PER_RUN = 8`, persona
@@ -139,9 +143,21 @@ delegation machinery (hooks, memory isolation, nested-chunk forwarding,
   throws on unknown kinds, so the contract enum MUST ship before any emitter.
   Metadata carries ids/labels ONLY (`parentToolCallId`, `personaId`,
   `toolCallId`, `toolName`) — never args/results (the sanitizer strips those).
+
+  Subagent tool calls ALSO feed the SAME per-tool token telemetry table as
+  primary tool calls, attributed to the parent run (BST-1196), via a
+  telemetry-only `RunTokenDiagnostics.recordSubagentToolOutput` sink that
+  deliberately does NOT feed the parent-run prompt-reconciliation aggregate
+  `recordModelOutput` also updates; see assistant-persistence.md, `## TOOL-
+  CALL TOKEN TELEMETRY`. This closes the BST-1190 follow-up gap.
 - **Budget guard:** `subAgentToolResults` is a `TRIMMABLE_COLLECTION_KEYS` entry
   (tool-output-limits.ts) so an oversized delegation result trims structurally
   (truncated + hint) instead of a hard size error.
+- **Durable artifact analysis:** built-in personas include the read-only
+  `brainstrike.readToolOutputArtifact` capability when the run registers it.
+  Oversized-result settlement advertises whole-result delegation only after
+  persona assembly has registered at least one artifact-reader-capable
+  `agent-*` tool; permission/model-pin skips cannot produce a false hint.
 - **Desktop wiring:** `packages/assistant-service/src/stream-init.ts` (desktop capabilities composed in `apps/desktop/src/assistant-server.ts`) sets
   `runtime.personas` to the per-request RESOLVED set (built-ins + user personas,
   availability applied — `resolvePersonaRuntimeFields`) on the shared runtime
@@ -188,5 +204,3 @@ per request, so edits apply on the next turn).
 When changing this flow, update this section and the paired tests.
 
 ---
-
-

@@ -1,7 +1,7 @@
+import { useVectorStatusUIStore } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { JobQueue } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
-import { useVectorStatusUIStore } from '@brainstrike/preferences/stores/vector-status-ui-store';
 import {
   Badge,
   Button,

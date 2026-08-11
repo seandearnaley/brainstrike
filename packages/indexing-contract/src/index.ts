@@ -1,4 +1,7 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
+import type { EmbeddingDimensionParameter } from './embedding-worker-protocol.js';
+
+export * from './embedding-worker-protocol.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 
@@ -268,7 +271,7 @@ export function getChunkingPreset(id: ChunkingPresetId): ChunkingPresetDefinitio
  * BST-423 — canonical chunking-settings invariants.
  *
  * These live here, in the contract package, because BOTH sides of the settings
- * flow already depend on it: the persisted store (`@brainstrike/preferences`)
+ * flow already depend on it: the persisted store (`@brainstrike/app-state`)
  * and the settings UI (`@brainstrike/db-explorer`). They previously each
  * carried their own copy of the rules, and the copies disagreed — the store
  * turned a non-finite token limit into 512 via `Math.floor(n) || 512` (so a
@@ -478,17 +481,6 @@ export function getChunkingRoutePreview(
   }));
 }
 
-export type EmbeddingDevice = 'webgpu' | 'wasm';
-
-export type EmbeddingDeviceHint = EmbeddingDevice;
-
-export type EmbeddingDType = 'fp16' | 'q4' | 'fp32';
-
-export type EmbeddingDimensionParameter =
-  | 'dimensions'
-  | 'output_dimensionality'
-  | 'output_dimension';
-
 export type EmbeddingProviderType =
   | 'local'
   | 'transformers'
@@ -533,6 +525,76 @@ export interface IndexingEmbeddingJobQueuePort<TTransaction = unknown> {
     options?: IndexingEmbeddingJobQueueBatchOptions<TTransaction>
   ) => Promise<void>;
   resetProgress?: () => void;
+}
+
+/** Stand-in segment for an embedding job that targets no specific set. */
+const EMBED_JOB_DEDUPE_KEY_NO_SET = 'none';
+
+/**
+ * Build the dedupe key for an `embed_chunk` job.
+ *
+ * This is the ONE supported producer of `job_queue.dedupe_key` for embedding
+ * jobs. It lives here, rather than in `@brainstrike/db` or
+ * `@brainstrike/pipeline`, because both of those enqueue embedding jobs and the
+ * key must be byte-identical across them — a second format silently defeats the
+ * `idx_job_queue_dedupe_active` unique index and re-enqueues duplicates.
+ *
+ * Format: `{chunkId}:{embeddingSetId ?? 'none'}:{contentHash}`
+ *
+ * Content hash rather than model key is deliberate: re-embedding is driven by
+ * chunk content changing, so a chunk whose content is unchanged dedupes against
+ * its in-flight job. The corollary is that the model key does NOT separate jobs:
+ * while a job for `chunk+set` is queued or running, re-enqueuing that chunk under
+ * a different model dedupes into the existing job and the chunk is embedded with
+ * the original model — `enqueue`/`enqueueBatch` only lower `run_at` and COALESCE
+ * the identity columns, never rewriting the payload that carries `modelKey`. In
+ * practice a model change means a new embedding set, so `embeddingSetId` differs
+ * and the keys diverge anyway.
+ *
+ * The absence of a leading type tag is deliberate, not an oversight. All dedupe
+ * keys — `file:`, `chunk:`, and these — share one namespace under the unique
+ * partial index `idx_job_queue_dedupe_active(dedupe_key) WHERE state IN
+ * ('queued','running')`. An untagged key can only collide with a tagged one if a
+ * chunk id is literally `'file'` or `'chunk'`, which UUID chunk ids rule out.
+ * The tag was dropped because the two live producers had already shipped this
+ * shape, so adding one would have rewritten keys for every queued job.
+ *
+ * **Do not parse this key.** Splitting it positionally is not a supported way to
+ * recover chunk or embedding-set identity — the segment layout is an internal
+ * detail and a content hash is opaque. Read the first-class indexed columns
+ * `job_queue.chunk_id` and `job_queue.embedding_set_id` instead (migrations 042
+ * and 043 added them for exactly this reason). BST-1214: a debug query that used
+ * `split_part(dedupe_key, ':', 1)` reported every failed embedding as merely
+ * pending, because it was reading a key built by a different producer.
+ *
+ * @throws If any component is blank — a blank segment would collide across
+ * otherwise distinct chunks, so it is refused rather than coerced. `null` and
+ * `undefined` are the only accepted "no embedding set" signals; a blank string
+ * is a caller bug, not a synonym for them.
+ */
+export function buildEmbedJobDedupeKey(
+  chunkId: string,
+  embeddingSetId: string | null | undefined,
+  contentHash: string
+): string {
+  const normalizedChunkId = chunkId.trim();
+  if (!normalizedChunkId) {
+    throw new Error('Cannot build an embedding job dedupe key without a chunk id.');
+  }
+
+  const normalizedContentHash = contentHash.trim();
+  if (!normalizedContentHash) {
+    throw new Error('Cannot build an embedding job dedupe key without a content hash.');
+  }
+
+  if (embeddingSetId !== null && embeddingSetId !== undefined && !embeddingSetId.trim()) {
+    throw new Error(
+      'Cannot build an embedding job dedupe key from a blank embedding set id; pass null for no set.'
+    );
+  }
+  const normalizedSetId = embeddingSetId?.trim() ?? EMBED_JOB_DEDUPE_KEY_NO_SET;
+
+  return `${normalizedChunkId}:${normalizedSetId}:${normalizedContentHash}`;
 }
 
 export interface EmbeddingModelConfig {
@@ -803,407 +865,3 @@ export function canonicalizeEmbeddingProviderModelKey(
     provider,
   };
 }
-
-export interface EmbedWorkerRequest {
-  readonly deviceHint: EmbeddingDeviceHint;
-  readonly dimensionParameter?: EmbeddingDimensionParameter;
-  readonly dtype?: EmbeddingDType;
-  readonly estimatedModelBytes?: number;
-  readonly id: string;
-  readonly maxBatchSize?: number;
-  readonly model: string;
-  readonly provider?: string;
-  readonly targetDimension?: number;
-  readonly texts: readonly string[];
-  readonly truncateDim?: number;
-  readonly type: 'embed';
-}
-
-export interface EmbedWorkerProgress {
-  readonly id: string;
-  readonly phase: 'initializing' | 'embedding' | 'complete';
-  readonly progress: number;
-  readonly type: 'progress';
-}
-
-export interface EmbedWorkerPipelineCacheMemoryDiagnostic {
-  readonly gpuBytes: number | null;
-  readonly heapBytes: number | null;
-  readonly reason:
-    | 'browser-runtime-unavailable'
-    | 'measured'
-    | 'model-size-estimate'
-    | 'model-size-unknown';
-}
-
-export interface EmbedWorkerPipelineCacheEntryDiagnostic {
-  readonly cacheKey: string;
-  readonly createdAt: number;
-  readonly device: EmbeddingDevice;
-  readonly dtype: EmbeddingDType;
-  readonly lastUsedAt: number;
-  readonly memory: EmbedWorkerPipelineCacheMemoryDiagnostic;
-  readonly model: string;
-  readonly residencyMs: number;
-}
-
-/** Worker name prefix used to carry a pool-assigned identity through termination callbacks. */
-export const EMBED_WORKER_INSTANCE_NAME_PREFIX = 'brainstrike-embedding-worker:';
-
-/** Worker-script fragment key carrying the pool's worker-lifetime telemetry channel. */
-export const EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY =
-  'brainstrike-embedding-worker-telemetry-channel';
-
-interface EmbedWorkerPipelineCacheDiagnosticBase {
-  readonly cacheSize: number;
-  readonly diagnostic: 'pipeline-cache';
-  readonly emittedAt: number;
-  /** Full cache snapshot for non-hot-path events. */
-  readonly entries?: readonly EmbedWorkerPipelineCacheEntryDiagnostic[];
-  /** Subject pipeline for this diagnostic event. */
-  readonly entry?: EmbedWorkerPipelineCacheEntryDiagnostic;
-  readonly id?: string;
-  readonly type: 'diagnostic';
-  /** Ephemeral identity for the live worker instance that owns this cache. */
-  readonly workerInstanceId: string;
-}
-
-export type EmbedWorkerPipelineCacheDiagnostic = EmbedWorkerPipelineCacheDiagnosticBase &
-  (
-    | {
-        readonly event: 'hit' | 'loaded';
-        readonly reason?: never;
-      }
-    | {
-        readonly event: 'disposed';
-        readonly reason: 'manual-dispose';
-      }
-    | {
-        readonly event: 'evicted';
-        readonly reason: 'device-lost' | 'idle-timeout' | 'resident-limit';
-      }
-    | {
-        readonly event: 'invalidated';
-        readonly reason: 'device-lost';
-      }
-    | {
-        readonly event: 'load-failed';
-        readonly reason: 'load-failure';
-      }
-  );
-
-function assertNonEmptyPipelineCacheDiagnosticString(
-  value: unknown,
-  path: string
-): asserts value is string {
-  if (!(typeof value === 'string' && value.length > 0)) {
-    throw new Error(`${path} must be a non-empty string.`);
-  }
-}
-
-function assertNonNegativePipelineCacheDiagnosticNumber(
-  value: unknown,
-  path: string
-): asserts value is number {
-  if (!(typeof value === 'number' && Number.isFinite(value) && value >= 0)) {
-    throw new Error(`${path} must be a non-negative finite number.`);
-  }
-}
-
-function assertEmbedWorkerPipelineCacheEntryDiagnostic(
-  value: unknown,
-  path: string
-): asserts value is EmbedWorkerPipelineCacheEntryDiagnostic {
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    throw new Error(`${path} must be an object.`);
-  }
-  const entry = value as Record<string, unknown>;
-  assertNonEmptyPipelineCacheDiagnosticString(entry['cacheKey'], `${path}.cacheKey`);
-  assertNonNegativePipelineCacheDiagnosticNumber(entry['createdAt'], `${path}.createdAt`);
-  if (entry['device'] !== 'webgpu' && entry['device'] !== 'wasm') {
-    throw new Error(`${path}.device must be "webgpu" or "wasm".`);
-  }
-  if (entry['dtype'] !== 'fp16' && entry['dtype'] !== 'fp32' && entry['dtype'] !== 'q4') {
-    throw new Error(`${path}.dtype must be "fp16", "fp32", or "q4".`);
-  }
-  assertNonNegativePipelineCacheDiagnosticNumber(entry['lastUsedAt'], `${path}.lastUsedAt`);
-  assertNonEmptyPipelineCacheDiagnosticString(entry['model'], `${path}.model`);
-  assertNonNegativePipelineCacheDiagnosticNumber(entry['residencyMs'], `${path}.residencyMs`);
-
-  const memory = entry['memory'];
-  if (!(memory && typeof memory === 'object' && !Array.isArray(memory))) {
-    throw new Error(`${path}.memory must be an object.`);
-  }
-  const memoryRecord = memory as Record<string, unknown>;
-  for (const field of ['gpuBytes', 'heapBytes'] as const) {
-    const bytes = memoryRecord[field];
-    if (bytes !== null) {
-      assertNonNegativePipelineCacheDiagnosticNumber(bytes, `${path}.memory.${field}`);
-    }
-  }
-  const memoryReason = memoryRecord['reason'];
-  if (
-    memoryReason !== 'browser-runtime-unavailable' &&
-    memoryReason !== 'measured' &&
-    memoryReason !== 'model-size-estimate' &&
-    memoryReason !== 'model-size-unknown'
-  ) {
-    throw new Error(`${path}.memory.reason is invalid.`);
-  }
-}
-
-function readEmbedWorkerPipelineCacheEntries(
-  value: unknown,
-  path: string
-): readonly EmbedWorkerPipelineCacheEntryDiagnostic[] | undefined {
-  if (value === undefined) {
-    return;
-  }
-  if (!Array.isArray(value)) {
-    throw new Error(`${path} must be an array.`);
-  }
-  const entries: EmbedWorkerPipelineCacheEntryDiagnostic[] = [];
-  value.forEach((candidate: unknown, index: number) => {
-    assertEmbedWorkerPipelineCacheEntryDiagnostic(candidate, `${path}[${index}]`);
-    entries.push(candidate);
-  });
-  return entries;
-}
-
-function requireFullEmbedWorkerPipelineCacheSnapshot(
-  event: string,
-  entries: readonly EmbedWorkerPipelineCacheEntryDiagnostic[] | undefined,
-  cacheSize: number,
-  path: string
-): readonly EmbedWorkerPipelineCacheEntryDiagnostic[] {
-  if (!entries) {
-    throw new Error(`${path}.${event} requires a full entries snapshot.`);
-  }
-  const uniqueCacheKeys = new Set(entries.map((entry) => entry.cacheKey));
-  if (entries.length !== cacheSize || uniqueCacheKeys.size !== cacheSize) {
-    throw new Error(`${path}.entries must contain ${cacheSize} unique cache entries.`);
-  }
-  return entries;
-}
-
-function requireEmbedWorkerPipelineCacheSubjectEntry(
-  event: string,
-  entry: EmbedWorkerPipelineCacheEntryDiagnostic | undefined,
-  path: string
-): EmbedWorkerPipelineCacheEntryDiagnostic {
-  if (!entry) {
-    throw new Error(`${path}.${event} requires an entry.`);
-  }
-  return entry;
-}
-
-function assertEmbedWorkerPipelineCacheSubjectMembership(
-  event: string,
-  entry: EmbedWorkerPipelineCacheEntryDiagnostic,
-  entries: readonly EmbedWorkerPipelineCacheEntryDiagnostic[],
-  path: string,
-  expected: 'absent' | 'present'
-): void {
-  const includesSubject = entries.some((candidate) => candidate.cacheKey === entry.cacheKey);
-  if ((expected === 'present') !== includesSubject) {
-    throw new Error(`${path}.${event} subject entry must be ${expected} from entries.`);
-  }
-}
-
-interface EmbedWorkerPipelineCacheValidationContext {
-  readonly cacheSize: number;
-  readonly entries: readonly EmbedWorkerPipelineCacheEntryDiagnostic[] | undefined;
-  readonly entry: EmbedWorkerPipelineCacheEntryDiagnostic | undefined;
-  readonly event: unknown;
-  readonly path: string;
-  readonly reason: unknown;
-}
-
-function assertEmbedWorkerPipelineCacheHit(
-  context: EmbedWorkerPipelineCacheValidationContext
-): void {
-  requireEmbedWorkerPipelineCacheSubjectEntry('hit', context.entry, context.path);
-  if (context.reason !== undefined) {
-    throw new Error(`${context.path}.hit must not include a reason.`);
-  }
-}
-
-function assertEmbedWorkerPipelineCacheLoaded(
-  context: EmbedWorkerPipelineCacheValidationContext
-): void {
-  const subject = requireEmbedWorkerPipelineCacheSubjectEntry(
-    'loaded',
-    context.entry,
-    context.path
-  );
-  const snapshot = requireFullEmbedWorkerPipelineCacheSnapshot(
-    'loaded',
-    context.entries,
-    context.cacheSize,
-    context.path
-  );
-  assertEmbedWorkerPipelineCacheSubjectMembership(
-    'loaded',
-    subject,
-    snapshot,
-    context.path,
-    'present'
-  );
-  if (context.reason !== undefined) {
-    throw new Error(`${context.path}.loaded must not include a reason.`);
-  }
-}
-
-function assertEmbedWorkerPipelineCacheRemoval(
-  context: EmbedWorkerPipelineCacheValidationContext,
-  event: 'disposed' | 'evicted'
-): void {
-  const subject = requireEmbedWorkerPipelineCacheSubjectEntry(event, context.entry, context.path);
-  const snapshot = requireFullEmbedWorkerPipelineCacheSnapshot(
-    event,
-    context.entries,
-    context.cacheSize,
-    context.path
-  );
-  assertEmbedWorkerPipelineCacheSubjectMembership(event, subject, snapshot, context.path, 'absent');
-  if (event === 'disposed' && context.reason !== 'manual-dispose') {
-    throw new Error(`${context.path}.disposed requires reason "manual-dispose".`);
-  }
-  if (
-    event === 'evicted' &&
-    context.reason !== 'device-lost' &&
-    context.reason !== 'idle-timeout' &&
-    context.reason !== 'resident-limit'
-  ) {
-    throw new Error(`${context.path}.evicted reason is invalid.`);
-  }
-}
-
-function assertEmbedWorkerPipelineCacheSnapshotEvent(
-  context: EmbedWorkerPipelineCacheValidationContext,
-  event: 'invalidated' | 'load-failed'
-): void {
-  requireFullEmbedWorkerPipelineCacheSnapshot(
-    event,
-    context.entries,
-    context.cacheSize,
-    context.path
-  );
-  if (event === 'invalidated' && context.reason !== 'device-lost') {
-    throw new Error(`${context.path}.invalidated requires reason "device-lost".`);
-  }
-  if (event === 'load-failed' && context.reason !== 'load-failure') {
-    throw new Error(`${context.path}.load-failed requires reason "load-failure".`);
-  }
-}
-
-function assertEmbedWorkerPipelineCacheEvent(
-  context: EmbedWorkerPipelineCacheValidationContext
-): void {
-  switch (context.event) {
-    case 'hit':
-      assertEmbedWorkerPipelineCacheHit(context);
-      return;
-    case 'loaded':
-      assertEmbedWorkerPipelineCacheLoaded(context);
-      return;
-    case 'disposed':
-    case 'evicted':
-      assertEmbedWorkerPipelineCacheRemoval(context, context.event);
-      return;
-    case 'invalidated':
-    case 'load-failed':
-      assertEmbedWorkerPipelineCacheSnapshotEvent(context, context.event);
-      return;
-    default:
-      throw new Error(`${context.path}.event is invalid.`);
-  }
-}
-
-export function assertEmbedWorkerPipelineCacheDiagnostic(
-  value: unknown
-): asserts value is EmbedWorkerPipelineCacheDiagnostic {
-  const path = 'Embedding worker pipeline-cache diagnostic';
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    throw new Error(`${path} must be an object.`);
-  }
-  const record = value as Record<string, unknown>;
-  if (record['diagnostic'] !== 'pipeline-cache' || record['type'] !== 'diagnostic') {
-    throw new Error(`${path} requires type "diagnostic" and diagnostic "pipeline-cache".`);
-  }
-  const cacheSize = record['cacheSize'];
-  assertNonNegativePipelineCacheDiagnosticNumber(cacheSize, `${path}.cacheSize`);
-  if (!Number.isSafeInteger(cacheSize)) {
-    throw new Error(`${path}.cacheSize must be a safe integer.`);
-  }
-  assertNonNegativePipelineCacheDiagnosticNumber(record['emittedAt'], `${path}.emittedAt`);
-  if (!(typeof record['workerInstanceId'] === 'string' && record['workerInstanceId'].length > 0)) {
-    throw new Error(`${path} requires a non-empty workerInstanceId.`);
-  }
-  if (record['id'] !== undefined) {
-    assertNonEmptyPipelineCacheDiagnosticString(record['id'], `${path}.id`);
-  }
-
-  const entryValue = record['entry'];
-  let entry: EmbedWorkerPipelineCacheEntryDiagnostic | undefined;
-  if (entryValue !== undefined) {
-    assertEmbedWorkerPipelineCacheEntryDiagnostic(entryValue, `${path}.entry`);
-    entry = entryValue;
-  }
-  const entries = readEmbedWorkerPipelineCacheEntries(record['entries'], `${path}.entries`);
-  assertEmbedWorkerPipelineCacheEvent({
-    cacheSize,
-    entries,
-    entry,
-    event: record['event'],
-    path,
-    reason: record['reason'],
-  });
-}
-
-export interface EmbedWorkerBatch {
-  readonly batchIndex: number;
-  readonly endIndex: number;
-  readonly id: string;
-  readonly peakVectorsInFlight: number;
-  readonly startIndex: number;
-  readonly transferBytes: number;
-  readonly type: 'batch';
-  readonly vectors: readonly Float32Array[];
-  readonly vectorsInFlight: number;
-}
-
-export interface EmbedWorkerSuccess {
-  readonly id: string;
-  readonly metadata: {
-    readonly model: string;
-    readonly device: EmbeddingDevice;
-    readonly dtype: EmbeddingDType;
-    readonly batchSize: number;
-    readonly elapsedMs: number;
-    readonly fallbackApplied: boolean;
-    readonly dimensions: number;
-  };
-  readonly type: 'result';
-  readonly vectors: readonly Float32Array[];
-}
-
-export interface EmbedWorkerError {
-  readonly cause?: string | undefined;
-  readonly id: string;
-  readonly message: string;
-  readonly type: 'error';
-}
-
-export interface EmbedWorkerComplete {
-  readonly id: string;
-  readonly metadata: EmbedWorkerSuccess['metadata'];
-  readonly type: 'complete';
-}
-
-export type EmbedWorkerStreamEvent =
-  | EmbedWorkerBatch
-  | EmbedWorkerComplete
-  | EmbedWorkerPipelineCacheDiagnostic
-  | EmbedWorkerError
-  | EmbedWorkerProgress;

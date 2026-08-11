@@ -165,6 +165,30 @@ function matchesExcludedPathPrefix(relativePath: string): boolean {
   );
 }
 
+/**
+ * The excluded-path rule on its own, for consumers that must honour the SAME
+ * exclusions without adopting the rest of an entry policy.
+ *
+ * The Explorer's token indexer is the motivating caller (BST-1207 widened it
+ * from selection-only to visible + expanded directories, which walks the whole
+ * display tree). It cannot use `shouldIncludeFile`: that gate also applies the
+ * preset's size, extension and text rules, and the Explorer must keep counting
+ * tokens for every row it actually SHOWS. Only the path exclusions are shared —
+ * they mark trees nothing should ever index, at any preset, for any consumer.
+ *
+ * Both are preset-independent by construction: `EXCLUDED_DIRECTORY_PATH_PREFIXES`
+ * is applied identically by the balanced and full-root file gates above, so
+ * exposing it without a preset cannot drift from them.
+ *
+ * `relativePath` must be ROOT-RELATIVE and `/`-separated (no leading slash) —
+ * the same contract as `BackgroundIndexingFileInput.relativePath`. An absolute
+ * path never matches, so passing one silently indexes everything; that is why
+ * callers build the path from the walk rather than trimming a prefix.
+ */
+export function isExcludedBackgroundIndexingPath(relativePath: string): boolean {
+  return matchesExcludedPathPrefix(relativePath);
+}
+
 const balancedPathMatcher = createPathFilterMatcher(
   [],
   Array.from(BALANCED_EXCLUDED_DIRECTORY_SEGMENTS).map((segment) => `${segment}/**`)

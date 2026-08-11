@@ -4,6 +4,7 @@ import path from 'node:path';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
+import { withBoundedTraceChunkNames } from '../config/src/vitest-browser.ts';
 
 // Resolve workspace deps (platform-utils, utils) from SOURCE, not built dist.
 // Applied per-project (vitest 4 does not inherit the root-level resolve into
@@ -60,18 +61,23 @@ export default defineConfig({
             // --disable-dev-shm-usage (et al.) or it can crash mid-suite
             // (review #2158 — this project previously passed no args and had
             // simply never run in a container).
-            provider: playwright({
-              launchOptions: {
-                args: process.env['CI']
-                  ? [
-                      '--no-sandbox',
-                      '--disable-dev-shm-usage',
-                      '--disable-setuid-sandbox',
-                      '--disable-features=VizDisplayCompositor',
-                    ]
-                  : [],
-              },
-            }),
+            // withBoundedTraceChunkNames: long test names otherwise overflow
+            // the 255-byte attachment filename and the ENAMETOOLONG masks the
+            // real failure (see @brainstrike/config's vitest-browser).
+            provider: withBoundedTraceChunkNames(
+              playwright({
+                launchOptions: {
+                  args: process.env['CI']
+                    ? [
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-setuid-sandbox',
+                        '--disable-features=VizDisplayCompositor',
+                      ]
+                    : [],
+                },
+              })
+            ),
             // Capture screenshots on failure for quick visual debugging
             screenshotFailures: true,
             // Playwright trace: capture only for failing tests in CI

@@ -31,12 +31,12 @@
  * § RUN-EVENT / THREAD-RUN SCHEMA OWNERSHIP.
  */
 import type { StreamChunk } from '@brainstrike/agent';
+import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
 // Real repository (the production schema bootstrap + the sole runId-minting
-// site). Imported via app-shell's narrow `./assistant-memory-repository`
+// site). Imported via the assistant-data package
 // subpath, same convention as hook-run-outcome.integration.test.ts; placement
 // is interim per R04 (BST-984).
-import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
-import { MASTRA_MEMORY_SCHEMA_SQL, MASTRA_MEMORY_TABLES } from '@brainstrike/assistant-contract';
+import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it } from 'vitest';

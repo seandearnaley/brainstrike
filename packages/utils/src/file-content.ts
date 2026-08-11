@@ -8,6 +8,13 @@ import {
  */
 const MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
+export function getKnownFileSize(size: unknown): number | null {
+  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
+    return null;
+  }
+  return size;
+}
+
 /**
  * Utilities for validating and checking file content types
  */

@@ -1,3 +1,4 @@
+import { GEMMA4_E2B_MODEL_ID } from '@brainstrike/assistant-contract/local-llm';
 import {
   type AssistantPersonaDefinition,
   PersonaToolRiskViolationError,
@@ -9,8 +10,14 @@ import type { MastraModelConfig } from '@mastra/core/llm';
 import { createTool } from '@mastra/core/tools';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import {
+  decodedTextModelOutputChars,
+  resolveScaledToolResultBudget,
+  type ScaledToolResultBudget,
+} from '../../stream/tool-output-limits';
 import { buildPersonaSubAgents } from '../build-persona-subagents';
 import type { PermissionToolGateLogger } from '../permission-tool-gate';
+import { applyToolModelOutputProjections, getActiveToolResultBudget } from '../tool-model-output';
 
 // Mastra vendors its own AI SDK v5 provider types (the workspace
 // `@ai-sdk/provider` is a different major and is NOT assignable), so extract
@@ -22,6 +29,8 @@ const noopLogger: PermissionToolGateLogger = {
   info: () => undefined,
   warn: () => undefined,
 };
+
+const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);
 
 function assertDefined<T>(value: T | undefined, message: string): T {
   if (value === undefined) {
@@ -117,6 +126,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [explorePersona],
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
 
@@ -145,6 +155,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAskSnapshot,
       personas: [explorePersona],
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
     expect(result.subAgents['explore']).toBeUndefined();
@@ -169,6 +180,7 @@ describe('buildPersonaSubAgents', () => {
         logger: noopLogger,
         permissionSnapshot: undefined,
         personas: [hostilePersona],
+        resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
         toolNameMap,
       })
     ).toThrow(PersonaToolRiskViolationError);
@@ -182,6 +194,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: undefined,
       personas: [explorePersona],
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
     const keys = await childToolKeys(
@@ -204,6 +217,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [explorePersona],
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
     const keys = await childToolKeys(
@@ -228,6 +242,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [pinned],
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       resolvePinnedModel: (persona) => {
         resolvedPins.push(persona.model);
         return pinnedModel;
@@ -250,6 +265,7 @@ describe('buildPersonaSubAgents', () => {
       logger: noopLogger,
       permissionSnapshot: readAllowSnapshot,
       personas: [explorePersona],
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       resolvePinnedModel: () => {
         resolverCalls += 1;
         return fakeModel;
@@ -284,6 +300,7 @@ describe('buildPersonaSubAgents', () => {
       logger,
       permissionSnapshot: readAllowSnapshot,
       personas: [pinned, explorePersona],
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       resolvePinnedModel: () => {
         throw new Error('missing_api_key');
       },
@@ -316,9 +333,173 @@ describe('buildPersonaSubAgents', () => {
       logger,
       permissionSnapshot: readAllowSnapshot,
       personas: [pinned],
+      resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
       toolNameMap,
     });
     expect(result.subAgents['pinned-no-resolver']).toBeUndefined();
     expect(warns).toContain('subagent_persona_pin_unresolvable');
+  });
+
+  describe('resolves a reused projector budget at each parent or persona call', () => {
+    // A domain-specific projector that fits its OWN output to the active
+    // budget, matching desktop's construction-time fallback plus per-call
+    // active-context behavior. This catches the producer/consumer mismatch;
+    // an identity projector would exercise only the outer assertion.
+    // A real, registered read-risk native tool id: `assertReadOnlyPersona`
+    // resolves risk against the native tool registry, so a made-up id would
+    // throw `PersonaToolRiskViolationError` before budget resolution ever runs.
+    const domainToolId = 'brainstrike.grepSearch';
+    const domainSanitizedId = 'brainstrike_grepSearch';
+    function makeDomainPersona(model?: { modelId: string; provider: string }) {
+      return {
+        allowedToolIds: [domainToolId],
+        description: 'Domain persona',
+        id: 'domain-persona',
+        instructions: 'Domain.',
+        label: 'Domain',
+        maxSteps: 4,
+        ...(model ? { model } : {}),
+      } satisfies AssistantPersonaDefinition;
+    }
+    function makeDomainGuardedTools(capturedParentBudget: ScaledToolResultBudget) {
+      const guardedTools: ToolsInput = {
+        [domainSanitizedId]: createTool({
+          description: 'domain tool',
+          execute: () => Promise.resolve('unused'),
+          id: domainSanitizedId,
+          inputSchema: z.object({}),
+          toModelOutput: (output: unknown) => {
+            const activeBudget =
+              getActiveToolResultBudget()?.domainModelResultCharBudget ??
+              capturedParentBudget.domainModelResultCharBudget;
+            return {
+              type: 'text',
+              value: String(output).slice(0, Math.max(0, activeBudget - 26)),
+            };
+          },
+        }),
+      };
+      const toolNameMap = new Map([[domainSanitizedId, domainToolId]]);
+      return { guardedTools, toolNameMap };
+    }
+    const ceilingRawValue = 'x'.repeat(12_000);
+
+    function invokeDomainToolModelOutput(tools: ToolsInput): { type: 'text'; value: string } {
+      const tool = assertDefined(
+        (tools as Record<string, { toModelOutput?: (output: unknown) => unknown }>)[
+          domainSanitizedId
+        ],
+        'Expected domain tool'
+      );
+      const toModelOutput = assertDefined(
+        tool.toModelOutput,
+        'Expected the domain tool to carry a wrapped toModelOutput'
+      );
+      const projection = toModelOutput(ceilingRawValue);
+      if (
+        !projection ||
+        typeof projection !== 'object' ||
+        (projection as { type?: unknown }).type !== 'text' ||
+        typeof (projection as { value?: unknown }).value !== 'string'
+      ) {
+        throw new TypeError('Expected a text domain projection');
+      }
+      return projection as { type: 'text'; value: string };
+    }
+
+    async function invokeChildDomainToolModelOutput(
+      agent: Agent
+    ): Promise<{ type: 'text'; value: string }> {
+      const tools = (await agent.getToolsForExecution({})) as unknown as Record<
+        string,
+        { toModelOutput?: (output: unknown) => unknown }
+      >;
+      return invokeDomainToolModelOutput(tools as unknown as ToolsInput);
+    }
+
+    it('fits a pinned small-window child producer to the child budget, not its large parent', async () => {
+      const largeParentBudget = resolveScaledToolResultBudget(1_050_000); // gpt-5.6-sol, ceiling tier
+      const { guardedTools, toolNameMap } = makeDomainGuardedTools(largeParentBudget);
+      const result = buildPersonaSubAgents({
+        guardedTools,
+        languageModel: fakeModel,
+        logger: noopLogger,
+        permissionSnapshot: readAllowSnapshot,
+        personas: [makeDomainPersona({ modelId: GEMMA4_E2B_MODEL_ID, provider: 'local' })],
+        resolvedToolResultBudget: largeParentBudget,
+        resolvePinnedModel: () => fakeModel,
+        toolNameMap,
+      });
+      const child = assertDefined(
+        result.subAgents['domain-persona'],
+        'Expected domain-persona subagent'
+      );
+      const projection = await invokeChildDomainToolModelOutput(child);
+
+      expect(decodedTextModelOutputChars(projection.value)).toBe(2000);
+    });
+
+    it('lets a pinned large-window child producer widen beyond its small parent budget', async () => {
+      const smallParentBudget = resolveScaledToolResultBudget(8192); // floor tier
+      const { guardedTools, toolNameMap } = makeDomainGuardedTools(smallParentBudget);
+      const pinnedLargeModel: LanguageModelV2 = { ...fakeModel, modelId: 'pinned-large' };
+      const result = buildPersonaSubAgents({
+        guardedTools,
+        languageModel: fakeModel,
+        logger: noopLogger,
+        permissionSnapshot: readAllowSnapshot,
+        personas: [makeDomainPersona({ modelId: 'gpt-5.6-sol', provider: 'openai' })],
+        resolvedToolResultBudget: smallParentBudget,
+        resolvePinnedModel: () => pinnedLargeModel,
+        toolNameMap,
+      });
+      const child = assertDefined(
+        result.subAgents['domain-persona'],
+        'Expected domain-persona subagent'
+      );
+      const projection = await invokeChildDomainToolModelOutput(child);
+
+      expect(decodedTextModelOutputChars(projection.value)).toBe(12_000);
+    });
+
+    it('keeps an un-pinned persona on the parent exact resolved budget', async () => {
+      const parentBudget = resolveScaledToolResultBudget(131_072); // anchor tier
+      const { guardedTools, toolNameMap } = makeDomainGuardedTools(parentBudget);
+      const result = buildPersonaSubAgents({
+        guardedTools,
+        languageModel: fakeModel,
+        logger: noopLogger,
+        permissionSnapshot: readAllowSnapshot,
+        personas: [makeDomainPersona()],
+        resolvedToolResultBudget: parentBudget,
+        toolNameMap,
+      });
+      const child = assertDefined(
+        result.subAgents['domain-persona'],
+        'Expected domain-persona subagent'
+      );
+      const projection = await invokeChildDomainToolModelOutput(child);
+
+      expect(decodedTextModelOutputChars(projection.value)).toBe(
+        parentBudget.domainModelResultCharBudget
+      );
+    });
+
+    it('keeps a parent projection on the parent exact resolved budget', () => {
+      const parentBudget = resolveScaledToolResultBudget(8192); // floor tier
+      const { guardedTools, toolNameMap } = makeDomainGuardedTools(parentBudget);
+      const projectedParentTools = applyToolModelOutputProjections(
+        guardedTools,
+        toolNameMap,
+        undefined,
+        parentBudget
+      );
+
+      const projection = invokeDomainToolModelOutput(projectedParentTools);
+
+      expect(decodedTextModelOutputChars(projection.value)).toBe(
+        parentBudget.domainModelResultCharBudget
+      );
+    });
   });
 });

@@ -93,8 +93,28 @@ vi.mock('../../db-main', () => ({
 // unrestricted reads, print() to return), landing at 8967. The new ceiling
 // keeps the same ~150 tokens of headroom above that measurement the BST-927
 // band was set with, and the floor moves with it so a silent DROP still fails.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9120;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 8820;
+// BST-1173 RAISE (+310/+310, band width 300 preserved). `manageCanvas` is a NEW
+// persisted/versioned document capability: its six-field action surface costs
+// 210 authored definition tokens, plus conditional hosted guidance and normal
+// registry serialization, moving the measured full surface 8967 → 9278.
+// Trim-first was applied: the raw top-level discriminated union both violated
+// the provider root-object contract and measured 8727 eager-definition tokens;
+// a strict root object delegating conditional validation to that union cut the
+// eager aggregate to 8593 while retaining exact create/update/rewrite/list
+// validation. The description and field prose now contain only the verb,
+// required-field, exact-match, and versioning facts the model needs.
+// BST-1176 RAISE (+380/+380, band width 300 preserved). Three NEW browser-pane
+// tools — browserNavigate / browserReadPage / browserGetPageText — make the
+// embedded pane agent-drivable (navigate, a11y-tree seeing, page text), moving
+// the measured full surface 9278 → 9662. Genuine new capability, not bloat.
+// Trim-first was applied: the bare-host/search normalization prose is stated
+// ONCE in the navigate tool description (the url field describe was cut to
+// three words), field describes are single-clause, and the a11y ref MAP is
+// never serialized to the model (only the [ref=eN] handles inside the tree
+// text). Ceiling keeps ~150 headroom above the measurement; the floor moves
+// with it so a silent drop still fails.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9810;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9510;
 const MAX_MASTRA_OPENROUTER_INITIAL_CORE_TOKENS = 5000;
 // Floor for the critical initial surface (measured 2157 per the
 // queryDiagnostics note above): a silent drop of a critical-tier tool fails
@@ -188,13 +208,22 @@ function snapshotProviderToolSurface(
   tools: NonNullable<RuntimeData['mastraTools']>
 ): Readonly<Record<string, MastraProviderTool>> {
   return Object.fromEntries(
-    Object.entries(tools).map(([toolId, tool]) => [
-      toolId,
-      {
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      },
-    ])
+    Object.entries(tools).map(([toolId, tool]) => {
+      const providerTool = tool as unknown as {
+        description?: unknown;
+        inputSchema?: unknown;
+      };
+      if (typeof providerTool.description !== 'string' || !('inputSchema' in providerTool)) {
+        throw new Error(`Desktop tool ${toolId} is missing provider metadata`);
+      }
+      return [
+        toolId,
+        {
+          description: providerTool.description,
+          inputSchema: providerTool.inputSchema,
+        },
+      ];
+    })
   );
 }
 
@@ -212,12 +241,18 @@ function omitNonProviderSuspendMetadata(
     if (!tool) {
       throw new Error(`Desktop hosted registry is missing ${toolId}`);
     }
-    promptTools[toolId] = {
-      description: tool.description,
-      execute: tool.execute,
-      id: tool.id,
-      inputSchema: tool.inputSchema,
+    const providerTool = tool as unknown as {
+      description?: unknown;
+      execute?: unknown;
+      id?: unknown;
+      inputSchema?: unknown;
     };
+    promptTools[toolId] = {
+      description: providerTool.description,
+      execute: providerTool.execute,
+      id: providerTool.id,
+      inputSchema: providerTool.inputSchema,
+    } as unknown as typeof tool;
   }
   return promptTools;
 }
@@ -308,12 +343,13 @@ function buildProviderFunctionTools(
 }
 
 function buildAuthoredProviderFunctionTools(
-  tools: Readonly<Record<string, MastraProviderTool>>
+  tools: NonNullable<RuntimeData['mastraTools']>
 ): ProviderFunctionTool[] {
+  const providerTools = snapshotProviderToolSurface(tools);
   const nameMap = new Map(
-    Object.keys(tools).map((toolId) => [toolId.replace(/[^a-zA-Z0-9_-]/g, '_'), toolId])
+    Object.keys(providerTools).map((toolId) => [toolId.replace(/[^a-zA-Z0-9_-]/g, '_'), toolId])
   );
-  return buildProviderFunctionTools(tools, nameMap);
+  return buildProviderFunctionTools(providerTools, nameMap);
 }
 
 function countO200kTokens(text: string): number {
@@ -435,6 +471,12 @@ describe('desktop native tool provider prompt budget', () => {
     if (!queryDiagnosticsProviderTool) {
       throw new Error('queryDiagnostics provider definition is missing');
     }
+    const manageCanvasProviderTool = eagerProviderTools.find((tool) =>
+      tool.function.name.includes('manageCanvas')
+    );
+    if (!manageCanvasProviderTool) {
+      throw new Error('manageCanvas provider definition is missing');
+    }
     for (const tool of sessionProviderTools) {
       const properties = asRecord(asRecord(tool.function.parameters)?.['properties']);
       expect(
@@ -451,12 +493,14 @@ describe('desktop native tool provider prompt budget', () => {
     // only move when THAT tool's authored text moves — record the trade).
     const eagerDefinitionTokens = countO200kTokens(JSON.stringify(eagerProviderTools));
     const criticalDefinitionTokens = countO200kTokens(JSON.stringify(criticalProviderTools));
+    // BST-1176: +400/+400 with the three browser-pane tools (measured 8977;
+    // ~150 headroom, width 300 — same doctrine as the authored pair above).
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(8141);
+    ).toBeGreaterThanOrEqual(8843);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      8441
+      9143
     );
     expect(
       criticalDefinitionTokens,
@@ -469,6 +513,7 @@ describe('desktop native tool provider prompt budget', () => {
     expect({
       criticalToolCount: criticalProviderTools.length,
       eagerToolCount: eagerProviderTools.length,
+      manageCanvasDefinitionTokens: countO200kTokens(JSON.stringify(manageCanvasProviderTool)),
       queryDiagnosticsDefinitionTokens: countO200kTokens(
         JSON.stringify(queryDiagnosticsProviderTool)
       ),
@@ -501,10 +546,18 @@ describe('desktop native tool provider prompt budget', () => {
       // a clean zero-match. The wording is terse on purpose — the first draft
       // spent 38 tokens and overran the authored budget by 25 (BST-927 called
       // this: ~13 tokens of headroom left).
-      // Recorded aggregates when the bands were set: eager 8121, critical
+      // +210 / +1 for deferred `manageCanvas` (BST-1173); the strict root
+      // object preserves provider compatibility while a discriminated union
+      // enforces action-specific fields.
+      // Recorded aggregates after BST-1173: eager 8593, critical
       // 2166 (the banded assertions above; move the recorded figures WITH any
       // deliberate raise, per the trade-record practice).
-      eagerToolCount: 33,
+      eagerToolCount: 37,
+      // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
+      // html/oldString/newString (+500-char titles) serialize into the
+      // provider schema, and the description now states that `list` returns
+      // summaries, never content. Both are deliberate hardening spends.
+      manageCanvasDefinitionTokens: 234,
       queryDiagnosticsDefinitionTokens: 351,
       sessionDefinitionTokens: {
         brainstrike_inspectCommandSessions: 327,
@@ -513,7 +566,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 8,820-9,120 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 9,130-9,430 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);

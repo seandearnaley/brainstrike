@@ -69,6 +69,17 @@ function createStatus(status: RendererHostStatusShape): RendererHostStatusShape 
   };
 }
 
+function requireCallback(callback: (() => void) | null, description: string): () => void {
+  if (!callback) {
+    throw new Error(`expected ${description}`);
+  }
+  return callback;
+}
+
+function setAppPackaged(isPackaged: boolean): void {
+  (app as unknown as { isPackaged: boolean }).isPackaged = isPackaged;
+}
+
 interface ExtendedStatus extends RendererHostStatusShape {
   readonly runtimeMetadata?: {
     readonly device: 'webgpu' | 'wasm';
@@ -129,7 +140,7 @@ describe('RendererHostLifecycle', () => {
     // mode; built/test-built/packaged load the built renderer file.
     process.argv = [...baseArgv, '--brainstrike-desktop-launch-mode=dev-server'];
     Reflect.deleteProperty(process.env, 'CI');
-    app.isPackaged = false;
+    setAppPackaged(false);
   });
 
   it('preserves typed status extension fields across status snapshots', () => {
@@ -195,7 +206,7 @@ describe('RendererHostLifecycle', () => {
     });
 
     const windows = [hostWindow];
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -295,7 +306,7 @@ describe('RendererHostLifecycle', () => {
       expectDeniedWindowOpenHandler(hostWindow);
     });
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -334,7 +345,7 @@ describe('RendererHostLifecycle', () => {
       expectDeniedWindowOpenHandler(hostWindow);
     });
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -369,9 +380,9 @@ describe('RendererHostLifecycle', () => {
     hostWindow.loadFile.mockResolvedValue(undefined);
     // No explicit launch flag → isPackaged resolves to 'built' (loads the file).
     process.argv = [...baseArgv];
-    app.isPackaged = true;
+    setAppPackaged(true);
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -416,9 +427,9 @@ describe('RendererHostLifecycle', () => {
     const hostWindow = createFakeWindow(143);
     hostWindow.loadFile.mockResolvedValue(undefined);
     process.argv = [...baseArgv, '--brainstrike-desktop-launch-mode=built'];
-    app.isPackaged = false;
+    setAppPackaged(false);
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -459,7 +470,7 @@ describe('RendererHostLifecycle', () => {
     hostWindow.loadURL.mockResolvedValue(undefined);
     process.env['CI'] = 'true';
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -498,7 +509,7 @@ describe('RendererHostLifecycle', () => {
     process.env['CI'] = 'true';
     process.argv = [...baseArgv, '--test-mode'];
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -535,9 +546,9 @@ describe('RendererHostLifecycle', () => {
     const hostWindow = createFakeWindow(45);
     hostWindow.loadFile.mockResolvedValue(undefined);
     process.argv = [...baseArgv, '--test-mode'];
-    vi.mocked(app).isPackaged = true;
+    setAppPackaged(true);
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -575,7 +586,7 @@ describe('RendererHostLifecycle', () => {
     const visibleWindow = createFakeWindow(52);
     hostWindow.loadURL.mockResolvedValue(undefined);
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -624,7 +635,7 @@ describe('RendererHostLifecycle', () => {
     const hostWindow = createFakeWindow(53);
     hostWindow.loadURL.mockResolvedValue(undefined);
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -664,7 +675,7 @@ describe('RendererHostLifecycle', () => {
     restartedWindow.loadURL.mockResolvedValue(undefined);
 
     const createdWindows = [stoppedWindow, restartedWindow];
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       const nextWindow = createdWindows.shift();
       if (!nextWindow) {
         throw new Error('No fake BrowserWindow left to create');
@@ -731,7 +742,7 @@ describe('RendererHostLifecycle', () => {
     );
 
     const createdWindows = [stoppedWindow, restartedWindow];
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       const nextWindow = createdWindows.shift();
       if (!nextWindow) {
         throw new Error('No fake BrowserWindow left to create');
@@ -784,7 +795,7 @@ describe('RendererHostLifecycle', () => {
     expect(stoppedWindow.destroy).toHaveBeenCalledTimes(1);
     expect(restartedWindow.loadURL).toHaveBeenCalledTimes(1);
 
-    resolveLoad?.();
+    requireCallback(resolveLoad, 'load resolver')();
     await Promise.resolve();
     lifecycle.setStatus(
       createStatus({
@@ -811,7 +822,7 @@ describe('RendererHostLifecycle', () => {
         })
     );
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -840,7 +851,7 @@ describe('RendererHostLifecycle', () => {
     expect(MockBrowserWindow).toHaveBeenCalledTimes(1);
     expect(hostWindow.loadURL).toHaveBeenCalledTimes(1);
 
-    resolveLoad?.();
+    requireCallback(resolveLoad, 'load resolver')();
     await Promise.resolve();
     lifecycle.setStatus(
       createStatus({
@@ -890,7 +901,7 @@ describe('RendererHostLifecycle', () => {
     await expect(waitPromise).rejects.toThrow(error);
     expect(
       (
-        lifecycle as RendererHostLifecycle<RendererHostStatusShape> & {
+        lifecycle as unknown as {
           events: EventEmitter;
         }
       ).events.listenerCount('chunking-host:status')
@@ -907,7 +918,7 @@ describe('RendererHostLifecycle', () => {
         })
     );
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -931,7 +942,7 @@ describe('RendererHostLifecycle', () => {
 
     const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
     await Promise.resolve();
-    resolveLoad?.();
+    requireCallback(resolveLoad, 'load resolver')();
     await Promise.resolve();
     await Promise.resolve();
     lifecycle.dispose();
@@ -952,7 +963,7 @@ describe('RendererHostLifecycle', () => {
       throw new Error('window destroyed during send');
     });
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -994,7 +1005,7 @@ describe('RendererHostLifecycle', () => {
     const visibleWindow = createFakeWindow(84);
     hostWindow.loadURL.mockResolvedValue(undefined);
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -1045,7 +1056,7 @@ describe('RendererHostLifecycle', () => {
     const hostWindow = createFakeWindow(91);
     hostWindow.loadURL.mockResolvedValue(undefined);
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -1089,7 +1100,7 @@ describe('RendererHostLifecycle', () => {
         })
     );
 
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       Object.assign(this, hostWindow);
     });
     Object.assign(BrowserWindow, {
@@ -1114,7 +1125,7 @@ describe('RendererHostLifecycle', () => {
     const startupPromise = lifecycle.ensureStarted({ waitForRunning: true });
     await Promise.resolve();
     lifecycle.dispose();
-    resolveLoad?.();
+    requireCallback(resolveLoad, 'load resolver')();
 
     await expect(startupPromise).resolves.toEqual(
       expect.objectContaining({
@@ -1133,7 +1144,7 @@ describe('RendererHostLifecycle', () => {
     successWindow.loadURL.mockResolvedValue(undefined);
 
     const createdWindows = [failWindow, successWindow];
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       const nextWindow = createdWindows.shift();
       if (!nextWindow) {
         throw new Error('No fake BrowserWindow left to create');
@@ -1180,7 +1191,7 @@ describe('RendererHostLifecycle', () => {
     }
 
     const createdWindows = [...windows];
-    MockBrowserWindow.mockImplementation(function () {
+    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
       const nextWindow = createdWindows.shift();
       if (!nextWindow) {
         throw new Error('No fake BrowserWindow left to create');

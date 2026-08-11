@@ -1,4 +1,8 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  resolveScaledToolResultBudget,
+  TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW,
+} from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
 import {
   projectWebExtractModelOutput,
@@ -92,6 +96,34 @@ describe('webExtract model projection', () => {
     expect(JSON.stringify(raw).length).toBeLessThanOrEqual(WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS);
     expect(JSON.stringify(projectWebExtractModelOutput(raw)).length).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    );
+  });
+
+  it('degrades gracefully when raw content fits the fixed threshold but exceeds the resolved floor budget', () => {
+    const floorBudget = resolveScaledToolResultBudget(8192).domainModelResultCharBudget;
+    const raw = {
+      available: true,
+      count: 1,
+      failed: [],
+      results: [{ content: 'x'.repeat(2100), url: 'https://example.com/floor-tier' }],
+      truncated: false,
+    };
+
+    expect(JSON.stringify(raw).length).toBeLessThan(WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS);
+    const projection = projectWebExtractModelOutput(raw, floorBudget);
+
+    expect(projection.value).toContain('status=model-output-unavailable');
+    expect(projection.value).toContain('durable artifact settlement was unavailable');
+  });
+
+  it('keeps anchor-tier projection bytes identical to the default behavior', () => {
+    const raw = webExtractResult();
+    const anchorBudget = resolveScaledToolResultBudget(
+      TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW
+    ).domainModelResultCharBudget;
+
+    expect(projectWebExtractModelOutput(raw, anchorBudget)).toEqual(
+      projectWebExtractModelOutput(raw)
     );
   });
 

@@ -28,6 +28,12 @@ Structured logs:
 - Brainstrike's public logger is message-first; its Pino boundary reorders the
   declared `(message, metadata)` overload to Pino's object-first form. Tests
   must prove metadata reaches the transport, not only `addLogListener`.
+- The Log Viewer keeps records whose bindings are not directly JSON-safe. Its
+  shared diagnostic normalizer preserves serializable structure and emits
+  explicit markers such as `[Circular]`; an unexpected normalization failure
+  renders `[Bindings serialization failed]`. The same normalization owns JSON
+  export, so one malformed record never crashes the viewer, silently disappears,
+  or breaks export.
 
 Scoped loggers:
 - createLogger('FileImporter')
@@ -69,7 +75,7 @@ Rules:
 
 Implementation:
 - Update:
-  - packages/preferences/src/settings/system/factory-reset-helpers.ts
+  - packages/app-state/src/factory-reset.ts
   - Ensure clearPersistentUiState() includes:
     - All new persistent UI store keys (e.g. `hook-trust-store` — the
       security-sensitive per-root hook approvals; reset drops every approval so a
@@ -77,6 +83,15 @@ Implementation:
     - Electron renderer storage bridge.
     - IndexedDB (enumerated + fallback list).
     - CacheStorage.
+
+Storage deletion is fail-visible. Electron renderer storage, secrets, and
+settings failures (including a fulfilled secrets response with
+`success:false`), IndexedDB `error` / `blocked` events or synchronous deletion
+exceptions, CacheStorage failures, and OPFS failures all produce an incomplete
+reset result. The IndexedDB enumeration compatibility fallback is the sole
+tolerated degradation: browsers without `indexedDB.databases()`, or browsers
+where enumeration rejects, still delete the explicit Brainstrike fallback
+names. Never convert a failed deletion into reset success.
 
 If you add new persistence (Caches API, service worker, filesystem handles, etc.):
 - Document it next to the helper.
@@ -114,6 +129,26 @@ FK-less terminal provider-forensics store: clear it before the lazy parent
 run/thread relations in desktop `db:clearAll`, renderer direct clear, and
 renderer factory-reset purge so error text and allowlisted response metadata
 cannot survive a fresh start.
+It also includes `brainstrike_canvas_versions` (migration 082), the FK-less
+version ledger for thread-owned Canvas documents. All three table-enumerating
+reset paths clear it explicitly; thread deletion separately derives its Canvas
+stage from `THREAD_DELETE_SIDECAR_TABLES`.
+It also includes `brainstrike_tool_call_telemetry` (migration 083), the FK-less,
+counts/sizes/ids/booleans-only model-facing tool-cost ledger. All three
+table-enumerating reset paths clear it explicitly, and thread deletion derives
+its cleanup stage from `THREAD_DELETE_SIDECAR_TABLES`.
+It also includes `brainstrike_token_estimate_calibration` (migration 086), the
+FK-less numbers/ids/model/provider-only prompt-token reconciliation ledger. All
+three table-enumerating reset paths clear it explicitly, and thread deletion
+derives its cleanup stage from `THREAD_DELETE_SIDECAR_TABLES`.
+It also includes `brainstrike_assistant_tool_projection_rewrites` (migration
+084), the FK-less stale-tool-history replay overlay. All three table-enumerating
+reset paths clear it explicitly, and thread deletion derives its cleanup stage
+from `THREAD_DELETE_SIDECAR_TABLES`.
+It also includes `brainstrike_assistant_compaction_ranges` (migration 088), the
+FK-less exact-message conversation-compaction overlay. All three
+table-enumerating reset paths clear it explicitly, and thread deletion derives
+its cleanup stage from `THREAD_DELETE_SIDECAR_TABLES`.
 
 Mastra owns six assistant-persistence relations, and a true fresh start clears
 ALL SIX:
@@ -131,7 +166,7 @@ Every SQL path that enumerates tables clears all six: desktop `db:clearAll` in
 
 **The SET those three lists clear is owned by the reset-table registry**
 (`packages/db/src/reset-table-registry.ts`, BST-992): all three clear the same
-28-relation set (13 `brainstrike_*` — including the `brainstrike_mind_ops`
+35-relation set (20 `brainstrike_*` — including the `brainstrike_mind_ops`
 op-log, whose tombstones must not outlive the mind they describe (BST-993) —
 + 9 core/indexing + the Mastra six), and
 the web factory reset (`purgeTablesTx`) additionally wipes the six seed-free
@@ -258,7 +293,7 @@ function that executes the clear — never at module scope (BST-558).**
 Type-position reads in the closed relation unions are erased and remain safe.
 Module-scope value initializers run at bundle CHUNK
 INITIALIZATION, and the renderer's chunk graph does not guarantee the contract
-chunk has evaluated by then. `packages/app-shell/src/assistant-memory-repository.ts`
+chunk has evaluated by then. `packages/assistant-data/src/assistant-memory-repository.ts`
 used to build its bootstrap DDL in a module-scope template literal interpolating
 `MASTRA_MEMORY_TABLES.threads`; adding ONE unrelated static import of
 `@brainstrike/assistant-contract/mastra-memory-schema` to `db-provider.tsx`
@@ -582,6 +617,37 @@ indexed state only.
   expires entries after one hour, and is cleared through the
   `read-workspace-file-cursors` factory-reset runtime. It must never move to
   durable storage, and unknown handles must never trigger a fresh-read fallback.
+- **Per-subscription ignore override (BST-1112)**: `StartParcelWatchOptions.ignorePatterns`
+  (threaded from `WatchDirectoryOptions.ignorePatterns`) lets a caller REPLACE
+  `DEFAULT_IGNORE_PATTERNS` for its own subscription only — both the native
+  ignore globs and the `fileFilter.shouldIgnorePath` guard — e.g. a
+  main-owned git-metadata watcher that needs `.git/HEAD` events the default
+  patterns would drop. `undefined` keeps the default patterns unchanged;
+  `[]` means "ignore nothing", never a silent fallback to defaults. Overrides
+  cannot reach the desktop `fs:watch` IPC domain: `StartFileSystemWatch`
+  takes no `ignorePatterns`, and that domain deduplicates native
+  subscriptions on `(ownerId, resolvedPath)` only. Any future caller that
+  threads an override through it MUST add the pattern set to
+  `subscriptionKey`, or two registrations for the same root would silently
+  share one filter set. The shared Explorer refresh pipeline never passes
+  this option — "same names, never broader" stays true for that path (see
+  `docs/agents/explorer-search-tapestry.md`).
+- **Git-inventory watcher dead-on-failure (BST-1112)**: `git-inventory-watcher.ts`'s
+  per-repo subscriptions (one per common dir, using the ignore override above)
+  mark themselves dead on an `'errored'` signal — visible via typed state, never
+  a silent no-op and never an auto-restart — and retry only when an explicit
+  `sync()` call still lists that common dir. An `'overflow'` signal is
+  different: it forces an IMMEDIATE invalidation (events may have been
+  missed, so the whole repo's metadata is treated as stale) WITHOUT marking
+  the watcher dead — it stays live and keeps batching normally afterward. The
+  trailing debounce that batches interesting events also has a max-wait cap
+  (`GIT_INVENTORY_WATCH_MAX_BATCH_MS`, 2000ms): sustained churn (a long
+  `git checkout`/rebase/`gc`) would otherwise re-arm the debounce forever and
+  starve invalidation indefinitely. Finally, `disposeAll()` is TERMINAL — once
+  called, a `GitInventoryWatchers` instance never subscribes again, even if a
+  later `sync()` lists a common dir; `git-inventory-service.ts`'s `stop()`
+  drops the instance entirely, and a later `start()` always builds a fresh one
+  rather than trying to resurrect a disposed instance.
 - **Packaging**: asarUnpack for the parcel prebuilds is BINARY-ONLY
   (`**/node_modules/@parcel/**/*.node`) — whole-directory globs corrupt the
   asar under pnpm symlinks (see docs/agents/research/bst-568-parcel-watcher-spike.md).
@@ -756,7 +822,7 @@ context; when the timing clock is unusable, the failed state remains latched
 instead of claiming an idle collector. Do not write routine performance samples
 into
 `brainstrike_diagnostic_events`: that table is CHECK-constrained to warn+
-failure signals, drives the unseen-error chip, and is the wrong cardinality and
+failure signals, drives the unseen-diagnostics chip, and is the wrong cardinality and
 severity model for continuous performance measurements.
 
 **Table**: `brainstrike_diagnostic_events` (migration 073, numbered runner
@@ -863,9 +929,9 @@ paths — desktop `db-ipc.ts` `OptionalRelationTable` list
 (collector `collectThreadDebugBundleData` + pure formatter
 `formatThreadDebugBundle`, convenience wrapper `buildThreadDebugBundle`),
 consumed through the `DebugBundleProvider` seam
-(`packages/ui/src/assistant-ui-panel/debug-bundle-context.tsx` +
+(`packages/assistant-ui/src/debug-bundle-context.tsx` +
 `packages/app-shell/src/hooks/use-debug-bundle.ts`) by the
-`CopyDebugBundleButton` (`packages/ui/src/assistant-ui-panel/copy-debug-bundle-button.tsx`)
+`CopyDebugBundleButton` (`packages/assistant-ui/src/copy-debug-bundle-button.tsx`)
 on failed assistant messages. That footer offers two deliveries — **Copy**
 (clipboard) and **Download** (a `.md` file on disk, BST-946) — each building
 its OWN bundle: a second click re-runs `buildThreadDebugBundle` rather than
@@ -873,10 +939,13 @@ reusing the first result, so every delivery reflects the data at click time
 and there is no cache to go stale. Download is the realistic transport at this
 size: bundles run up to the 200 KB budget below, past what a chat box or issue
 comment accepts.
-Filename + save live in `packages/ui/src/assistant-ui-panel/debug-bundle-download.ts`
+Filename + save live in `packages/assistant-ui/src/debug-bundle-download.ts`
 (`formatDebugBundleFilename` / `downloadDebugBundleFile`) rather than in the
-component module, which is component-only by react-doctor's
-`only-export-components` contract. The filename is
+component module, which is component-only by the Fast Refresh module-boundary
+contract (`react-refresh/only-export-components` in `eslint.config.js`; the
+split predates that gate and was originally attributed to react-doctor, whose
+rule id turned out to be alias-only — see the REACT DOCTOR section in
+`docs/agents/ci-quality.md`). The filename is
 `brainstrike-debug-bundle-<UTC ISO, colons→hyphens, no millis>[-run-<first 8
 chars>].md` — timestamp first so a Downloads folder sorts chronologically,
 and colon-free because Windows rejects `:` (an unmangled `toISOString()` in
@@ -903,15 +972,27 @@ delivery.
 `@brainstrike/utils/browser-download`; pure-half tests
 `packages/utils/src/__tests__/browser-download.test.ts`, DOM-half tests
 `packages/ui/src/__tests__/debug-bundle-download.test.ts` because the utils
-package's vitest environment is `node`). Exactly three call sites today:
+package's vitest environment is `node`; the desktop-bridge route is covered in
+the node-env file since it needs no DOM). Five export surfaces today:
 `formatDebugBundleFilename` / `downloadDebugBundleFile`, `log-viewer.tsx`'s
-`brainstrike-logs-….json`, and `logging-settings-section.tsx`'s
-`brainstrike-errors-…[-recent<N>].ndjson`. It is the idiom for NEW download
-paths, but it is not yet the app's only one: the DB explorer's CSV/ZIP exports
-(`packages/db-explorer/src/hooks/use-export-handlers.ts`) still build names via
-their own `generateCSVFilename` (`csv-export-core.ts`) and hand-roll the save,
-so none of the guarantees below apply there. Migrating them is open work — do
-not read this section as already covering them.
+`brainstrike-logs-….json`, `logging-settings-section.tsx`'s
+`brainstrike-errors-…[-recent<N>].ndjson`, the DB explorer's CSV/ZIP
+exports (`packages/db-explorer/src/hooks/use-export-handlers.ts` /
+`csv-export-utils.ts`), and the file-explorer preview context report
+(`packages/hooks/src/use-report-manager.ts`,
+`context[-<root>]-….txt`). All five call `downloadBlobFile` for the SAVE half;
+a call site that hand-rolls an anchor save is a regression (all of them got a
+half wrong, in different ways, before BST-946), and `file-saver` is gone from
+the repo entirely — reintroducing it is the same regression. The FILENAME half
+is consolidated for all but one surface; the DB explorer still builds names
+via its own `generateCSVFilename` (`csv-export-core.ts`) — open work, and the
+desktop route makes it matter: main hard-rejects filenames outside
+`[a-zA-Z0-9._-]`, which `formatTimestampedDownloadFilename` guarantees but
+ad-hoc builders do not.
+`downloadBlobFile` resolves `{ path? }` — on the desktop route that is the
+file ACTUALLY written (a collision retargets to a ` (n)`-countered name, never
+overwrites), so callers that name the file to the user must use it; the anchor
+route resolves `{}` because the browser owns the final name.
 
 `formatTimestampedDownloadFilename` builds
 `${name}-${UTC ISO, colons→hyphens, no millis}[-${suffix}].${extension}` and is
@@ -926,25 +1007,41 @@ measure a segment before handing it over (the debug bundle truncates a run id
 to 8 characters and wants 8 USABLE ones) — do not keep a private copy of that
 charset; two copies that must agree would drift silently.
 
-`downloadBlobFile` owns the Blob → object URL → anchor → revoke save and the
-object URL's whole lifetime: the revoke is DEFERRED a macrotask
-(`setTimeout(…, 0)`) on the success path and IMMEDIATE when the click threw.
-Chromium starts the download during click dispatch, but WebKit can fetch the
-blob a task later, so a synchronous revoke silently drops the file there; the
-immediate revoke on the throwing path is what stops a user retrying a failing
-export from pinning one full payload per attempt. Because the helper owns both
-halves, no call site restates either — a call site that hand-rolls the anchor
-will get one half wrong (all three did, in different ways, before BST-946).
-Tests must therefore assert the revoke through `waitFor`/timer-drain rather
-than synchronously, and a test that mocks `URL.revokeObjectURL` must drain the
-pending macrotask before restoring the spy or the timer lands on the next
-test's spy. Outside a DOM it THROWS rather than no-opping. The button's phase
-machine tags every non-idle phase with its action (`copy` | `download`) so one
-action's spinner/result/error never appears on the other's button, and both
-failure paths render inline (`Copy failed: …` / `Download failed: …`) in an
-`aria-live` region. A destination picker (File System Access
-`showSaveFilePicker`) was deliberately NOT added — anchor download is the
-codebase idiom and needs no capability branch. `DEBUG_BUNDLE_FORMAT_VERSION = 1` is stamped in
+`downloadBlobFile` is async and has TWO routes, selected by capability (never
+`isElectron()`). Desktop: the Electron preload exposes `window.fileExports`
+(`file-exports:save-to-downloads` → `apps/desktop/src/ipc-file-exports-handlers.ts`),
+and MAIN writes the bytes into the OS Downloads folder with `fs` — no object
+URL and no Chromium download item at all, because live CDP probing
+(2026-08-03) showed a blob download whose URL is revoked mid-flight can wedge
+as a permanently in-progress download item, and wedged items then jam later
+downloads for the whole session. Main re-validates the renderer-supplied
+filename against the same `[a-zA-Z0-9._-]` charset (no separators, so no
+escape from Downloads), and the write is exclusive-create (`O_EXCL`) with a
+Chromium-style ` (n)` counter — it NEVER overwrites. A `{ ok: false }` result
+becomes a throw at the call site, and a PRESENT-but-malformed bridge throws
+rather than falling back to the anchor route — falling back would silently
+reintroduce the wedge-prone pipeline (NO SILENT FALLBACKS).
+Web (bridge absent): the Blob → object URL → anchor → revoke save, where the
+helper owns the object URL's whole lifetime: the revoke is DEFERRED
+`DOWNLOAD_BLOB_REVOKE_DELAY_MS` (60 s — the download manager resolves the blob
+URL asynchronously in the browser process, and a revoke that wins that race
+kills the download after the caller already reported success; the constant's
+doc comment records why the old one-macrotask deferral was not a real bound)
+on the success path and IMMEDIATE when the click threw — the immediate revoke
+on the throwing path is what stops a user retrying a failing export from
+pinning one full payload per attempt. Tests of the anchor route must NOT wait
+for the revoke on real timers (it is a minute out): either assert the revoke
+has not landed in the click's wake scoped to THIS export's URL (the
+settings-ui export tests), or use fake timers and drain with
+`advanceTimersByTime(DOWNLOAD_BLOB_REVOKE_DELAY_MS)` before restoring a
+mocked `URL.revokeObjectURL` (the debug-bundle test). With neither bridge nor
+DOM it THROWS rather than no-opping.
+The button's phase machine tags every non-idle phase with its action
+(`copy` | `download`) so one action's spinner/result/error never appears on
+the other's button, and both failure paths render inline (`Copy failed: …` /
+`Download failed: …`) in an `aria-live` region. A destination picker (File
+System Access `showSaveFilePicker`) was deliberately NOT added — exports go to
+the Downloads folder on both routes without prompting. `DEBUG_BUNDLE_FORMAT_VERSION = 1` is stamped in
 the rendered header (`bundle_format: 1`) so future format changes are
 detectable by consumers. Bounded to `DEBUG_BUNDLE_DEFAULT_MAX_BYTES` (200,000
 bytes measured via `TextEncoder`, byte length not char length); when over
@@ -1167,7 +1264,7 @@ table render or silently produce an empty clipboard payload.
 `useDurableLogSource`,
 `packages/app-shell/src/diagnostics/durable-log-source.ts` and
 `use-durable-log-source.ts`, wired into the Session/Persistent switch in
-`packages/preferences/src/settings/system/logging-settings-section.tsx`):
+`packages/settings-ui/src/settings/system/logging-settings-section.tsx`):
 gated on `useOptionalPGliteDatabase()` returning a live db handle — NOT
 `hasDurableAssistantUsageCapability()` (that gate is desktop-only OM
 persistence; diagnostics are written on both web and desktop, so the correct
@@ -1206,28 +1303,37 @@ rather than a swallowed failure rendering as a successful-but-empty file.
 choke points feeding the sink),
 `packages/app-shell/src/__tests__/durable-log-source.test.ts`,
 `packages/app-shell/src/__tests__/use-durable-log-source.test.tsx`,
-`packages/preferences/src/settings/system/logging-settings-section.test.tsx`,
-`packages/preferences/src/settings/system/log-viewer-components/__tests__/log-viewer.test.tsx`,
+`packages/settings-ui/src/settings/system/logging-settings-section.test.tsx`,
+`packages/settings-ui/src/settings/system/log-viewer-components/__tests__/log-viewer.test.tsx`,
 `packages/ui/src/__tests__/copy-text-button.test.tsx`.
 
 ### P2b: status chip, retention preferences, sink health
 
-**Unseen-error status chip** (`DiagnosticsStatusItem`,
+**Unseen-diagnostics status chip** (`DiagnosticsStatusItem`,
 `packages/app-shell/src/status-items/diagnostics-status-item.tsx`, mounted in
 `app-layout.tsx`'s `rightContent` before `IndexingStatusItem`) backed by
 `useUnseenDiagnosticsCount` (`.../diagnostics/use-unseen-diagnostics-count.ts`):
-a `usePGliteLiveQuery` `COUNT(*)` over rows newer than the watermark. The
-query carries NO severity predicate on purpose — the table's CHECK constraint
-already guarantees every row is warn+, so a redundant filter would just invite
-someone to "fix" it later. The chip renders `null` at count 0 (no chrome when
-nothing is wrong), but BOTH not-knowing states outrank the count, because
+a single `usePGliteLiveQuery` aggregate over rows newer than the watermark. The
+table's CHECK constraint defines the complete warn+ set; two `FILTER` clauses
+partition that set for honest labels rather than deciding eligibility: `warn`
+stays in the warning bucket, while `error` and `fatal` share the error bucket.
+Warning-only rows render `N warnings`; mixed rows render `N errors, M warnings`
+visibly and `N errors and M warnings` to assistive technology. The chip renders
+`null` when both counts are 0 (no chrome when nothing is wrong), but ALL
+not-knowing classes outrank the counts, because
 this is the only always-visible diagnostics surface: a live-query error
-renders "Diagnostics unavailable" rather than the honest-looking `0`, and a
-non-null `disabledReason` renders "Diagnostics not recording" — outranking
-even a non-zero count, since that count is frozen and stale once the sink is
-dead. Without the latter, a disabled sink writes no rows, the count sits at 0
-forever, and the status bar silently claims "no errors" precisely when errors
-have stopped being recorded; the settings banner alone cannot cover that,
+renders "Diagnostics unavailable" rather than the honest-looking `0`.
+Present aggregate values are validated strictly: only a non-negative safe-integer
+number or decimal-digit string with no surrounding whitespace is accepted. Null,
+blank, non-integer, negative,
+boolean, array, object, non-decimal, or otherwise unsafe values render
+"Diagnostics unavailable" rather than being coerced via `Number()`. A non-null
+`disabledReason` renders
+"Diagnostics not recording" — outranking
+even non-zero counts, since those counts are frozen and stale once the sink is
+dead. Without the latter, a disabled sink writes no rows, both counts sit at 0
+forever, and the status bar silently claims "no diagnostics" precisely when
+diagnostics have stopped being recorded; the settings banner alone cannot cover that,
 because a user has no reason to open settings while the status bar looks
 clean. Clicking marks all seen, opens settings, and routes to
 `#settings/logging`.
@@ -1238,7 +1344,7 @@ watermark would replay up to 20,000 retained rows as unread on every launch,
 so the chip means "warn+ events since this launch," not "since you last
 looked." Do not "fix" this by adding `persist`.
 
-**Retention preferences** (`packages/preferences/src/stores/diagnostics-retention-store.ts`,
+**Retention preferences** (`packages/app-state/src/stores/diagnostics-retention-store.ts`,
 persisted): `maxAgeDays` / `maxRows`, chosen from
 `DIAGNOSTICS_RETENTION_DAY_OPTIONS` / `DIAGNOSTICS_RETENTION_ROW_OPTIONS`.
 Defaults MUST equal `DIAGNOSTIC_RETENTION_MAX_AGE_MS` / `_MAX_ROWS` so
@@ -1302,14 +1408,14 @@ failure threshold accumulates.
 in `packages/app-shell/src/register-factory-reset-session-stores.ts`; the
 persisted `resetDiagnosticsRetentionStoreToDefaults()` is called directly from
 `clearBrowserStorage()` in
-`packages/preferences/src/settings/system/factory-reset-helpers.ts`, alongside
+`packages/app-state/src/factory-reset.ts`, alongside
 its sibling persisted stores.
 
-**Paired tests**: `packages/preferences/src/__tests__/diagnostics-retention-store.test.ts`,
+**Paired tests**: `packages/app-state/src/__tests__/diagnostics-retention-store.test.ts`,
 `packages/app-shell/src/__tests__/diagnostics-seen-store.test.ts`,
 `.../diagnostic-sink-health-store.test.ts`,
 `.../diagnostics-status-item.test.tsx`, `.../use-diagnostics-purge.test.tsx`,
 `.../diagnostic-sink-bridge.test.tsx` (the configured-retention startup purge
 and the writer-disables-populates-health-store cases),
-`packages/preferences/src/settings/system/logging-settings-section.test.tsx`
+`packages/settings-ui/src/settings/system/logging-settings-section.test.tsx`
 (retention card + sink-health banner describes).

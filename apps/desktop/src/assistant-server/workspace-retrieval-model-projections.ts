@@ -1,13 +1,16 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
+  decodedWorkspaceTextModelOutputChars as decodedChars,
   escapeProjectionPathLineBreaks as escapePathLineBreaks,
   isNonNegativeInteger,
   isPositiveInteger,
   isRecord,
   makeWorkspaceTextModelOutput as output,
-  serializedWorkspaceTextModelOutputChars as serializedChars,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers';
@@ -150,7 +153,9 @@ function parseSemanticResult(output: unknown): SemanticResult | UnavailableResul
       isNonNegativeInteger(output['totalTokens'])
     )
   ) {
-    throw new TypeError('queryEmbeddingSpace model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'queryEmbeddingSpace model projection received a malformed result'
+    );
   }
   const result = output as unknown as SemanticResult;
   if (
@@ -159,7 +164,9 @@ function parseSemanticResult(output: unknown): SemanticResult | UnavailableResul
     result.chunkContentIncludedInContext !== result.chunks.length > 0 ||
     (result.chunks.length === 0 ? result.context.length > 0 : result.context.length === 0)
   ) {
-    throw new TypeError('queryEmbeddingSpace model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'queryEmbeddingSpace model projection received a malformed result'
+    );
   }
   return result;
 }
@@ -201,7 +208,9 @@ function parseHybridResult(output: unknown): HybridResult {
       isFiniteNumber(output['vectorWeight'])
     )
   ) {
-    throw new TypeError('hybridSearch model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'hybridSearch model projection received a malformed result'
+    );
   }
   const result = output as unknown as HybridResult;
   if (
@@ -210,7 +219,9 @@ function parseHybridResult(output: unknown): HybridResult {
     (result.truncated && (!result.hint || result.hint.trim().length === 0)) ||
     (!result.truncated && result.hint !== undefined)
   ) {
-    throw new TypeError('hybridSearch model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'hybridSearch model projection received a malformed result'
+    );
   }
   return result;
 }
@@ -237,12 +248,16 @@ function semanticScores(result: SemanticResult): string | null {
     .join(',')}`;
 }
 
-function fitSemanticContext(result: SemanticResult, fixed: readonly string[]): string[] {
+function fitSemanticContext(
+  result: SemanticResult,
+  fixed: readonly string[],
+  domainModelResultCharBudget: number
+): string[] {
   if (result.context.length === 0) {
     return [...fixed];
   }
   const full = [...fixed, ...result.context.split('\n')];
-  if (serializedChars(full) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(full) <= domainModelResultCharBudget) {
     return full;
   }
   const codePoints = Array.from(result.context);
@@ -258,7 +273,7 @@ function fitSemanticContext(result: SemanticResult, fixed: readonly string[]): s
       `projection_omitted_context_chars=${codePoints.length - midpoint}`,
       refinement,
     ];
-    if (serializedChars(candidate) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) <= domainModelResultCharBudget) {
       low = midpoint;
     } else {
       high = midpoint - 1;
@@ -270,13 +285,16 @@ function fitSemanticContext(result: SemanticResult, fixed: readonly string[]): s
     `projection_omitted_context_chars=${codePoints.length - low}`,
     refinement,
   ];
-  if (serializedChars(fitted) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(fitted) > domainModelResultCharBudget) {
     throw new RangeError('queryEmbeddingSpace model projection cannot fit required metadata');
   }
   return fitted;
 }
 
-function projectUnavailable(result: UnavailableResult): WorkspaceRetrievalTextModelOutput {
+function projectUnavailable(
+  result: UnavailableResult,
+  domainModelResultCharBudget: number
+): WorkspaceRetrievalTextModelOutput {
   const index = result.workspaceIndex;
   const lines = [
     `semantic | status=unavailable | reason=${result.reason}` +
@@ -294,21 +312,28 @@ function projectUnavailable(result: UnavailableResult): WorkspaceRetrievalTextMo
         ]
       : []),
   ];
-  if (serializedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > domainModelResultCharBudget) {
     throw new RangeError('queryEmbeddingSpace unavailable projection exceeds its budget');
   }
   return output(lines);
 }
 
 export function projectQueryEmbeddingSpaceModelOutput(
-  raw: unknown
+  raw: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
 ): WorkspaceRetrievalTextModelOutput {
   const result = parseSemanticResult(raw);
   if ('status' in result) {
-    return projectUnavailable(result);
+    return projectUnavailable(result, domainModelResultCharBudget);
   }
   const scores = semanticScores(result);
-  return output(fitSemanticContext(result, [semanticHeader(result), ...(scores ? [scores] : [])]));
+  return output(
+    fitSemanticContext(
+      result,
+      [semanticHeader(result), ...(scores ? [scores] : [])],
+      domainModelResultCharBudget
+    )
+  );
 }
 
 function hybridHeader(result: HybridResult, kept: number): string {
@@ -349,21 +374,24 @@ function buildHybridLines(
   ];
 }
 
-export function projectHybridSearchModelOutput(raw: unknown): WorkspaceRetrievalTextModelOutput {
+export function projectHybridSearchModelOutput(
+  raw: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): WorkspaceRetrievalTextModelOutput {
   const result = parseHybridResult(raw);
   const keptLines: string[] = [];
   let kept = 0;
   for (const item of result.results) {
     const itemLines = hybridItemLines(item);
     const candidate = buildHybridLines(result, [...keptLines, ...itemLines], kept + 1);
-    if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > domainModelResultCharBudget) {
       break;
     }
     keptLines.push(...itemLines);
     kept += 1;
   }
   const lines = buildHybridLines(result, keptLines, kept);
-  if (serializedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > domainModelResultCharBudget) {
     throw new RangeError('hybridSearch model projection cannot fit required metadata');
   }
   return output(lines);

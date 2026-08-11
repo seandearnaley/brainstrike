@@ -15,6 +15,7 @@
     "drizzle-orm": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@stryker-mutator/api": "catalog:",
     "@stryker-mutator/core": "catalog:",

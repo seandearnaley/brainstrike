@@ -33,7 +33,7 @@
   bare-call `fetch` captures elsewhere in the repo are unaffected.
   A `vi.fn()` mock can never catch this: a plain function is indifferent to its
   receiver. Regression cover must be receiver-aware — see
-  `packages/assistant-contract/src/__tests__/local-runtime-fetch-receiver.test.ts`,
+  `packages/local-runtime/src/__tests__/local-runtime-fetch-receiver.test.ts`,
   which uses both a receiver-sensitive and a receiver-recording fetch (the
   latter is what pins the bind; the former cannot, since it tolerates
   `undefined`).
@@ -376,10 +376,11 @@
   `{openai:{reasoningEffort,reasoningSummary}}` shape, which Mastra's OpenRouter
   adapter ignores.
 - OpenRouter `Auto` is a zero-configuration coding profile, not an implicit
-  provider-wide 4,096-token cap. The shared contract resolves its output limit
-  as `min(model max completion, 32,000)` when live/static model metadata
-  publishes a maximum, and 32,000 otherwise, matching OpenCode's coding
-  ceiling. When reasoning metadata says reasoning is enabled by default, the
+  provider-wide 4,096-token cap. For a request whose reasoning is OFF the
+  shared contract resolves the output limit as `min(model max completion,
+  32,000)` when live/static model metadata publishes a maximum, and 32,000
+  otherwise, matching OpenCode's coding ceiling. When reasoning metadata says
+  reasoning is enabled by default, the
   Auto effort is DECLARED, never inferred (BST-833): `reasoning.autoEffort`
   from our catalog if recorded, else the vendor's `defaultEffort`. With neither
   declared, Auto sends NO effort and the provider applies its own default —
@@ -394,8 +395,28 @@
   (`'none'` switches it off deliberately and greppably) — `moonshotai/kimi-k3`
   does exactly this, because its `max` vendor default spends the whole output
   budget reasoning. Recording a fact we cannot get from OpenRouter is preferred
-  over deriving it. The answer budget is protected by the output ceiling above,
-  which is independent of effort. OpenRouter effort is a provider
+  over deriving it.
+  The output window is NOT independent of effort (BST-1170, retiring the
+  BST-833 assumption): OpenRouter documents that reasoning tokens ARE output
+  tokens and that a requested effort allocates a share OF `max_tokens` for
+  reasoning (high ≈ 80%, max/xhigh ≈ 95%, low ≈ 20%), so a fixed 32K ceiling
+  on a reasoning run shrinks the whole thinking+answer window — Kimi K3 at
+  explicit `high` thought for minutes and died at `finishReason: length`. A
+  model whose vendor documents a completion window sized for always-on
+  thinking records it as catalog-only `reasoning.vendorDefaultOutputTokens`
+  (Kimi K3: 131,072 per the official K3 quickstart, verified 2026-08-05;
+  OpenRouter publishes no max completion for that route). Whenever the request
+  actually reasons — explicit effort, or the model's declared Auto/default
+  resolution — `resolveOpenRouterOutputWindow` sends that window (capped by a
+  declared model max completion); reasoning-off requests and models without
+  the recorded fact keep the coding ceiling. The window is a truncation cap,
+  not a spend target. The fact is recorded from vendor docs only — GLM-5.2
+  documents no default window, so it deliberately has none. All three
+  resolution sites share the rule: `buildEffectiveModelSettings` (app-shell),
+  `resolveOpenRouterMetadataDisabledReason`'s input-budget reservation, and
+  the agent-side `modelSettings` backstop in
+  `packages/agent/src/mastra/agent-streaming.ts`.
+  OpenRouter effort is a provider
   hint, not a deterministic reservation. The resolved output value drives both
   Mastra `modelSettings` and the input-context reservation. Explicit reasoning
   choices remain authoritative, and output values above a known model maximum
@@ -466,7 +487,7 @@
 - Reasoning-control placement: effort/level selection and the primary Thinking
   toggle live in the always-visible ComposerEffortControl chip beside the
   model picker in the composer control dock (packages/ui/src/
-  assistant-ui-panel/composer-effort-control.tsx, backed by
+  packages/assistant-ui/src/composer-effort-control.tsx, backed by
   reasoning-effort-controls.tsx). The chip's trigger doubles as the readout
   ("Effort High" / "Thinking Off") so the active reasoning config is legible
   without opening anything (BST-948); the model menu itself is selection-only.
@@ -514,9 +535,15 @@
   explicitly nested `response.headers` object; an unqualified top-level
   `headers` bag is treated as request metadata and ignored.
   Unknown or provider-private codes resolve to
-  `mastra_agent_stream_provider_error`; an arbitrary upstream `provider_code`
-  is never persisted. Request/response bodies, request headers, URLs, secrets,
-  generic provider metadata, and retry-attempt data are excluded rather than
+  `mastra_agent_stream_provider_error` when the error carries provider evidence
+  (httpStatus, providerRequestId, allowlisted response headers, or an AI SDK
+  api-call error marker: `AI_APICallError`/`AI_RetryError` name or
+  `url` + `requestBodyValues`) and to `mastra_agent_stream_local_error` when it
+  carries none; an arbitrary upstream `provider_code` is never persisted.
+  Neither fallback code is ever prefixed onto the visible OpenRouter detail —
+  only stable typed codes are. Request/response bodies, request headers, URLs,
+  secrets, generic provider metadata, and retry-attempt data are excluded
+  rather than
   sanitized after the fact. Consumers use the exported
   `readProviderRunError`/`isProviderRunError` boundary instead of shape-guessing
   event metadata.
@@ -537,8 +564,8 @@
   for repair instead of throwing during render; the endpoint never silently
   mutates the registry.
 - State:
-  - packages/preferences/src/stores/assistant-preferences-store.ts
-  - packages/app-shell/src/assistant-thread-store.ts
+  - packages/app-state/src/stores/assistant-preferences-store.ts
+  - packages/assistant-data/src/assistant-thread-store.ts
   - Assistant preferences persist the most recently selected model as the default for the next
     new thread, plus a capped `recentModels` list (composite keys, newest first) that feeds the
     composer model menu's top-level rows. The thread store persists each existing thread's model and provider settings so
@@ -566,6 +593,41 @@ renderer catalog. The app shell must merge it with renderer provider discovery
 so settings-owned, reachable or force-enabled Ollama and LM Studio runtimes
 remain selectable. Hosted Web's fixed provider/default-model set stays
 authoritative and must continue to skip renderer discovery.
+`AssistantProviderSource`, provided at the `AssistantChatPanel` composition root,
+is the required explicit boundary: a missing provider throws. `authoritative`
+is derived synchronously during render, while `discovery` subscribes one shared
+external resource to the secrets-store revision and the immutable Ollama / LM
+Studio provider-settings snapshots. Unrelated provider settings never trigger
+keychain enumeration or local-runtime probes. The first Desktop subscriber
+starts discovery and the last subscriber tears down the live subscriptions, so
+multiple mounted thread tabs never fan out duplicate runtime probes. The last
+visible provider snapshot remains cached across a zero-subscriber period and is
+rendered while the next subscriber revalidates; only the test reset clears it.
+Every refresh carries a monotonically increasing generation; a superseded or
+unsubscribed request cannot publish late. Unexpected key or runtime discovery
+failures remain visible as a panel notice while explicit Desktop seeds stay
+rendered; they are never converted to an empty successful result. The notice
+blocks the composer only when the merged snapshot contains no usable provider.
+A partial failure must not disable an independently verified or validated-seed
+provider.
+Ollama and LM Studio probes settle independently. If one unexpected probe
+fails, every independently verified provider remains in the error snapshot and
+the failed probe remains visible through the typed aggregate error; neither the
+successful provider nor the failure may be discarded. Malformed main-process
+bridge payloads use that same visible failure channel.
+Idle and loading snapshots pause persisted-model reconciliation. Error snapshots
+do not: their independently verified or last-known provider list remains the
+selection authority while the error stays visible, so a failed sibling probe
+cannot leave a disappeared provider selected forever.
+Keep the authority, refresh, ordering, teardown, and failure controls in
+`use-configured-assistant-providers.test.tsx` when this boundary changes.
+
+The mounted assistant wrapper keys local-runtime status and model-catalog
+refreshes to the immutable Ollama / LM Studio settings snapshots; unrelated
+provider settings do not trigger local probes. Changing activation, base URL,
+or credentials invalidates both requests. Status is resolved before catalog
+loading, and the combined refresh uses a monotonically increasing generation
+so a response from an older settings snapshot cannot replace the new catalog.
 
 Desktop status also reports each unreadable stored credential as a validated
 `providerErrors` entry (`provider`, `api_key_unreadable`, typed error code, and
@@ -668,6 +730,8 @@ real-protocol integration tests.
 The assistant's search verbs, in the order the default instructions present them:
 1. `brainstrike.grepSearch` — FIRST for exact strings, identifiers, error messages. Two-phase: trigram-indexed ILIKE/regex-literal prefilter (`FileChunkRepository.findGrepCandidates`) + authoritative JS line matcher (`GrepSearchService` in packages/db/src/search/). Regex patterns with no extractable ≥3-char literal fall back to a bounded unfiltered scan; `scanLimited` reports true only when that scan hit its candidate cap (under the cap the scan was exhaustive — BST-951 ruled that over-reporting is as wrong as silence). The tool's hint builders MUST emit guidance whenever any of `truncated`/`scanLimited`/`candidatesTruncated` is set — the model projection enforces this and fails the run on a limited result without a hint. Truncation semantics are IDENTICAL in both output modes: `truncated` = items dropped by paging/budget OR either pass hit its own cap (index match cap, live candidate/walk/prefilter caps — live-capped matches are unreached on disk and never counted in `totalMatches`, so pagination alone cannot detect them). Desktop-only wiring in apps/desktop/src/assistant-server/grep-search-tool.ts. Progressive disclosure: default `outputMode: 'files'` returns per-path match counts (cheap survey); `outputMode: 'content'` returns line matches with context; both support `offset` paging.
 
+    On a genuine zero-match result, `grep-zero-match-probes.ts` runs up to three bounded count-only probes in order: case-insensitive when the call was case-sensitive, literal when it was regex, then excluded/ignored paths unconditionally. The first hit becomes `probeNote` and renders as an additional `note:` line; all-miss is silent. Probe failure or timeout logs a warning and never fails the tool, while `live-grep.ts` owns the ripgrep-only `probeExcludedPathMatches` implementation; the excluded-path arm points at `globWorkspace(includeIgnored:true)` + `readWorkspaceFile` since `filePaths` cannot re-admit an excluded file.
+
     **`filePaths` scope contract (BST-764).** One resolver — `apps/desktop/src/assistant-server/grep-file-paths.ts` — interprets the allowlist, and BOTH passes consume its output. Do not normalize paths in `live-grep.ts` or in the tool; a second, different transform is exactly how the two passes diverged (`runLiveGrep` used to do `p.replace(/^\/+/, '')`, turning an absolute path into a never-matching relative one and reporting a clean zero-match for a file that plainly matched). Rules:
 
     - **Workspace-relative** entries pass through normalized (`./`, `//`, and inner `.` segments collapsed) and pin no root.
@@ -757,13 +821,28 @@ and per-root partial indexes were measured and rejected
 whole-set searches never run the counts. Do not "optimize" selective filtered
 searches back onto the ANN index without re-running that benchmark.
 
-Tool output budget (anti-thrash contract): budgets are token-denominated and
-enforced deterministically on serialized chars at 4 chars/token (mirrors
-`countTokensHeuristic`). Native producers self-bound result lists via
-`fitItemsToCharBudget`; `readWorkspaceFile` emits 1-based line-numbered pages
-and self-bounds its purpose-built JSON projection to the 6000-character domain
-budget before returning, so page metadata and `nextCursor` never fall into the
-generic prefix preview.
+Tool output budget (anti-thrash contract): budgets are token-denominated at 4
+chars/token (mirrors `countTokensHeuristic`). The two default budgets are
+resolved once per Mastra run from the active model context window; explicit
+per-tool overrides remain fixed and authoritative. Native producers self-bound
+result lists via `fitItemsToCharBudget`. Purpose-built domain projections
+(`readWorkspaceFile`, `grepSearch`, `globWorkspace`, `querySelf`,
+`findWorkspaceSymbol`/`lspInspect`, workspace-context, and
+workspace-retrieval, plus `webSearch` and `webExtract`) use decoded text length
+for their self-fit contract. `MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET` is the
+6000-character 128k anchor definition, not a universal per-run value. Desktop
+projectors now self-fit against the run's resolved domain value; the fixed
+constant remains the backward-compatible fallback only when no resolved budget
+was threaded by a harness or nonstandard host.
+`decodedWorkspaceTextModelOutputChars` counts code points in the value the
+model actually reads and adds the small fixed
+`PROJECTION_ENVELOPE_RESERVE_CHARS` reserve; it does not measure
+`JSON.stringify(...).length`. A newline therefore costs one character, not
+two, so line-dense pages fit roughly twice as much content at the same budget
+as they did before BST-1195. The generic/default non-domain projection path
+and the `boundToolOutputForModel` transport guard still measure serialized JSON
+characters. The generic model-result ceiling remains 8000 characters; the
+transport default is the resolved per-run value described below.
 If the requested page exceeds the envelope, it shortens the page and returns a
 26-character random `nextCursor` handle that resumes at the exact source line
 and column, including within a long generated/minified line. The authoritative
@@ -800,13 +879,135 @@ native/MCP tool. PostToolUse context travels only in an internal execution
 carrier: Mastra's `transform.display` and `transform.transcript` channels
 restore the exact domain result before live UI or durable persistence, while
 `toModelOutput` alone consumes the context. Generated/default projections are
-bounded to `MAX_MODEL_TOOL_RESULT_TOKENS` (2000) / 8000 serialized characters.
-Purpose-built domain projections have the stricter
-`MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS` (1500) / 6000-character contract so the
-remaining envelope can carry PostToolUse guidance. Domain projectors MUST
+bounded to `MAX_MODEL_TOOL_RESULT_TOKENS` (2000) / 8000 serialized characters —
+EXCEPT for tools that self-bound their complete result to
+`NATIVE_TOOL_RESULT_TOKEN_BUDGET` and rely on the generic projection
+(runPython, runSkillScript, skill_read, skill_search, plus the
+`fitItemsToCharBudget` default-budget callers without custom projectors —
+manageTaskList, readWorkspaceDirectory, queryDiagnostics; the
+`skill` activation keeps its dedicated 6000-token envelope; `executeCommand`
+has its own text projection — BST-1201 below — and keeps its override entry
+only for the dispatcher fail-soft fallback). Those are
+enumerated in `MODEL_PROJECTION_BUDGET_OVERRIDES`
+(packages/agent/src/mastra/tool-model-output.ts) with the wider
+`NATIVE_SELF_BOUND_*` envelope: 2x the native budget plus the structural
+reserve, sized for worst-case JSON re-escaping of an embedded serialized
+payload, so the tool's own head+tail retention and truncation hints (BST-1189)
+pass through the default projector unmodified instead of being replaced by the
+generic prefix preview. Regression guard:
+`packages/agent/src/__tests__/tool-model-output.spec.ts`, "self-bounded native
+tool results".
+Purpose-built domain projections have a stricter resolved contract so the
+remaining envelope can carry PostToolUse guidance. The
+`MAX_DOMAIN_MODEL_TOOL_RESULT_TOKENS` (1500) / 6000-character constants define
+the 128k anchor tier. Domain projectors MUST
 self-fit a complete page; central code throws on overflow instead of
 prefix-truncating a page whose continuation/provenance it cannot understand.
 Only generated/default projections may use the generic truncation path.
+Projector throws are two different contracts, distinguished by an explicit
+marker (2026-08-03: a failed tool's value reaching the grep projector turned
+into a fatal run error that destroyed the underlying diagnostic). A projector's
+SHAPE-VALIDATION paths — "this value is not my tool's result at all" — throw
+`ToolProjectionInputRejectedError` from `@brainstrike/agent`; the runtime
+dispatcher degrades ONLY that marker to the generic bounded projection and logs
+`tool_model_projection_fail_soft` with a keys-only shape summary that names the
+trigger. Every OTHER projector throw is deliberate contract enforcement — a
+limited result without continuation guidance, a non-advancing page, a self-fit
+budget guard — and still fails the run, whether thrown inside the projector or
+raised centrally on an oversized returned value. When adding a projector,
+choose per throw site: marker for "not my result", plain error for "my
+producer violated its contract".
+
+### Context-window-scaled default budgets
+
+`createMastraAgentRuntime` resolves the active model once in
+`packages/agent/src/mastra/agent-runtime.ts` via `resolveToolResultBudgetForModel`,
+which reads the catalog `contextWindow` (`findLlmModelDefinition`, non-throwing)
+and calls `resolveScaledToolResultBudget`. A budget default is NEVER a hard
+precondition for starting a run: `getLlmModelDefinition`'s throwing form is not
+used here, because the static registry is a curated subset (OpenRouter
+metadata-only/auto-profile models, and persisted preferences from a retired
+catalog entry, are routinely absent from it) and a budget lookup failing must
+never kill a run. Runtime-discovered Ollama and LM Studio ids use the shared
+conservative 32,768-token declaration from `@brainstrike/assistant-contract`
+(`DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW`); every OTHER unknown provider/model id
+falls back to the 131,072-token ANCHOR — the exact pre-BST-1206 fixed-budget
+behavior — with a visible `tool_result_budget_unknown_model_fallback` warn log
+(not a silent fallback: the documented default, logged). A genuine registry
+misconfiguration (a registered entry with an invalid `contextWindow`) still
+throws through `resolveScaledToolResultBudget`'s own validation rather than
+being swallowed as "unknown model". The plain resolved carrier is threaded
+through MCP inline bounding, the core and deferred discovery surfaces, persona
+projections, and `RunTokenDiagnostics`. The sole module-scoped context is the
+save/restore `activeToolResultBudget` around one synchronous custom-projector
+call: it is not run state, is never held across a Promise, and exists because
+Mastra's `toModelOutput(output)` signature cannot carry the per-call budget
+when a persona re-projects a parent-owned tool object.
+
+BST-1219 (done; follow-up to PR #2349) closes the producer/guard seam for fresh
+desktop projections. `packages/assistant-service/src/stream-init.ts` normalizes
+the trusted provider, applies the same default-model fallback, resolves the
+budget before `capabilities.tools.build`, and carries it in
+`AgentStreamToolDependencies.resolvedToolResultBudget`.
+`buildDesktopAssistantTools` captures its domain-character value in every
+purpose-built projector only as a fallback for direct callers and in
+`readWorkspaceFile`'s page fitter. Wrapped parent/persona projection calls read
+the active resolved carrier synchronously, so the SAME desktop tool object can
+narrow or widen for a pinned child's own budget. `readToolOutputArtifact` uses
+that seam too; its page and search projectors self-fit against the passed
+domain budget instead of the fixed 6000-character anchor. The later
+Mastra runtime independently resolves the same provider/model pair once for
+its guard and transport pipeline; `stream-init-tool-budget.test.ts` pins parity
+between those two resolutions. Invalid providers remain a visible anchor
+fallback at the earlier construction seam and still fail normally at runtime
+configuration; an unknown model retains the resolver's single documented warn.
+
+The anchor is 131,072 context tokens. Defaults scale linearly and round to the
+nearest token: domain is `round(1500 * contextWindow / 131072)` clamped to
+500..3000 tokens (2000..12000 characters), while transport is
+`round(3000 * contextWindow / 131072)` clamped to 1000..6000 tokens
+(4000..24000 characters). Thus a 128k model retains byte-identical 1500/3000
+behavior and no model exceeds the settled 2x small-page ceiling. Domain-level
+per-tool entries in `MODEL_PROJECTION_BUDGET_OVERRIDES`
+(`packages/agent/src/mastra/tool-model-output.ts` — `executeCommand`, `skill`,
+`runPython`, and the rest of the `NATIVE_SELF_BOUND_*`/`SKILL_ACTIVATION_*`
+group) stay fixed, unscaled, at every tier — they key off their OWN dedicated
+constants (`NATIVE_TOOL_RESULT_TOKEN_BUDGET`, `SKILL_ACTIVATION_RESULT_TOKEN_BUDGET`),
+not the domain/transport pair this section scales, and are out of BST-1206's
+scope.
+
+Transport-level per-tool entries in `TOOL_RESULT_TOKEN_BUDGET_OVERRIDES`
+(`packages/agent/src/stream/tool-output-limits.ts` — currently just `skill:
+6000`) are DIFFERENT: an override authored against an implicit 128k assumption
+is not really an explicit per-model decision, and on an 8192-token Gemma run
+the fixed 6000-token `skill` override alone is ~73% of the entire context for
+one activation. So these overrides scale WITH the resolved transport budget —
+but only DOWN, never up: at or above the anchor (the resolved transport budget
+`>= MAX_TOOL_RESULT_TOKENS`), an override wins unchanged (overrides are
+ceilings authored deliberately, never inflated past what their author chose).
+Below the anchor, an override scales by the SAME factor as the generic
+default — `round(override * resolvedTransportTokens / MAX_TOOL_RESULT_TOKENS)`
+— floored at the generic 1000-token transport floor so no override collapses
+to something unusably tiny. `resolveOverrideTokens` in `tool-output-limits.ts`
+implements this; `boundToolOutputForModel`'s `scaledDefaultTokens` param is the
+resolved value used for both the generic fallback and this override scaling.
+
+Replay validation is deliberately asymmetric. A fresh purpose-built projection
+uses the current run's resolved default. A stored/settled projection may have
+been produced by a larger-window run, so replay always validates the default
+domain portion against the fixed ceiling tier (3000 tokens / 12000 characters),
+never the possibly smaller current run value. The out-of-scope total model
+envelope (`MAX_MODEL_TOOL_RESULT_TOKENS` / `MAX_MODEL_TOOL_RESULT_CHAR_BUDGET`,
+2000 tokens / 8000 characters) and every domain-level `MODEL_PROJECTION_BUDGET_OVERRIDES`
+entry remain unchanged at every tier, on both fresh and replayed projections.
+Because that total envelope never scales, replay's newly-composed hook context
+(`composeHookContextWithProjection`) is fitted against the SAME fixed
+8000-character ceiling whether the stored domain payload came from a
+huge-window run or the current run's own resolved tier — a known, documented
+tradeoff, not yet fixed; see `docs/agents/assistant-runtime.md`'s replay
+section for the full reasoning. BST-1219 widened budget context only for FRESH
+desktop producers; the replay hook-context/total-envelope tradeoff remains a
+separate deferred follow-up and was not changed.
 The file-read staleness tracker is updated only after cursor validation and
 page construction succeed inside the per-file lock; a rejected stale cursor
 must not mark externally changed bytes as fresh for a later write.
@@ -940,7 +1141,9 @@ the independent serialized-character safety envelope. Paired proofs:
 
 MCP text/JSON uses a separate temporary inline ceiling only when the host does
 not supply durable artifact settlement: it is bounded to
-`MAX_TOOL_RESULT_TOKENS` (3000). Multimodal output always stays inline so the
+the active run's resolved transport default. `MAX_TOOL_RESULT_TOKENS` (3000) is
+the 128k anchor; the resolved range is 1000..6000 tokens. Multimodal output
+always stays inline so the
 display/transcript channels can render it; durable settlement never converts
 image/audio `content` arrays into text artifacts. Raw media is permitted only
 up to the assistant aggregate encoded-media ceiling and 12000 non-media
@@ -1007,22 +1210,37 @@ registers `brainstrike.readToolOutputArtifact` only when that scoped capability
 exists; web and requests without complete memory scope omit it instead of
 stubbing it. The shared resolver retains its strict initial-reference and
 continuation modes for internal callers, while the registered native model tool
-exposes only the required opaque `cursor` plus optional `maxBytes`. Settlement
+exposes the required opaque `cursor`, optional `maxBytes`, and optional search
+fields `pattern`/`isRegex`/`caseSensitive`. Search composes with paging: the
+cursor selects the starting byte and omitting `pattern` preserves the raw-page
+path. Settlement
 always creates that cursor, so removing the redundant mode/reference fields
 prevents smaller models from fabricating contradictory calls and shrinks the
-provider schema. Its raw result is the guarded artifact page for display and persistence. Its purpose-built model
-projection omits the repeated artifact reference, retains format and byte
-offsets, and carries either `complete: true` or an exact next tool/input pair.
+provider schema. Its raw result is the guarded artifact page or typed search
+slice for display and persistence. Its purpose-built model projection omits the
+repeated artifact reference: paging retains format and byte offsets and carries
+either `complete: true` or an exact next tool/input pair; search emits the same
+compact `grep content` header and `line: text` rows as workspace grep, with
+1-based line numbers local to the scanned byte slice. Search projection reuses
+the shared header/row formatter and must attach an actionable cursor whenever
+source bytes or matches remain omitted; a limited result without guidance
+throws, while a complete zero-match result is valid.
 If JSON escaping plus continuation metadata would exceed the 6000-character
 domain budget, the projector fits a shorter code-point prefix and recomputes
 the cursor at that byte boundary; it never generically truncates content or
 loses continuation state.
 
-Finally, the UI transport independently caps streamed output at 3000 tokens.
+Finally, the UI transport independently applies the generic transport backstop.
+Callers inside an active run use the resolved 1000..6000-token default; the
+context-free data-stream mapper retains the 3000-token anchor fallback because
+its replay/session boundary has no active-model carrier.
 Oversized collections
 (matches/entries/results/items/files/chunks/rows/subAgentToolResults) are
 structurally trimmed; opaque outputs become a SUCCESSFUL
-`tool_result_truncated` preview with an actionable hint. The legacy
+`tool_result_truncated` preview with an actionable hint. An opaque preview
+retains a balanced 50/50 head and tail around an explicit omitted-character
+marker, with both UTF-16 cut points snapped away from surrogate-pair interiors;
+it no longer discards all trailing evidence. The legacy
 `tool_result_too_large` envelope remains readable only for persisted-history
 compatibility, and untrusted envelope-shaped output is revalidated against the
 active budget. Proofs:
@@ -1034,13 +1252,26 @@ active budget. Proofs:
 (counts + token budgets); `detail: true` returns per-file Tapestry ranges.
 `grepSearch` and `globWorkspace` keep their complete typed raw pages for
 display, persistence, hooks, and reload, but their Mastra `toModelOutput`
-projections are deterministic line-oriented text. Those projections retain
-copyable `read_args` JSON containing the exact `root`, `path`, and (for grep)
-1-based `startLine` accepted by `readWorkspaceFile`, plus root display name,
-count/source/scan-limit state, and authoritative continuation guidance while
-fitting the 6000-character domain budget. This is Brainstrike's local-first
-multi-root equivalent of OpenCode's absolute-path grep/glob/read handoff: the
-model does not need to translate a display-only root label into a tool input.
+projections are deterministic line-oriented text. Content mode returns NO
+context lines unless the caller opts in (`contextLines` defaults to 0 —
+BST-1193: searches locate, reads understand; the schema, the browser-safe
+display mirror in `tool-schemas-display-search.ts`, and the tool fallback
+must state the same default, pinned by
+`native-tool-display-schema-parity.spec.ts`). Since BST-1185 those
+projections are PATH-GROUPED and happy-path-silent: one file header per file
+(`rootName:path`, root prefix only when the producer's `openRoots` reports
+more than one open folder — the display name is a valid `root` selector, and
+two same-named roots fall back to root ids), then `line: text` rows with `-`
+marking context rows; files mode emits `rootName:path:firstLine (N matches)`
+per line. Engine/limit flags (`live=`, `candidates_truncated`,
+`scan_limited`, `skipped_lines=`) appear in the header ONLY when they fire;
+the read recipe lives once in the grepSearch/globWorkspace tool descriptions
+instead of a per-row `read_args` envelope (the legacy per-row format cost
+~180 chars/match). Continuation guidance is unchanged and authoritative, and
+everything fits the 6000-character domain budget. Stored projections from
+pre-BST-1185 threads still carry the legacy `grep <mode> | page=` header; the
+replay prefix is the common prefix of both generations, so they replay
+byte-for-byte.
 Because Mastra's one-argument projector receives the raw result but not the
 original tool input, paging guidance tells the model to reuse the prior call;
 it never fabricates or duplicates the original pattern. When the whole raw page
@@ -1050,14 +1281,72 @@ budget omits raw page items does the projector calculate an earlier advancing
 `offset`. Producer guidance includes an `offset` only when that offset strictly
 advances; when search or candidate limits yield an empty page with no reachable
 next offset, it instead gives terminal query-refinement guidance. A truncated
-result without producer guidance throws instead of guessing. Oversized paths and
-match context are clipped with an explicit omitted-character marker, and
-malformed result shapes throw a content-free diagnostic naming the rejected
-field rather than falling back to generic JSON. The grep producer and projector
+result without producer guidance throws instead of guessing. Match lines and
+context are clipped with an explicit omitted-character marker; paths and root
+labels are NEVER clipped or whitespace-collapsed (a mangled selector is
+unusable) — a pathological oversized selector overflows the budget and its
+item is omitted with an advancing offset. Root-name ambiguity is decided by
+the PRODUCER against the full open-root inventory (`ambiguousRootNames` on
+the envelope; `describeOpenRootTopology`), never page-locally. SETTLED
+filename-forgery ruling (PR #2313): line breaks and a leading whitespace
+character in paths are escaped, so a hostile filename can never create a new
+projection line nor mimic an indented match row; a filename that merely
+resembles a header or continuation string still renders inline on its own
+single line and is an accepted residual — do not reintroduce per-row quoting
+to chase it. The grep producer and projector
 share one runtime result contract. The projector also recognizes its own
 canonical bounded text envelope when Mastra replays a stored model projection
 while preparing a later same-run step; that replay is idempotent and does not
 reparse the text as a raw grep result.
+`readWorkspaceFile` keeps its complete typed raw result for display,
+persistence, hooks, and reload. Its projection-contract raw result fields now
+include `openRoots`, `ambiguousRootNames`, and `rootId` in place of the removed
+always-null `tokenCount`; the separate raw `approxOutputTokens` estimate remains
+outside that projection contract. Its Mastra `toModelOutput` projection emits
+a compact `read <root:>path lines <start>-<end>/<total>` header, prefixing a
+root selector only when `openRoots > 1`. An unambiguous display name is the
+preferred selector; a name listed in producer-owned `ambiguousRootNames` falls
+back to `rootId`, matching the full-inventory `describeOpenRootTopology`
+policy. Line breaks in both the selector and path are escaped so neither can
+forge protocol lines. The page's already-gutter-prefixed content follows
+verbatim; the native mutation-side refusal for accidentally pasting that
+display form back into file content is specified in
+`assistant-runtime.md` under "GUTTER-PREFIX WRITE GUARD (BST-1202)". The header
+adds `size` and `omitted` only for a truncated page. A
+`continue: cursor=<nextCursor>` footer appears only when a continuation cursor
+exists: never when the request fit completely, and never in the registry-less
+internal read mode where truncation can occur without an issuable cursor. The
+same compact formatter backs the producer's self-fit binary search. It admits
+more source content because the single header and optional footer replace the
+raw result's fixed metadata-key and object-punctuation overhead; JSON escaping
+does not free character-budget room. Its literal wire newlines instead save
+model tokens. A stored `{type:'text',value}` beginning with `read ` on a later
+same-run step replays byte-for-byte instead of being reparsed as a raw result,
+mirroring the grep/glob replay contract. Legacy stored
+`{type:'json',value:<raw result>}` projections are unwrapped and re-rendered in
+the new text form, and legacy raw results without topology fields degrade to an
+unprefixed header without losing content. Nothing else read `tokenCount`, so
+the always-null field was dropped from the result entirely.
+`executeCommand` keeps its typed raw result for display, persistence, hooks,
+and reload; the envelope now carries the selected `rootId` plus the same
+producer-owned `openRoots`/`ambiguousRootNames` topology used by workspace
+reads. Its Mastra `toModelOutput` projection emits
+`exec exit=<code|null> <seconds>` followed by only active `timed_out`,
+`killed=<signal>`, `truncated`, and multi-root `root=<selector>` tokens.
+Ambiguous display names fall back to the root id and selector line breaks are
+escaped. The only exit-code
+annotations are the conservative static cases `grep`/`rg` exit 1 (`no
+matches`) and `diff` exit 1 (`files differ`); naive leading-token basename
+extraction deliberately does not interpret shell prefixes or environment
+assignments. Already ANSI-stripped, head+tail-fitted stdout and stderr are
+rendered verbatim, with a `[stderr]` section, an explicit `(no output)` body,
+and the producer truncation hint last when present; the projector never
+double-truncates either stream. Legacy raw results without topology remain
+valid and unprefixed, stored `exec ` text projections replay byte-for-byte,
+shape rejection uses the dispatcher fail-soft marker, and either fresh or
+replayed output above the 6000-character domain budget throws. Proofs:
+`execute-command-model-projection.test.ts` and
+`execute-command-tool.integration.test.ts`.
 `findWorkspaceSymbol` and `lspInspect` keep their complete typed raw results for
 display, persistence, hooks, and reload while their Mastra `toModelOutput`
 projections emit bounded line-oriented inspection summaries. Symbol output
@@ -1134,6 +1423,19 @@ Adding or renaming a native tool must update the canonical catalog first, then
 the exact metadata/schema maps, live desktop registry, exports, and conditional
 model-facing guidance. The parity tests fail on stale, missing, or extra keys;
 there is no fallback alias or partially registered tool.
+
+`brainstrike.manageCanvas` is desktop-only because its source of truth is the
+client-local `brainstrike_canvas_versions` ledger. It is a deferred workspace
+tool with an `action` discriminated union (`create`, `update`, `rewrite`,
+`list`) and explicit `read` risk: updates are DB-backed, versioned, and
+reversible, not workspace-file edits, so they must not enter the live Changes
+refresh stream. Web has no remote fallback. Conditional instructions advertise
+the verbs only when the tool is registered. Settled ruling (2026-08-07, live
+gpt-5.6 failure — do not relitigate): the union branches TOLERATE cross-action
+extras among the six declared envelope keys (`action` fully determines
+semantics; real models bundle fields, and rejecting them broke the feature and
+burned retry tokens). Only genuinely unknown keys fail, at the strict provider
+envelope.
 
 `brainstrike.queryDiagnostics` is a desktop-only, explicit `read`-risk native
 tool over `brainstrike_diagnostic_events`. Its `mode` is required:
@@ -1354,10 +1656,12 @@ provider-history compatibility → projection-aware token limiting. Initial,
 approval-resume, and suspend-resume
 calls all use the same per-runtime processors in the per-call input stack:
 SkillsProcessor → tool search → ProjectionSafeToolCallFilter →
-ProviderHistoryCompat → ProjectionAwareTokenLimiter. Token limiting remains
-last so it counts injected skills metadata, loaded definitions, filtered tool
-history, and normalized provider history. Public direct stream processor
-overrides stay rejected.
+ToolProjectionRewrite → ProviderHistoryCompat → OpenAI tool-search history
+compatibility → OpenAI duplicate-item compatibility →
+ProjectionAwareTokenLimiter. Token limiting remains last so it counts injected
+skills metadata, loaded definitions, filtered/rewritten tool history, and
+normalized provider history. Public direct stream processor overrides stay
+rejected.
 
 The full hosted desktop tool surface has two measured prompt budgets:
 `apps/desktop/src/__tests__/assistant-server/native-tool-prompt-budget.test.ts`

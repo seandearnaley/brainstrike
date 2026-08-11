@@ -1,9 +1,11 @@
 import {
+  clickExplorerTreeAction,
   clickFileTreeCheckboxAndWaitForSelection,
   ensureFileExplorerPanelVisible,
   expandNextDirectoryIfNeeded,
   expect,
   expectContextExplorerFileVisibility,
+  expectExplorerTreeActionsReachable,
   FILE_EXPLORER_CLICK_TIMEOUT_MS,
   FILE_TREE_MULTI_STEP_SELECTION_TEST_TIMEOUT_MS,
   getContextExplorerMiddlePanel,
@@ -15,6 +17,7 @@ import {
   installWideExpandAllFixture,
   setFileExplorerMaxSelectionCount,
   test,
+  WIDE_EXPAND_ALL_TOTAL_DIRECTORY_COUNT,
   waitForFileExplorerSelectionIdle,
 } from './file-explorer-selection.shared';
 
@@ -71,9 +74,9 @@ test.describe('Desktop file explorer selection', () => {
       timeout: 15_000,
     });
     const initialExpandedCount = await getExpandedDirectoryCount(window);
-    const expandAllButton = window.getByTestId('expand-all-button-small');
-    await expect(expandAllButton).toBeVisible({ timeout: 15_000 });
-    await expandAllButton.click({ noWaitAfter: true, timeout: 5000 });
+    // Responsive since BST-1208: at the desktop Explorer's 180px default this
+    // action lives in the compact menu, not as a bare button.
+    await clickExplorerTreeAction(window, 'expand-all');
 
     const cancelButton = window.getByRole('button', { name: 'Cancel operation' });
     await expect(cancelButton).toBeVisible({ timeout: 15_000 });
@@ -92,23 +95,26 @@ test.describe('Desktop file explorer selection', () => {
           .expandedDirectoryPaths?.size ?? 0;
       return expandedDirectoryCount > previousExpandedCount;
     }, initialExpandedCount);
-    await expect(expandAllButton).toBeDisabled();
+    // The sweep is still running — observable through the cancel affordance,
+    // which is the control BST-657 guarantees at this width (the expand button
+    // itself is in the compact menu here, and that menu yields mid-sweep).
+    await expect(cancelButton).toBeVisible();
 
-    await cancelButton.click({ noWaitAfter: true, timeout: 5000 }).catch(async (error: unknown) => {
-      const operationStillRunning = await window
-        .getByTestId('inline-scanning-indicator')
-        .isVisible()
-        .catch(() => false);
-      if (operationStillRunning) {
-        throw error;
-      }
-    });
+    // No tolerance branch: the fixture's per-read delay keeps the traversal
+    // running for ~13.5s, so a cancel click that misses is a real failure, not
+    // an operation that legitimately finished first.
+    await cancelButton.click({ noWaitAfter: true, timeout: 5000 });
 
     await expect(window.getByTestId('inline-scanning-indicator')).not.toBeVisible({
       timeout: 15_000,
     });
-    await expect(expandAllButton).toBeEnabled();
-    expect(await getExpandedDirectoryCount(window)).toBeGreaterThan(initialExpandedCount);
+    await expectExplorerTreeActionsReachable(window);
+
+    const expandedCountAfterCancel = await getExpandedDirectoryCount(window);
+    expect(expandedCountAfterCancel).toBeGreaterThan(initialExpandedCount);
+    expect(expandedCountAfterCancel).toBeLessThan(
+      initialExpandedCount + WIDE_EXPAND_ALL_TOTAL_DIRECTORY_COUNT
+    );
   });
 
   test('unchecking a selected folder removes its files from the context explorer on desktop', async ({

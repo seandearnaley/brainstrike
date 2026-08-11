@@ -1,11 +1,11 @@
 import {
   __resetVectorStatusUIStoreForTests,
   useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CollectionEmbeddingCoverageSnapshot } from '../../hooks/use-collection-embedding-coverage';

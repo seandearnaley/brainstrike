@@ -24,11 +24,11 @@ import type {
   LocalLlmHostGenerateRequest,
   LocalLlmHostRequestOptions,
 } from '@brainstrike/agent/local-llm';
-// The repository is exposed via app-shell's narrow `./assistant-memory-repository`
+// The repository is exposed via the assistant-data package
 // subpath (not its root barrel); the live-loop proof needs the REAL
 // implementation. Interim placement — R04 (BST-984) moves this module into the
 // data layer and the export moves with it.
-import { createPgliteAssistantThreadRepository } from '@brainstrike/app-shell/assistant-memory-repository';
+import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-data';
 import { wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it, vi } from 'vitest';

@@ -135,38 +135,42 @@ export function CollectionPicker({
   // Empty state
   if (collections.length === 0) {
     return (
-      <div className={className}>
-        {showHeader && <CollectionPickerHeader label={headerLabel} onCreate={onCreate} />}
-        {emptyState ?? <CollectionPickerEmpty onCreate={onCreate} />}
-      </div>
+      // The header's Create button is tooltipped, so the provider has to
+      // enclose it too — not just the list.
+      <TooltipProvider delayDuration={300}>
+        <div className={className}>
+          {showHeader && <CollectionPickerHeader label={headerLabel} onCreate={onCreate} />}
+          {emptyState ?? <CollectionPickerEmpty onCreate={onCreate} />}
+        </div>
+      </TooltipProvider>
     );
   }
 
   return (
-    <div className={className}>
-      {showHeader && (
-        <div className="mb-2 flex items-center justify-between">
-          <Label className="font-medium text-sm" id={labelId}>
-            {headerLabel}
-          </Label>
-          <CollectionPickerHeader label={headerLabel} onCreate={onCreate} showLabel={false} />
-        </div>
-      )}
+    <TooltipProvider delayDuration={300}>
+      <div className={className}>
+        {showHeader && (
+          <div className="mb-2 flex items-center justify-between">
+            <Label className="font-medium text-sm" id={labelId}>
+              {headerLabel}
+            </Label>
+            <CollectionPickerHeader label={headerLabel} onCreate={onCreate} showLabel={false} />
+          </div>
+        )}
 
-      <div
-        aria-activedescendant={
-          focusedIndex >= 0 ? `collection-option-${collections[focusedIndex]?.id}` : undefined
-        }
-        aria-label={showHeader ? undefined : headerLabel}
-        aria-labelledby={showHeader ? labelId : undefined}
-        className="outline-none"
-        onBlur={handleBlur}
-        onKeyDown={handleKeyDown}
-        onPointerDown={handlePointerDown}
-        role="listbox"
-        tabIndex={0}
-      >
-        <TooltipProvider delayDuration={300}>
+        <div
+          aria-activedescendant={
+            focusedIndex >= 0 ? `collection-option-${collections[focusedIndex]?.id}` : undefined
+          }
+          aria-label={showHeader ? undefined : headerLabel}
+          aria-labelledby={showHeader ? labelId : undefined}
+          className="outline-none"
+          onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
+          onPointerDown={handlePointerDown}
+          role="listbox"
+          tabIndex={0}
+        >
           <ScrollArea className="flex-1" style={{ maxHeight }}>
             <div className="space-y-2 px-1 py-1">
               {collections.map((collection, index) => (
@@ -183,8 +187,8 @@ export function CollectionPicker({
               ))}
             </div>
           </ScrollArea>
-        </TooltipProvider>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

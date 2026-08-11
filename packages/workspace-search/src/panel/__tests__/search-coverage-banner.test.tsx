@@ -25,7 +25,7 @@ vi.mock('@brainstrike/db/react', () => ({
 }));
 
 const syncStore = { managedCollectionId: null as string | null, state: 'idle' as string };
-vi.mock('@brainstrike/preferences/stores/workspace-collection-sync-status-store', () => ({
+vi.mock('@brainstrike/app-state/stores/workspace-collection-sync-status-store', () => ({
   useWorkspaceCollectionSyncStatusStore: (selector: (s: typeof syncStore) => unknown) =>
     selector(syncStore),
 }));

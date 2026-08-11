@@ -10,10 +10,11 @@ const fsMocks = vi.hoisted(() => ({
 
 vi.mock('node:fs', async (importOriginal) => {
   const mod = await importOriginal<typeof import('node:fs')>();
+  const modWithDefault = mod as typeof mod & { default: typeof mod };
   return {
     ...mod,
     ...fsMocks,
-    default: { ...mod.default, ...fsMocks },
+    default: { ...modWithDefault.default, ...fsMocks },
   };
 });
 

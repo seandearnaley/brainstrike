@@ -1,6 +1,14 @@
 import type { WebContents } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+interface LlmLifecycleStatus {
+  active: boolean;
+  lastError: string | null;
+  runtimeId: string;
+  runtimeKind?: 'llm-host';
+  state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+}
+
 const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(() => {
   const hostWindow = {
     isDestroyed: vi.fn(() => false),
@@ -9,12 +17,12 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
       send: vi.fn(),
     },
   };
-  const currentStatus = {
+  const currentStatus: LlmLifecycleStatus = {
     active: false,
     lastError: null,
     runtimeId: 'llm-host-runtime',
-    runtimeKind: 'llm-host' as const,
-    state: 'running' as const,
+    runtimeKind: 'llm-host',
+    state: 'running',
   };
 
   return {
@@ -23,17 +31,17 @@ const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(()
       clearHostWindow: vi.fn(),
       destroyHostWindow: vi.fn(),
       dispose: vi.fn(),
-      ensureStarted: vi.fn(async () => ({
+      ensureStarted: vi.fn<(options?: unknown) => Promise<LlmLifecycleStatus>>(async () => ({
         active: false,
         lastError: null,
         runtimeId: 'llm-host-runtime',
-        runtimeKind: 'llm-host' as const,
-        state: 'running' as const,
+        runtimeKind: 'llm-host',
+        state: 'running',
       })),
-      getHostWindow: vi.fn(() => hostWindow),
-      getStatus: vi.fn(() => ({ ...currentStatus })),
+      getHostWindow: vi.fn<() => typeof hostWindow | null | undefined>(() => hostWindow),
+      getStatus: vi.fn<() => LlmLifecycleStatus>(() => ({ ...currentStatus })),
       isHostWindow: vi.fn(() => false),
-      setStatus: vi.fn((status) => {
+      setStatus: vi.fn<(status: LlmLifecycleStatus) => void>((status) => {
         currentStatus.active = status.active;
         currentStatus.lastError = status.lastError;
         currentStatus.runtimeId = status.runtimeId;
@@ -80,7 +88,7 @@ import { createMainLlmHostClient } from '@brainstrike/assistant-service/ports';
 import { LlmHostManager } from '../llm-host-manager';
 import { assertLlmHostRequest } from '../llm-host-shared';
 
-type TestableLlmHostManager = LlmHostManager & {
+type TestableLlmHostManager = Omit<LlmHostManager, never> & {
   acceptResponseReport: (
     senderId: number,
     report: {
@@ -94,6 +102,16 @@ type TestableLlmHostManager = LlmHostManager & {
   pendingRequests: Map<string, unknown>;
   preCancelledRequestIds: Set<string>;
 };
+
+function requireResolver<T>(
+  resolver: ((value: T) => void) | null,
+  description: string
+): (value: T) => void {
+  if (!resolver) {
+    throw new Error(`expected ${description}`);
+  }
+  return resolver;
+}
 
 async function drainResponse(response: Response): Promise<string> {
   const reader = response.body?.getReader();
@@ -143,7 +161,7 @@ describe('LlmHostManager', () => {
   });
 
   it('extends request lifetime while llm-host progress reports are still arriving', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(101);
 
     const requestPromise = manager.generate(requester, {
@@ -191,7 +209,7 @@ describe('LlmHostManager', () => {
   });
 
   it('clears pre-cancelled request timers and listeners on dispose', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(501);
 
     // Force the not-running path so cancel() records a pre-cancelled request
@@ -276,7 +294,7 @@ describe('LlmHostManager', () => {
     // local generation streams progress snapshots continuously, so each
     // progress report extends the deadline. A hard wall-clock ceiling killed
     // legitimate long prefills at exactly 5 minutes.
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(111);
 
     const requestPromise = manager.generate(requester, {
@@ -317,7 +335,7 @@ describe('LlmHostManager', () => {
   });
 
   it('times out a generation after the inactivity window passes with NO progress', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(112);
 
     const requestPromise = manager.generate(requester, {
@@ -351,7 +369,7 @@ describe('LlmHostManager', () => {
   });
 
   it('uses a longer timeout window for warmup requests', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester();
 
     const warmupPromise = manager.warmup(requester, 'onnx-community/gemma-4-E2B-it-ONNX');
@@ -374,7 +392,7 @@ describe('LlmHostManager', () => {
   });
 
   it('scopes fallback-generated request ids to the requester', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(401);
 
     const warmupPromise = manager.warmup(requester, 'onnx-community/gemma-4-E2B-it-ONNX');
@@ -399,7 +417,7 @@ describe('LlmHostManager', () => {
   });
 
   it('rejects duplicate client request IDs instead of overwriting pending work', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(201);
 
     const firstRequest = manager.generate(requester, {
@@ -437,7 +455,7 @@ describe('LlmHostManager', () => {
   });
 
   it('scopes client request IDs by requester so different renderers do not collide', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requesterA = createRequester(301);
     const requesterB = createRequester(302);
 
@@ -500,7 +518,7 @@ describe('LlmHostManager', () => {
   });
 
   it('cancels host work and removes requester listeners when a refreshed timeout expires', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(101);
 
     const requestPromise = manager.generate(requester, {
@@ -578,7 +596,7 @@ describe('LlmHostManager', () => {
       state: 'starting',
     });
 
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(501);
 
     const requestPromise = manager.generate(requester, {
@@ -592,7 +610,10 @@ describe('LlmHostManager', () => {
     await Promise.resolve();
     await expect(manager.cancel(requester, 'prestart-cancel')).resolves.toBeUndefined();
 
-    resolveEnsureStarted?.({
+    requireResolver(
+      resolveEnsureStarted,
+      'ensureStarted resolver'
+    )({
       active: false,
       lastError: null,
       runtimeId: 'llm-host-runtime',
@@ -606,7 +627,7 @@ describe('LlmHostManager', () => {
   });
 
   it('expires pre-cancelled request ids that are never consumed', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(601);
     lifecycleState.getStatus.mockReturnValue({
       active: false,
@@ -625,7 +646,7 @@ describe('LlmHostManager', () => {
   });
 
   it('purges pre-cancelled request ids immediately when the requester is destroyed', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(701);
     lifecycleState.getStatus.mockReturnValue({
       active: false,
@@ -640,9 +661,7 @@ describe('LlmHostManager', () => {
 
     const destroyedHandler = (
       requester.once as unknown as ReturnType<typeof vi.fn>
-    ).mock.calls.find(([eventName]: readonly [string]) => eventName === 'destroyed')?.[1] as
-      | (() => void)
-      | undefined;
+    ).mock.calls.find((call) => call[0] === 'destroyed')?.[1] as (() => void) | undefined;
 
     if (!destroyedHandler) {
       throw new Error('Expected destroyed listener to be registered');
@@ -661,7 +680,7 @@ describe('LlmHostManager', () => {
     // fresh device) recovers. The renderer flags engineReset on its error
     // report; the manager must escalate to a host-window reset() so the NEXT
     // generation runs on a clean device instead of failing forever.
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const resetSpy = vi.spyOn(manager, 'reset').mockResolvedValue({
       active: false,
       lastError: null,
@@ -705,7 +724,7 @@ describe('LlmHostManager', () => {
   });
 
   it('does NOT reset the host window for an ordinary (non-engine) request failure', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const resetSpy = vi.spyOn(manager, 'reset').mockResolvedValue({
       active: false,
       lastError: null,
@@ -747,7 +766,7 @@ describe('LlmHostManager', () => {
   });
 
   it('preserves a typed local generation error across the hidden-host boundary', async () => {
-    const manager = new LlmHostManager() as TestableLlmHostManager;
+    const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
     const requester = createRequester(803);
 
     const requestPromise = manager.generate(requester, {
@@ -790,7 +809,7 @@ describe('LlmHostManager', () => {
       // manager-generated request that fails assertLlmHostRequest is silently
       // dropped host-side and waits out its full timeout (the "stuck on
       // Thinking" bug). Validate exactly what gets sent over IPC.
-      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
 
       const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
       await vi.waitFor(() => {
@@ -835,7 +854,7 @@ describe('LlmHostManager', () => {
     });
 
     it('generateForMain scopes request ids to main, forwards progress, and resolves the result', async () => {
-      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
       const progressEvents: unknown[] = [];
 
       const requestPromise = manager.generateForMain(
@@ -844,7 +863,7 @@ describe('LlmHostManager', () => {
           modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
           options: {},
         },
-        { onProgress: (progress) => progressEvents.push(progress) }
+        { onProgress: (progress: unknown) => progressEvents.push(progress) }
       );
 
       await vi.waitFor(() => {
@@ -879,7 +898,7 @@ describe('LlmHostManager', () => {
     });
 
     it('generateForMain rejects and cancels host work when the abort signal fires', async () => {
-      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
       const abortController = new AbortController();
 
       const requestPromise = manager.generateForMain(
@@ -919,7 +938,7 @@ describe('LlmHostManager', () => {
       const previousStreamInactivity = process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'];
       process.env['BRAINSTRIKE_TOOL_TIMEOUT_MS'] = '20';
       process.env['BRAINSTRIKE_STREAM_INACTIVITY_MS'] = '1000';
-      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
 
       try {
         const iterator = await streamMastraAgent(
@@ -1064,7 +1083,7 @@ describe('LlmHostManager', () => {
     });
 
     it('generateForMain rejects a null result payload instead of returning it', async () => {
-      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
 
       const requestPromise = manager.generateForMain({
         messages: [{ content: 'hi', role: 'user' }],
@@ -1097,7 +1116,7 @@ describe('LlmHostManager', () => {
       // Cold MEMORY-model warmups are triggered by the assistant server (main
       // process) with no renderer request in flight; without this broadcast
       // the user stares at a silent spinner while gigabytes download.
-      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
 
       const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
       await vi.waitFor(() => {
@@ -1146,7 +1165,7 @@ describe('LlmHostManager', () => {
     });
 
     it('does not broadcast renderer-initiated progress a second time', async () => {
-      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
       const requester = createRequester(101);
 
       const requestPromise = manager.generate(requester, {
@@ -1182,7 +1201,7 @@ describe('LlmHostManager', () => {
     });
 
     it('warmupForMain resolves when the host acknowledges with a null result', async () => {
-      const manager = new LlmHostManager() as TestableLlmHostManager;
+      const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
 
       const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
 

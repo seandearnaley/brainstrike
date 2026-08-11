@@ -85,7 +85,7 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteDatabase: () => currentDbRef.current,
 }));
 
-vi.mock('@brainstrike/preferences/stores/vector-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-preferences-store', () => ({
   ensureVectorPreferencesHydrated: ensureVectorPreferencesHydratedMock,
   useVectorPreferencesStore: Object.assign(
     (selector: (state: typeof storeState) => unknown) => selector(storeState),
@@ -216,7 +216,11 @@ describe('EmbeddingHostRuntime', () => {
 
     storeState.hasHydrated = true;
     storeState.devicePref = 'wasm';
-    resolveHydration?.(storeState);
+    const finishHydration = resolveHydration as ((value: typeof storeState) => void) | null;
+    if (!finishHydration) {
+      throw new Error('Expected vector preference hydration to be pending.');
+    }
+    finishHydration(storeState);
 
     await waitFor(() => {
       expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
@@ -645,7 +649,11 @@ describe('EmbeddingHostRuntime', () => {
     });
 
     view.unmount();
-    resolveStop?.();
+    const finishStop = resolveStop as (() => void) | null;
+    if (!finishStop) {
+      throw new Error('Expected embedding host stop to be pending.');
+    }
+    finishStop();
     await Promise.resolve();
 
     const stoppedReports = reportStatusMock.mock.calls.filter(
@@ -676,7 +684,11 @@ describe('EmbeddingHostRuntime', () => {
 
     expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
 
-    resolveStop?.();
+    const finishStop = resolveStop as (() => void) | null;
+    if (!finishStop) {
+      throw new Error('Expected embedding host stop to be pending.');
+    }
+    finishStop();
 
     await waitFor(() => {
       expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);

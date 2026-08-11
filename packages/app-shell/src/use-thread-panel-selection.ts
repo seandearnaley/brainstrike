@@ -1,6 +1,6 @@
+import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
+import { getGroupMemberIds, type ThreadListView } from '@brainstrike/assistant-data';
 import { useCallback, useMemo, useState } from 'react';
-import type { AssistantMemoryThread } from './assistant-memory-repository';
-import { getGroupMemberIds, type ThreadListView } from './thread-list-sections';
 import {
   buildThreadPanelVisibleRows,
   THREAD_PANEL_DISCLOSURE_INCREMENT,

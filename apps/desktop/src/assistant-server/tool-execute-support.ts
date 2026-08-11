@@ -20,17 +20,32 @@ export type ToolExecuteInput<T> = { context: T } | T;
 
 /**
  * Minimal structural view of Mastra's 2nd `execute` argument
- * (`ToolExecutionContext`, verified against @mastra/core@1.50.0 `tools/types.d.ts`
- * — `agent?: AgentToolExecutionContext` carries `toolCallId`). Typed loosely so it
- * stays assignable from the concrete Mastra context by contravariance; the
- * mutation tools read `agent.toolCallId` to key each edit's journal entry.
+ * (`ToolExecutionContext`, verified against @mastra/core@1.55.0 `tools/types.d.ts`).
+ * Mastra exposes the tool-call id in TWO documented locations, depending on how
+ * the tool was registered: a `createTool` instance running under an agent gets
+ * `agent.toolCallId` (`agent?: AgentToolExecutionContext`), while a plain tool
+ * OBJECT — what the desktop registry passes (`assistant-tools.ts`) — receives a
+ * TOP-LEVEL `toolCallId`. Typed loosely so it stays assignable from the concrete
+ * Mastra context by contravariance; the mutation tools read the id to key each
+ * edit's journal entry (`tool_call_id`), which is what binds the renderer's
+ * checkpoint-undo affordances (`entriesByToolCallId`).
  */
 export interface ToolExecuteRunContext {
   agent?: { toolCallId?: string };
+  toolCallId?: string;
 }
 
+/**
+ * The tool-call id from whichever documented location the context carries —
+ * agent-scoped for agent-context tools, top-level for plain tool objects (the
+ * same dual location {@link resolveShellOutputStreamer} already reads). This is
+ * field selection between two documented Mastra shapes, not a fallback: a
+ * context can only ever populate the location matching how its tool was
+ * registered (BST-1164 review — the plain-tool path journaled NULL
+ * `tool_call_id`, so the checkpoint-undo UI never rendered).
+ */
 export function readToolCallId(context: ToolExecuteRunContext | undefined): string | undefined {
-  return context?.agent?.toolCallId;
+  return context?.agent?.toolCallId ?? context?.toolCallId;
 }
 
 export function resolveToolExecuteInputCandidate<T>(
@@ -63,8 +78,44 @@ export function resolveToolExecuteInputCandidate<T>(
   return input;
 }
 
+/** Hard cap so a pathological many-issue error can't flood the model context. */
+const TOOL_INPUT_ERROR_MAX_CHARS = 600;
+
+/**
+ * Input-validation failure with a compact single-line `message` (the model
+ * reads it verbatim) that still carries the raw Zod `issues`, so per-tool
+ * enrichers that duck-type on `.issues` (e.g. `toQuerySelfInputError`) keep
+ * working.
+ */
+export class ToolInputValidationError extends Error {
+  constructor(
+    message: string,
+    readonly issues: z.ZodError['issues']
+  ) {
+    super(message);
+    this.name = 'ToolInputValidationError';
+  }
+}
+
 export function parseToolExecuteInput<T>(schema: z.ZodType<T>, input: ToolExecuteInput<T>): T {
-  return schema.parse(resolveToolExecuteInputCandidate(schema, input));
+  const result = schema.safeParse(resolveToolExecuteInputCandidate(schema, input));
+  if (result.success) {
+    return result.data;
+  }
+  // The model reads this text verbatim on every failed call — a raw ZodError
+  // serializes as a multi-line JSON blob. Compact it to one dense line with
+  // the same information (field path + message per issue), capped.
+  const issueText = result.error.issues
+    .map((issue) => `${issue.path.length > 0 ? issue.path.join('.') : 'input'}: ${issue.message}`)
+    .join('; ')
+    .replace(/\s+/g, ' ');
+  const message = `invalid tool input — ${issueText}`;
+  throw new ToolInputValidationError(
+    message.length > TOOL_INPUT_ERROR_MAX_CHARS
+      ? `${message.slice(0, TOOL_INPUT_ERROR_MAX_CHARS - 1)}…`
+      : message,
+    result.error.issues
+  );
 }
 
 /** A verbatim-chunk stream writer, in either shape Mastra exposes. */

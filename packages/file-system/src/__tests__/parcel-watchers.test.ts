@@ -5,6 +5,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DEFAULT_IGNORE_PATTERNS } from '@brainstrike/utils/path-filter';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ParcelBackendName,
@@ -115,6 +116,57 @@ describe('startParcelWatch', () => {
     expect(fake.lastSubscribeArgs.backend).toBe(selectParcelBackend(process.platform));
     expect(fake.lastSubscribeArgs.ignore).toContain('**/node_modules/**');
     expect(fake.lastSubscribeArgs.ignore).toContain('**/.git/**');
+    stop();
+  });
+
+  it('uses exactly the default ignore glob array when no override is given (BST-1112)', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+    });
+    expect(fake.lastSubscribeArgs.ignore).toEqual(
+      DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`])
+    );
+    stop();
+  });
+
+  it('replaces both the native ignore globs and the shouldIgnorePath guard with custom patterns (BST-1112)', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      ignorePatterns: ['node_modules'],
+      loadModule: () => Promise.resolve(fake.module),
+    });
+    // Native layer only carries globs for the custom pattern, not the defaults.
+    expect(fake.lastSubscribeArgs.ignore).toEqual(['**/node_modules', '**/node_modules/**']);
+
+    // fileFilter.shouldIgnorePath guard must also use the custom patterns:
+    // a .git/HEAD event, dropped by the DEFAULT patterns, passes through here
+    // because the override omits '.git'.
+    const gitDir = join(root, '.git');
+    await mkdir(gitDir);
+    const headPath = join(gitDir, 'HEAD');
+    await writeFile(headPath, 'ref: refs/heads/main');
+    fake.emit([{ path: headPath, type: 'update' }]);
+    await waitForBatch(batches);
+    expect(batches[0]).toEqual([{ kind: 'file', path: headPath, type: 'modified' }]);
+    stop();
+  });
+
+  it('treats an empty ignorePatterns array as "ignore nothing", never falling back to defaults (BST-1112)', async () => {
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      ignorePatterns: [],
+      loadModule: () => Promise.resolve(fake.module),
+    });
+    expect(fake.lastSubscribeArgs.ignore).toEqual([]);
+
+    const nodeModulesDir = join(root, 'node_modules');
+    await mkdir(nodeModulesDir);
+    const filePath = join(nodeModulesDir, 'pkg.js');
+    await writeFile(filePath, 'x');
+    fake.emit([{ path: filePath, type: 'create' }]);
+    await waitForBatch(batches);
+    expect(batches[0]).toEqual([{ kind: 'file', path: filePath, type: 'added' }]);
     stop();
   });
 

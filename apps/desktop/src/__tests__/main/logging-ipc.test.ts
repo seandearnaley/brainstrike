@@ -1,4 +1,8 @@
-import { createDefaultLoggingPreferences, type LoggingPreferences } from '@brainstrike/logging';
+import {
+  createDefaultLoggingPreferences,
+  type LoggingPreferences,
+  LogLevel,
+} from '@brainstrike/logging';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,8 +22,10 @@ import { ipcMain, webContents } from 'electron';
 import {
   cloneLoggingPreferences,
   cloneLoggingSettingsPayload,
+  type LoggingIpcHandlers,
   registerLoggingIpcHandlers,
 } from '../../logging-ipc';
+import type { LoggingSettingsPayload } from '../../logging-shared';
 
 function createDeferred<T>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => {};
@@ -43,7 +49,7 @@ describe('logging-ipc', () => {
       append: true,
       destination: '/tmp/logs',
       enabled: true,
-      level: 'info',
+      level: LogLevel.INFO,
       mkdir: true,
     },
     redactPaths: ['token'],
@@ -65,7 +71,7 @@ describe('logging-ipc', () => {
       }),
     };
 
-    registerLoggingIpcHandlers(handlers);
+    registerLoggingIpcHandlers(handlers as unknown as LoggingIpcHandlers);
 
     expect(ipcMain.handle).toHaveBeenCalledWith('logging:get-preferences', expect.any(Function));
     expect(ipcMain.handle).toHaveBeenCalledWith('logging:set-preferences', expect.any(Function));
@@ -79,14 +85,18 @@ describe('logging-ipc', () => {
     const cleanup = registerLoggingIpcHandlers({
       getBufferedLogs: () => [],
       getState: () => ({
-        capabilities: { canOpenDestination: true },
+        capabilities: {
+          canOpenDestination: true,
+        } as unknown as LoggingSettingsPayload['capabilities'],
         preferences: basePreferences,
       }),
       ingestBufferedLog: vi.fn(),
       openDestination: async () => true,
       selectDestination: async () => '/tmp',
       setPreferences: (prefs: LoggingPreferences) => ({
-        capabilities: { canOpenDestination: true },
+        capabilities: {
+          canOpenDestination: true,
+        } as unknown as LoggingSettingsPayload['capabilities'],
         preferences: prefs,
       }),
     });
@@ -134,7 +144,7 @@ describe('logging-ipc', () => {
       backgroundContents,
     ] as unknown as Electron.WebContents[]);
 
-    registerLoggingIpcHandlers(handlers);
+    registerLoggingIpcHandlers(handlers as unknown as LoggingIpcHandlers);
 
     const setPreferencesHandler = vi
       .mocked(ipcMain.handle)
@@ -145,7 +155,7 @@ describe('logging-ipc', () => {
 
     const updated: LoggingPreferences = {
       ...basePreferences,
-      level: 'debug',
+      level: LogLevel.DEBUG,
       redactPaths: ['token', 'secret'],
     };
 
@@ -188,7 +198,7 @@ describe('logging-ipc', () => {
       liveContents,
     ] as unknown as Electron.WebContents[]);
 
-    registerLoggingIpcHandlers(handlers);
+    registerLoggingIpcHandlers(handlers as unknown as LoggingIpcHandlers);
 
     const setPreferencesHandler = vi
       .mocked(ipcMain.handle)
@@ -237,7 +247,7 @@ describe('logging-ipc', () => {
       liveContents,
     ] as unknown as Electron.WebContents[]);
 
-    registerLoggingIpcHandlers(handlers);
+    registerLoggingIpcHandlers(handlers as unknown as LoggingIpcHandlers);
 
     const setPreferencesHandler = vi
       .mocked(ipcMain.handle)
@@ -258,7 +268,7 @@ describe('logging-ipc', () => {
       preferences: basePreferences,
     };
 
-    const cloned = cloneLoggingSettingsPayload(payload);
+    const cloned = cloneLoggingSettingsPayload(payload as unknown as LoggingSettingsPayload);
     expect(cloned).toEqual(payload);
     expect(cloned.preferences).not.toBe(payload.preferences);
     expect(cloned.preferences.redactPaths).not.toBe(payload.preferences.redactPaths);
@@ -273,30 +283,26 @@ describe('logging-ipc', () => {
   });
 
   it('serializes async logging preference updates to preserve call order', async () => {
-    const firstDeferred = createDeferred<{
-      preferences: LoggingPreferences;
-      capabilities: { canOpenDestination: boolean };
-    }>();
+    const firstDeferred = createDeferred<LoggingSettingsPayload>();
     const setPreferences = vi
-      .fn<
-        (_preferences: LoggingPreferences) => Promise<{
-          preferences: LoggingPreferences;
-          capabilities: { canOpenDestination: boolean };
-        }>
-      >()
+      .fn<(_preferences: LoggingPreferences) => Promise<LoggingSettingsPayload>>()
       .mockImplementationOnce(async (preferences: LoggingPreferences) => {
         const payload = await firstDeferred.promise;
         return { ...payload, preferences };
       })
       .mockImplementation(async (preferences: LoggingPreferences) => ({
-        capabilities: { canOpenDestination: true },
+        capabilities: {
+          canOpenDestination: true,
+        } as unknown as LoggingSettingsPayload['capabilities'],
         preferences,
       }));
 
     registerLoggingIpcHandlers({
       getBufferedLogs: () => [],
       getState: () => ({
-        capabilities: { canOpenDestination: true },
+        capabilities: {
+          canOpenDestination: true,
+        } as unknown as LoggingSettingsPayload['capabilities'],
         preferences: basePreferences,
       }),
       ingestBufferedLog: vi.fn(),
@@ -314,11 +320,11 @@ describe('logging-ipc', () => {
 
     const firstPreferences: LoggingPreferences = {
       ...basePreferences,
-      level: 'debug',
+      level: LogLevel.DEBUG,
     };
     const secondPreferences: LoggingPreferences = {
       ...basePreferences,
-      level: 'warn',
+      level: LogLevel.WARN,
     };
 
     const firstCall = setPreferencesHandler({} as IpcMainInvokeEvent, firstPreferences);
@@ -328,7 +334,9 @@ describe('logging-ipc', () => {
     expect(setPreferences).toHaveBeenCalledTimes(1);
 
     firstDeferred.resolve({
-      capabilities: { canOpenDestination: true },
+      capabilities: {
+        canOpenDestination: true,
+      } as unknown as LoggingSettingsPayload['capabilities'],
       preferences: firstPreferences,
     });
     await firstCall;
@@ -345,14 +353,18 @@ describe('logging-ipc', () => {
     registerLoggingIpcHandlers({
       getBufferedLogs: () => [],
       getState: () => ({
-        capabilities: { canOpenDestination: true },
+        capabilities: {
+          canOpenDestination: true,
+        } as unknown as LoggingSettingsPayload['capabilities'],
         preferences: basePreferences,
       }),
       ingestBufferedLog,
       openDestination: async () => true,
       selectDestination: async () => '/tmp',
       setPreferences: (prefs: LoggingPreferences) => ({
-        capabilities: { canOpenDestination: true },
+        capabilities: {
+          canOpenDestination: true,
+        } as unknown as LoggingSettingsPayload['capabilities'],
         preferences: prefs,
       }),
     });

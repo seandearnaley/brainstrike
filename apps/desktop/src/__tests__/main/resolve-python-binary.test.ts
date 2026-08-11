@@ -25,7 +25,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   const mod = await importOriginal<typeof import('node:child_process')>();
   return {
     ...mod,
-    default: { ...mod.default, execFile: execFileMock },
+    default: { ...mod, execFile: execFileMock },
     execFile: execFileMock,
   };
 });

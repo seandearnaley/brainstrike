@@ -58,6 +58,20 @@ const mockedFsp = vi.mocked(
   }
 );
 
+type WatchCallback = (eventType: string, filename?: string) => void;
+
+function getWatchCallback(): WatchCallback {
+  const watchCall = mockedFs.watch.mock.calls[0];
+  if (!watchCall) {
+    throw new Error('expected fs.watch call');
+  }
+  const callback = watchCall[1];
+  if (typeof callback !== 'function') {
+    throw new Error('expected fs.watch callback');
+  }
+  return callback as WatchCallback;
+}
+
 describe('mcp-loader comprehensive tests', () => {
   const expectedMcpDir = path.join('/mock/user/data', 'mcp');
   const expectedMcpConfigPath = path.join(expectedMcpDir, 'mcp.config.json');
@@ -638,7 +652,7 @@ describe('mcp-loader comprehensive tests', () => {
       const result = parseMcpConfig(jsonWithCommentTokensInString);
       expect(result.servers).toHaveLength(1);
       const server = result.servers[0];
-      if (server.transport !== 'sse') {
+      if (server?.transport !== 'sse') {
         throw new Error('expected sse server');
       }
       expect(server.headers?.['X-Notes']).toBe('keep // text and /* markers */ in string');
@@ -661,7 +675,7 @@ describe('mcp-loader comprehensive tests', () => {
       const result = parseMcpConfig(jsonWithEscapedQuotes);
       expect(result.servers).toHaveLength(1);
       const server = result.servers[0];
-      if (server.transport !== 'sse') {
+      if (server?.transport !== 'sse') {
         throw new Error('expected sse server');
       }
       expect(server.headers?.['X-Example']).toBe('value with escaped quote: " // still string');
@@ -684,7 +698,7 @@ describe('mcp-loader comprehensive tests', () => {
       const result = parseMcpConfig(jsonWithUnicodeEscapes);
       expect(result.servers).toHaveLength(1);
       const server = result.servers[0];
-      if (server.transport !== 'sse') {
+      if (server?.transport !== 'sse') {
         throw new Error('expected sse server');
       }
       expect(server.headers?.['X-Example']).toBe('unicode: " and // remain string text');
@@ -808,7 +822,7 @@ describe('mcp-loader comprehensive tests', () => {
       };
 
       const result = await applyDecryptionToHeaders(headers);
-      expect(result?.Authorization).toBe('new');
+      expect(result?.['Authorization']).toBe('new');
     });
 
     it('should preserve own keys inherited by ordinary object prototypes', async () => {
@@ -943,7 +957,7 @@ describe('mcp-loader comprehensive tests', () => {
       const config: McpConfig = {
         servers: [
           {
-            headers,
+            headers: headers as unknown as Record<string, string>,
             name: 'test',
             transport: 'sse',
             url: 'http://example.com',
@@ -978,7 +992,7 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should reject a decrypted header name that becomes __proto__', async () => {
       const headers = Object.create(null) as Record<string, string>;
-      headers.__proto__Encrypted = Buffer.from('value').toString('base64');
+      headers['__proto__Encrypted'] = Buffer.from('value').toString('base64');
       const config: McpConfig = {
         servers: [
           {
@@ -997,7 +1011,7 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should reject a decrypted env name that becomes __proto__', async () => {
       const env = Object.create(null) as Record<string, string>;
-      env.__proto__Encrypted = Buffer.from('value').toString('base64');
+      env['__proto__Encrypted'] = Buffer.from('value').toString('base64');
       const config: McpConfig = {
         servers: [
           {
@@ -1100,7 +1114,11 @@ describe('mcp-loader comprehensive tests', () => {
       };
 
       const result = await withDecryptedSecrets(config);
-      expect('headers' in result.servers[0]).toBe(false);
+      const server = result.servers[0];
+      if (!server) {
+        throw new Error('expected decrypted server');
+      }
+      expect('headers' in server).toBe(false);
     });
 
     it('should remove undefined env after decryption', async () => {
@@ -1116,7 +1134,11 @@ describe('mcp-loader comprehensive tests', () => {
       };
 
       const result = await withDecryptedSecrets(config);
-      expect('env' in result.servers[0]).toBe(false);
+      const server = result.servers[0];
+      if (!server) {
+        throw new Error('expected decrypted server');
+      }
+      expect('env' in server).toBe(false);
     });
   });
 
@@ -1242,17 +1264,18 @@ describe('mcp-loader comprehensive tests', () => {
       const watcher = await watchMcpConfig(onChange);
 
       // Simulate file change
-      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
-        eventType: string,
-        filename?: string | undefined
-      ) => void;
+      const watchCallback = getWatchCallback();
       watchCallback('change', 'mcp.config.json');
 
       // Advance timers to trigger debounced callback
       await vi.advanceTimersByTimeAsync(100);
 
       expect(onChange).toHaveBeenCalled();
-      const callArg = onChange.mock.calls[0][0];
+      const firstCall = onChange.mock.calls[0];
+      if (!firstCall) {
+        throw new Error('expected onChange call');
+      }
+      const callArg = firstCall[0];
       expect(callArg.exists).toBe(true);
       expect(callArg.config).toBeDefined();
 
@@ -1264,10 +1287,7 @@ describe('mcp-loader comprehensive tests', () => {
       const onChange = vi.fn();
       await watchMcpConfig(onChange);
 
-      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
-        eventType: string,
-        filename?: string | undefined
-      ) => void;
+      const watchCallback = getWatchCallback();
       watchCallback('change', 'other-file.json');
 
       await vi.advanceTimersByTimeAsync(100);
@@ -1288,10 +1308,7 @@ describe('mcp-loader comprehensive tests', () => {
 
       await watchMcpConfig(onChange);
 
-      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
-        eventType: string,
-        filename?: string | undefined
-      ) => void;
+      const watchCallback = getWatchCallback();
 
       watchCallback('change', 'mcp.config.json');
       await vi.advanceTimersByTimeAsync(100);
@@ -1318,10 +1335,7 @@ describe('mcp-loader comprehensive tests', () => {
 
       await watchMcpConfig(onChange);
 
-      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
-        eventType: string,
-        filename?: string | undefined
-      ) => void;
+      const watchCallback = getWatchCallback();
 
       // Rapid changes
       watchCallback('change', 'mcp.config.json');
@@ -1340,10 +1354,7 @@ describe('mcp-loader comprehensive tests', () => {
       const onChange = vi.fn();
       await watchMcpConfig(onChange);
 
-      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
-        eventType: string,
-        filename?: string | undefined
-      ) => void;
+      const watchCallback = getWatchCallback();
       watchCallback('change', undefined);
 
       await vi.advanceTimersByTimeAsync(100);

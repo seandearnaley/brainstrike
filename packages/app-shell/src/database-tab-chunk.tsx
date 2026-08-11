@@ -1,11 +1,12 @@
+import {
+  resetAssistantThreadStore,
+  useAssistantThreadGroupsStore,
+} from '@brainstrike/assistant-data';
 import { DatabaseDemoPanel } from '@brainstrike/db-explorer/database-demo-panel';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type React from 'react';
-import { useAssistantThreadGroupsStore } from './assistant-thread-groups-store';
-import { resetAssistantThreadStore } from './assistant-thread-store';
 
 interface DatabaseTabProps {
-  readonly chunkingMode?: 'host-proxy' | 'local';
   /**
    * CRITICAL: The embedding queue from the app layer.
    *
@@ -36,10 +37,7 @@ function resetAssistantStateAfterDatabaseClear(): void {
  * IMPORTANT: This component MUST forward the embeddingQueue prop to DatabaseDemoPanel.
  * The queue is created at the app level and needs to be shared across import operations.
  */
-export function DatabaseTab({
-  chunkingMode: _chunkingMode = 'local',
-  embeddingQueue = null,
-}: DatabaseTabProps): React.ReactElement {
+export function DatabaseTab({ embeddingQueue = null }: DatabaseTabProps): React.ReactElement {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Pass embeddingQueue to DatabaseDemoPanel for import operations.

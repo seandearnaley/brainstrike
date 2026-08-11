@@ -3,7 +3,6 @@
   "description": "Shared Playwright helpers for Brainstrike end-to-end tests",
   "version": "0.1.0",
   "devDependencies": {
-    "@brainstrike/preferences": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",

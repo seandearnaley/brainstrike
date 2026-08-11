@@ -20,6 +20,7 @@ import {
   type RenameWorkspaceFileInput,
   type RuntimeData,
   type RuntimeWorkspaceRoot,
+  StringReplaceError,
   type StringReplaceMatchType,
   type StringReplaceWorkspaceFileInput,
   type WriteWorkspaceFileInput,
@@ -38,12 +39,19 @@ import {
   recordEditCheckpointForTool,
 } from './edit-checkpoint-capture';
 import { sha256Hex } from './edit-checkpoint-journal';
+import { looksLikeReadWorkspaceFileGutterOutput } from './gutter-prefix-guard';
 import { type EditDiagnosticsResult, getEditDiagnostics } from './lsp-diagnostics';
 import {
   triggerEditedFileReindex,
   triggerFileDeletionInvalidation,
   triggerRenamedDestinationReindex,
 } from './reindex-side-effects';
+import {
+  EDIT_FAILURE_HINT_MESSAGE,
+  editFailureHintApplies,
+  recordEditFailure,
+  resetEditFailureStreak,
+} from './tool-call-loop-guards';
 import { REDACTED_PATH_LOG_VALUE, redactToolErrorForLog } from './tool-execute-support';
 import {
   assertNoExternalEditSinceObserved,
@@ -59,6 +67,48 @@ import { readWorkspaceTextFile } from './workspace-text-file-reader';
 const logger = createLogger('DesktopAssistantTools');
 
 export const MAX_WRITE_WORKSPACE_FILE_BYTES = 2_000_000;
+
+const GUTTER_PREFIX_REFUSAL_MESSAGE =
+  'This looks like readWorkspaceFile display output (line-number gutters). Strip the `N: ` prefixes or reconstruct the intended file content before writing.';
+
+function assertNoReadWorkspaceFileGutters(candidate: string): void {
+  if (looksLikeReadWorkspaceFileGutterOutput(candidate)) {
+    throw new ToolInputError(GUTTER_PREFIX_REFUSAL_MESSAGE);
+  }
+}
+
+function applyStringReplaceWithLoopGuard(args: {
+  readonly fileContent: string;
+  readonly newStr: string;
+  readonly oldStr: string;
+  readonly path: string;
+  readonly rootId: string;
+  readonly scope: string;
+}): ReturnType<typeof applyStringReplace> {
+  try {
+    return applyStringReplace({
+      fileContent: args.fileContent,
+      newStr: args.newStr,
+      oldStr: args.oldStr,
+    });
+  } catch (error) {
+    if (
+      error instanceof StringReplaceError &&
+      (error.reason === 'ambiguous' || error.reason === 'not_found')
+    ) {
+      const failureCount = recordEditFailure(args.scope, args.rootId, args.path);
+      if (editFailureHintApplies(failureCount)) {
+        // APPEND, never replace: `error.message` carries the fuzzy-matcher's
+        // specific diagnostic (matched line numbers, the "diverged after N
+        // lines" cascade) — the single most actionable fact for widening
+        // oldStr, and precisely what the model has the least ability to
+        // guess after two prior failures (PR #2323 review).
+        throw new StringReplaceError(error.reason, `${error.message} ${EDIT_FAILURE_HINT_MESSAGE}`);
+      }
+    }
+    throw error;
+  }
+}
 
 /**
  * Post-edit LSP diagnostics (report R2 Phase A), run AFTER the per-file lock
@@ -97,17 +147,23 @@ export async function runWriteWorkspaceFile(
   toolCallId?: string
 ): Promise<{
   rootName: string;
+  rootId: string;
   path: string;
   bytesWritten: number;
   created: boolean;
   lsp?: EditDiagnosticsResult;
 }> {
+  // Cheap bounded size check FIRST (PR #2352 review): an over-limit payload
+  // is rejected before it pays for the gutter guard's `split('\n')` pass —
+  // both are pure pre-lock validations, so the ordering only affects how
+  // much work an already-doomed oversized write does before failing.
   const buffer = Buffer.from(input.content, 'utf8');
   if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
     throw new Error(
       `Content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
     );
   }
+  assertNoReadWorkspaceFileGutters(input.content);
 
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   const resolved = await resolveWorkspaceWritePath(root.path, input.path);
@@ -132,17 +188,21 @@ export async function runWriteWorkspaceFile(
       requestedPath: input.path,
       scope,
     });
-    // Snapshot the before-state for the undo journal INSIDE the lock so no
-    // concurrent same-file edit can slip newer bytes between capture and write.
-    const beforeState = await captureBeforeState(
-      resolved.absolutePath,
-      MAX_WRITE_WORKSPACE_FILE_BYTES
-    );
+    // Capture the before-identity (existence + hash) for the attribution
+    // ledger INSIDE the lock so no concurrent same-file edit can slip newer
+    // bytes between capture and write.
+    const beforeState = await captureBeforeState(resolved.absolutePath);
     const writeResult = await writeContainedFileBytes({
       buffer,
       requestedPath: input.path,
       resolved,
     });
+    // A full-rewrite is the recovery path the edit-failure hint itself
+    // recommends (BST-1188) — it must clear the path's stringReplace failure
+    // streak too, or the NEXT unrelated stringReplace miss on this path still
+    // gets the escalated message even though the model just took the
+    // suggested recovery action (PR #2323 review).
+    resetEditFailureStreak(scope, root.rootId, resolved.workspacePath);
     // Our own write is the scope's freshest observation — consecutive writes
     // must never trip the guard on themselves.
     await recordOwnWriteObservation(scope, resolved.absolutePath);
@@ -180,6 +240,7 @@ export async function runWriteWorkspaceFile(
     bytesWritten: buffer.byteLength,
     created,
     path: resolved.workspacePath,
+    rootId: root.rootId,
     rootName: root.displayName,
     ...(lsp ? { lsp } : {}),
   };
@@ -191,12 +252,14 @@ export async function runStringReplaceWorkspaceFile(
   toolCallId?: string
 ): Promise<{
   rootName: string;
+  rootId: string;
   path: string;
   bytesWritten: number;
   matchType: StringReplaceMatchType;
   replaced: true;
   lsp?: EditDiagnosticsResult;
 }> {
+  assertNoReadWorkspaceFileGutters(input.newStr);
   const root = resolveWorkspaceRoot(runtimeData, input.root);
   // Resolve the write path up front so we can lock on the canonical absolute
   // path. resolveWorkspaceWritePath clamps ".." and contains symlinked
@@ -238,10 +301,13 @@ export async function runStringReplaceWorkspaceFile(
 
     // Pure fuzzy-match cascade. THROWS StringReplaceError on ambiguous/not-found
     // matches — never applies a low-confidence edit (no silent fallbacks).
-    const replacement = applyStringReplace({
+    const replacement = applyStringReplaceWithLoopGuard({
       fileContent: file.content,
       newStr: input.newStr,
       oldStr: input.oldStr,
+      path: resolved.workspacePath,
+      rootId: root.rootId,
+      scope,
     });
 
     const buffer = Buffer.from(replacement.newContent, 'utf8');
@@ -252,19 +318,19 @@ export async function runStringReplaceWorkspaceFile(
     }
 
     await writeContainedFileBytes({ buffer, requestedPath: input.path, resolved });
+    resetEditFailureStreak(scope, root.rootId, resolved.workspacePath);
     // Our own write is the scope's freshest observation — a follow-up edit in
     // the same thread must never trip the guard on it.
     await recordOwnWriteObservation(scope, resolved.absolutePath);
 
-    // Journal the undo: the before-content was just read as `file.content` (the
-    // checked reader guarantees text — binary/oversized already threw), so this
-    // is always a revertible `ok` capture.
+    // Journal the attribution row: the file existed (the checked reader just
+    // read it), so this is an `ok` identity capture — hash + size, no content
+    // (restores come from the turn-start snapshot).
     const beforeBuffer = Buffer.from(file.content, 'utf8');
     await recordEditCheckpointForTool({
       afterExisted: true,
       afterHash: sha256Hex(buffer),
       before: {
-        beforeContent: file.content,
         beforeExisted: true,
         beforeHash: sha256Hex(beforeBuffer),
         beforeSize: beforeBuffer.byteLength,
@@ -315,6 +381,7 @@ export async function runStringReplaceWorkspaceFile(
     matchType: result.matchType,
     path: resolved.workspacePath,
     replaced: true,
+    rootId: root.rootId,
     rootName: root.displayName,
     ...(lsp ? { lsp } : {}),
   };
@@ -384,9 +451,9 @@ export async function runDeleteWorkspaceFile(
       );
     }
 
-    // Snapshot the before-state for the undo journal BEFORE unlinking, so a
-    // delete can be reverted by recreating the file with its prior content.
-    const beforeState = await captureBeforeState(mutationPath, MAX_WRITE_WORKSPACE_FILE_BYTES);
+    // Capture the before-identity for the attribution ledger BEFORE
+    // unlinking; the undo recreates the file from the turn-start snapshot.
+    const beforeState = await captureBeforeState(mutationPath);
     await fsPromises.unlink(mutationPath);
     // Drop the staleness observation with the file so a later re-creation at
     // this path is treated as new, not compared against a ghost.
@@ -399,9 +466,6 @@ export async function runDeleteWorkspaceFile(
     await recordEditCheckpointForTool({
       afterExisted: false,
       afterHash: null,
-      // A text before-state is revertible (recreate with content); a
-      // binary/oversized/absent (dangling-symlink) leaf records honestly and
-      // is refused on revert.
       before: beforeStateToCapture(beforeState),
       op: 'delete',
       path: resolved.workspacePath,
@@ -546,13 +610,20 @@ export async function runRenameWorkspaceFile(
       workspacePath: toResolved.workspacePath,
     });
 
-    // Journal the undo: a rename has no content change, so the revert is a
-    // rename-back (to_path → from_path). fromPath = original source.
+    // Journal the attribution row: a rename has no content change; the undo
+    // restores the source and deletes the destination from the turn-start
+    // snapshot. fromPath = original source. The DESTINATION's content hash IS
+    // recorded (same bytes the rename moved): the undo's conflict gate needs
+    // it to detect post-rename user edits before deleting the destination —
+    // a null hash on a present path reads as unverifiable ⇒ conflict there.
+    // For a symlink source, `captureBeforeState` stats THROUGH the link, the
+    // same way the gate's own disk read follows it (consistent identity); a
+    // dangling link hashes as absent ⇒ null ⇒ the gate stays fail-safe.
+    const afterState = await captureBeforeState(toResolved.absolutePath);
     await recordEditCheckpointForTool({
       afterExisted: true,
-      afterHash: null,
+      afterHash: afterState.kind === 'present' ? afterState.hash : null,
       before: {
-        beforeContent: null,
         beforeExisted: true,
         beforeHash: null,
         beforeSize: null,

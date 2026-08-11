@@ -19,15 +19,15 @@ const OVERRIDES = new Map([
   // Vitest 4: L 94.52% | F 76.75% | B 66.23% | S 74.64%
   // Recalibrated 2025-01 after FileTreeIndex type-change handling and handle cleanup additions
   ['@brainstrike/file-explorer-ui', { branches: 66, functions: 76, lines: 94, statements: 74 }],
-  // App shell — measured 2026-03: L 99.41% | F 89.87% | B 76.03% | S 88.07%
-  // Ratcheted after database-demo hooks, format utils, and export handler test additions.
-  ['@brainstrike/app-shell', { branches: 75, functions: 88, lines: 98, statements: 87 }],
+  // App shell — measured 2026-08 after assistant-data extraction (BST-983):
+  // L 87.92% | F 89.36% | B 78.43% | S 88.08%. Recalibrated because moving
+  // the densely tested data layer changed this package's denominator.
+  ['@brainstrike/app-shell', { branches: 77, functions: 88, lines: 87, statements: 87 }],
   // Desktop — measured 2026-03: L 91.45% | F 71.10% | B 61.33% | S 71.54%
   // Recalibrated 2026-03 — coverage drifted from new IPC code; Phase 3 work needed.
   ['@brainstrike/desktop', { branches: 60, functions: 70, lines: 90, statements: 70 }],
   // Configuration and utility package thresholds recalibrated in 2026-03.
   ['@brainstrike/config', { branches: 80, functions: 98, lines: 98, statements: 98 }],
-  ['@brainstrike/tailwind-config', { branches: 0, functions: 0, lines: 10, statements: 10 }],
   ['@brainstrike/types', { branches: 0, functions: 50, lines: 20, statements: 20 }],
   // File system — measured 2026-03: L 88.65% | F 89.52% | B 71.18% | S 78.31%
   // Ratcheted after utils-browser and path-validation branch test additions.
@@ -63,17 +63,23 @@ const OVERRIDES = new Map([
   ['@brainstrike/file-tree-worker', { branches: 68, functions: 90, lines: 92, statements: 84 }],
   // File import thresholds ratcheted in 2026-03 after worker initialization/timeout edge-case tests.
   ['@brainstrike/file-import', { branches: 61, functions: 83, lines: 95, statements: 79 }],
-  // UI package — measured 2026-04 after the Gemma local-runtime assistant-panel expansion
-  // and fresh uncached coverage regeneration: L 93.84% | F 69.35% | B 59.68% | S 79.03%.
-  // Previous function/branch thresholds were being masked by stale coverage artifacts.
-  // Follow-up BST-492 tracks restoring stricter UI package coverage.
-  ['@brainstrike/ui', { branches: 59, functions: 69, lines: 92, statements: 77 }],
+  // UI package — measured L 93.27% | F 94.86% | B 84.94% | S 93.33%.
+  // Recalibrated 2026-08 after assistant-ui extraction (BST-981).
+  ['@brainstrike/ui', { branches: 83, functions: 93, lines: 92, statements: 92 }],
+  // Assistant UI feature package — measured 2026-08 at extraction (BST-981):
+  // L 90.39% | F 92.20% | B 82.97% | S 90.49%. Pinned so the moved panel code
+  // keeps a floor near what ui's override held it to, not the workspace default.
+  ['@brainstrike/assistant-ui', { branches: 81, functions: 91, lines: 89, statements: 89 }],
+  // Assistant data — measured 2026-08 at extraction (BST-983):
+  // L 91.64% | F 97.08% | B 81.75% | S 91.66%.
+  ['@brainstrike/assistant-data', { branches: 80, functions: 96, lines: 90, statements: 90 }],
   // Token cache — elevated after token-utils-lite branch/path coverage improvements
   ['@brainstrike/token-cache', { branches: 62, functions: 92, lines: 92, statements: 82 }],
   // Queue thresholds ratcheted in 2026-03 after workerpool adapter control-flow/telemetry coverage additions.
   ['@brainstrike/queue', { branches: 80, functions: 90, lines: 90, statements: 90 }],
-  // Preferences package thresholds ratcheted in 2026-03 after settings/store coverage additions.
-  ['@brainstrike/preferences', { branches: 63, functions: 70, lines: 82, statements: 76 }],
+  // Preserve the former preferences floor independently across both split packages.
+  ['@brainstrike/app-state', { branches: 63, functions: 70, lines: 82, statements: 76 }],
+  ['@brainstrike/settings-ui', { branches: 63, functions: 70, lines: 82, statements: 76 }],
 ]);
 
 // DB coverage is intentionally isolated from the normal workspace coverage

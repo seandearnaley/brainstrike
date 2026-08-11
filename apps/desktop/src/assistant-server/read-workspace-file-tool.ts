@@ -18,6 +18,7 @@ import {
   type RuntimeData,
   recordKnownFileMtime,
 } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import {
   READ_WORKSPACE_FILE_CURSOR_HANDLE_LENGTH,
@@ -25,9 +26,18 @@ import {
   type ReadWorkspaceFileCursorScope,
   type ReadWorkspaceFileCursorState,
 } from './read-workspace-file-cursor-registry';
+import { buildReadWorkspaceFileProjectionText } from './read-workspace-file-model-projection';
+import {
+  buildRepeatedCallRefusalResult,
+  checkUnchangedReadWindow,
+  type LoopGuardRefusalResult,
+  readWindowKey,
+  UNCHANGED_READ_STUB_MESSAGE,
+} from './tool-call-loop-guards';
 import { readStateScope } from './workspace-file-staleness';
+import { decodedWorkspaceTextModelOutputChars } from './workspace-model-projection-helpers';
 import { withStableWorkspaceFileLock } from './workspace-path-resolution';
-import { resolveWorkspaceRoot } from './workspace-roots';
+import { describeOpenRootTopology, resolveWorkspaceRoot } from './workspace-roots';
 import { MAX_READ_WORKSPACE_FILE_BYTES } from './workspace-text-file-reader';
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
@@ -548,18 +558,26 @@ function requireReadWorkspaceFileCursorScope(
 }
 
 export interface ReadWorkspaceFileResult {
+  readonly ambiguousRootNames?: string[];
   readonly approxOutputTokens: number;
   readonly content: string;
+  readonly dedup?: boolean;
   readonly endLine: number;
   readonly nextCursor: string | null;
   readonly omittedChars: number;
+  readonly openRoots?: number;
   readonly path: string;
+  readonly rootId: string;
   readonly rootName: string;
   readonly size: number;
   readonly startLine: number;
-  readonly tokenCount: null;
   readonly totalLines: number;
   readonly truncated: boolean;
+}
+
+export interface ReadWorkspaceFileLoopGuardOptions {
+  readonly domainModelResultCharBudget?: number;
+  readonly threadScope: string;
 }
 
 function fitReadWorkspaceFileResult(args: {
@@ -567,6 +585,7 @@ function fitReadWorkspaceFileResult(args: {
   readonly effectiveEndLine: number;
   readonly file: ReadWorkspaceFileScan;
   readonly fitsResultBudgets: (result: ReadWorkspaceFileResult) => boolean;
+  readonly domainModelResultCharBudget: number;
   readonly maxChars: number;
   readonly startPosition: ReadWorkspaceFilePosition;
 }): { readonly page: ReadWorkspaceFilePage; readonly result: ReadWorkspaceFileResult } {
@@ -597,11 +616,12 @@ function fitReadWorkspaceFileResult(args: {
     );
   }
   if (
-    JSON.stringify({ type: 'json', value: emptyResult }).length >
-    MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+    decodedWorkspaceTextModelOutputChars([
+      buildReadWorkspaceFileProjectionText(emptyResult).value,
+    ]) > args.domainModelResultCharBudget
   ) {
     throw new RangeError(
-      `readWorkspaceFile metadata exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character model projection budget`
+      `readWorkspaceFile metadata exceeds the ${args.domainModelResultCharBudget}-character model projection budget`
     );
   }
 
@@ -639,11 +659,25 @@ function fitReadWorkspaceFileResult(args: {
   return best;
 }
 
-export async function runReadWorkspaceFile(
+export function runReadWorkspaceFile(
   input: ReadWorkspaceFileInput,
   runtimeData: RuntimeData | undefined,
   cursorRegistry: ReadWorkspaceFileCursorRegistry | null
-): Promise<ReadWorkspaceFileResult> {
+): Promise<ReadWorkspaceFileResult>;
+export function runReadWorkspaceFile(
+  input: ReadWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined,
+  cursorRegistry: ReadWorkspaceFileCursorRegistry | null,
+  loopGuard: ReadWorkspaceFileLoopGuardOptions
+): Promise<ReadWorkspaceFileResult | LoopGuardRefusalResult>;
+export async function runReadWorkspaceFile(
+  input: ReadWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined,
+  cursorRegistry: ReadWorkspaceFileCursorRegistry | null,
+  loopGuard?: ReadWorkspaceFileLoopGuardOptions
+): Promise<ReadWorkspaceFileResult | LoopGuardRefusalResult> {
+  const domainModelResultCharBudget =
+    loopGuard?.domainModelResultCharBudget ?? MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
   const cursorScope = input.cursor ? requireReadWorkspaceFileCursorScope(runtimeData) : null;
   if (input.cursor && !cursorRegistry) {
     throw new Error('readWorkspaceFile continuation handles are unavailable in this read mode.');
@@ -660,6 +694,7 @@ export async function runReadWorkspaceFile(
   if (!requestedPath) {
     throw new Error('readWorkspaceFile requires path when starting a new read.');
   }
+  const topology = describeOpenRootTopology(runtimeData);
   // Resolve both before and after acquiring the per-file lock. A symlink can
   // be retargeted while this read waits; only read when both resolutions name
   // the same canonical file so containment and the staleness tracker share
@@ -687,6 +722,7 @@ export async function runReadWorkspaceFile(
     const startLine = startPosition.line;
     const projectedCursor = 'x'.repeat(READ_WORKSPACE_FILE_CURSOR_HANDLE_LENGTH);
     const buildResult = (page: ReadWorkspaceFilePage): ReadWorkspaceFileResult => ({
+      ...topology,
       approxOutputTokens: countTokensHeuristic(page.content),
       content: page.content,
       endLine: page.lastLine,
@@ -697,20 +733,17 @@ export async function runReadWorkspaceFile(
         file.requestedEndOffset
       ),
       path: file.path,
+      rootId: root.rootId,
       rootName: root.displayName,
       size: file.size,
       startLine,
-      tokenCount: null,
       totalLines: file.totalLines,
       truncated: page.nextPosition !== null,
     });
-    const buildModelOutput = (result: ReturnType<typeof buildResult>) => ({
-      type: 'json' as const,
-      value: result,
-    });
     const fitsResultBudgets = (result: ReturnType<typeof buildResult>): boolean =>
       JSON.stringify(result).length <= NATIVE_TOOL_RESULT_CHAR_BUDGET &&
-      JSON.stringify(buildModelOutput(result)).length <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
+      decodedWorkspaceTextModelOutputChars([buildReadWorkspaceFileProjectionText(result).value]) <=
+        domainModelResultCharBudget;
     const finishSuccessfulRead = (
       page: ReadWorkspaceFilePage,
       result: ReturnType<typeof buildResult>
@@ -741,12 +774,68 @@ export async function runReadWorkspaceFile(
 
     const selected = fitReadWorkspaceFileResult({
       buildResult,
+      domainModelResultCharBudget,
       effectiveEndLine,
       file,
       fitsResultBudgets,
       maxChars,
       startPosition,
     });
+
+    // BST-1188 loop guard (report PR #2323 review): checked ONLY after a
+    // page has ALREADY been built successfully, and ONLY for a non-truncated
+    // page. Checking any earlier — e.g. right after the file scan, before
+    // `fitReadWorkspaceFileResult` can still throw (a `maxChars` too small to
+    // advance) — would falsely record an observation for a call that never
+    // produced a page, priming the model's very next (corrected) retry to
+    // look like a repeat of a read that never happened. Skipping a TRUNCATED
+    // page keeps the dedup stub from ever discarding the only `nextCursor`
+    // pointer to the rest of a large file: the stub always exists rather than
+    // resend content, and a partial page is not "the results have not
+    // changed" — it is the same partial slice the model would keep needing to
+    // page past regardless.
+    if (loopGuard && continuationCursor === null && !selected.result.truncated) {
+      const unchangedRead = checkUnchangedReadWindow(
+        loopGuard.threadScope,
+        readWindowKey({
+          endLine: input.endLine,
+          maxChars,
+          path: file.path,
+          rootId: root.rootId,
+          startLine: input.startLine,
+        }),
+        file.mtimeMs
+      );
+      if (unchangedRead.status !== 'fresh') {
+        // A deduplicated/refused read still confirms that the model's existing
+        // view matches the current file. Preserve that observation so the next
+        // edit does not fail the read-before-write staleness guard incorrectly.
+        recordKnownFileMtime(loopGuard.threadScope, file.absolutePath, file.mtimeMs);
+        if (unchangedRead.status === 'refuse') {
+          return buildRepeatedCallRefusalResult(
+            NATIVE_TOOL_ID.readWorkspaceFile,
+            unchangedRead.count
+          );
+        }
+        return {
+          ...topology,
+          approxOutputTokens: countTokensHeuristic(UNCHANGED_READ_STUB_MESSAGE),
+          content: UNCHANGED_READ_STUB_MESSAGE,
+          dedup: true,
+          endLine: selected.result.endLine,
+          nextCursor: null,
+          omittedChars: 0,
+          path: file.path,
+          rootId: root.rootId,
+          rootName: root.displayName,
+          size: file.size,
+          startLine: selected.result.startLine,
+          totalLines: file.totalLines,
+          truncated: false,
+        };
+      }
+    }
+
     return finishSuccessfulRead(selected.page, selected.result);
   });
 }

@@ -32,7 +32,7 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', () => ({
+vi.mock('@brainstrike/app-state/stores/vector-status-ui-store', () => ({
   useVectorStatusUIStore: vi.fn((selector: (state: typeof mockVectorStatusUiStore) => unknown) =>
     selector(mockVectorStatusUiStore)
   ),

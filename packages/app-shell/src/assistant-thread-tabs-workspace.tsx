@@ -1,4 +1,9 @@
 import {
+  createPgliteAssistantThreadRepository,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
+import {
   type AnyContextAction,
   defineContextAction,
   type TargetOf,
@@ -11,30 +16,20 @@ import {
 } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { ActionContextMenu, Button, useContextMenuTarget } from '@brainstrike/ui';
-import {
-  ArrowLeft,
-  ArrowRight,
-  ChevronLeft,
-  ChevronRight,
-  MessageSquare,
-  Plus,
-  X,
-} from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 import type { KeyboardEvent, ReactElement, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPgliteAssistantThreadRepository } from './assistant-memory-repository';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from './assistant-memory-resource';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import {
   getAssistantThreadColorSurface,
+  getAssistantThreadIconPresentation,
   THREAD_CONTROL_ACTION_CLASS_NAME,
   THREAD_CONTROL_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_MARK_CLASS_NAME,
   THREAD_CONTROL_TITLE_CLASS_NAME,
 } from './assistant-thread-presentation';
-import { useAssistantThreadStore } from './assistant-thread-store';
 import {
   AssistantThreadTabDndShell,
   useAssistantThreadTabAutoScroll,
@@ -154,20 +149,16 @@ function useReducedMotionPreference(): boolean {
 
 export interface AssistantThreadTabsWorkspaceProps {
   readonly fixedProviderModels?: AssistantUiPanelWrapperProps['fixedProviderModels'];
-  readonly initialProviders?: AssistantUiPanelWrapperProps['initialProviders'];
   readonly loadLocalLlmBackend?: AssistantUiPanelWrapperProps['loadLocalLlmBackend'];
   readonly providerKeySources?: AssistantUiPanelWrapperProps['providerKeySources'];
   readonly providerReadErrors?: AssistantUiPanelWrapperProps['providerReadErrors'];
-  readonly providerSeeds?: AssistantUiPanelWrapperProps['providerSeeds'];
 }
 
 export function AssistantThreadTabsWorkspace({
   fixedProviderModels,
-  initialProviders,
   loadLocalLlmBackend,
   providerKeySources,
   providerReadErrors,
-  providerSeeds,
 }: AssistantThreadTabsWorkspaceProps): ReactElement {
   const database = usePGliteDatabase();
   const databaseInitializing = useDbInitializing();
@@ -676,6 +667,8 @@ export function AssistantThreadTabsWorkspace({
                 const isActive = threadId === activeThreadId;
                 const colorId = thread?.metadata?.color;
                 const colorSurface = getAssistantThreadColorSurface(colorId);
+                const iconPresentation = getAssistantThreadIconPresentation(thread?.metadata?.icon);
+                const ThreadIcon = iconPresentation.iconComponent;
                 return (
                   <AssistantThreadTabDndShell key={threadId} threadId={threadId}>
                     {(dragHandleRef) => (
@@ -708,7 +701,10 @@ export function AssistantThreadTabsWorkspace({
                             className={`${THREAD_CONTROL_MARK_CLASS_NAME} ${colorSurface.markClassName}`}
                             data-testid={`assistant-thread-tab-icon-${colorId ?? 'unassigned'}`}
                           >
-                            <MessageSquare className="h-3 w-3" />
+                            <ThreadIcon
+                              className="h-3 w-3"
+                              data-testid={`assistant-thread-tab-glyph-${iconPresentation.iconId}`}
+                            />
                           </span>
                           <span className={THREAD_CONTROL_TITLE_CLASS_NAME}>{title}</span>
                         </button>
@@ -792,11 +788,9 @@ export function AssistantThreadTabsWorkspace({
               >
                 <AssistantUiPanelWrapper
                   {...(fixedProviderModels ? { fixedProviderModels } : {})}
-                  {...(initialProviders === undefined ? {} : { initialProviders })}
                   {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                   {...(providerKeySources ? { providerKeySources } : {})}
                   {...(providerReadErrors ? { providerReadErrors } : {})}
-                  {...(providerSeeds === undefined ? {} : { providerSeeds })}
                   memoryResourceId={resourceId}
                   memoryThreadId={threadId}
                 />

@@ -14,7 +14,7 @@ const { getAllWindowsMock, lifecycleState, mockHostWindow } = vi.hoisted(() => {
   };
 
   return {
-    getAllWindowsMock: vi.fn(() => []),
+    getAllWindowsMock: vi.fn<() => unknown[]>(() => []),
     lifecycleState: {
       clearHostWindow: vi.fn(),
       destroyHostWindow: vi.fn(),
@@ -25,7 +25,7 @@ const { getAllWindowsMock, lifecycleState, mockHostWindow } = vi.hoisted(() => {
         runtimeId: 'chunking-host-runtime',
         state: 'running' as const,
       })),
-      getHostWindow: vi.fn(() => hostWindow),
+      getHostWindow: vi.fn<() => typeof hostWindow | null | undefined>(() => hostWindow),
       getStatus: vi.fn(() => ({
         active: false,
         lastError: null,
@@ -54,7 +54,10 @@ vi.mock('../renderer-host-lifecycle', () => ({
 
 import { ChunkingHostManager } from '../chunking-host-manager';
 
-type TestableChunkingHostManager = ChunkingHostManager & {
+// Omit<T, never> is NOT a no-op: it maps over the class's public keys and
+// yields a plain object type without private members, which is what lets the
+// intersection below redeclare internals as test-visible seams.
+type TestableChunkingHostManager = Omit<ChunkingHostManager, never> & {
   acceptResponseReport: (
     senderId: number,
     report: {
@@ -98,7 +101,7 @@ describe('ChunkingHostManager', () => {
   });
 
   it('rejects immediately if the host request cannot be sent', async () => {
-    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const manager = new ChunkingHostManager() as unknown as TestableChunkingHostManager;
     mockHostWindow.webContents.send.mockImplementation(() => {
       throw new Error('webContents unavailable');
     });
@@ -119,7 +122,7 @@ describe('ChunkingHostManager', () => {
   });
 
   it('times out stale chunking requests instead of hanging forever', async () => {
-    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const manager = new ChunkingHostManager() as unknown as TestableChunkingHostManager;
     const requestPromise = manager.chunkBatch(11, {
       files: [],
       kind: 'chunk-batch',
@@ -137,7 +140,7 @@ describe('ChunkingHostManager', () => {
   });
 
   it('treats chunking progress as request liveness and keeps the request alive', async () => {
-    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const manager = new ChunkingHostManager() as unknown as TestableChunkingHostManager;
     const requestPromise = manager.chunkFile(11, {
       content: 'hello',
       fileName: 'a.txt',
@@ -177,7 +180,7 @@ describe('ChunkingHostManager', () => {
   });
 
   it('returns a defined error for unexpected response envelopes', async () => {
-    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const manager = new ChunkingHostManager() as unknown as TestableChunkingHostManager;
     const requestPromise = manager.chunkFile(11, {
       content: 'hello',
       fileName: 'a.txt',
@@ -204,7 +207,7 @@ describe('ChunkingHostManager', () => {
   });
 
   it('falls back to errorMessage for chunking host error reports', async () => {
-    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const manager = new ChunkingHostManager() as unknown as TestableChunkingHostManager;
     const requestPromise = manager.chunkFile(11, {
       content: 'hello',
       fileName: 'a.txt',
@@ -230,7 +233,7 @@ describe('ChunkingHostManager', () => {
   });
 
   it('creates a fresh error for each rejected pending request during shutdown', async () => {
-    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const manager = new ChunkingHostManager() as unknown as TestableChunkingHostManager;
 
     const firstPromise = manager.chunkFile(11, {
       content: 'hello',
@@ -261,13 +264,19 @@ describe('ChunkingHostManager', () => {
 
     expect(firstError).toBeInstanceOf(Error);
     expect(secondError).toBeInstanceOf(Error);
+    if (!(firstError instanceof Error)) {
+      throw new Error('expected first chunking shutdown error');
+    }
+    if (!(secondError instanceof Error)) {
+      throw new Error('expected second chunking shutdown error');
+    }
     expect(firstError).not.toBe(secondError);
     expect(firstError.message).toBe('Chunking host stopped while requests were in flight.');
     expect(secondError.message).toBe('Chunking host stopped while requests were in flight.');
   });
 
   it('explains when the host window disappears after startup', async () => {
-    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const manager = new ChunkingHostManager() as unknown as TestableChunkingHostManager;
     lifecycleState.getHostWindow.mockReturnValueOnce(null);
 
     await expect(
@@ -293,7 +302,7 @@ describe('ChunkingHostManager', () => {
     };
     getAllWindowsMock.mockReturnValue([requesterWindow]);
 
-    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const manager = new ChunkingHostManager() as unknown as TestableChunkingHostManager;
 
     expect(() =>
       manager.acceptResponseReport(71, {
@@ -320,7 +329,7 @@ describe('ChunkingHostManager', () => {
     };
     getAllWindowsMock.mockReturnValue([requesterWindow]);
 
-    const manager = new ChunkingHostManager() as TestableChunkingHostManager;
+    const manager = new ChunkingHostManager() as unknown as TestableChunkingHostManager;
     const requestPromise = manager.chunkFile(11, {
       content: 'hello',
       fileName: 'a.txt',

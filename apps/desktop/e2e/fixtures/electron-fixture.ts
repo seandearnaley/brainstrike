@@ -10,199 +10,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
-import { loadElectronHelpers } from '../utils/load-electron-helpers';
-import { resetToAppHome } from '../utils/test-reset';
-
-interface ElectronHarnessOptions {
-  readonly preserveState?: boolean;
-}
-
-class ElectronHarness {
-  private context: ElectronAppContext | null = null;
-  private hasProvidedWindow = false;
-  private readonly maxRendererRecoveryAttempts = 1;
-
-  constructor(
-    private readonly testInfo: TestInfo,
-    private readonly debugPort?: number,
-    private readonly userDataDir?: string
-  ) {}
-
-  getUserDataDir(): string {
-    if (!this.userDataDir) {
-      throw new Error('Electron harness requires an isolated userDataDir.');
-    }
-    return this.userDataDir;
-  }
-
-  async ensureContext(): Promise<ElectronAppContext> {
-    if (!this.context) {
-      const { launchElectronApp } = await loadElectronHelpers();
-      this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
-        disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
-      });
-      return this.context;
-    }
-
-    if (!this.isContextAlive(this.context)) {
-      await this.restart();
-    }
-
-    return this.context;
-  }
-
-  async ensureWindow(options?: ElectronHarnessOptions): Promise<Page> {
-    const ctx = await this.ensureContext();
-    let page = ctx.window;
-
-    if (!options?.preserveState) {
-      page = this.hasProvidedWindow
-        ? await this.resetRenderer(page)
-        : await this.prepareFreshWindow(page);
-    } else if (page.isClosed()) {
-      await this.restart();
-      return this.ensureWindow({ preserveState: false });
-    }
-
-    this.hasProvidedWindow = true;
-    return page;
-  }
-
-  async restart(): Promise<ElectronAppContext> {
-    if (this.context) {
-      try {
-        const { closeElectronApp } = await loadElectronHelpers();
-        await closeElectronApp(this.context);
-        await new Promise((resolve) => {
-          setTimeout(resolve, 250);
-        });
-      } catch (error) {
-        console.warn('Failed to close Electron app during restart:', error);
-      }
-    }
-
-    const { launchElectronApp } = await loadElectronHelpers();
-    this.context = await launchElectronApp(this.debugPort, this.userDataDir, {
-      disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
-    });
-    this.hasProvidedWindow = false;
-    return this.context;
-  }
-
-  async dispose(): Promise<void> {
-    if (!this.context) {
-      return;
-    }
-
-    try {
-      const { closeElectronApp } = await loadElectronHelpers();
-      await closeElectronApp(this.context);
-    } finally {
-      this.context = null;
-      this.hasProvidedWindow = false;
-    }
-  }
-
-  private async prepareFreshWindow(page: Page): Promise<Page> {
-    const { waitForAppReady } = await loadElectronHelpers();
-    await waitForAppReady(page);
-    await resetToAppHome(page);
-    return page;
-  }
-
-  private async resetRenderer(page: Page): Promise<Page> {
-    return this.resetRendererWithRecovery(page, 0);
-  }
-
-  private async resetRendererWithRecovery(page: Page, recoveryAttempt: number): Promise<Page> {
-    if (page.isClosed()) {
-      return this.restartAndResetRenderer(recoveryAttempt, 'Renderer page was already closed.');
-    }
-
-    const { reloadRenderer, resetAppState, waitForAppReady } = await loadElectronHelpers();
-    await page.addInitScript(() => {
-      (
-        window as Window & {
-          // biome-ignore lint/style/useNamingConvention: Test-only global flag uses double underscores by convention
-          __brainstrike_e2e_expose_file_explorer_store__?: boolean;
-        }
-      ).__brainstrike_e2e_expose_file_explorer_store__ = true;
-    });
-    await waitForAppReady(page);
-
-    try {
-      await resetAppState(page);
-    } catch (error) {
-      if (this.isRecoverableRendererError(error)) {
-        return this.restartAndResetRenderer(
-          recoveryAttempt,
-          `Renderer state reset failed due to page crash/closure: ${String(error)}`
-        );
-      }
-      throw error;
-    }
-
-    try {
-      await reloadRenderer(page, 'playwright-reset-renderer');
-    } catch (error) {
-      if (this.isRecoverableRendererError(error)) {
-        return this.restartAndResetRenderer(
-          recoveryAttempt,
-          `Renderer reset failed due to page crash/closure: ${String(error)}`
-        );
-      }
-      throw error;
-    }
-
-    await resetToAppHome(page);
-
-    return page;
-  }
-
-  private isContextAlive(context: ElectronAppContext): boolean {
-    if (context.window.isClosed()) {
-      return false;
-    }
-
-    const process = context.app.process();
-    if (process.exitCode !== null || process.killed) {
-      return false;
-    }
-
-    try {
-      return context.app.windows().some((window) => !window.isClosed());
-    } catch {
-      return false;
-    }
-  }
-
-  private isRecoverableRendererError(error: unknown): boolean {
-    if (!(error instanceof Error)) {
-      return false;
-    }
-
-    const normalizedMessage = error.message.toLowerCase();
-    return (
-      normalizedMessage.includes('page crashed') ||
-      normalizedMessage.includes('net::err_file_not_found') ||
-      normalizedMessage.includes('target page, context or browser has been closed') ||
-      normalizedMessage.includes('navigation failed because page crashed') ||
-      normalizedMessage.includes('navigation failed because page was closed')
-    );
-  }
-
-  private async restartAndResetRenderer(recoveryAttempt: number, reason: string): Promise<Page> {
-    if (recoveryAttempt >= this.maxRendererRecoveryAttempts) {
-      throw new Error(
-        `Renderer reset failed after ${this.maxRendererRecoveryAttempts + 1} attempt(s). ${reason}`
-      );
-    }
-
-    console.warn(`Restarting Electron app during renderer reset. ${reason}`);
-    const restartedContext = await this.restart();
-    return this.resetRendererWithRecovery(restartedContext.window, recoveryAttempt + 1);
-  }
-}
+import { ElectronHarness } from './electron-harness';
 
 interface ElectronTestFixtures {
   electron: ElectronHarness;
@@ -212,10 +20,6 @@ interface ElectronTestFixtures {
   failureCollector: FailureArtifactCollector;
   homePage: HomePage;
   window: Page;
-}
-
-function shouldDisableExternalLocalRuntimeProbes(testInfo: TestInfo): boolean {
-  return !testInfo.file.endsWith(`${path.sep}local-runtime-probe.desktop.test.ts`);
 }
 
 export const test = base.extend<ElectronTestFixtures>({
@@ -235,8 +39,11 @@ export const test = base.extend<ElectronTestFixtures>({
     try {
       await use(harness);
     } finally {
-      await harness.dispose();
-      await removeElectronUserDataDir(userDataDir);
+      try {
+        await harness.dispose();
+      } finally {
+        await removeElectronUserDataDir(userDataDir);
+      }
     }
   },
 
@@ -297,9 +104,6 @@ function getRunSalt(): number {
   // Fallback for local runs: wall-clock salt with modest bound to keep ports reasonable
   return Date.now() % 1_000_000;
 }
-
-// NOTE: deriveDebugPort was removed - Playwright now manages CDP ports automatically
-// to prevent "Waiting for debugger to disconnect" hangs in CI.
 
 function deriveUserDataDir(
   runSalt: number,

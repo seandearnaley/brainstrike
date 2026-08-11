@@ -5,11 +5,16 @@ import { DEFAULT_MAX_FILE_SIZE, formatFileSize, getFileSizeConfig } from '@brain
 import { createLogger } from '@brainstrike/logging';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
+import { getKnownFileSize } from '@brainstrike/utils/file-content';
 
 const logger = createLogger('SharedFileContentLoading');
 const MAX_DEFERRED_TREE_LOOKUP_ATTEMPTS = 5;
 
-import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
+import type {
+  FileContentReadResult,
+  FileContentWorker,
+  FileReadRequest,
+} from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   useFileExplorerStoreContext,
@@ -22,13 +27,6 @@ import {
   getFileNodeFromCache,
   refreshFileNodeCacheEntry,
 } from './utils/file-node-cache';
-
-function getKnownFileSize(size: unknown): number | null {
-  if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) {
-    return null;
-  }
-  return size;
-}
 
 // File handle creation helper
 function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): FileHandle {
@@ -90,11 +88,11 @@ function updateLoadingState(
 }
 
 function processWorkerResults(
-  results: Record<string, string>,
+  results: Record<string, FileContentReadResult>,
   setFileContent: (key: string, content: string) => void
 ): void {
-  for (const [key, value] of Object.entries(results)) {
-    setFileContent(key, value);
+  for (const [key, result] of Object.entries(results)) {
+    setFileContent(key, result.status === 'accessible' ? result.content : result.message);
   }
 }
 
@@ -854,11 +852,11 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     void handleFileContentLoading(pendingKeys);
   }, [canLoadWithoutTree, fileTree.length, handleFileContentLoading, indexVersion, store]);
 
-  // NOTE: Eager content loading removed for performance.
-  // Content is now loaded on-demand via handleFileContentLoading() when:
+  // Content loading is demand-driven via handleFileContentLoading() when:
   // 1. User explicitly previews a file
   // 2. Import/export operation is triggered
-  // This prevents loading 1000s of files just because they're selected.
+  // Do not make selection eagerly read content; large selections can contain
+  // thousands of files.
 
   // Use zustand selector to get fileContents with proper memoization
   const fileContents = useFileExplorerStoreSelector((state) => state.fileContents);

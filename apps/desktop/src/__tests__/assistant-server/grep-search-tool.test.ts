@@ -58,7 +58,7 @@ describe('grep search tool', () => {
     expect(result.liveEngine).toBe('skipped');
   });
 
-  it('returns path:line matches with context in content mode', async () => {
+  it('returns bare path:line matches in content mode — context is opt-in (BST-1193)', async () => {
     queryMock.mockResolvedValue({
       rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
     });
@@ -67,11 +67,13 @@ describe('grep search tool', () => {
       throw new Error('expected content mode result');
     }
     // The internal chunk-locator fields (chunkId/chunkStartLine/chunkEndLine) are
-    // stripped from the model-facing output to save tokens.
+    // stripped from the model-facing output to save tokens. contextLines
+    // defaults to 0: searches locate, reads understand — every studied peer
+    // ships no context by default (opencode has no option; hermes defaults 0).
     expect(result.matches).toEqual([
       {
-        after: ['omega'],
-        before: ['alpha'],
+        after: [],
+        before: [],
         line: 11,
         lineText: 'needle line',
         path: 'src/x.ts',
@@ -83,6 +85,49 @@ describe('grep search tool', () => {
     expect(match).not.toHaveProperty('chunkStartLine');
     expect(match).not.toHaveProperty('chunkEndLine');
     expect(result.truncated).toBe(false);
+  });
+
+  it('returns surrounding context when contextLines is requested explicitly', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
+    });
+    const result = await runGrepSearch(
+      { contextLines: 1, outputMode: 'content', pattern: 'needle' },
+      undefined
+    );
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.matches).toEqual([
+      {
+        after: ['omega'],
+        before: ['alpha'],
+        line: 11,
+        lineText: 'needle line',
+        path: 'src/x.ts',
+        source: 'index',
+      },
+    ]);
+  });
+
+  it('mentions contextLines in paging hints only when context was requested', async () => {
+    const lines = Array.from({ length: 6 }, (_, i) => `needle ${i}`).join('\n');
+    queryMock.mockResolvedValue({
+      rows: [{ content: lines, path: 'src/x.ts', start_line: 1 }],
+    });
+
+    const withContext = await runGrepSearch(
+      { contextLines: 1, maxResults: 2, outputMode: 'content', pattern: 'needle' },
+      undefined
+    );
+    expect(withContext.hint).toContain('contextLines: 0');
+
+    const defaultContext = await runGrepSearch(
+      { maxResults: 2, outputMode: 'content', pattern: 'needle' },
+      undefined
+    );
+    expect(defaultContext.hint).toContain('offset: 2');
+    expect(defaultContext.hint).not.toContain('contextLines');
   });
 
   it('pages content matches with offset and emits a continuation hint', async () => {
@@ -354,6 +399,75 @@ describe('grep search tool', () => {
       pattern: { redacted: true },
     });
     expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('sk-sensitive');
+  });
+
+  it('adds case-insensitive steering without leaking probe matches into the result', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+      rows: [{ content: 'needle lower-case', path: 'src/case.ts', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
+
+    expect(result.totalMatches).toBe(0);
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    expect(result.files).toEqual([]);
+    expect(result.probeNote).toBe(
+      "0 exact-case matches, but 1 case-insensitive matches — the pattern's casing may be wrong."
+    );
+    expect(queryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('adds literal steering for a regex zero-match', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+      rows: [{ content: String.raw`token\d+`, path: 'src/literal.ts', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch({ isRegex: true, pattern: String.raw`token\d+` }, undefined);
+
+    expect(result.totalMatches).toBe(0);
+    expect(result.probeNote).toBe(
+      '0 regex matches, but 1 literal matches — regex metacharacters may need escaping.'
+    );
+    expect(queryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('omits probeNote when every eligible index probe misses', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+
+    const result = await runGrepSearch(
+      { caseSensitive: true, isRegex: true, pattern: 'missing-token' },
+      undefined
+    );
+
+    expect(result).not.toHaveProperty('probeNote');
+    expect(queryMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not run any probe query after the main pass finds a match', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ content: 'Needle exact', path: 'src/exact.ts', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
+
+    expect(result.totalMatches).toBe(1);
+    expect(result).not.toHaveProperty('probeNote');
+    expect(queryMock).toHaveBeenCalledOnce();
+  });
+
+  it('round-trips a zero-match probe note through the model projection', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
+      rows: [{ content: 'needle lower-case', path: 'src/case.ts', start_line: 1 }],
+    });
+
+    const result = await runGrepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
+    const projection = projectGrepSearchModelOutput(result);
+
+    expect(projection.value).toContain(
+      "note: 0 exact-case matches, but 1 case-insensitive matches — the pattern's casing may be wrong."
+    );
   });
 });
 

@@ -100,28 +100,23 @@ export function buildChunkDedupeKey(fileId: string, chunkIndex: number): string 
   return `chunk:${fileId}:${chunkIndex}`;
 }
 
-/**
- * Build a dedupe key for embedding jobs.
- * Format: `embed:{chunkId}:{embeddingSetId}:{modelKey}`
- *
- * This ensures embedding jobs are idempotent - re-enqueuing
- * the same chunk+set+model combination returns the existing job.
- *
- * @param chunkId - Chunk ID to embed
- * @param embeddingSetId - Target embedding set
- * @param modelKey - Embedding model identifier
+/*
+ * Embedding job dedupe keys are NOT built here. `buildEmbedJobDedupeKey` in
+ * `@brainstrike/indexing-contract` is the single producer, shared with the
+ * `@brainstrike/db` enqueue path so the two cannot drift. This module once
+ * exported a second, `embed:`-prefixed format; every positional index in it was
+ * shifted by one relative to the key actually stored in the database.
  */
-export function buildEmbedJobDedupeKey(
-  chunkId: string,
-  embeddingSetId: string,
-  modelKey: string
-): string {
-  return `embed:${chunkId}:${embeddingSetId}:${modelKey}`;
-}
 
 /**
  * Parse a dedupe key into its components.
  * Returns null if the key format is unrecognized.
+ *
+ * Only the type-tagged `file:` and `chunk:` keys built above are parseable.
+ * Embedding job keys are deliberately excluded: they carry no type tag, and
+ * recovering chunk or embedding-set identity from a dedupe key is not supported.
+ * Read `job_queue.chunk_id` and `job_queue.embedding_set_id` instead — they are
+ * indexed columns populated from the job payload at enqueue time.
  */
 export function parseDedupeKey(key: string): ParsedDedupeKey | null {
   const parts = key.split(':');
@@ -159,18 +154,6 @@ export function parseDedupeKey(key: string): ParsedDedupeKey | null {
         type: 'chunk',
       };
     }
-    case 'embed': {
-      if (rest.length < 3) {
-        return null;
-      }
-      const [chunkId, embeddingSetId, modelKey] = rest;
-      return {
-        chunkId: chunkId as ChunkId,
-        embeddingSetId: embeddingSetId as EmbeddingSetId,
-        modelKey: modelKey ?? '',
-        type: 'embed',
-      };
-    }
     default:
       return null;
   }
@@ -181,8 +164,7 @@ export function parseDedupeKey(key: string): ParsedDedupeKey | null {
  */
 export type ParsedDedupeKey =
   | { type: 'file'; contentHash: ContentHash; embeddingSetId: EmbeddingSetId | null }
-  | { type: 'chunk'; fileId: FileId; chunkIndex: number }
-  | { type: 'embed'; chunkId: ChunkId; embeddingSetId: EmbeddingSetId; modelKey: string };
+  | { type: 'chunk'; fileId: FileId; chunkIndex: number };
 
 // =============================================================================
 // VALIDATION UTILITIES

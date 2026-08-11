@@ -69,6 +69,18 @@ import { migration076AssistantRunErrors } from '../migrations/076-assistant-run-
 import { migration077RunUsageKind } from '../migrations/077-run-usage-kind.js';
 import { migration078JobQueueDedupeActiveIndex } from '../migrations/078-job-queue-dedupe-active-index.js';
 import { migration079MindOpsLog } from '../migrations/079-mind-ops-log.js';
+import { migration080AssistantMessageTombstones } from '../migrations/080-assistant-message-tombstones.js';
+import { migration081WorkspaceSnapshots } from '../migrations/081-workspace-snapshots.js';
+import { migration082CanvasDocuments } from '../migrations/082-canvas-documents.js';
+import { migration083ToolCallTelemetry } from '../migrations/083-tool-call-telemetry.js';
+import { migration084AssistantToolProjectionRewrites } from '../migrations/084-assistant-tool-projection-rewrites.js';
+import { migration085ToolCallTelemetryOccurredAtIndex } from '../migrations/085-tool-call-telemetry-occurred-at-index.js';
+import { migration086TokenEstimateCalibration } from '../migrations/086-token-estimate-calibration.js';
+import { migration087ToolProjectionRewriteKinds } from '../migrations/087-tool-projection-rewrite-kinds.js';
+import { migration088AssistantCompactionRanges } from '../migrations/088-assistant-compaction-ranges.js';
+import { migration089TokenEstimateCalibrationResolvedBudgets } from '../migrations/089-token-estimate-calibration-resolved-budgets.js';
+import { migration090CompactionSummaryRunUsageKind } from '../migrations/090-compaction-summary-run-usage-kind.js';
+import { migration091TokenEstimateCalibrationPromptBaseline } from '../migrations/091-token-estimate-calibration-prompt-baseline.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -252,6 +264,39 @@ const customMigrations: Migration[] = [
     migration078JobQueueDedupeActiveIndex
   ),
   customMigration('custom-079-mind-ops-log', migration079MindOpsLog),
+  customMigration(
+    'custom-080-assistant-message-tombstones',
+    migration080AssistantMessageTombstones
+  ),
+  customMigration('custom-081-workspace-snapshots', migration081WorkspaceSnapshots),
+  customMigration('custom-082-canvas-documents', migration082CanvasDocuments),
+  customMigration('custom-083-tool-call-telemetry', migration083ToolCallTelemetry),
+  customMigration(
+    'custom-084-assistant-tool-projection-rewrites',
+    migration084AssistantToolProjectionRewrites
+  ),
+  customMigration(
+    'custom-085-tool-call-telemetry-occurred-at-index',
+    migration085ToolCallTelemetryOccurredAtIndex
+  ),
+  customMigration('custom-086-token-estimate-calibration', migration086TokenEstimateCalibration),
+  customMigration(
+    'custom-087-tool-projection-rewrite-kinds',
+    migration087ToolProjectionRewriteKinds
+  ),
+  customMigration('custom-088-assistant-compaction-ranges', migration088AssistantCompactionRanges),
+  customMigration(
+    'custom-089-token-estimate-calibration-resolved-budgets',
+    migration089TokenEstimateCalibrationResolvedBudgets
+  ),
+  customMigration(
+    'custom-090-compaction-summary-run-usage-kind',
+    migration090CompactionSummaryRunUsageKind
+  ),
+  customMigration(
+    'custom-091-token-estimate-calibration-prompt-baseline',
+    migration091TokenEstimateCalibrationPromptBaseline
+  ),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

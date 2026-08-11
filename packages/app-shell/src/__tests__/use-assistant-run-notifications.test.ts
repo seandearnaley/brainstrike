@@ -1,7 +1,7 @@
 import {
   __resetNotificationPreferencesStoreForTests,
   useNotificationPreferencesStore,
-} from '@brainstrike/preferences/stores/notification-preferences-store';
+} from '@brainstrike/app-state/stores/notification-preferences-store';
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAssistantRunNotifications } from '../use-assistant-run-notifications';

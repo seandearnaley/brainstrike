@@ -1,5 +1,9 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import { refuseExtractUrl, type WebExtractToolResult } from './web-extract-tool';
+import { decodedWorkspaceTextModelOutputChars } from './workspace-model-projection-helpers';
 
 export interface WebExtractTextModelOutput {
   type: 'text';
@@ -61,7 +65,9 @@ function parseWebExtractResult(raw: unknown): WebExtractToolResult {
       typeof raw['truncated'] === 'boolean'
     )
   ) {
-    throw new TypeError('webExtract model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'webExtract model projection received a malformed result'
+    );
   }
 
   const result = raw as unknown as WebExtractToolResult;
@@ -94,7 +100,9 @@ function parseWebExtractResult(raw: unknown): WebExtractToolResult {
     !hasMessage;
 
   if (!(validUnavailable || validError || validSuccess)) {
-    throw new TypeError('webExtract model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'webExtract model projection received a malformed result'
+    );
   }
   return result;
 }
@@ -110,9 +118,15 @@ function output(lines: readonly string[]): WebExtractTextModelOutput {
   return { type: 'text', value: lines.join('\n') };
 }
 
-export function projectWebExtractModelOutput(raw: unknown): WebExtractTextModelOutput {
+export function projectWebExtractModelOutput(
+  raw: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): WebExtractTextModelOutput {
   const result = parseWebExtractResult(raw);
-  if (JSON.stringify(result).length > WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS) {
+  if (
+    JSON.stringify(result).length >
+    Math.min(WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS, domainModelResultCharBudget)
+  ) {
     return output([
       `web-extract | status=model-output-unavailable | pages=${result.count} | failed=${
         result.failed.length
@@ -137,7 +151,7 @@ export function projectWebExtractModelOutput(raw: unknown): WebExtractTextModelO
     ...(result.error ? [`error: ${JSON.stringify(result.error)}`] : []),
   ];
   const projected = output(lines);
-  if (JSON.stringify(projected).length > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedWorkspaceTextModelOutputChars([projected.value]) > domainModelResultCharBudget) {
     throw new RangeError('webExtract output must settle before model projection');
   }
   return projected;

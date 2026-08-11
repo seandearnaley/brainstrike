@@ -85,7 +85,10 @@ describe('resolveMissingCoverageFiles', () => {
 describe('classifyMissingCoverageFiles', () => {
   it('classifies null-byte content as content-excluded (never indexable)', async () => {
     const processFiles = vi.fn(async (requests: Array<{ compositeKey: string }>) => ({
-      [requests[0]?.compositeKey ?? '']: 'text with a null\0byte',
+      [requests[0]?.compositeKey ?? '']: {
+        content: 'text with a null\0byte',
+        status: 'accessible' as const,
+      },
     }));
     const result = await classifyMissingCoverageFiles({
       fileContentProcessor: { processFiles },
@@ -111,10 +114,16 @@ describe('classifyMissingCoverageFiles', () => {
       tooLarge: encodeFileSelection(ROOT_PATH, 'b.md'),
     };
     const processFiles = vi.fn(async () => ({
-      [keys.binary]: 'Binary file - preview not available',
-      [keys.tooLarge]: 'File too large: 2 MB (max: 1 MB)',
-      [keys.notAccessible]: 'File not accessible',
-      [keys.error]: 'Error accessing file',
+      [keys.binary]: {
+        message: 'Binary file - preview not available',
+        status: 'inaccessible' as const,
+      },
+      [keys.tooLarge]: {
+        message: 'File too large: 2 MB (max: 1 MB)',
+        status: 'inaccessible' as const,
+      },
+      [keys.notAccessible]: { message: 'File not accessible', status: 'inaccessible' as const },
+      [keys.error]: { message: 'Error accessing file', status: 'inaccessible' as const },
     }));
     const result = await classifyMissingCoverageFiles({
       fileContentProcessor: { processFiles },
@@ -138,7 +147,10 @@ describe('classifyMissingCoverageFiles', () => {
 
   it('classifies readable indexable content as genuinely missing', async () => {
     const processFiles = vi.fn(async (requests: Array<{ compositeKey: string }>) => ({
-      [requests[0]?.compositeKey ?? '']: 'export const value = 1;',
+      [requests[0]?.compositeKey ?? '']: {
+        content: 'export const value = 1;',
+        status: 'accessible' as const,
+      },
     }));
     const result = await classifyMissingCoverageFiles({
       fileContentProcessor: { processFiles },
@@ -163,7 +175,12 @@ describe('classifyMissingCoverageFiles', () => {
 
   it('bounds content reads and reports the unclassified remainder honestly', async () => {
     const processFiles = vi.fn(async (requests: Array<{ compositeKey: string }>) =>
-      Object.fromEntries(requests.map((request) => [request.compositeKey, 'text\0']))
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: 'text\0', status: 'accessible' as const },
+        ])
+      )
     );
     const result = await classifyMissingCoverageFiles({
       fileContentProcessor: { processFiles },

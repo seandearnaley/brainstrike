@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { getFileTree } from './utils/file-tree-locators';
+import { clickExplorerTreeAction, getFileTree } from './utils/file-tree-locators';
 import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
@@ -43,7 +43,7 @@ test.describe('Quick Filter and Tree Expansion', () => {
 
     // Apply filter, expand all, and wait for filtered results to render
     await filterInput.fill('Button');
-    await page.getByTestId('expand-all-button-small').click();
+    await clickExplorerTreeAction(page, 'expand-all');
     await expect
       .poll(async () => fileTree.getByText('Button.tsx').count(), { timeout: 10_000 })
       .toBeGreaterThan(0);
@@ -66,14 +66,12 @@ test.describe('Quick Filter and Tree Expansion', () => {
     await filterInput.fill('');
     await expect.poll(async () => filterInput.inputValue()).toBe('');
 
-    const expandAll = page.getByTestId('expand-all-button-small');
-    await expandAll.click();
+    await clickExplorerTreeAction(page, 'expand-all');
     await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('Input.tsx')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('helpers.ts')).toBeVisible({ timeout: 10_000 });
 
-    const collapseAll = page.getByTestId('collapse-all-button-small');
-    await collapseAll.click();
+    await clickExplorerTreeAction(page, 'collapse-all');
     await expect(fileTree.getByText('Button.tsx').first()).not.toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('Input.tsx').first()).not.toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('helpers.ts').first()).not.toBeVisible({ timeout: 10_000 });

@@ -29,7 +29,7 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/$1.ts'),
       },
       {
-        find: '@brainstrike/assistant-contract',
+        find: /^@brainstrike\/assistant-contract$/,
         replacement: path.resolve(import.meta.dirname, '../assistant-contract/src/index.ts'),
       },
       {
@@ -53,7 +53,9 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../storage/__mocks__/electron.ts'),
       },
       {
-        find: '@brainstrike/context-actions',
+        // Anchored: a bare-string find would also capture the
+        // './commands' subpath export, which the registry spread resolves.
+        find: /^@brainstrike\/context-actions$/,
         replacement: path.resolve(import.meta.dirname, '../context-actions/src/index.ts'),
       },
       {
@@ -125,30 +127,30 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../text-splitter/src/index.ts'),
       },
       {
-        find: /^@brainstrike\/preferences\/(.*)$/,
-        replacement: path.resolve(import.meta.dirname, '../preferences/src/$1'),
-      },
-      {
-        find: '@brainstrike/ui/assistant-ui-panel/context-usage-store',
+        find: '@brainstrike/assistant-ui/context-usage-store',
         replacement: path.resolve(
           import.meta.dirname,
-          '../ui/src/assistant-ui-panel/context-usage-store.ts'
-        ),
-      },
-      // Explicit subpath entry BEFORE the '@brainstrike/ui/assistant-ui-panel'
-      // string alias below: string aliases match by prefix, so without this the
-      // store specifier resolves to `.../index.ts/follow-up-queue-store` (the
-      // workspace-src-alias guard flags exactly that).
-      {
-        find: '@brainstrike/ui/assistant-ui-panel/follow-up-queue-store',
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../ui/src/assistant-ui-panel/follow-up-queue-store.ts'
+          '../assistant-ui/src/context-usage-store.ts'
         ),
       },
       {
-        find: '@brainstrike/ui/assistant-ui-panel',
-        replacement: path.resolve(import.meta.dirname, '../ui/src/assistant-ui-panel/index.ts'),
+        find: '@brainstrike/assistant-ui/follow-up-queue-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../assistant-ui/src/follow-up-queue-store.ts'
+        ),
+      },
+      {
+        find: '@brainstrike/assistant-ui/rewind-composer-store',
+        replacement: path.resolve(
+          import.meta.dirname,
+          '../assistant-ui/src/rewind-composer-store.ts'
+        ),
+      },
+      {
+        // Root aliases must be anchored because this package has subpath exports.
+        find: /^@brainstrike\/assistant-ui$/,
+        replacement: path.resolve(import.meta.dirname, '../assistant-ui/src/index.ts'),
       },
       {
         find: /^@brainstrike\/ui$/,
@@ -165,10 +167,6 @@ export default defineConfig({
       {
         find: /^@brainstrike\/utils\/(.*)$/,
         replacement: path.resolve(import.meta.dirname, '../utils/src/$1.ts'),
-      },
-      {
-        find: '@brainstrike/preferences',
-        replacement: path.resolve(import.meta.dirname, '../preferences/src/index.ts'),
       },
       {
         find: '@brainstrike/file-import/chunking-worker-context',

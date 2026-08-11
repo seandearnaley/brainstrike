@@ -817,8 +817,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, []);
 
   const clearViaElectronIPC = useCallback(async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-    const electronDB = (window as any).electronAPI?.db;
+    const electronDB = window.electronAPI?.db;
     if (!electronDB?.clearAll) {
       throw new Error('Electron IPC clearAll method not available');
     }
@@ -892,6 +891,23 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await clearRelationIfPresent(tx, 'brainstrike_assistant_task_lists');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
+      // Soft-rewind tombstones (migration 080, BST-1115): bookkeeping over
+      // conversation content this clear destroys, so it goes with it.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_message_tombstones');
+      // Shadow-git snapshot ledger (migration 081, BST-1164): turn↔commit-oid
+      // bookkeeping for threads this clear destroys, so it goes with them.
+      await clearRelationIfPresent(tx, 'brainstrike_workspace_snapshots');
+      // Versioned Canvas documents (migration 082, BST-1173): thread-owned
+      // content must not survive the threads/resources this clear destroys.
+      await clearRelationIfPresent(tx, 'brainstrike_canvas_versions');
+      // Durable per-tool model-facing telemetry (migration 083): FK-less.
+      await clearRelationIfPresent(tx, 'brainstrike_tool_call_telemetry');
+      // Estimator/provider prompt-token calibration pairs (migration 086): FK-less.
+      await clearRelationIfPresent(tx, 'brainstrike_token_estimate_calibration');
+      // Superseded native-tool projection overlays (migration 084): FK-less.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_projection_rewrites');
+      // Durable conversation-compaction ranges (migration 088): FK-less.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_compaction_ranges');
       // Complete tool output can contain sensitive command results and has no FK
       // to Mastra-owned message tables, so it must be deleted explicitly.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
@@ -935,16 +951,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
 
     // Check if Electron IPC is actually available (not just configured)
-    const electronAPI =
-      typeof window === 'undefined'
-        ? null
-        : ((
-            window as Window & {
-              electronAPI?: {
-                db?: { clearAll?: (confirmationToken?: string) => Promise<unknown> };
-              };
-            }
-          ).electronAPI ?? null);
+    const electronAPI = typeof window === 'undefined' ? null : (window.electronAPI ?? null);
 
     const isElectronIPCAvailable = useElectronIPC && electronAPI?.db?.clearAll;
 
@@ -982,6 +989,20 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     await clearRelationIfPresent(tx, 'brainstrike_assistant_task_lists');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
+    // Soft-rewind tombstones (migration 080, BST-1115).
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_message_tombstones');
+    // Shadow-git snapshot ledger (migration 081, BST-1164).
+    await clearRelationIfPresent(tx, 'brainstrike_workspace_snapshots');
+    // Versioned Canvas documents (migration 082, BST-1173).
+    await clearRelationIfPresent(tx, 'brainstrike_canvas_versions');
+    // Durable per-tool model-facing telemetry (migration 083).
+    await clearRelationIfPresent(tx, 'brainstrike_tool_call_telemetry');
+    // Estimator/provider prompt-token calibration pairs (migration 086).
+    await clearRelationIfPresent(tx, 'brainstrike_token_estimate_calibration');
+    // Superseded native-tool projection overlays (migration 084).
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_projection_rewrites');
+    // Durable conversation-compaction ranges (migration 088).
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_compaction_ranges');
     await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
     await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
     await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');
@@ -1020,8 +1041,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, []);
 
   const tryElectronHardReset = useCallback(async (): Promise<boolean> => {
-    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-    const w = (typeof window === 'undefined' ? null : (window as any)) as any;
+    const w = typeof window === 'undefined' ? null : window;
     if (!(useElectronIPC && w?.electronAPI?.db)) {
       return false;
     }
@@ -1105,8 +1125,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, [purgeAndClosePGlite, cleanupAndWaitForReset]);
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-    const w = (typeof window === 'undefined' ? null : (window as any)) as any;
+    const w = typeof window === 'undefined' ? null : window;
     if (w?.electronAPI?.db?.query) {
       try {
         await w.electronAPI.db.query('DELETE FROM job_queue');
@@ -1153,8 +1172,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       clearAllData,
       clearQueuesAndEmbeddingSets: async () => {
         if (useElectronIPC) {
-          // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-          const w = (typeof window === 'undefined' ? null : (window as any)) as any;
+          const w = typeof window === 'undefined' ? null : window;
           if (w?.electronAPI?.db?.query) {
             await purgeQueuesAndSetsElectron();
             return;

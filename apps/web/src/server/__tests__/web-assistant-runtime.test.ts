@@ -116,6 +116,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
         modelSettings: { maxOutputTokens: 1_000_000, temperature: 2 },
         provider: 'anthropic',
         providerOptions: { ollama: { baseUrl: 'https://attacker.example' } },
+        requestedReasoningEffort: 'high',
       }),
       'key-3',
       signal,
@@ -205,6 +206,7 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     ['modelSettings', { maxOutputTokens: '1000000', temperature: '2' }],
     ['provider', ['ollama']],
     ['providerOptions', 'attacker-options'],
+    ['requestedReasoningEffort', 'auto'],
   ])('validates the ignored wire hint %s before discarding it', (field, value) => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
 

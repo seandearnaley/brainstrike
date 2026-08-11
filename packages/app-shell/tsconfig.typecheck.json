@@ -11,6 +11,15 @@
       "@brainstrike/assistant-contract/*": [
         "../assistant-contract/dist/*.d.ts"
       ],
+      "@brainstrike/assistant-data": [
+        "../assistant-data/dist/index.d.ts"
+      ],
+      "@brainstrike/assistant-data/cost-tracking": [
+        "../assistant-data/dist/cost-tracking/index.d.ts"
+      ],
+      "@brainstrike/assistant-data/assistant-thread-run-reaper": [
+        "../assistant-data/dist/assistant-thread-run-reaper.d.ts"
+      ],
       "@brainstrike/types": [
         "../types/dist/index.d.ts"
       ],
@@ -67,9 +76,6 @@
       ],
       "@brainstrike/platform-utils/*": [
         "../platform-utils/dist/*.d.ts"
-      ],
-      "@brainstrike/preferences/*": [
-        "../preferences/dist/*.d.ts"
       ],
       "@brainstrike/utils": [
         "../utils/dist/index.d.ts"

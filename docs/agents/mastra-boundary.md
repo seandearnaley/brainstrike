@@ -9,7 +9,7 @@ each deferred to. The historical audit those tickets cite now lives at
 `docs/archive/mastra-agent-system-docs-catch-up-2026-05-29.md` (moved by BST-750,
 #1963); it recorded the deferral, never a decision.
 
-Verified against `@mastra/core@1.51.0` and `@mastra/memory@1.22.1` — the only
+Verified against `@mastra/core@1.57.0` and `@mastra/memory@1.26.0` — the only
 installed `@mastra/*` packages (`@mastra/schema-compat` is transitive).
 
 ## SCOPE AND STATUS
@@ -59,7 +59,7 @@ Owned by Brainstrike, on both surfaces:
 
 | Concern | Web | Desktop |
 | --- | --- | --- |
-| Entry | `apps/web/api/assistant.ts:8-24` → `apps/web/src/app/api/assistant/route.ts:29-92` | `startAssistantServer` / `handleAssistantRequest` in `apps/desktop/src/assistant-server.ts` |
+| Entry | `apps/web/api/assistant.ts:8-24` → `apps/web/src/app/api/assistant/route.ts:29-70` | `startAssistantServer` / `handleAssistantRequest` in `apps/desktop/src/assistant-server.ts` |
 | Auth | none per-request; env key only (`assistant-config.ts:3-7`), preview-gated | per-boot capability token, constant-time compare (`assistant-server/auth.ts:12-32`) |
 | Origin/CORS | none in code | `hasDisallowedAssistantOrigin` → 403 before CORS headers (`handleAssistantRequest`'s origin gate in `assistant-server.ts` + `hasDisallowedAssistantOrigin` in `assistant-server/cors.ts`) |
 | Body parsing | shared parser | shared limit + shared error type |
@@ -274,7 +274,7 @@ Today all three dispatch sites drop silently with no log and no comment:
 `data-stream-mapper.ts:318-319`,
 `tool-event-mapper.ts:102-103`. This contradicts the project's NO SILENT FALLBACKS
 rule, and contradicts the sibling read path in the same subsystem —
-`requireRunEventKind()` (`packages/app-shell/src/assistant-memory-repository.ts:1209-1217`)
+`requireRunEventKind()` (`packages/assistant-data/src/assistant-memory-repository.ts:1209-1217`)
 **throws** on an unknown run-event kind.
 
 **Ruling:** the mapper must be typed against Mastra's exported `ChunkType` union so
@@ -407,7 +407,7 @@ The run timeline is the Brainstrike contract: 31 event kinds in
 `packages/assistant-contract/src/run-events.ts:3-35`, persisted by two writers with
 byte-identical SQL (`recordDesktopAssistantRunEvent` in
 `apps/desktop/src/assistant-server/run-persistence.ts`;
-`packages/app-shell/src/assistant-memory-repository.ts:2449-2502`), read by reload
+`packages/assistant-data/src/assistant-memory-repository.ts:2449-2502`), read by reload
 hydration, the live timeline UI, and the debug bundle.
 
 **Typed suspension UIs are supported and unknown resume schemas must be rejected
@@ -480,7 +480,44 @@ Decided here, implemented separately. None is architecture-gated any longer.
   `context.selection` are declared in `run-events.ts:4-6` with **no emitter
   anywhere** — emit or remove.
 
-Flagged, outside this boundary: `pnpm-workspace.yaml` still excludes
-`@mastra/core@1.50.0` in `minimumReleaseAgeExclude` while `1.51.0` is resolved; and
+Flagged, outside this boundary:
 `packages/app-shell/src/hooks/use-assistant-mcp-menu-state.ts:55-57` collapses every
-MCP failure to a reasonless `ERROR` via a bare `catch`.
+MCP failure to a reasonless `ERROR` via a bare `catch`. (The stale
+`@mastra/core@1.50.0` `minimumReleaseAgeExclude` entry this section used to flag
+was removed in #2295, and `scripts/verify-minimum-release-age-exclusions.mjs`
+now fails `pnpm lint` once any such exclusion ages past 30 days, so this class
+cannot recur silently.)
+
+## 1.51 → 1.57 UPGRADE NOTES (2026-08-06/07)
+
+Re-verified on `@mastra/core@1.57.0` + `@mastra/memory@1.26.0`: the R1 no-server
+guard (`scripts/__tests__/mastra-boundary-contract.test.mjs`, 6/6) and both
+stream-contract guards (`mastra-stream-chunk-contract.mjs`,
+`verify-mastra-schema-init-order.mjs`) pass unchanged. Compile-time surface
+changes hit and fixed in this range:
+
+- `ToolExecutionContext.observe` became REQUIRED (observability helpers, always
+  provided by the runtime) while `createTool`'s execute callback context is
+  statically typed as only `{ requestContext }` — `mcp-runtime-client.ts` now
+  types its inbound context as the `McpExecuteContext` slice it actually reads.
+- `ToolsInput[string]` widened with execute-less members (provider-defined
+  tools, web-search placeholders) — property probes for `.execute` must narrow
+  with `'execute' in tool` first (`apps/desktop/src/ipc-tools.ts`,
+  `capture-on-edit.integration.test.ts`).
+
+**The 1.56 approval rework and the BST-1097 adaptation.** 1.56 made the
+framework consume `{approved}` resumes of ANY approval-gated call before the
+tool can read them, which killed the old self-raised in-tool Gate A (approve
+looped forever re-asking; decline became Mastra's generic denial). Rather than
+holding below 1.56, the repo adopted the new idiom (settled with the user,
+2026-08-07): run_python's Gate A is now the permission gate's ordinary
+`requireApproval` clone (pre-execution approval), its Gate B plain suspension
+stays resumable because the suspend-resume transport attaches the
+`approved: true` rider Mastra's per-leg re-check demands, declines stream no
+tool result (the approval card's Declined state owns the UX, like every other
+ask tool), and the direct-invocation guard stays in-tool. The old
+self-approving registry (`SELF_APPROVING_NATIVE_TOOL_IDS`) is deleted. Full
+narrative + test map: docs/dependency-updates-breaking-changes.md (Mastra
+section) and docs/agents/code-execution.md (Gate A section). The 15-test
+`mastra-tool-suspend-resume.integration.spec.ts` remains the canary for any
+future approval-semantics drift.

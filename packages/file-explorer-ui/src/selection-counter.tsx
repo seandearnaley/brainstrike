@@ -144,9 +144,18 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
     return 'Click to edit maximum selection count';
   }, [isEditable]);
   const accessibleLabel = `${selectedCount} of ${maxSelectionCount} files selected. ${tooltipLabel}`;
+  // The fraction must stay single-scale: compact mode abbreviates the count
+  // from 1000 up, and ONCE IT DOES the max abbreviates with it — "2K/2000"
+  // mixed two scales in one fraction. Below 1000 both sides stay exact
+  // ("629/1000"); count can never exceed max, so a mixed pair cannot occur.
+  // Exact values always remain in the accessible label.
+  const isCountCompacted = compact && selectedCount >= 1000;
   const visibleSelectedCount = compact
     ? formatCompactSelectionCount(selectedCount)
     : String(selectedCount);
+  const visibleMaxCount = isCountCompacted
+    ? formatCompactSelectionCount(maxSelectionCount)
+    : String(maxSelectionCount);
 
   // Dynamic styling based on selection status
   const statusStyles = useMemo(() => {
@@ -179,7 +188,7 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
           data-testid="selection-count-suffix"
         >
           <span className="mx-0.5">/</span>
-          <span data-testid="selection-max">{maxSelectionCount}</span>
+          <span data-testid="selection-max">{visibleMaxCount}</span>
         </span>
       </span>
       {isEditable && (

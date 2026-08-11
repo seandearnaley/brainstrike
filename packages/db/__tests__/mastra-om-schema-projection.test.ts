@@ -1,7 +1,7 @@
 /**
  * Mastra observational-memory (OM) schema projection / drift guard.
  *
- * The OM context meter (packages/ui/src/assistant-ui-panel/context-usage-meter.tsx,
+ * The OM context meter (packages/assistant-ui/src/context-usage-meter.tsx,
  * fed by packages/app-shell/src/assistant-om-segment.ts) reads RAW @mastra/memory
  * columns off the `mastra_observational_memory` table via a live query. Those
  * column identifiers, SQL types, and nullability are NOT owned by brainstrike —

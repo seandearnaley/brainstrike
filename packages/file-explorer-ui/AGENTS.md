@@ -1,7 +1,5 @@
 # `@brainstrike/file-explorer-ui` — AGENTS.md
 
-*Updated: 2025-09-22*
-
 This file is the **source of truth** for coding agents and humans working in the `packages/file-explorer-ui` package. It’s opinionated, production-grade, and scoped to **this package only** (the monorepo root has its own AGENTS.md).
 
 ---
@@ -171,7 +169,8 @@ Do these before reaching for cleverness:
 ## Security & privacy
 
 ### Core Security Requirements
-* **No secrets in client bundles.** Period. Use environment variables or secure injection patterns.
+* **No secrets in client bundles.** `VITE_*` environment values are bundled and
+  are not secret storage; use a host bridge or secure host-owned storage.
 * **Input validation** for all user-provided data (file paths, search queries, filter inputs).
 * **Proper error handling** without information leakage—don't expose internal paths or stack traces.
 * **Dependencies scanned** for vulnerabilities using `pnpm audit` and automated scanning in CI.
@@ -190,7 +189,10 @@ Do these before reaching for cleverness:
 
 ### Data Privacy Protection
 * Never persist raw file **contents** to durable storage from this package. Store contents in memory or ephemeral workers only.
-* Selection state should **not** persist sensitive file paths in localStorage.
+* Selection paths are persisted by `@brainstrike/file-explorer` as local user
+  state. Do not add file contents to that persisted snapshot, and do not copy
+  persisted paths into logs, diagnostics, or remote payloads without an
+  explicit contract.
 * **Memory cleanup** - dispose of file content and sensitive data promptly.
 * **Cache management** - implement secure caching with appropriate expiration.
 * **User data isolation** - ensure user data doesn't leak between sessions.

@@ -13,7 +13,7 @@ describe('embedding host shared command helpers', () => {
   it('creates a strict embedding host command envelope', () => {
     const randomUUIDMock = vi
       .spyOn(globalThis.crypto, 'randomUUID')
-      .mockReturnValue('1234-5678-9012');
+      .mockReturnValue('1234-5678-9012' as unknown as ReturnType<Crypto['randomUUID']>);
 
     const command = createEmbeddingHostCommand(
       'reset',

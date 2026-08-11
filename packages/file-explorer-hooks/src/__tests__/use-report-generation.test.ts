@@ -104,6 +104,66 @@ describe('useReportGeneration', () => {
     expect(result.current.isGenerating).toBe(false);
   });
 
+  it('keeps the generator callback stable while reading the latest committed inputs', async () => {
+    (generateReport as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      '<report>latest</report>'
+    );
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { rerender, result } = renderHook(
+      ({ hookProps, shouldThrow }) => {
+        const value = useReportGeneration(hookProps);
+        if (shouldThrow) {
+          throw new Error('abort report hook render');
+        }
+        return value;
+      },
+      {
+        initialProps: { hookProps: createBaseProps(), shouldThrow: false },
+      }
+    );
+    const initialCallback = result.current.generateContextWithContent;
+    const latestFileContents = { 'latest.ts': 'latest content' };
+    const latestSelectedFiles = new Set(['latest.ts']);
+
+    rerender({
+      hookProps: createBaseProps({
+        fileContents: latestFileContents,
+        selectedFiles: latestSelectedFiles,
+      }),
+      shouldThrow: false,
+    });
+
+    expect(result.current.generateContextWithContent).toBe(initialCallback);
+    try {
+      expect(() =>
+        rerender({
+          hookProps: createBaseProps({
+            fileContents: { 'aborted.ts': 'must not leak' },
+            selectedFiles: new Set(['aborted.ts']),
+          }),
+          shouldThrow: true,
+        })
+      ).toThrow('abort report hook render');
+
+      await act(async () => {
+        await initialCallback();
+      });
+      expect(generateReport).toHaveBeenCalledWith(
+        latestSelectedFiles,
+        latestFileContents,
+        mockRootDirectoryHandle,
+        mockIncludeFilters,
+        mockExcludeFilters,
+        mockUseRegex,
+        mockIncludeProjectTree,
+        mockFolderSummaryThreshold,
+        { projectTreeUsesViewFilters: false }
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it('should set isGenerating to true while generating the report', async () => {
     // Use a mock implementation that allows us to control when the promise resolves
     // and check the state during execution

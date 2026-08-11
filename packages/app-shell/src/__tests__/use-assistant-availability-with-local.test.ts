@@ -11,23 +11,23 @@ vi.mock('../hooks/use-assistant-availability', () => ({
   useAssistantAvailability: vi.fn(),
 }));
 
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', () => ({
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', () => ({
   useEnsureModelRegistry: vi.fn(),
 }));
 
 // Mock the model registry store
-vi.mock('@brainstrike/preferences/stores/model-registry-store', async (importOriginal) => {
+vi.mock('@brainstrike/app-state/stores/model-registry-store', async (importOriginal) => {
   const real =
-    await importOriginal<typeof import('@brainstrike/preferences/stores/model-registry-store')>();
+    await importOriginal<typeof import('@brainstrike/app-state/stores/model-registry-store')>();
   return {
     ...real,
     useModelRegistryStore: vi.fn(),
   };
 });
 
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { getBestBuiltInLocalLlmDevice } from '@brainstrike/assistant-contract/local-llm-device';
-import { useEnsureModelRegistry } from '@brainstrike/preferences/hooks/use-model-registry';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
 import { useAssistantAvailability } from '../hooks/use-assistant-availability';
 
 const useAssistantAvailabilityMock = vi.mocked(useAssistantAvailability);

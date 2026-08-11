@@ -75,14 +75,16 @@ export async function persistCurrentExplorerStoreSnapshot(
 export async function restoreInlineFixture(
   page: Page,
   rootName: string,
-  tree: FileTree
+  tree: FileTree,
+  rootId?: string
 ): Promise<void> {
   await page.evaluate(
-    async ({ contents, root }) => {
+    async ({ contents, id, root }) => {
       const loadFixtureKey = '__BRAINSTRIKE_LOAD_FIXTURE__';
       const browserWindow = window as Window & {
         [loadFixtureKey]?: (fixture: {
           name: string;
+          rootId?: string;
           tree: FileTree;
         }) => Promise<unknown> | unknown;
       };
@@ -90,11 +92,15 @@ export async function restoreInlineFixture(
       if (typeof loadFixture !== 'function') {
         throw new Error('Fixture testing API was not exposed');
       }
-      const handle = await loadFixture({ name: root, tree: contents });
+      const handle = await loadFixture({
+        name: root,
+        ...(id === undefined ? {} : { rootId: id }),
+        tree: contents,
+      });
       if (!handle) {
         throw new Error('Fixture testing API did not return a directory handle');
       }
     },
-    { contents: tree, root: rootName }
+    { contents: tree, id: rootId, root: rootName }
   );
 }

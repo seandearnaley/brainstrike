@@ -274,10 +274,19 @@ describe('watcher health capability (BST-568 slice 3)', () => {
     platform: 'electron' as const,
   };
 
-  function makeHealthEvent(watchId: string, state: string) {
+  function makeHealthEvent(
+    watchId: string,
+    state: string
+  ): {
+    backend: 'fs-events';
+    failure?: { code: string; message: string; retryable: boolean; terminal: boolean };
+    state: 'degraded' | 'failed' | 'healthy';
+    timestamp: number;
+    watchId: string;
+  } {
     return {
       backend: 'fs-events' as const,
-      state: state as 'healthy' | 'failed',
+      state: state as 'degraded' | 'failed' | 'healthy',
       timestamp: 1,
       watchId,
     };
@@ -606,12 +615,12 @@ describe('ElectronRendererFileSystemAdapter.watchDirectory', () => {
     vi.clearAllMocks();
     pushEvent = null;
     unsubscribe = vi.fn();
-    mockElectronAPI.fileSystem.onWatchEvent.mockImplementation(
-      (callback: (event: { changes: typeof sampleChanges; watchId: string }) => void) => {
-        pushEvent = callback;
-        return unsubscribe;
-      }
-    );
+    mockElectronAPI.fileSystem.onWatchEvent.mockImplementation(((
+      callback: (event: { changes: typeof sampleChanges; watchId: string }) => void
+    ) => {
+      pushEvent = callback;
+      return unsubscribe;
+    }) as unknown as () => () => void);
     mockElectronAPI.fileSystem.watchDirectory.mockResolvedValue({ watchId: 'watch-1' });
   });
 

@@ -26,7 +26,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/panel-layout-store', () => ({
+vi.mock('@brainstrike/app-state/stores/panel-layout-store', () => ({
   usePanelLayoutStore: (selector: (state: { setActiveTab: typeof setActiveTab }) => unknown) =>
     selector({ setActiveTab }),
 }));

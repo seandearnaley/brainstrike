@@ -101,7 +101,7 @@ export function generateCSVFilename(prefix = 'file-records'): string {
 
 // Enhanced CSV export functions for files with chunk and embedding metadata
 import type { FileChunk } from '@brainstrike/db';
-import { saveAs } from 'file-saver';
+import { downloadBlobFile } from '@brainstrike/utils/browser-download';
 import { escapeCSVValue } from './csv-export-core';
 
 /**
@@ -257,5 +257,5 @@ export async function exportAllDataAsZip(
   // Generate and download zip
   const zipBlob = await zip.generateAsync({ type: 'blob' });
   const filename = generateCSVFilename('database_export').replace('.csv', '.zip');
-  saveAs(zipBlob, filename);
+  await downloadBlobFile({ blob: zipBlob, filename });
 }

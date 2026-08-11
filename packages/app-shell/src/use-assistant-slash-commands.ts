@@ -1,8 +1,8 @@
-import type { Command, CommandContext } from '@brainstrike/commands';
+import type { SlashCommand } from '@brainstrike/assistant-ui';
+import type { Command, CommandContext } from '@brainstrike/context-actions/commands';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
-import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
 import { useCallback, useMemo, useRef } from 'react';
 import {
   buildAppActionRegistryParts,

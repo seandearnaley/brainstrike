@@ -20,9 +20,9 @@ cleanupUnusedCatalogs: true
 # (verified). Column-0 comments above a block survive.
 catalog:
   '@anthropic-ai/sandbox-runtime': 0.0.67
-  '@assistant-ui/react': '~0.14.26'
+  '@assistant-ui/react': '~0.15.8'
   '@assistant-ui/react-data-stream': ^0.12.18
-  '@assistant-ui/react-markdown': ^0.14.5
+  '@assistant-ui/react-markdown': ^0.14.8
   '@assistant-ui/styles': ^0.3.7
   '@babel/core': ^8.0.1
   '@babel/plugin-transform-runtime': ^8.0.1
@@ -52,12 +52,11 @@ catalog:
   '@swc/core': ^1.15.43
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.2
-  '@tanstack/react-table': ^8.21.3
+  '@tanstack/react-table': ^9.0.0
   '@tanstack/react-virtual': ^3.14.9
   '@testing-library/jest-dom': ^6.9.1
   '@testing-library/react': ^16.3.2
   '@testing-library/user-event': ^14.6.1
-  '@types/file-saver': 2.0.7
   '@types/node': ^26.1.0
   '@types/react': ^19.2.17
   '@types/react-dom': ^19.2.3
@@ -72,8 +71,8 @@ catalog:
   drizzle-orm: 0.45.2
   electron: ^43.1.1
   esbuild: ^0.28.1
+  eslint-plugin-react-refresh: ^0.5.3
   fake-indexeddb: ^6.2.5
-  file-saver: 2.0.5
   glob: ^13.0.6
   happy-dom: ^20.10.6
   idb: ^8.0.3
@@ -134,14 +133,57 @@ allowBuilds:
   puppeteer: true
   sharp: true
   '@parcel/watcher': false
-# These two exact versions are pinned exceptions to any future minimumReleaseAge
-# policy: @mastra/memory@1.22.1's tool-approval 'output-denied' state handling
-# (the fix this repo's upgrade specifically needed, see docs/dependency-updates-
-# breaking-changes.md) shipped alongside @mastra/core@1.50.0,
-# published <24h before this pin. Verified via npm registry metadata: both carry
-# GitHub Actions OIDC provenance from the canonical mastra-ai/mastra repo, a
-# maintainer list consistent with prior releases, and match the 'latest' dist-tag.
-# Remove this exclude once these versions age past whatever minimumReleaseAge
-# floor is configured (none is configured today, so this is currently a no-op).
+# Supply-chain floor (BST-1183): refuse any npm version published less than 3
+# days ago. That window is where typosquats, compromised-maintainer publishes and
+# malicious postinstall payloads get found and unpublished. Before this the repo
+# had no release-age protection at all (measured on pnpm 11.15.0:
+# `pnpm config get minimumReleaseAge` returned undefined).
+#
+# The value is in MINUTES. 4320 = 3 days.
+#
+# IT APPLIES TO `--frozen-lockfile` TOO. Measured, not assumed: pnpm re-checks
+# every LOCKFILE ENTRY against the cutoff and exits 1 on anything newer ("The
+# lockfile contains entries that the active policies reject"), so this is not
+# only a `pnpm add`/`pnpm update` resolution gate — it is a CI gate. Two direct
+# consequences:
+#   - The floor cannot exceed the age of the newest entry in the committed
+#     lockfile, or CI breaks the moment it lands. At 7 days this repo failed on
+#     react-doctor@0.9.3 + turbo@2.10.8 (then 6.0 and 6.7 days old); 3 days
+#     leaves ~3 days of margin.
+#   - Bumping any dependency to a release younger than 3 days now needs an
+#     explicit exclusion. That is the policy working, not a defect.
+#
+# Need something fresher? Do NOT lower the floor. Pin that one exact version in
+# minimumReleaseAgeExclude below, with a record in
+# scripts/minimum-release-age-exclusions.json — the guard in
+# scripts/verify-minimum-release-age-exclusions.mjs then forces you to delete it
+# once it ages out, so the exception cannot quietly become permanent.
+#
+# This must stay BELOW that guard's 30-day MAX_EXCLUSION_AGE_DAYS; it fails the
+# lint if the two ever cross, because the "delete it, the floor admits it anyway"
+# remedy is only true while the floor is the shorter window.
+minimumReleaseAge: 4320
+# minimumReleaseAgeExclude entries are TEMPORARY, and enforced as temporary by
+# scripts/verify-minimum-release-age-exclusions.mjs (wired into `pnpm lint`).
+# Each entry must:
+#   * pin ONE exact version (`- 'name@1.2.3'`) — a bare name or version glob
+#     exempts releases that do not exist yet, so it could never age out;
+#   * carry a matching record in scripts/minimum-release-age-exclusions.json
+#     giving npm's publish timestamp and the reason this version was needed
+#     before it had aged;
+#   * be DELETED, together with its record, once that version is more than 30
+#     days old — past that point any minimumReleaseAge floor would admit it
+#     anyway, so the exemption is inert and the guard fails until it is removed.
+# Per-entry provenance prose lives in that JSON ledger, NOT here. Two reasons:
+# an indented comment in this block is deleted whenever pnpm rewrites the file,
+# and this block is edited by nearly every dependency PR — keeping the rationale
+# out of it removes the merge-conflict hotspot it had become.
+# The guard exists because an earlier entry ('@mastra/core@1.50.0') outlived its
+# justification by a month: its cleanup note pointed at a minimumReleaseAge floor
+# that was never configured, so nothing ever triggered the removal.
 minimumReleaseAgeExclude:
-  - '@mastra/core@1.50.0'
+  - '@assistant-ui/core@0.3.7'
+  - '@assistant-ui/react@0.15.8'
+  - '@assistant-ui/store@0.3.5'
+  - '@assistant-ui/tap@0.9.10'
+  - assistant-stream@0.3.34

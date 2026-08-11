@@ -6,36 +6,13 @@ interface MockComponentProps extends Record<string, unknown> {
   children?: React.ReactNode;
 }
 
-interface MockSortableHeaderProps extends MockComponentProps {
-  field: string;
-  onSort: (field: string) => void;
-  sortDirection?: 'asc' | 'desc';
-  sortField?: string;
-  title: string;
-}
-
 interface MockTablePaginationProps extends MockComponentProps {
   currentPage: number;
-  maxPageButtons?: number;
   onPageChange: (page: number) => void;
-  onPageSizeChange?: (size: number) => void;
   pageInfo?: string;
   pageSize?: number;
   totalItems?: number;
   totalPages: number;
-}
-
-interface MockTableGroupHeaderProps extends MockComponentProps {
-  filesInGroup?: number;
-  groupKey?: string | number;
-  groupLabel: string;
-  isCollapsed?: boolean;
-  isFullySelected?: boolean;
-  isGroupSelected?: boolean;
-  isIndeterminate?: boolean;
-  isPartiallySelected?: boolean;
-  onSelectionChange: (selected: boolean) => void;
-  onToggleCollapse: () => void;
 }
 
 interface MockTreeNode {
@@ -72,34 +49,11 @@ interface MockTreeTableProps extends MockComponentProps {
   onToggleExpand: (nodeId: string) => void;
 }
 
-interface TabsContextValue {
-  onValueChange?: (value: string) => void;
-  value?: string;
-}
-
 interface DropdownMenuRadioContextValue {
   onValueChange: ((value: string) => void) | undefined;
   value: string | undefined;
 }
 
-type TabsProps = MockComponentProps & {
-  value?: string;
-  defaultValue?: string;
-  onValueChange?: (value: string) => void;
-};
-
-type TabsTriggerProps = MockComponentProps & {
-  value: string;
-  disabled?: boolean;
-  onClick?: () => void;
-};
-
-type TabsContentProps = MockComponentProps & {
-  value: string;
-  forceMount?: boolean;
-};
-
-const TabsContext = React.createContext<TabsContextValue | null>(null);
 const DropdownMenuRadioContext = React.createContext<DropdownMenuRadioContextValue | null>(null);
 
 interface UsePaginationOptions {
@@ -162,7 +116,15 @@ export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn
   usePreviewPanelState: vi.fn(),
 });
 
-export const createUiModuleMock = () => ({
+/**
+ * Mocked `@brainstrike/ui`. Layout CONSTANTS come from the real module via
+ * `importActual` rather than being re-spelled here — a mock that hardcodes
+ * `pb-20` would keep passing after the real constant changed.
+ */
+export const createUiModuleMock = async () => ({
+  ...(await vi.importActual<{ SELECTION_BAR_SCROLL_PADDING: string }>(
+    '@brainstrike/ui/selection-bar-layout'
+  )),
   ActionContextMenu: ({ children }: MockComponentProps) => <>{children}</>,
   Badge: ({ children, ...props }: MockComponentProps) => (
     <div data-testid="badge" {...props}>
@@ -229,9 +191,13 @@ export const createUiModuleMock = () => ({
     checked,
     onCheckedChange,
     ...props
-  }: MockComponentProps & { checked?: boolean; onCheckedChange?: (checked: boolean) => void }) => (
+  }: MockComponentProps & {
+    checked?: boolean | 'indeterminate';
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
     <input
-      checked={Boolean(checked)}
+      aria-checked={checked === 'indeterminate' ? 'mixed' : Boolean(checked)}
+      checked={checked === true}
       data-testid="checkbox"
       onChange={(event) => onCheckedChange?.(event.target.checked)}
       type="checkbox"
@@ -434,60 +400,6 @@ export const createUiModuleMock = () => ({
       {children}
     </div>
   ),
-  SortableTableHeader: ({
-    title,
-    onSort,
-    field,
-    sortField,
-    sortDirection,
-    className,
-    ...domProps
-  }: MockSortableHeaderProps & { className?: string }) => {
-    const [localSortField, setLocalSortField] = React.useState<string | undefined>(sortField);
-    const [localSortDirection, setLocalSortDirection] = React.useState<'asc' | 'desc'>(
-      sortDirection ?? 'asc'
-    );
-
-    const handleClick = () => {
-      if (localSortField === field) {
-        setLocalSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'));
-      } else {
-        setLocalSortField(field);
-        setLocalSortDirection('asc');
-      }
-      onSort?.(field);
-    };
-
-    const handleKeyDown = (event: React.KeyboardEvent) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        handleClick();
-      }
-    };
-
-    return (
-      <th
-        aria-label={title}
-        className={className}
-        data-testid="sortable-header"
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        scope="col"
-        tabIndex={0}
-        {...domProps}
-      >
-        <div className="flex items-center gap-1">
-          {title}
-          {localSortField === field &&
-            (localSortDirection === 'asc' ? (
-              <div data-testid="arrow-up" />
-            ) : (
-              <div data-testid="arrow-down" />
-            ))}
-        </div>
-      </th>
-    );
-  },
   Switch: ({
     checked,
     id,
@@ -509,39 +421,6 @@ export const createUiModuleMock = () => ({
       {...props}
     />
   ),
-  TableGroupHeader: ({
-    groupLabel,
-    onToggleCollapse,
-    onSelectionChange,
-    isCollapsed,
-    groupKey: _groupKey,
-    isFullySelected: _isFullySelected,
-    isPartiallySelected: _isPartiallySelected,
-    isGroupSelected: _isGroupSelected,
-    isIndeterminate: _isIndeterminate,
-    filesInGroup: _filesInGroup,
-    ...domProps
-  }: MockTableGroupHeaderProps) => (
-    <tr data-testid="table-group-header" {...domProps}>
-      <td>
-        <input
-          aria-label={`Select all files in group ${groupLabel}`}
-          onChange={(event) => onSelectionChange?.(event.target.checked)}
-          type="checkbox"
-        />
-      </td>
-      <td>
-        <button
-          aria-expanded={!isCollapsed}
-          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
-          onClick={onToggleCollapse}
-          type="button"
-        >
-          {groupLabel}
-        </button>
-      </td>
-    </tr>
-  ),
   TablePagination: ({
     currentPage,
     totalPages,
@@ -549,7 +428,6 @@ export const createUiModuleMock = () => ({
     totalItems,
     pageInfo,
     pageSize = 50,
-    onPageSizeChange,
     ...domProps
   }: MockTablePaginationProps) => {
     // Calculate item range
@@ -558,21 +436,6 @@ export const createUiModuleMock = () => ({
 
     return (
       <div data-testid="table-pagination" {...domProps}>
-        {onPageSizeChange && (
-          <span>
-            Show{' '}
-            <select
-              aria-label="Items per page"
-              onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              value={pageSize}
-            >
-              <option value="10">10</option>
-              <option value="25">25</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-            </select>
-          </span>
-        )}
         <button
           aria-label="Go to first page"
           disabled={currentPage === 0}
@@ -624,78 +487,6 @@ export const createUiModuleMock = () => ({
           {pageInfo ? ` ${pageInfo}` : ''}
         </span>
       </div>
-    );
-  },
-  Tabs: ({ children, value, defaultValue, onValueChange, ...props }: TabsProps) => {
-    const [internalValue, setInternalValue] = React.useState<string | undefined>(defaultValue);
-    const isControlled = value !== undefined;
-    const activeValue = isControlled ? value : internalValue;
-
-    const handleValueChange = (nextValue: string) => {
-      if (!isControlled) {
-        setInternalValue(nextValue);
-      }
-      onValueChange?.(nextValue);
-    };
-
-    const contextValue: TabsContextValue =
-      activeValue === undefined
-        ? { onValueChange: handleValueChange }
-        : { onValueChange: handleValueChange, value: activeValue };
-
-    return (
-      <TabsContext.Provider value={contextValue}>
-        <div data-testid="tabs" {...props}>
-          {children}
-        </div>
-      </TabsContext.Provider>
-    );
-  },
-  TabsContent: ({ children, value, forceMount, ...props }: TabsContentProps) => {
-    const context = React.use(TabsContext);
-    const isActive = context?.value === value;
-
-    if (!(isActive || forceMount)) {
-      return null;
-    }
-
-    return (
-      <div
-        data-state={isActive ? 'active' : 'inactive'}
-        hidden={!isActive}
-        role="tabpanel"
-        {...props}
-      >
-        {children}
-      </div>
-    );
-  },
-  TabsList: ({ children, ...props }: MockComponentProps) => (
-    <div data-testid="tabs-list" role="tablist" {...props}>
-      {children}
-    </div>
-  ),
-  TabsTrigger: ({ children, value, disabled, onClick, ...props }: TabsTriggerProps) => {
-    const context = React.use(TabsContext);
-    const isActive = context?.value === value;
-
-    const handleClick = () => {
-      context?.onValueChange?.(value);
-      onClick?.();
-    };
-
-    return (
-      <button
-        aria-selected={isActive}
-        data-state={isActive ? 'active' : 'inactive'}
-        disabled={disabled}
-        onClick={handleClick}
-        role="tab"
-        type="button"
-        {...props}
-      >
-        {children}
-      </button>
     );
   },
   Tooltip: ({ children }: MockComponentProps) => <>{children}</>,

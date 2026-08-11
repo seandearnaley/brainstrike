@@ -13,6 +13,7 @@ import {
   readProviderRunError,
   type StreamChunk,
   sanitizeAssistantRunEventMetadata,
+  type ToolCallTelemetrySample,
 } from '@brainstrike/agent';
 import { AssistantRunErrorRepository } from '@brainstrike/db';
 import type { HookRunVerdict } from './hooks/run-verdict';
@@ -47,6 +48,8 @@ const ASSISTANT_THREAD_RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
+const TOKEN_ESTIMATE_CALIBRATION_TABLE = 'brainstrike_token_estimate_calibration';
+const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
 
 export async function* observeDesktopAssistantRunEvents(
   stream: AsyncIterable<StreamChunk>,
@@ -154,13 +157,14 @@ export async function* observeDesktopAssistantRunEvents(
  *
  * DUPLICATION NOTE (same precedent as recordDesktopAssistantHookRunOutcome):
  * the INSERT mirrors `recordRunUsage` in
- * packages/app-shell/src/assistant-memory-repository.ts. thread/resource ids
+ * packages/assistant-data/src/assistant-memory-repository.ts. thread/resource ids
  * are derived from the runs row (main trusts its own bookkeeping, and — like
  * recordDesktopAssistantRunEvent — a missing runs row inserts nothing).
  *
  * Attribution rules (honesty over completeness):
- * - subagent rows: chunk-carried model/provider (persona pin ?? parent), with
- *   the runs row as the SQL fallback — the child genuinely ran on one of those.
+ * - subagent and compaction-summary rows: chunk-carried model/provider (persona
+ *   pin ?? parent for subagents), with the runs row as the SQL fallback — the
+ *   auxiliary call genuinely ran on one of those.
  * - OM rows: ONLY the resolved observer target — falling back to the chat
  *   model would mislabel spend to the wrong model. Unattributable → dropped
  *   with a visible warn, never written under a guess.
@@ -181,7 +185,7 @@ export async function* persistDesktopChildRunUsage(
     readonly provider?: string;
     readonly source: string;
   }): Promise<void> => {
-    const isOmRow = value.source !== 'subagent';
+    const isOmRow = value.source === 'om-observation' || value.source === 'om-reflection';
     const model = value.model ?? (isOmRow ? observerTarget?.model : undefined);
     const provider = value.provider ?? (isOmRow ? observerTarget?.provider : undefined);
     if (isOmRow && !(model && provider)) {
@@ -248,6 +252,167 @@ export async function* persistDesktopChildRunUsage(
   }
 }
 
+function isSearchTelemetryTool(toolId: string): boolean {
+  return (
+    toolId === 'grepSearch' ||
+    toolId === 'globWorkspace' ||
+    toolId.endsWith('.grepSearch') ||
+    toolId.endsWith('.globWorkspace')
+  );
+}
+
+/**
+ * Consume the internal run-end telemetry chunk and persist all of its samples
+ * in ONE multi-row `INSERT … SELECT … FROM unnest(...)` (review fix: N
+ * sequential awaited round-trips on single-connection PGlite, on the
+ * latency-critical stream path, blocked the terminal finish chunk behind
+ * every tool call). Every array parameter carries an explicit `::type[]`
+ * cast — `INSERT … SELECT`, unlike `INSERT … VALUES`, does not propagate the
+ * target column type back into the SELECT list, so an untyped bare `null`
+ * resolves to `text` and fails a `text → boolean` assignment for every
+ * non-search row (review fix; mirrors the `unnest($1::uuid[], $2::text[], …)`
+ * batch convention already used by `packages/db/src/queue/job-queue.ts`).
+ * The explicit parameter allowlist is the privacy boundary: no raw result,
+ * input, pattern, path, file content, or command text reaches SQL.
+ */
+export async function* persistDesktopToolCallTelemetry(
+  stream: AsyncIterable<StreamChunk>,
+  runId: string,
+  getDatabase: RunPersistenceDatabaseProvider
+): AsyncIterable<StreamChunk> {
+  const persistBatch = async (samples: readonly ToolCallTelemetrySample[]): Promise<void> => {
+    if (samples.length === 0) {
+      return;
+    }
+    const ids: string[] = [];
+    const toolIds: string[] = [];
+    const occurredAts: string[] = [];
+    const modelFacingChars: number[] = [];
+    const truncated: boolean[] = [];
+    const zeroMatch: (boolean | null)[] = [];
+    const isPaginationFollowup: boolean[] = [];
+    for (const sample of samples) {
+      const isSearch = isSearchTelemetryTool(sample.toolId);
+      ids.push(crypto.randomUUID());
+      toolIds.push(sample.toolId);
+      occurredAts.push(new Date(sample.occurredAt).toISOString());
+      modelFacingChars.push(sample.modelFacingChars);
+      truncated.push(sample.truncated);
+      zeroMatch.push(isSearch ? (sample.zeroMatch ?? null) : null);
+      isPaginationFollowup.push(isSearch ? sample.isPaginationFollowup : false);
+    }
+    try {
+      const database = await getDatabase();
+      const result = await database.query(
+        `INSERT INTO ${TOOL_CALL_TELEMETRY_TABLE}
+          (id, thread_id, run_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup)
+         SELECT gen.id, runs.thread_id, runs.id, gen.tool_id, gen.occurred_at, gen.model_facing_chars, gen.truncated, gen.zero_match, gen.is_pagination_followup
+         FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+         CROSS JOIN unnest(
+           $2::text[], $3::text[], $4::timestamptz[], $5::integer[], $6::boolean[], $7::boolean[], $8::boolean[]
+         ) AS gen(id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup)
+         WHERE runs.id = $1
+         RETURNING id`,
+        [
+          runId,
+          ids,
+          toolIds,
+          occurredAts,
+          modelFacingChars,
+          truncated,
+          zeroMatch,
+          isPaginationFollowup,
+        ]
+      );
+      if (result.rows.length !== samples.length) {
+        logger.warn('Tool-call telemetry batch has no thread-run row to attribute to', {
+          code: 'assistant_tool_call_telemetry_missing_run_row',
+          expectedRows: samples.length,
+          persistedRows: result.rows.length,
+          runId,
+        });
+      }
+    } catch (error: unknown) {
+      // Best-effort relative to the turn, but never silent.
+      logger.warn('Failed to persist tool-call telemetry batch', {
+        code: 'assistant_tool_call_telemetry_persist_failed',
+        error,
+        runId,
+        sampleCount: samples.length,
+      });
+    }
+  };
+
+  for await (const chunk of stream) {
+    if (chunk.type !== 'tool-call-telemetry') {
+      yield chunk;
+      continue;
+    }
+    await persistBatch(chunk.value);
+  }
+}
+
+/**
+ * Consume the internal run-end estimator/provider pair and write one FK-less,
+ * run-attributed calibration row. The explicit column allowlist is the privacy
+ * boundary: token counts plus model/provider strings and a timestamp only — no
+ * message content, tool content, file paths, prompts, or command text.
+ * Persistence is best-effort relative to the assistant turn and never throws
+ * into the stream, matching the sibling tool-call telemetry sink.
+ */
+export async function* persistDesktopTokenEstimateCalibration(
+  stream: AsyncIterable<StreamChunk>,
+  runId: string,
+  getDatabase: RunPersistenceDatabaseProvider
+): AsyncIterable<StreamChunk> {
+  for await (const chunk of stream) {
+    if (chunk.type !== 'token-estimate-calibration') {
+      yield chunk;
+      continue;
+    }
+    try {
+      const database = await getDatabase();
+      const result = await database.query(
+        `INSERT INTO ${TOKEN_ESTIMATE_CALIBRATION_TABLE}
+          (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
+           final_step_prompt_tokens, step_count, model_visible_projection_count,
+           resolved_domain_budget_tokens, resolved_transport_budget_tokens,
+           prompt_baseline_tokens, occurred_at)
+         SELECT $1, runs.thread_id, runs.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+         FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
+         WHERE runs.id = $2
+         RETURNING id`,
+        [
+          crypto.randomUUID(),
+          runId,
+          chunk.value.model,
+          chunk.value.provider,
+          chunk.value.estimatedPromptTokens,
+          chunk.value.finalStepPromptTokens,
+          chunk.value.stepCount,
+          chunk.value.modelVisibleProjectionCount,
+          chunk.value.resolvedDomainBudgetTokens ?? null,
+          chunk.value.resolvedTransportBudgetTokens ?? null,
+          chunk.value.promptBreakdownBaselineTokens ?? null,
+          new Date(chunk.value.occurredAt).toISOString(),
+        ]
+      );
+      if (result.rows.length === 0) {
+        logger.warn('Token-estimate calibration has no thread-run row to attribute to', {
+          code: 'assistant_token_estimate_calibration_missing_run_row',
+          runId,
+        });
+      }
+    } catch (error: unknown) {
+      logger.warn('Failed to persist token-estimate calibration', {
+        code: 'assistant_token_estimate_calibration_persist_failed',
+        error,
+        runId,
+      });
+    }
+  }
+}
+
 export async function recordDesktopAssistantThreadRunStatus(
   runId: string,
   status: 'cancelled' | 'completed' | 'failed',
@@ -286,7 +451,7 @@ async function completeDesktopAssistantThreadRun(
  *
  * DUPLICATION NOTE (same precedent as the repository's bootstrap-SQL mirror of
  * migration 060): this upsert's column set + SET list are kept byte-consistent
- * with `recordRunOutcome` in packages/app-shell/src/assistant-memory-repository.ts.
+ * with `recordRunOutcome` in packages/assistant-data/src/assistant-memory-repository.ts.
  * Two deliberate differences: thread/resource ids are derived from the runs row
  * (mirrors recordDesktopAssistantRunEvent — the main process trusts its own
  * bookkeeping, not hook-adjacent input), and the conflict clause carries the

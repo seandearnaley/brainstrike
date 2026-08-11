@@ -1,6 +1,6 @@
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { JobQueue } from '@brainstrike/db';
 import { useFileChunkRepository, usePGliteDatabase } from '@brainstrike/db/react';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { createContext, type ReactNode, useContext, useMemo } from 'react';
 import {
   type EmbeddingRuntimeController,

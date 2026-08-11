@@ -5,15 +5,16 @@ const { useDailySpendMock } = vi.hoisted(() => ({
   useDailySpendMock: vi.fn(),
 }));
 
-vi.mock('../cost-tracking/use-daily-spend', () => ({
+vi.mock('@brainstrike/assistant-data/cost-tracking', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/assistant-data/cost-tracking')>()),
   useDailySpend: useDailySpendMock,
 }));
 
 import {
   __resetAssistantBudgetPreferencesStoreForTests,
   useAssistantBudgetPreferencesStore,
-} from '@brainstrike/preferences/stores/assistant-budget-preferences-store';
-import type { DailySpendState } from '../cost-tracking/use-daily-spend';
+} from '@brainstrike/app-state/stores/assistant-budget-preferences-store';
+import type { DailySpendState } from '@brainstrike/assistant-data/cost-tracking';
 import { useBudgetGuardrailBinding } from '../hooks/use-budget-guardrail';
 
 function spendState(overrides: Partial<DailySpendState> = {}): DailySpendState {

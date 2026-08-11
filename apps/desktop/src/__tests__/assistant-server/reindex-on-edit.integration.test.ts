@@ -49,6 +49,8 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
+import { requireToolExecute } from './_tool-test-helpers';
 
 const ROOT_ID = 'root-1';
 const EMBEDDING_SET_ID = 'set-1';
@@ -81,10 +83,10 @@ interface FileRecordRow {
 }
 
 async function readFileRecord(id: string): Promise<FileRecordRow | undefined> {
-  const result = await db.query<FileRecordRow>(
+  const result = (await db.query(
     'SELECT content, content_hash, chunks_processed_at, chunks_count FROM file_records WHERE id = $1',
     [id]
-  );
+  )) as { rows: FileRecordRow[] };
   return result.rows[0];
 }
 
@@ -134,6 +136,7 @@ async function seedIndexedFile(content: string): Promise<void> {
 }
 
 beforeEach(async () => {
+  resetToolCallLoopGuards();
   rootPath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-reindex-'));
   db = await wasmLoader.createPGlite('memory://reindex-on-edit-integration');
   await migrate(db);
@@ -169,11 +172,10 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
     await seedIndexedFile('export const value = 1;\n');
 
     const tools = buildDesktopAssistantTools(runtime());
-    const writeTool = tools['brainstrike.writeWorkspaceFile'];
-    expect(writeTool).toBeDefined();
+    const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
     const newContent = 'export const value = 999;\n// edited by agent\n';
-    const result = (await writeTool?.execute?.({
+    const result = (await executeTool({
       content: newContent,
       path: `/${INDEXED_REL_PATH}`,
     })) as { bytesWritten: number } | undefined;
@@ -194,9 +196,9 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
     expect(chunks.rows).toHaveLength(0);
 
     // In-flight embed job canceled (re-chunk will enqueue fresh jobs).
-    const job = await db.query<JobRow>('SELECT state, chunk_id FROM job_queue WHERE id = $1', [
+    const job = (await db.query('SELECT state, chunk_id FROM job_queue WHERE id = $1', [
       EMBED_JOB_ID,
-    ]);
+    ])) as { rows: JobRow[] };
     expect(job.rows[0]?.state).toBe('canceled');
 
     // The bytes really landed on disk.
@@ -206,9 +208,9 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
 
   it('no-ops (no error, no spurious row) when the written path is NOT indexed', async () => {
     const tools = buildDesktopAssistantTools(runtime());
-    const writeTool = tools['brainstrike.writeWorkspaceFile'];
+    const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
-    const result = (await writeTool?.execute?.({
+    const result = (await executeTool({
       content: 'export const fresh = true;\n',
       path: '/src/not-indexed.ts',
     })) as { bytesWritten: number } | undefined;
@@ -243,10 +245,10 @@ describe('re-index on edit (writeWorkspaceFile)', () => {
     vi.mocked(dbMain.getDatabase).mockResolvedValueOnce(failing as never);
 
     const tools = buildDesktopAssistantTools(runtime());
-    const writeTool = tools['brainstrike.writeWorkspaceFile'];
+    const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
     const newContent = 'export const value = 42;\n';
-    const result = (await writeTool?.execute?.({
+    const result = (await executeTool({
       content: newContent,
       path: `/${INDEXED_REL_PATH}`,
     })) as { bytesWritten: number } | undefined;
@@ -275,10 +277,9 @@ describe('re-index on edit (stringReplaceWorkspaceFile)', () => {
     await seedIndexedFile(original);
 
     const tools = buildDesktopAssistantTools(runtime());
-    const replaceTool = tools['brainstrike.stringReplaceWorkspaceFile'];
-    expect(replaceTool).toBeDefined();
+    const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
-    const result = (await replaceTool?.execute?.({
+    const result = (await executeTool({
       newStr: 'export const value = 4321;',
       oldStr: 'export const value = 1;',
       path: `/${INDEXED_REL_PATH}`,
@@ -292,7 +293,9 @@ describe('re-index on edit (stringReplaceWorkspaceFile)', () => {
     expect(record?.content_hash).not.toBe('stale-content-hash');
     expect(record?.chunks_processed_at).toBeNull();
 
-    const job = await db.query<JobRow>('SELECT state FROM job_queue WHERE id = $1', [EMBED_JOB_ID]);
+    const job = (await db.query('SELECT state FROM job_queue WHERE id = $1', [EMBED_JOB_ID])) as {
+      rows: JobRow[];
+    };
     expect(job.rows[0]?.state).toBe('canceled');
 
     const onDisk = await fsPromises.readFile(path.join(rootPath, 'src', 'indexed.ts'), 'utf8');
@@ -325,6 +328,9 @@ describe('re-index on edit (stringReplaceWorkspaceFile)', () => {
       firstTxnEnteredResolve = resolve;
     });
     let txnCount = 0;
+    const transactionDb = db as unknown as {
+      transaction<TResult>(fn: (tx: unknown) => Promise<TResult>): Promise<TResult>;
+    };
     const gatedDb = {
       query: db.query.bind(db),
       transaction: async <TResult>(fn: (tx: unknown) => Promise<TResult>): Promise<TResult> => {
@@ -333,20 +339,20 @@ describe('re-index on edit (stringReplaceWorkspaceFile)', () => {
           firstTxnEnteredResolve?.();
           await firstTxnGate;
         }
-        return db.transaction(fn as never) as Promise<TResult>;
+        return transactionDb.transaction(fn);
       },
     };
     dbHolder.db = gatedDb;
 
     const tools = buildDesktopAssistantTools(runtime());
-    const replaceTool = tools['brainstrike.stringReplaceWorkspaceFile'];
+    const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
-    const editAlpha = replaceTool?.execute?.({
+    const editAlpha = executeTool({
       newStr: 'export const alpha = 111;',
       oldStr: 'export const alpha = 1;',
       path: `/${INDEXED_REL_PATH}`,
     }) as Promise<{ replaced: boolean }>;
-    const editBeta = replaceTool?.execute?.({
+    const editBeta = executeTool({
       newStr: 'export const beta = 222;',
       oldStr: 'export const beta = 2;',
       path: `/${INDEXED_REL_PATH}`,
@@ -408,9 +414,9 @@ describe('re-index on edit (stringReplaceWorkspaceFile)', () => {
     } as unknown as RuntimeData;
 
     const tools = buildDesktopAssistantTools(noIndexRuntime);
-    const replaceTool = tools['brainstrike.stringReplaceWorkspaceFile'];
+    const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
-    const result = (await replaceTool?.execute?.({
+    const result = (await executeTool({
       newStr: 'const a = 2;',
       oldStr: 'const a = 1;',
       path: `/${INDEXED_REL_PATH}`,

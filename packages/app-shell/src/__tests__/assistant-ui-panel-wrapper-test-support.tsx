@@ -1,19 +1,24 @@
+import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/app-state/stores/assistant-preferences-store';
+import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
   type LocalLlmBackendFactory,
   type SupportedProvider,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
-import type { LocalRuntimeModelCatalogState } from '@brainstrike/local-runtime';
-import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/preferences';
-import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import { useAssistantThreadStore } from '@brainstrike/assistant-data';
+import type {
+  LocalRuntimeAvailabilityState,
+  LocalRuntimeModelCatalogState,
+} from '@brainstrike/local-runtime';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
 import { __resetAssistantForegroundActivityForTests } from '../assistant-foreground-activity';
-import { useAssistantThreadStore } from '../assistant-thread-store';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
+import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
+import { __resetConfiguredAssistantProvidersForTests } from '../hooks/use-configured-assistant-providers';
 
 export const NATIVE_TOOL_COUNT = WEB_NATIVE_TOOL_IDS.length;
 
@@ -23,6 +28,26 @@ const { hasDesktopLlmHostMock } = vi.hoisted(() => ({
 
 const { initializeProviderModelDefaultsMock } = vi.hoisted(() => ({
   initializeProviderModelDefaultsMock: vi.fn(async () => 'preserved' as const),
+}));
+
+// BST-1113 Task 4: the wrapper's changeset lifecycle-refresh glue calls
+// `useChangeset` — no selection UI exists yet (W4), so the wrapper always
+// passes a null changeset. Mocked here (not the real bridge-backed hook) so
+// the wrapper suite can assert the run-finished/run-failed composition
+// directly, independent of `use-changeset.ts`'s own unit coverage.
+const { changesetRefreshMock, useChangesetMock } = vi.hoisted(() => ({
+  changesetRefreshMock: vi.fn(async () => undefined),
+  useChangesetMock: vi.fn(),
+}));
+useChangesetMock.mockImplementation(() => ({
+  available: false,
+  error: null,
+  fileDiff: vi.fn(),
+  refresh: changesetRefreshMock,
+  view: null,
+}));
+vi.mock('../changes/use-changeset', () => ({
+  useChangeset: (...args: unknown[]) => useChangesetMock(...args),
 }));
 
 const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hoisted(() => ({
@@ -62,8 +87,13 @@ const { fileExplorerMocks, preparedRequestDataLog, testEnabledModels } = vi.hois
   ]),
 }));
 
-// Mock preferences stores with lightweight Zustand stores to avoid loading the full package graph.
-vi.mock('@brainstrike/preferences', async () => {
+// Build the related lightweight Zustand doubles once, then expose only the
+// explicit app-state subpaths used by the wrapper under test.
+vi.mock('@brainstrike/app-state/stores/assistant-preferences-store', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('@brainstrike/app-state/stores/assistant-preferences-store')
+    >();
   const { create } = await import('zustand');
 
   const buildEnabledModelsByProvider = (): Record<string, string[]> => ({
@@ -144,10 +174,9 @@ vi.mock('@brainstrike/preferences', async () => {
       ollama: LocalRuntimeModelCatalogState;
       lmstudio: LocalRuntimeModelCatalogState;
     }>;
-    getLocalRuntimeStatuses: () => Promise<{
-      ollama: { state: 'unavailable'; checkedAt: number; message: string };
-      lmstudio: { state: 'unavailable'; checkedAt: number; message: string };
-    }>;
+    getLocalRuntimeStatuses: () => Promise<
+      Record<'lmstudio' | 'ollama', LocalRuntimeAvailabilityState>
+    >;
     getSelectedModel: () => string | null;
     getSelectedProvider: () => SupportedProvider | null;
     modelsByProvider: Record<string, string>;
@@ -317,8 +346,13 @@ vi.mock('@brainstrike/preferences', async () => {
     toolStates: {},
   }));
 
-  const useSecretsStore = <T,>(selector: (state: { secretsVersion: number }) => T): T =>
-    selector({ secretsVersion: 0 });
+  const useSecretsStore = create<{
+    notifySecretsChanged: () => void;
+    secretsVersion: number;
+  }>((set) => ({
+    notifySecretsChanged: () => set((state) => ({ secretsVersion: state.secretsVersion + 1 })),
+    secretsVersion: 0,
+  }));
 
   const useVectorStatusUIStore = <T,>(
     selector: (state: { activeEmbeddingSetId: string | null }) => T
@@ -369,6 +403,7 @@ vi.mock('@brainstrike/preferences', async () => {
       ...defaultAssistantMemoryPreferences,
     });
     useNativeToolPreferencesStore.setState({ toolStates: {} });
+    useSecretsStore.setState({ secretsVersion: 0 });
   };
 
   const usePanelLayoutStore = create<{
@@ -385,6 +420,7 @@ vi.mock('@brainstrike/preferences', async () => {
 
   return {
     __resetAssistantPreferencesStoreForTests,
+    AvailableProviderDiscoveryError: actual.AvailableProviderDiscoveryError,
     useAssistantMemoryPreferencesStore,
     useAssistantPreferencesStore,
     useBackgroundIndexingPreferencesStore,
@@ -397,61 +433,68 @@ vi.mock('@brainstrike/preferences', async () => {
   };
 });
 
-vi.mock('@brainstrike/preferences/hooks/use-model-registry', async () => ({
+vi.mock('@brainstrike/app-state/hooks/use-model-registry', async () => ({
   useEnsureModelRegistry: vi.fn(),
 }));
 
-vi.mock('@brainstrike/preferences/stores/assistant-preferences-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
-  return {
-    useAssistantPreferencesStore: preferences.useAssistantPreferencesStore,
-  };
-});
-
-vi.mock('@brainstrike/preferences/stores/assistant-memory-preferences-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/assistant-memory-preferences-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useAssistantMemoryPreferencesStore: unknown };
   return {
     useAssistantMemoryPreferencesStore: preferences.useAssistantMemoryPreferencesStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/background-indexing-preferences-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/background-indexing-preferences-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useBackgroundIndexingPreferencesStore: unknown };
   return {
     useBackgroundIndexingPreferencesStore: preferences.useBackgroundIndexingPreferencesStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/model-registry-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/model-registry-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useModelRegistryStore: unknown };
   return {
     useModelRegistryStore: preferences.useModelRegistryStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/native-tool-preferences-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/native-tool-preferences-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useNativeToolPreferencesStore: unknown };
   return {
     useNativeToolPreferencesStore: preferences.useNativeToolPreferencesStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/panel-layout-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/panel-layout-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { usePanelLayoutStore: unknown };
   return {
     usePanelLayoutStore: preferences.usePanelLayoutStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/secrets-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/secrets-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useSecretsStore: unknown };
   return {
     useSecretsStore: preferences.useSecretsStore,
   };
 });
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async () => {
-  const preferences = await import('@brainstrike/preferences');
+vi.mock('@brainstrike/app-state/stores/vector-status-ui-store', async () => {
+  const preferences = (await import(
+    '@brainstrike/app-state/stores/assistant-preferences-store'
+  )) as unknown as { useVectorStatusUIStore: unknown };
   return {
     useVectorStatusUIStore: preferences.useVectorStatusUIStore,
   };
@@ -692,7 +735,7 @@ vi.mock('../use-assistant-slash-commands', () => ({
 }));
 
 // Mock the AssistantUiPanel component
-vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
+vi.mock('@brainstrike/assistant-ui', () => ({
   AssistantUiPanel: ({
     composerDraftCommand,
     providerGroups = [],
@@ -704,6 +747,8 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onProviderSettingsValidationChange,
     onThreadRunStart,
     onRunFinished,
+    onRunFailed,
+    onRunEditActivity,
     completePreparedRequest,
     prepareRequestData,
     contextMenu,
@@ -716,6 +761,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onComposerDraftCommandApplied,
     onComposerTextChange,
     attachmentsAvailability,
+    historyGeneration,
   }: {
     composerDraftCommand?: { id: string; mode: 'append' | 'replace'; text: string };
     providerGroups?: Array<{
@@ -735,6 +781,12 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onProviderSettingsValidationChange?: (reason: string | undefined) => void;
     onThreadRunStart?: () => void;
     onRunFinished?: (event: { runId: string; kind: string }) => void;
+    onRunFailed?: (event: { runId: string; kind: string }) => void;
+    onRunEditActivity?: (event: {
+      runId?: string;
+      kind: string;
+      metadata?: Record<string, unknown>;
+    }) => void;
     completePreparedRequest?: (
       requestData: Record<string, unknown> | undefined,
       status: 'cancelled' | 'completed' | 'failed',
@@ -742,6 +794,10 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     ) => Promise<void> | void;
     prepareRequestData?: () => Promise<Record<string, unknown> | undefined>;
     contextMenu?: Record<string, unknown>;
+    // Conversation Rewind's re-hydration counter (BST-1115). Surfaced on the
+    // mock's root so the wrapper's wiring is assertable: the real panel folds
+    // it into the runtime `key`, which a mock cannot demonstrate.
+    historyGeneration?: number;
     localChatTransport?: string;
     requestBodyLimitBytes?: number;
     requestData?: Record<string, unknown>;
@@ -775,7 +831,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     const modelName = extractModelName(selectedModel);
 
     return (
-      <div data-testid="assistant-ui-panel">
+      <div data-history-generation={historyGeneration} data-testid="assistant-ui-panel">
         <div data-testid="composer-draft-command">{composerDraftCommand?.id ?? ''}</div>
         <button
           data-testid="apply-composer-draft-command"
@@ -802,6 +858,33 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
           type="button"
         >
           Trigger run finished
+        </button>
+        <button
+          data-testid="trigger-run-started"
+          onClick={() => onRunEditActivity?.({ kind: 'run.started', runId: 'run-live-next' })}
+          type="button"
+        >
+          Trigger run started
+        </button>
+        <button
+          data-testid="trigger-edit-tool-completed"
+          onClick={() =>
+            onRunEditActivity?.({
+              kind: 'tool.completed',
+              metadata: { toolName: 'brainstrike.writeWorkspaceFile' },
+              runId: 'run-live-next',
+            })
+          }
+          type="button"
+        >
+          Trigger edit tool completed
+        </button>
+        <button
+          data-testid="trigger-run-failed"
+          onClick={() => onRunFailed?.({ kind: 'run.failed', runId: 'run-live' })}
+          type="button"
+        >
+          Trigger run failed
         </button>
         <div data-testid="panel-disabled">{String(disabled)}</div>
         <div data-testid="local-chat-transport">{localChatTransport ?? ''}</div>
@@ -1052,6 +1135,7 @@ function resetTestEnabledModels() {
 
 beforeEach(() => {
   resetTestEnabledModels();
+  __resetConfiguredAssistantProvidersForTests();
   __resetAssistantPreferencesStoreForTests();
   __resetAssistantForegroundActivityForTests();
   __resetWorkspaceCollectionSyncStatusStoreForTests();
@@ -1113,6 +1197,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __resetConfiguredAssistantProvidersForTests();
   __resetAssistantPreferencesStoreForTests();
   __resetAssistantForegroundActivityForTests();
   __resetWorkspaceCollectionSyncStatusStoreForTests();
@@ -1143,11 +1228,14 @@ export const renderAssistantPanel = async (
   afterRender?: () => Promise<void>
 ) => {
   const renderResult = render(
-    <AssistantUiPanelWrapper
-      initialProviders={providers as SupportedProvider[]}
-      loadLocalLlmBackend={loadTestLocalLlmBackend}
-      providerKeySources={[{ provider: 'openai', source: 'stored' }]}
-    />
+    <AssistantProviderSourceProvider
+      source={{ kind: 'authoritative', providers: providers as SupportedProvider[] }}
+    >
+      <AssistantUiPanelWrapper
+        loadLocalLlmBackend={loadTestLocalLlmBackend}
+        providerKeySources={[{ provider: 'openai', source: 'stored' }]}
+      />
+    </AssistantProviderSourceProvider>
   );
 
   if (afterRender) {
@@ -1163,13 +1251,16 @@ export const renderAssistantThreadPanel = async (
   afterRender?: () => Promise<void>
 ) => {
   const renderResult = render(
-    <AssistantUiPanelWrapper
-      initialProviders={providers as SupportedProvider[]}
-      loadLocalLlmBackend={loadTestLocalLlmBackend}
-      memoryResourceId="/tmp/test-workspace"
-      memoryThreadId={threadId}
-      providerKeySources={[{ provider: 'openai', source: 'stored' }]}
-    />
+    <AssistantProviderSourceProvider
+      source={{ kind: 'authoritative', providers: providers as SupportedProvider[] }}
+    >
+      <AssistantUiPanelWrapper
+        loadLocalLlmBackend={loadTestLocalLlmBackend}
+        memoryResourceId="/tmp/test-workspace"
+        memoryThreadId={threadId}
+        providerKeySources={[{ provider: 'openai', source: 'stored' }]}
+      />
+    </AssistantProviderSourceProvider>
   );
 
   if (afterRender) {
@@ -1217,9 +1308,11 @@ export type SelectionUpdateHandler = (
 ) => void;
 
 export {
+  changesetRefreshMock,
   fileExplorerMocks,
   hasDesktopLlmHostMock,
   mockDb,
   preparedRequestDataLog,
   testEnabledModels,
+  useChangesetMock,
 };

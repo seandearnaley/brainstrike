@@ -1,7 +1,7 @@
 import {
   __resetVectorStatusUIStoreForTests,
   useVectorStatusUIStore,
-} from '@brainstrike/preferences';
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {

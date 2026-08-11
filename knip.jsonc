@@ -37,7 +37,6 @@
         "@radix-ui/react-toast",
         "@shikijs/langs",
         "@shikijs/themes",
-        "file-saver",
         "idb",
         "jszip",
         "minimatch",
@@ -82,7 +81,6 @@
         "@radix-ui/react-toast",
         "@shikijs/langs",
         "@shikijs/themes",
-        "file-saver",
         "idb",
         "jszip",
         "minimatch",
@@ -106,6 +104,30 @@
         "**/*.test.{ts,tsx}",
         "**/*.stories.{ts,tsx}"
       ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/assistant-ui": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "**/*.stories.{ts,tsx}"
+      ],
+      "ignoreDependencies": [
+        // Configuration/test-only imports are outside this project's production glob.
+        "@brainstrike/config",
+        "@brainstrike/context-actions",
+        "react-shiki"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/assistant-data": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -215,14 +237,14 @@
         "config": "tsconfig.json"
       }
     },
-    "packages/preferences": {
+    "packages/app-state": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
-    "packages/server-config": {
+    "packages/settings-ui": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
@@ -261,13 +283,6 @@
         "vitest.mutation.config.ts", // Used by Stryker mutation testing
         "stryker.config.js" // Mutation testing config
       ],
-      "typescript": {
-        "config": "tsconfig.json"
-      }
-    },
-    "packages/tailwind-config": {
-      "project": ["**/*.{js,ts}"],
-      "ignore": [],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -375,13 +390,6 @@
         "config": "tsconfig.json"
       }
     },
-    "packages/commands": {
-      "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
-      "typescript": {
-        "config": "tsconfig.json"
-      }
-    },
     "packages/agent": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
@@ -461,8 +469,8 @@
     "@stryker-mutator/api", // Used for JSDoc type annotations in stryker.config.js files
     "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
     "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
-    "@tanstack/react-table", // Used in packages/preferences for LogViewerCard table component
-    "@tanstack/react-virtual", // Used in packages/preferences for row virtualization
+    "@tanstack/react-table", // Used in packages/settings-ui for LogViewerCard table component
+    "@tanstack/react-virtual", // Used in packages/settings-ui for row virtualization
     "@jacobwolf/biome-unnecessary-effect", // Biome plugin used in biome.json for React useEffect linting
     "react-doctor" // CI/lint tool run via `pnpm run react-doctor` + the react-doctor.yml workflow, never imported
   ],

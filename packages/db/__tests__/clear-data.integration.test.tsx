@@ -95,6 +95,36 @@ const SENTINEL_INSERTS = [
   `INSERT INTO brainstrike_assistant_message_parents
      (message_id, thread_id, resource_id)
      VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-resource')`,
+  // BST-1115: soft-rewind tombstones hide messages the clear just destroyed.
+  `INSERT INTO brainstrike_assistant_message_tombstones
+     (message_id, thread_id, rewind_id)
+     VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-rewind')`,
+  // BST-1200: exact-message compaction overlays are durable FK-less state.
+  `INSERT INTO brainstrike_assistant_compaction_ranges
+     (compaction_message_id, thread_id, compacted_message_ids, kind)
+     VALUES ('sentinel-summary', 'sentinel-thread', '["sentinel-message"]'::jsonb, 'agentic')`,
+  // BST-1164: shadow-git snapshot ledger rows map threads the clear just
+  // destroyed onto shadow commits.
+  `INSERT INTO brainstrike_workspace_snapshots
+     (id, thread_id, root_id, root_path, commit_oid, kind)
+     VALUES ('sentinel-snapshot', 'sentinel-thread', 'sentinel-root', '/sentinel',
+      'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', 'turn-start')`,
+  // BST-1173: canvas versions are durable thread-owned documents.
+  `INSERT INTO brainstrike_canvas_versions
+     (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
+     VALUES ('sentinel-canvas-version', 'sentinel-canvas', 'sentinel-thread',
+      'sentinel-resource', 'Sentinel', '<p>sentinel</p>', 1, 'assistant')`,
+  // BST-1190: durable counts/sizes-only tool-call telemetry.
+  `INSERT INTO brainstrike_tool_call_telemetry
+     (id, thread_id, run_id, tool_id, model_facing_chars)
+     VALUES ('sentinel-tool-telemetry', 'sentinel-thread', 'sentinel-run',
+      'brainstrike.grepSearch', 42)`,
+  // BST-1205: durable estimator/provider prompt-token calibration evidence.
+  `INSERT INTO brainstrike_token_estimate_calibration
+     (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
+      final_step_prompt_tokens)
+     VALUES ('sentinel-calibration', 'sentinel-thread', 'sentinel-run',
+      'model', 'provider', 42, 50)`,
   // BST-992 convergence: factory-reset-only sentinel (representative of the
   // six seed-free caches) — wiped by the purge, kept by Clear Database.
   `INSERT INTO job_queue_metrics (queue, succeeded_total)
@@ -151,6 +181,12 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_task_lists')).toBe(0);
     expect(await countRows('brainstrike_assistant_edit_checkpoints')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_parents')).toBe(0);
+    expect(await countRows('brainstrike_assistant_message_tombstones')).toBe(0);
+    expect(await countRows('brainstrike_assistant_compaction_ranges')).toBe(0);
+    expect(await countRows('brainstrike_canvas_versions')).toBe(0);
+    expect(await countRows('brainstrike_tool_call_telemetry')).toBe(0);
+    expect(await countRows('brainstrike_token_estimate_calibration')).toBe(0);
+    expect(await countRows('brainstrike_workspace_snapshots')).toBe(0);
   }
 
   async function assertMastraResetTablesAbsent(): Promise<void> {

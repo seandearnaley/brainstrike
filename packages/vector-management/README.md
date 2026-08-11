@@ -5,7 +5,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
 [![Node](https://img.shields.io/badge/Node-22+-green.svg)](https://nodejs.org/)
-[![License](https://img.shields.io/badge/License-ISC-blue.svg)](./LICENSE)
+[![License](https://img.shields.io/badge/License-ISC-blue.svg)](../../LICENSE)
 
 ## Overview
 
@@ -274,7 +274,7 @@ import type {
 - `@brainstrike/db` - Database operations
 - `@brainstrike/db-explorer` - Database UI stores
 - `@brainstrike/embeddings` - Embedding services
-- `@brainstrike/preferences` - Vector preferences store
+- `@brainstrike/app-state` - Vector preferences store
 - `@brainstrike/ui` - UI components
 - `zustand` (peer) - State management
 - `react` (peer) - UI framework

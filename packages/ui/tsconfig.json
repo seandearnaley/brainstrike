@@ -29,9 +29,6 @@
   ],
   "references": [
     {
-      "path": "../assistant-contract"
-    },
-    {
       "path": "../context-actions"
     },
     {
@@ -42,9 +39,6 @@
     },
     {
       "path": "../logging"
-    },
-    {
-      "path": "../tokenization"
     },
     {
       "path": "../utils"

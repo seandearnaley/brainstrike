@@ -27,8 +27,12 @@ pre-commit:
       run: pnpm exec ultracite fix {staged_files}
       glob:
         - "*.js"
+        - "*.mjs"
+        - "*.cjs"
         - "*.jsx"
         - "*.ts"
+        - "*.mts"
+        - "*.cts"
         - "*.tsx"
         - "*.json"
         - "*.jsonc"

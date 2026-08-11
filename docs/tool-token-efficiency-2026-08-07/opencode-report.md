@@ -1,0 +1,853 @@
+# Token-efficiency design of opencode’s agent tools
+
+Repository snapshot: opencode, branch `dev`, commit `284214c78d32a09fd9c729bdefc07be50f74eb40` dated 2026-08-07.
+
+Source citations below link to that repository at that pinned commit, so line numbers stay valid regardless of upstream drift. They point outside this repository — no path in this document refers to BrainStrike source.
+
+## Scope and architecture
+
+This repository currently contains two tool stacks:
+
+1. **SessionV1 / `packages/opencode` stack.** This is the stack used by the established prompt loop: it calls `SessionTools.resolve(...)`, which resolves tools from `packages/opencode/src/tool`. See [prompt.ts:1221](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/prompt.ts#L1221).
+
+2. **SessionV2 / `packages/core` stack.** This newer Location-scoped stack is also wired into the repository. `BuiltInTools.node` is part of Location services, and the V2 runner materializes its tool definitions. See [location-services.ts:66](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/location-services.ts#L66) and [llm.ts:203](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/session/runner/llm.ts#L203). Its own source explicitly lists several remaining parity gaps. See [builtins.ts:18](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/builtins.ts#L18).
+
+The detailed behavior below begins with SessionV1 because it has the richer, mature coding-agent UX, then identifies relevant V2 differences.
+
+---
+
+## 1. Built-in agent tools
+
+### SessionV1 tool inventory
+
+The normal built-in ordering is declared at [registry.ts:224](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/registry.ts#L224).
+
+| Tool name | One-line purpose | Source |
+|---|---|---|
+| `invalid` | Internal fallback that reports malformed tool arguments; description says `Do not use`. | [invalid.ts:9](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/invalid.ts#L9) |
+| `question` | Ask the user structured questions and return selected labels. | [question.ts:14](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/question.ts#L14) |
+| `bash` / platform shell | Execute terminal commands with timeout, permission scanning, streamed progress, and tail-oriented output bounding. | [shell.ts:338](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L338) |
+| `read` | Read text files, directories, images, and PDFs, with numbered text pagination. | [read.ts:64](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L64) |
+| `glob` | Find files by glob pattern. | [glob.ts:17](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/glob.ts#L17) |
+| `grep` | Search file contents by regular expression and return matching lines. | [grep.ts:20](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.ts#L20) |
+| `edit` | Replace an exact or corrected string in one file. | [edit.ts:58](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/edit.ts#L58) |
+| `write` | Create or overwrite a complete file. | [write.ts:27](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/write.ts#L27) |
+| `task` | Delegate a complex task to a specialized subagent. | [task.ts:81](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/task.ts#L81) |
+| `webfetch` | Fetch one URL and return text, Markdown, HTML, or an image attachment. | [webfetch.ts:24](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/webfetch.ts#L24) |
+| `todowrite` | Persist and return the current structured task list. | [todo.ts:14](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/todo.ts#L14) |
+| `websearch` | Search the current web through Exa or Parallel Search. | [websearch.ts:99](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/websearch.ts#L99) |
+| `skill` | Load a named skill plus a sampled list of its resources. | [skill.ts:12](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/skill.ts#L12) |
+| `apply_patch` | Apply a structured multi-file add/update/delete/move patch. | [apply_patch.ts:22](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/apply_patch.ts#L22) |
+| `execute` | Experimental confined orchestration script over connected MCP tools. | [code-mode.ts:188](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/code-mode.ts#L188) |
+| `lsp` | Experimental LSP definitions, references, symbols, hover, implementations, and call hierarchy. | [lsp.ts:37](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/lsp.ts#L37) |
+| `plan_exit` | Experimental CLI-only transition from plan agent to build agent after user confirmation. | [plan.ts:15](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/plan.ts#L15) |
+
+Availability is deliberately filtered:
+
+- `question` is enabled for app, CLI, and desktop clients, or by an explicit flag. [registry.ts:201](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/registry.ts#L201)
+- GPT models other than GPT-4/OSS receive `apply_patch`; other models receive `edit` and `write`. [registry.ts:286](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/registry.ts#L286)
+- `execute`, `lsp`, and `plan_exit` are experimental; `plan_exit` is CLI-only. [registry.ts:241](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/registry.ts#L241)
+- `websearch` is provider/feature gated. [registry.ts:287](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/registry.ts#L287)
+
+When an MCP server exposes resources, three additional host-defined tools appear:
+
+| Tool | Purpose | Source |
+|---|---|---|
+| `list_mcp_resources` | List MCP resources, optionally for one server. | [tools.ts:140](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/tools.ts#L140) |
+| `list_mcp_resource_templates` | List parameterized MCP resource templates. | [tools.ts:222](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/tools.ts#L222) |
+| `read_mcp_resource` | Read an exact server/URI resource. | [tools.ts:305](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/tools.ts#L305) |
+
+Arbitrary MCP and plugin tools are dynamic extensions, not built-ins.
+
+### SessionV2/Core inventory
+
+The newer Core stack currently ships:
+
+`apply_patch`, `bash`, `edit`, `glob`, `grep`, `question`, `read`, `skill`, `todowrite`, `webfetch`, `websearch`, and `write`. The complete static composition is at [builtins.ts:31](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/builtins.ts#L31).
+
+Its TODO explicitly says `task`, LSP, repository helpers, `plan_exit`, and code mode have not yet been ported. [builtins.ts:26](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/builtins.ts#L26)
+
+---
+
+## 2. Grep/search and glob/file listing
+
+## SessionV1 `grep`
+
+### Exact model-facing text format
+
+The formatter starts with:
+
+```text
+Found <N> matches
+```
+
+or, at the cap:
+
+```text
+Found <N> matches (more matches available)
+```
+
+It groups matches by absolute path, inserts a blank line between files, and formats each row as:
+
+```text
+  Line <line-number>: <matching-line>
+```
+
+Representative output:
+
+```text
+Found 3 matches
+
+/Users/example/project/src/a.ts:
+  Line 12: export const alpha = 1
+  Line 38: export function beta() {
+
+/Users/example/project/src/b.ts:
+  Line 7: export type Result = string
+```
+
+The implementation is exact at [grep.ts:85](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.ts#L85). No-result output is exactly:
+
+```text
+No files found
+```
+
+defined at [grep.ts:30](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.ts#L30).
+
+### Numeric limits
+
+- Hard request limit: **100 matching lines**. [grep.ts:63](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.ts#L63)
+- A result length of exactly 100 is considered truncated. [grep.ts:80](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.ts#L80)
+- Each returned matching line is capped at **2,000 characters**, followed by `...`. [ripgrep.ts:260](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L260)
+- Each raw ripgrep JSON record may be at most **64 KiB**. [ripgrep.ts:18](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L18), [ripgrep.ts:232](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L232)
+- Ripgrep stderr capture is capped at **8 KiB**. [ripgrep.ts:18](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L18), [ripgrep.ts:112](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L112)
+- At most **100 submatches** are retained inside a matched line’s structured record, although the SessionV1 formatter does not print submatch details. [ripgrep.ts:20](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L20), [ripgrep.ts:243](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L243)
+
+The ripgrep adapter reads `limit + 1`, then returns the first `limit` rows. [ripgrep.ts:117](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L117) However, the adapter exposes only the resulting array to the legacy leaf, not its internal `truncated` flag. Therefore the leaf conservatively treats every 100-row response as “more matches available,” including the exact-100/no-more case.
+
+### Context lines
+
+There is **no before/after context option**. The command uses `rg --json` without `-A`, `-B`, or `-C`; it returns only matched lines. [ripgrep.ts:218](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L218)
+
+### Sorting and ranking
+
+There is:
+
+- no relevance ranking;
+- no post-sort;
+- no `--sort` ripgrep flag;
+- no mtime ranking.
+
+Rows remain in ripgrep traversal/output order. The formatter merely groups consecutive rows that share a path. [grep.ts:89](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.ts#L89)
+
+### Deduplication
+
+There is no explicit deduplication. Ripgrep’s JSON `match` record represents a matching line and may contain multiple submatches on that line; opencode emits one row per ripgrep match record. [ripgrep.ts:22](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L22)
+
+### Pagination and continuation
+
+There is no cursor, page, offset, or continuation token. When capped, the appended guidance is exactly:
+
+```text
+(Results truncated. Consider using a more specific path or pattern.)
+```
+
+[grep.ts:99](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.ts#L99)
+
+The intended continuation mechanism is a narrower `path`, regex, or `include` glob—not paging.
+
+## SessionV1 `glob`
+
+### Exact model-facing format
+
+Every result is an absolute path on its own line:
+
+```text
+/Users/example/project/src/a.ts
+/Users/example/project/src/components/button.ts
+/Users/example/project/test/a.test.ts
+```
+
+This is produced by resolving each ripgrep-relative path against the requested directory. [glob.ts:53](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/glob.ts#L53)
+
+No result is exactly:
+
+```text
+No files found
+```
+
+[glob.ts:54](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/glob.ts#L54)
+
+### Limits and continuation
+
+- Hard cap: **100 paths**. [glob.ts:49](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/glob.ts#L49)
+- Exactly 100 results are considered truncated. [glob.ts:51](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/glob.ts#L51)
+- Appended message:
+
+```text
+(Results are truncated: showing first 100 results. Consider using a more specific path or pattern.)
+```
+
+[glob.ts:57](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/glob.ts#L57)
+
+There is no offset or cursor. Narrowing the path or pattern is the sole continuation policy.
+
+### Sorting, ranking, and deduplication
+
+Like grep, glob uses `rg --files` with a glob and no sort flag, then preserves output order. [ripgrep.ts:154](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L154) There is no ranking or explicit deduplication.
+
+`.git` is always excluded through:
+
+```text
+--glob=!**/.git/**
+```
+
+for both glob and grep. [ripgrep.ts:160](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L160), [ripgrep.ts:221](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/ripgrep.ts#L221)
+
+## Directory listing through `read`
+
+Reading a directory is a separate file-listing path. It:
+
+- sorts names lexicographically;
+- appends `/` to directories and symlinks that resolve to directories;
+- paginates by `offset` and `limit`.
+
+Sorting and suffix behavior are at [read.ts:101](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L101).
+
+Its exact envelope is:
+
+```text
+<path>/absolute/directory</path>
+<type>directory</type>
+<entries>
+a/
+b.ts
+c.txt
+
+(3 entries)
+</entries>
+```
+
+If truncated:
+
+```text
+(Showing 2000 of 4500 entries. Use 'offset' parameter to read beyond entry 2001)
+```
+
+The envelope and message are at [read.ts:264](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L264).
+
+Unlike `glob`, directory `read` has pagination. The default limit is 2,000, but the SessionV1 schema does not impose a hard maximum on a caller-supplied limit. Directory output also does not have `read`’s 50 KiB text-file cap. [read.ts:28](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L28), [read.ts:264](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L264)
+
+## SessionV2 search differences
+
+The V2 grep and glob schemas expose a model-controlled optional `limit`; absent a value, they pass `Number.MAX_SAFE_INTEGER` to ripgrep. [grep.ts:95](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/grep.ts#L95), [glob.ts:75](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/glob.ts#L75)
+
+Their text formats remain concise:
+
+- V2 grep uses `Found N matches`, path headings, and `  Line N: text`. [grep.ts:37](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/grep.ts#L37)
+- V2 glob emits one path per line. [glob.ts:31](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/glob.ts#L31)
+
+They do not append leaf-specific truncation advice; the V2 generic output store supplies the final safety bound.
+
+---
+
+## 3. File-read behavior
+
+## Line numbering and exact format
+
+SessionV1 text-file output begins:
+
+```text
+<path>/absolute/path/file.ts</path>
+<type>file</type>
+<content>
+1: first line
+2: second line
+3: third line
+
+(End of file - total 3 lines)
+</content>
+```
+
+Every line uses the exact prefix `<line-number>: `. [read.ts:338](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L338)
+
+The description also teaches this format with a miniature example. [read.txt:10](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.txt#L10)
+
+## Offset and limit
+
+- Offset is 1-based.
+- Default offset: **1**.
+- Default limit: **2,000 lines**.
+- Both schema values are non-negative integers. [read.ts:28](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L28)
+- Runtime uses `params.offset || 1`, so an offset of `0` behaves as `1`. [read.ts:331](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L331)
+- SessionV1 does not clamp a caller-supplied limit to 2,000. The effective hard bound for text is normally the byte cap.
+
+## Byte and per-line caps
+
+- Text returned per call: **50 KiB** (`50 * 1024` bytes). [read.ts:13](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L13)
+- Individual line: **2,000 characters**, then:
+
+```text
+... (line truncated to 2000 chars)
+```
+
+[read.ts:14](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L14), [read.ts:162](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L162)
+- Binary/media sniff sample: **4,096 bytes**. [read.ts:18](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L18)
+
+The reader streams the file and stops upstream as soon as its byte budget is exhausted; it does not read the rest merely to calculate a total. [read.ts:137](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L137)
+
+## Truncation and continuation messages
+
+Byte cap:
+
+```text
+(Output capped at 50 KB. Showing lines <start>-<last>. Use offset=<next> to continue.)
+```
+
+Line limit:
+
+```text
+(Showing lines <start>-<last> of <observed-count>. Use offset=<next> to continue.)
+```
+
+Complete file:
+
+```text
+(End of file - total <count> lines)
+```
+
+[read.ts:341](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L341)
+
+An out-of-range offset fails with:
+
+```text
+Offset <offset> is out of range for this file (<count> lines)
+```
+
+[read.ts:331](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L331)
+
+## Missing-path hinting
+
+On a missing path, opencode scans the parent directory for names where either lowercase basename contains the other. It returns at most **three** suggestions:
+
+```text
+File not found: /path/foo.ts
+
+Did you mean one of these?
+/path/Foo.ts
+/path/foo.test.ts
+```
+
+[read.ts:76](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L76)
+
+This is substring filtering, not edit-distance ranking.
+
+## Images, PDFs, and other binaries
+
+Supported image MIME types are JPEG, PNG, GIF, and WebP. [read.ts:19](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L19)
+
+For a recognized image or PDF, SessionV1:
+
+- reads the entire file;
+- returns `Image read successfully` or `PDF read successfully`;
+- attaches a base64 data URL;
+- does not apply the 50 KiB text limit.
+
+[read.ts:300](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L300)
+
+SessionV1 has no explicit image/PDF ingestion-byte limit in this tool.
+
+Other binary files are rejected. Detection combines:
+
+- a fixed extension denylist including archives, executables, Office formats, object files, Wasm, and bytecode;
+- immediate rejection on a NUL byte;
+- rejection when more than 30% of sampled bytes are non-printable control bytes.
+
+[read.ts:182](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L182)
+
+The exact error is:
+
+```text
+Cannot read binary file: <path>
+```
+
+[read.ts:327](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L327)
+
+## SessionV2 read differences
+
+V2 makes several bounds stricter:
+
+- Hard maximum **2,000 lines** in the input schema.
+- **50 KiB** text-page cap.
+- **2,000 characters** per line.
+- **20 MiB** maximum image ingestion.
+
+[read-filesystem.ts:11](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/read-filesystem.ts#L11), [read-filesystem.ts:72](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/read-filesystem.ts#L72)
+
+V2 supports the same four image types but rejects PDF and listed binary extensions. [read-filesystem.ts:136](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/read-filesystem.ts#L136), [read-filesystem.ts:212](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/read-filesystem.ts#L212)
+
+V2 directory pages are sorted with directories first, then lexical path order, and expose an exact next offset. [read-filesystem.ts:324](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/read-filesystem.ts#L324)
+
+---
+
+## 4. Bash/shell output handling
+
+## SessionV1 shell
+
+### Combined output and stderr
+
+The tool consumes `handle.all`, so stdout and stderr are merged in process emission order. [shell.ts:481](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L481)
+
+Tests explicitly verify both stdout and stderr appear in the output. [shell.test.ts:1081](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/test/tool/shell.test.ts#L1081)
+
+### Model-output limits
+
+Shell uses the configured global limits:
+
+- default **2,000 lines**;
+- default **50 KiB**.
+
+[shell.ts:438](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L438), [truncate.ts:14](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/truncate.ts#L14)
+
+It retains the **tail**, not the head. The tail walker moves backward until either line or byte capacity is exhausted. If one line alone exceeds the byte limit, it preserves the UTF-8-safe suffix of that line. [shell.ts:225](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L225)
+
+This is a material token-efficiency decision: terminal failures and summaries commonly appear at the end.
+
+### Full-output retention
+
+Once accumulated output exceeds the byte limit, the tool creates a managed output file, streams all subsequent chunks into it, and clears the in-memory full string. [shell.ts:500](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L500)
+
+The model-facing prefix is exactly:
+
+```text
+...output truncated...
+
+Full output saved to: <path>
+
+<retained tail>
+```
+
+[shell.ts:575](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L575)
+
+When output is line-truncated but never crossed the byte limit, the final retained raw output is written at completion. [shell.ts:568](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L568)
+
+### Streaming preview
+
+Live metadata retains only the last **30,000 characters**, prefixed with `...\n\n` after overflow. [shell.ts:27](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L27), [shell.ts:220](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L220)
+
+The internal rolling chunk list targets twice the configured byte limit, while final model output is reduced to the single configured limit. [shell.ts:438](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L438)
+
+### Empty output, exit codes, timeouts, and aborts
+
+- Empty output becomes exactly `(no output)`. [shell.ts:575](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L575)
+- The exit code is stored in `metadata.exit`; a non-zero exit does not itself discard output. [shell.ts:585](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L585)
+- Default timeout is **120,000 ms**, configurable through `OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS`. [shell.ts:347](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L347)
+- Timeout appends a `<shell_metadata>` block telling the model to retry with a larger timeout if appropriate. [shell.ts:561](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L561)
+- Abort appends `User aborted the command`. [shell.ts:567](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L567)
+- Spawn/runtime defects surface as tool errors through `Effect.orDie`; normal non-zero exits remain ordinary completed tool results. [shell.ts:481](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L481)
+
+Persisted tool replay uses the output string, not general metadata. [message-v2.ts:290](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/message-v2.ts#L290)
+
+## SessionV2 bash differences
+
+V2 bash defines:
+
+- default timeout: **120,000 ms**;
+- maximum timeout: **600,000 ms**;
+- process capture limit: **1 MiB**.
+
+[bash.ts:18](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/bash.ts#L18)
+
+The process collector retains the **first** 1 MiB and marks later data truncated. [process.ts:121](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/process.ts#L121)
+
+It appends:
+
+```text
+[output capture truncated at the in-memory safety limit]
+```
+
+[bash.ts:186](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/bash.ts#L186)
+
+Afterward, the generic V2 50 KiB/2,000-line layer produces a balanced head-and-tail preview. It cannot recover shell bytes already dropped past the 1 MiB process cap; the source keeps this limitation as an explicit TODO. [bash.ts:76](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/bash.ts#L76)
+
+V2 always adds either `Command exited with code N.` or `Command timed out before completion.` to the model result. [bash.ts:51](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/bash.ts#L51)
+
+---
+
+## 5. Tool description prompts
+
+## Storage and delivery
+
+Most SessionV1 descriptions live in adjacent `.txt` files and are imported as strings—for example, read at [read.ts:7](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L7), grep at [grep.ts:7](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.ts#L7), and edit at [edit.ts:11](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/edit.ts#L11).
+
+The registry sends these descriptions alongside schemas, and permits plugins to transform them before delivery. [registry.ts:305](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/registry.ts#L305)
+
+Stored base-description sizes at this commit:
+
+| Tool | Lines | Words | Bytes |
+|---|---:|---:|---:|
+| `skill` | 5 | 68 | 399 |
+| `glob` | 6 | 89 | 517 |
+| `grep` | 8 | 108 | 657 |
+| `write` | 8 | 108 | 623 |
+| `question` | 10 | 111 | 657 |
+| `edit` | 10 | 231 | 1,369 |
+| `webfetch` | 13 | 130 | 750 |
+| `plan_exit` | 13 | 107 | 579 |
+| `read` | 14 | 211 | 1,158 |
+| `websearch` | 14 | 157 | 1,033 |
+| `task` | 19 | 412 | 2,305 |
+| shell base template | 21 | 204 | 1,269 |
+| `lsp` | 24 | 196 | 1,303 |
+| `apply_patch` | 33 | 187 | 1,098 |
+| `todowrite` | 44 | 337 | 2,012 |
+
+These counts exclude JSON-schema field descriptions.
+
+### Dynamic descriptions
+
+The final shell description is substantially longer than its 21-line base template. It injects OS, shell, timeout, output limits, temporary directory, shell-specific rules, file-tool routing, parallel-call advice, and Git/PR rules. Rendering occurs at [prompt.ts:273](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell/prompt.ts#L273); the Bash-specific usage block is at [prompt.ts:78](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell/prompt.ts#L78).
+
+The task description also grows dynamically:
+
+- the registry appends a sorted list of available subagent types and descriptions; [registry.ts:260](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/registry.ts#L260)
+- experimental background-task instructions are conditionally appended. [task.ts:350](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/task.ts#L350)
+
+Code mode appends an MCP tool catalog when applicable. [registry.ts:275](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/registry.ts#L275)
+
+## Few-shot examples and usage rules
+
+Descriptions are not merely one-line API summaries. They deliberately contain model-training guidance:
+
+- `read` includes an exact line-numbering example and advises larger windows instead of repeated 30-line slices. [read.txt:10](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.txt#L10)
+- `glob` and `grep` include example patterns. [glob.txt:2](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/glob.txt#L2), [grep.txt:3](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.txt#L3)
+- `edit` explains how to strip the displayed line-number prefix and how to recover from ambiguous matches. [edit.txt:4](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/edit.txt#L4)
+- `apply_patch` embeds a complete add/update/move/delete patch example. [apply_patch.txt:15](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/apply_patch.txt#L15)
+- `todowrite` contains positive and negative task examples. [todowrite.txt:32](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/todowrite.txt#L32)
+- shell contains `<good-example>` and `<bad-example>` blocks and explicit command-routing rules. [prompt.ts:95](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell/prompt.ts#L95)
+- `websearch` injects the current year and shows a correct/incorrect recency query example. [websearch.txt:13](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/websearch.txt#L13)
+
+V2 generally uses shorter inline paragraphs instead. For example, V2 grep is one concise paragraph. [grep.ts:63](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/grep.ts#L63) Question and skill retain longer behavioral prompts. [question.ts:14](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/question.ts#L14), [skill.ts:27](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/skill.ts#L27)
+
+---
+
+## 6. Global output budgets and context-window management
+
+## SessionV1 generic tool-output bounding
+
+Defaults:
+
+- **2,000 lines**
+- **50 KiB**
+- default retention direction: **head**
+
+[truncate.ts:14](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/truncate.ts#L14), [truncate.ts:85](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/truncate.ts#L85)
+
+These values are configurable through:
+
+```json
+{
+  "tool_output": {
+    "max_lines": 2000,
+    "max_bytes": 51200
+  }
+}
+```
+
+The schema and descriptions are at [config.ts:136](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/v1/config/config.ts#L136).
+
+When truncated:
+
+1. the full text is saved under the global `tool-output` data directory;
+2. only the bounded preview is returned;
+3. a guidance string tells the model how to inspect the saved file.
+
+With task access:
+
+```text
+The tool call succeeded but the output was truncated. Full output saved to: <path>
+Use the Task tool to have explore agent process this file with Grep and Read (with offset/limit). Do NOT read the full file yourself - delegate to save context.
+```
+
+Without task access:
+
+```text
+The tool call succeeded but the output was truncated. Full output saved to: <path>
+Use Grep to search the full content or Read with offset/limit to view specific sections.
+```
+
+[truncate.ts:124](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/truncate.ts#L124)
+
+Managed files are retained for **seven days**. Cleanup begins after one minute and repeats hourly. [truncate.ts:12](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/truncate.ts#L12), [truncate.ts:143](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/truncate.ts#L143)
+
+### Important leaf/global interaction
+
+The common wrapper applies generic truncation only when `result.metadata.truncated` is absent. If the leaf supplies either `true` or `false`, its own policy is trusted. [tool.ts:130](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/tool.ts#L130)
+
+Consequently:
+
+- `read`, `glob`, `grep`, and shell bypass the generic wrapper because they set `metadata.truncated`;
+- read and shell have explicit byte/line management;
+- grep’s 100 rows × 2,000-character line previews can theoretically exceed the generic 50 KiB threshold because even `truncated: false` bypasses it;
+- ordinary built-ins without leaf truncation receive the global head preview automatically;
+- plugin tools are explicitly run through the truncator at the registry boundary. [registry.ts:149](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/registry.ts#L149)
+
+## Context-window and output-token budgets
+
+Provider completion output is globally capped at **32,000 tokens**, or the model’s smaller output limit. [transform.ts:18](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/provider/transform.ts#L18), [transform.ts:1412](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/provider/transform.ts#L1412)
+
+The LLM request passes that calculated maximum to the provider. [request.ts:114](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/llm/request.ts#L114)
+
+Overflow calculation reserves:
+
+- configured `compaction.reserved`, or
+- the smaller of **20,000 tokens** and the provider output allowance.
+
+[overflow.ts:8](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/overflow.ts#L8)
+
+Automatic compaction triggers once reported total usage reaches the usable context threshold. [overflow.ts:22](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/overflow.ts#L22)
+
+## SessionV1 tool-output pruning and compaction
+
+Compaction constants:
+
+- individual tool output serialized into the compaction prompt: **2,000 characters**;
+- protect the newest **40,000 estimated tool-output tokens**;
+- prune only when more than **20,000 estimated tokens** would be removed;
+- `skill` output is protected from this pruning;
+- default verbatim tail: **2 user turns**;
+- default recent-tail budget: 25% of usable context, clamped to **2,000–8,000 tokens**.
+
+[compaction.ts:28](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/compaction.ts#L28), [compaction.ts:116](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/compaction.ts#L116), [compaction.ts:224](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/compaction.ts#L224)
+
+Old pruned tool output is replayed as exactly:
+
+```text
+[Old tool result content cleared]
+```
+
+[message-v2.ts:290](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/session/message-v2.ts#L290)
+
+## SessionV2 generic output bounding
+
+V2 centralizes bounding in `ToolRegistry.settle`; every successful canonical tool output flows through `ToolOutputStore.bound`. [registry.ts:62](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/registry.ts#L62)
+
+Defaults remain 2,000 lines and 50 KiB. Unlike SessionV1’s default head-only preview, V2 divides the preview approximately equally:
+
+- `ceil(maxLines / 2)` head lines;
+- `floor(maxLines / 2)` tail lines;
+- or half the bytes for each side when byte-limited.
+
+[tool-output-store.ts:74](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool-output-store.ts#L74)
+
+The marker is:
+
+```text
+... output truncated; full content saved to <path> ...
+```
+
+[tool-output-store.ts:138](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool-output-store.ts#L138)
+
+Media parts are preserved outside the text budget. [tool-output-store.ts:140](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool-output-store.ts#L140)
+
+V2 compaction defaults are:
+
+- **20,000-token** context buffer;
+- **8,000 recent tokens** retained;
+- **2,000-character** tool result serialization;
+- **4,096-token** maximum compaction summary.
+
+[compaction.ts:12](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/session/compaction.ts#L12)
+
+---
+
+## 7. Diagnostics and edit confirmation
+
+SessionV1 does **not** echo complete edited files back to the model.
+
+### `edit`
+
+The direct model-facing success is:
+
+```text
+Edit applied successfully.
+```
+
+If LSP finds errors in that file, it appends:
+
+```text
+LSP errors detected in this file, please fix:
+<diagnostics ...>
+```
+
+[edit.ts:196](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/edit.ts#L196)
+
+A unified diff, addition/deletion counts, and diagnostics are retained in metadata for UI/permission rendering, but the success text itself does not contain the diff. [edit.ts:175](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/edit.ts#L175)
+
+### `write`
+
+Success is:
+
+```text
+Wrote file successfully.
+```
+
+followed by current-file diagnostics and diagnostics from at most **five other files**. [write.ts:18](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/write.ts#L18), [write.ts:74](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/write.ts#L74)
+
+It does not echo the written content or diff to the model.
+
+### `apply_patch`
+
+The result is a status-only file list:
+
+```text
+Success. Updated the following files:
+A new-file.ts
+M changed-file.ts
+D deleted-file.ts
+```
+
+followed by per-edited-file LSP errors when present. [apply_patch.ts:273](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/apply_patch.ts#L273)
+
+The complete aggregate diff and per-file patches remain metadata. [apply_patch.ts:295](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/apply_patch.ts#L295)
+
+### Diagnostic caps
+
+Only severity-1 LSP errors are emitted. Each file is capped at **20 errors**, with:
+
+```text
+... and <N> more
+```
+
+[diagnostic.ts:3](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/lsp/diagnostic.ts#L3), [diagnostic.ts:20](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/lsp/diagnostic.ts#L20)
+
+### V2 edit confirmation
+
+V2 is more explicit but still bounded. Exact edit returns:
+
+```text
+Edited file successfully: <path>
+Replacements: <N>
+```diff
+-<old preview>
++<new preview>
+```
+```
+
+Each side is limited to **six lines**, and each preview line to **240 characters**; an extra `...` row indicates omitted lines. [edit.ts:66](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/edit.ts#L66), [edit.ts:73](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/edit.ts#L73)
+
+V2 write returns only `Wrote file successfully: <path>` or `Created file successfully: <path>`. [write.ts:38](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/write.ts#L38)
+
+V2 patch returns only an `A`/`M`/`D` list. [apply-patch.ts:37](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/core/src/tool/apply-patch.ts#L37)
+
+---
+
+## 8. In-context-learning and narrowing guidance
+
+The implementation repeatedly teaches the model how to avoid high-token follow-ups.
+
+### Search narrowing
+
+Grep cap:
+
+```text
+(Results truncated. Consider using a more specific path or pattern.)
+```
+
+[grep.ts:99](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.ts#L99)
+
+Glob cap:
+
+```text
+(Results are truncated: showing first 100 results. Consider using a more specific path or pattern.)
+```
+
+[glob.ts:57](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/glob.ts#L57)
+
+The descriptions further route open-ended repeated search to `Task`, while keeping single-file or exact-symbol searches in cheaper direct tools. [grep.txt:6](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.txt#L6), [task.txt:5](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/task.txt#L5)
+
+### Empty-result messaging
+
+- Grep and glob: `No files found`. [grep.ts:33](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/grep.ts#L33), [glob.ts:54](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/glob.ts#L54)
+- LSP: `No results found for <operation>`. [lsp.ts:105](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/lsp.ts#L105)
+- Shell: `(no output)`. [shell.ts:575](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell.ts#L575)
+
+### “Did you mean” and recovery hints
+
+- Missing read paths return up to three `Did you mean one of these?` suggestions. [read.ts:76](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.ts#L76)
+- Ambiguous edit:
+
+```text
+Found multiple matches for oldString. Provide more surrounding context to make the match unique.
+```
+
+[edit.ts:728](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/edit.ts#L728)
+
+- Failed exact edit:
+
+```text
+Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.
+```
+
+[edit.ts:723](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/edit.ts#L723)
+
+- Unsafe fuzzy expansion:
+
+```text
+Refusing replacement because the matched span is much larger than oldString. Re-read the file and provide the full exact oldString for the intended replacement.
+```
+
+[edit.ts:709](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/edit.ts#L709)
+
+- Invalid schema input:
+
+```text
+The <tool> tool was called with invalid arguments: <detail>.
+Please rewrite the input so it satisfies the expected schema.
+```
+
+[tool.ts:24](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/tool.ts#L24)
+
+### Delegation as context preservation
+
+The generic truncator explicitly tells capable agents not to read a huge saved result themselves:
+
+```text
+Use the Task tool to have explore agent process this file with Grep and Read (with offset/limit). Do NOT read the full file yourself - delegate to save context.
+```
+
+[truncate.ts:129](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/truncate.ts#L129)
+
+### Parallelism guidance
+
+Descriptions instruct the model to batch independent tool calls:
+
+- glob calls this “speculatively perform multiple searches as a batch”; [glob.txt:6](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/glob.txt#L6)
+- read says to call in parallel for known multiple files; [read.txt:12](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/read.txt#L12)
+- shell says independent commands should be separate parallel calls in one message. [prompt.ts:107](https://github.com/anomalyco/opencode/blob/284214c78d32a09fd9c729bdefc07be50f74eb40/packages/opencode/src/tool/shell/prompt.ts#L107)
+
+This reduces conversational round trips without increasing individual tool-result size.
+
+---
+
+# Key token-efficiency techniques, ranked by impact
+
+1. **Global bounded tool-output storage:** ordinary results are capped at 2,000 lines/50 KiB, while full text is saved for targeted grep/read follow-up. SessionV2 strengthens this with balanced head-and-tail sampling.
+
+2. **Automatic context compaction and old-tool-result pruning:** old outputs are replaced with a tiny marker, recent turns are retained under a bounded token budget, and compaction summaries see only 2,000 characters per tool result.
+
+3. **Early leaf-level search caps:** grep and glob stop after 100 results instead of generating an arbitrarily large model result.
+
+4. **Paged, byte-bounded file reads:** numbered lines, offsets, explicit continuation hints, a 50 KiB call cap, and 2,000-character per-line previews make large files inspectable without full ingestion.
+
+5. **Tail retention for terminal output:** SessionV1 shell preserves the end of logs, where failure details usually occur, while streaming the full output to a searchable managed file.
+
+6. **Compact mutation acknowledgements:** edit/write/patch report success, affected paths, bounded snippets, and capped diagnostics instead of echoing entire files or full diffs.
+
+7. **Prompt-level routing to cheaper tools:** descriptions tell the model to use direct read/grep/glob for precise questions, Task for genuinely open-ended exploration, and dedicated filesystem tools instead of verbose shell commands.
+
+8. **Actionable truncation strings:** every capped path teaches the next efficient operation—narrow the pattern, increase the read offset, grep the saved result, or delegate its analysis.
+
+9. **Empty-result and repair-oriented errors:** terse `No files found`, “Did you mean,” exact-match guidance, and schema-rewrite instructions reduce blind retries.
+
+10. **Dynamic tool visibility:** model-, client-, permission-, provider-, and feature-based filtering avoids paying prompt tokens for tools that cannot or should not be used.

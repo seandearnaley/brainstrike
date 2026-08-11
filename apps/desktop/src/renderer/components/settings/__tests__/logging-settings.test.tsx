@@ -1,13 +1,13 @@
 import {
+  __resetLoggingPreferencesStoreForTests,
+  useLoggingPreferencesStore,
+} from '@brainstrike/app-state/stores/logging-preferences-store';
+import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
   LogLevel,
   type LogRecord,
 } from '@brainstrike/logging';
-import {
-  __resetLoggingPreferencesStoreForTests,
-  useLoggingPreferencesStore,
-} from '@brainstrike/preferences';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { LoggingSettingsPayload } from '../../../../logging-shared';
@@ -45,18 +45,6 @@ vi.mock('@tanstack/react-virtual', async () => {
     }),
   };
 });
-
-declare global {
-  interface Window {
-    logging?: {
-      getPreferences: () => Promise<LoggingSettingsPayload>;
-      getBufferedLogs: () => Promise<LogRecord[]>;
-      setPreferences: (preferences: LoggingPreferences) => Promise<LoggingSettingsPayload>;
-      selectDestination: () => Promise<string | null>;
-      openDestination: (target: string | null) => Promise<boolean>;
-    };
-  }
-}
 
 describe('DesktopLoggingSettings', () => {
   beforeEach(() => {
@@ -97,13 +85,13 @@ describe('DesktopLoggingSettings', () => {
         capabilities,
         preferences: nextPreferences,
       })),
-    };
+    } as unknown as Window['logging'];
   });
 
   afterEach(() => {
     getRendererLogBuffer().resume();
     getRendererLogBuffer().clear();
-    window.logging = undefined;
+    (window as unknown as { logging?: Window['logging'] }).logging = undefined;
   });
 
   it('loads preferences and updates them through the bridge', async () => {
@@ -130,7 +118,7 @@ describe('DesktopLoggingSettings', () => {
       openDestination: vi.fn(),
       selectDestination: vi.fn(),
       setPreferences: vi.fn(),
-    };
+    } as unknown as Window['logging'];
 
     render(<DesktopLoggingSettings />);
 
@@ -142,7 +130,11 @@ describe('DesktopLoggingSettings', () => {
 
   it('includes Electron main buffered logs in the desktop log viewer source', async () => {
     getRendererLogBuffer().push(createLogRecord('renderer diagnostic', 'electron-renderer'));
-    window.logging!.getBufferedLogs = vi
+    const logging = window.logging;
+    if (!logging) {
+      throw new Error('Expected the logging bridge to be available.');
+    }
+    logging.getBufferedLogs = vi
       .fn()
       .mockResolvedValue([createLogRecord('main diagnostic', 'electron-main')]);
 
@@ -159,7 +151,11 @@ describe('DesktopLoggingSettings', () => {
 
   it('renders an explicit diagnostic when Electron main buffered logs cannot be loaded', async () => {
     getRendererLogBuffer().push(createLogRecord('renderer diagnostic', 'electron-renderer'));
-    window.logging!.getBufferedLogs = vi.fn().mockRejectedValue(new Error('main bridge failed'));
+    const logging = window.logging;
+    if (!logging) {
+      throw new Error('Expected the logging bridge to be available.');
+    }
+    logging.getBufferedLogs = vi.fn().mockRejectedValue(new Error('main bridge failed'));
 
     render(<DesktopLoggingSettings />);
 

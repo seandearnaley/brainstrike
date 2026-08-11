@@ -1,6 +1,6 @@
 /// <reference types="vitest/globals" />
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_STATE } from '../src/file-explorer-types.js';
+import { DEFAULT_STATE } from '../src/file-explorer-state-types.js';
 
 describe('DEFAULT_STATE', () => {
   it('shows everything by default — include filters are opt-in', () => {

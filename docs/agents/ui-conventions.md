@@ -4,14 +4,15 @@
 
 ## TREEGRID CONVERGENCE CONTRACT
 
-File-tree and context preview tree behavior is converging on shared TreeTable primitives.
+Tree behavior across the remaining tree surfaces is converging on shared TreeTable primitives.
 
 Rules:
 - Use `packages/ui/src/tree-table/*` as the canonical treegrid implementation.
 - Prefer adapting feature surfaces to TreeTable API over duplicating tree render logic in app/package code.
-- Keep UX parity between:
-  - File explorer tree (left nav).
-  - Context explorer grouped preview tree (main panel).
+- The Explorer file tree (left nav) is the reference treegrid. BST-1211 retired
+  the Context explorer's grouped preview table, so the context preview is no
+  longer a treegrid adapter — its only surface is the Tapestry gallery.
+- Pickers rendered in popovers must follow the `useCollections` single-owner ruling in `database.md`.
 - Preserve WAI-ARIA treegrid semantics (`role="treegrid"`, row/level metadata, keyboard traversal).
 - Roving row focus and selection are independent. Keep `data-focused`/`tabIndex`
   for keyboard ownership. Paint the row affordance from `:focus-visible` when the
@@ -76,8 +77,9 @@ Windowing and performance:
   `forest-tree-actions-context.test.tsx`, `forest-section-filtering.test.tsx`,
   and the `filteredPathSet`-skip tests in
   `optimized-file-tree-filtered-selection.test.tsx`):
-  - The forest registry (`forest-tree-actions-context.tsx`) is split: the
-    actions value is identity-stable for the provider's lifetime, and the
+  - The forest registry (`forest-tree-actions-provider.tsx` plus
+    `forest-tree-actions-context.ts`) keeps observable state off the actions
+    value: that value is identity-stable for the provider's lifetime, and the
     expand-all progress aggregate is an external store read only through
     `useForestExpandAllProgress` (a toolbar leaf), never through the actions
     context. Progress reports aggregate by per-section delta and publish at
@@ -91,11 +93,16 @@ Windowing and performance:
     Collapse All closes every header via `collapseAllSections` in addition to
     clearing the workspace expansion set. Pinned by
     `forest-section-collapse.test.tsx`.
-  - Expand All / Collapse All render in the `FloatingTreeActions` overlay
-    pinned to the tree area's top-right (`file-explorer-panel.tsx`), keeping
-    their historical `*-button-small` testids; the toolbar cluster hosts only
-    Refresh + the inline scanning indicator. Overlays over the tree must
-    never shift tree rows (same contract as `RestorationStatus`).
+  - Expand All / Collapse All render in the TOOLBAR's LEFT track
+    (`components/tree-expansion-buttons.tsx`), keeping their historical
+    `*-button-small` testids; the right cluster hosts Refresh + the inline
+    scanning indicator. They floated over the tree area's top-right corner
+    until BST-1208 put the tree grid's column header there — the overlay
+    covered the trailing metadata header and INTERCEPTED its clicks, making
+    click-to-sort unreachable by ordinary pointer use at the panel's normal
+    width. **Do not reintroduce a tree-area overlay for them.** The one
+    remaining tree overlay is `RestorationStatus`, which is
+    `pointer-events-none` and must still never shift tree rows.
   - Each forest section computes ONE shared display derivation
     (`RootSectionInner`): view filters + quick filter + visible-file counts
     feed both the header select-all checkbox and the tree pane. The INPUT
@@ -104,6 +111,178 @@ Windowing and performance:
   - `OptimizedFileTree` accepts `isDisplayTreeFiltered`; `false` skips the
     O(N) filtered-path-set walk on the normalized path (null set = no
     restriction). Callers that cannot tell omit it (conservative build).
+- `rowHeight` selects one of TWO contracts and they are not interchangeable.
+  A **function or per-type record** makes the value a first-paint estimate:
+  TreeTable attaches TanStack's measure ref, every rendered row is measured,
+  and a wrong estimate only costs scrollbar accuracy until measurement lands
+  (what the threads panel relies on — see `thread-panel-visible-rows.ts`).
+  A **number** disables measurement entirely, which promotes the value to a
+  load-bearing promise: the spacer math (`paddingTop = firstIndex * rowHeight`),
+  `getTotalSize()`, and every `scrollToIndex`/reveal offset derive from it and
+  nothing ever reconciles them against the DOM. A numeric `rowHeight` must
+  therefore equal the MEASURED pitch, never a design target.
+  `OptimizedFileTree`'s `ROW_HEIGHT` is **29** — a 28px content line (24px
+  `h-6` control + `my-0.5`) plus the 1px collapsed `border-b`. It read 32 for a
+  long time while rows painted 29: because a table virtualizer positions its
+  window with spacer ROWS rather than `translateY`, that never overlapped rows
+  or drifted cumulatively (each `paddingTop` re-anchors to model coordinates);
+  it instead left the scrollport ~110px shorter than the model, jittering as
+  the window resized, and put the row under every computed offset off by one.
+  Measure the pitch as the delta between consecutive row tops — a single row's
+  `getBoundingClientRect().height` reports 28.5, because border collapsing
+  splits the 1px rule across neighbours. Pinned live by "paints tree rows at
+  exactly the pitch its virtualizer models" in `apps/web/e2e/file-explorer.test.ts`;
+  jsdom has no layout, so no unit test can catch this class of drift.
+- **Explorer tree GRID (BST-1208).** The file explorer renders four columns:
+  `name` (the tree column — pinned, no width, never hideable) plus
+  `type`/`tokens`/`size`. One definition serves every renderer
+  (`tree/file-tree-columns.tsx`); widths come from
+  `app-state/stores/explorer-column-sizes-store` and visibility from
+  `explorer-column-visibility-store` (default: Name + Tokens; Type/Size
+  opt-in). Rules:
+  - Metadata cells subscribe PER COMPOSITE KEY to the BST-1207 metadata store
+    (`useSyncExternalStore`). A token arrival must repaint one cell — never a
+    row rebuild, never a sibling row
+    (`__tests__/explorer-tree-grid.test.tsx`). The columns array is memoized on
+    the visible-column id list, which is content-stable.
+  - The store is owned by the PANEL (the only place `onTokenResolved` can reach
+    the background indexer) and reads its tree-shaped sources through
+    `indexing/file-row-metadata-source-registry.ts`; each rendered tree
+    registers the enumeration for ITS root. A directory the registry cannot
+    enumerate answers with an explicit incomplete subtree — the type is
+    non-nullable, so "not enumerated yet" and "this key is a file" are one
+    honest partial marker rather than a shared `null`.
+  - The same registry carries each root's VISIBLE file keys, merged for the
+    panel's background token indexer. Deriving that set from the panel's own
+    `useFileExplorer()` tree covers the FOCUSED root only, which left every
+    other forest section's Tokens cells `pending` forever (and its folder Size
+    totals with them, since a rollup goes partial on the first pending
+    descendant). Pinned by `__tests__/explorer-forest-visible-indexing.test.tsx`.
+  - Non-values are explicit and distinct: `pending` is a placeholder (never
+    `0`), `excluded` is an em dash with the binary tooltip, and a PARTIAL
+    directory rollup never renders a number. A row whose composite key cannot
+    be built is an ERROR, not pending: it renders the unavailable dash with an
+    error tooltip and logs once. Likewise the source registry logs a malformed
+    composite key at error level (once per key) while an unregistered root —
+    legitimate and transient — stays quiet.
+  - Folder rollups refuse subtrees above `DIRECTORY_ROLLUP_MAX_FILES`, reported
+    honestly as unavailable / "not fully enumerated". The first read of any
+    rollup is deferred off the paint path and is separately tagged
+    `recomputing`: it resolves the queued batch one task later and invalidates
+    just those keys. Never apply in-progress copy to the capped, unloaded, or
+    failed `not-enumerated` state. Measured
+    justification lives in `__tests__/explorer-directory-rollup-cost.test.ts`
+    (30 capped directory rows = 21-29ms of synchronous aggregation). Do not
+    make the first read compute inline again.
+  - **Widths are clamped to the panel at render time**
+    (`resolveExplorerColumnWidths`). `table-fixed` gives the Name column
+    whatever the metadata columns leave — including zero — and the section
+    wrapper is `overflow-hidden`, so oversized persisted widths silently
+    clipped the trailing column off-panel and erased every filename. Columns
+    shrink proportionally, never below their own `minWidth`, and always reserve
+    120px for Name. The clamp is a projection, never a mutation: the store
+    keeps the user's width and widening the panel restores it, which is why
+    resizes are forwarded per CHANGED column (`setColumn`) rather than as a
+    whole map.
+  - **Header shape depends on the scroll owner.** Single-root passes
+    `showColumnHeader` and uses TreeTable's own sticky header inside its
+    viewport. FOREST mode renders ONE panel-level header
+    (`shell/explorer-column-header.tsx`) ABOVE the shared scroller and keeps
+    every section table headerless — N sticky headers would stack against the
+    same scrollport. That header aligns by construction: same `table-fixed` +
+    `<colgroup>` algorithm, same width store, minus the scroller's measured
+    scrollbar gutter (0 with overlay scrollbars). Pinned by
+    `__tests__/explorer-column-header.test.tsx`. Do NOT put sticky headers
+    inside shared-scroller sections.
+  - **Per-directory sorting (BST-1209) is caller-owned.** TreeTable renders the
+    sortable header, `aria-sort`, and `onSortChange` cycle but NEVER reorders
+    nodes. The Explorer caller sorts siblings within EACH parent before passing
+    pre-flattened rows; descendants never move across parent boundaries.
+    Directories-first is invariant for every field and direction. Equal keys
+    fall back to the existing locale-aware name order. The persisted sort is
+    one panel-global state shared by every forest section; `null` preserves the
+    loader's directories-first/name-ascending default.
+  - Size/token ordering reads the same A1 metadata snapshots the cells render.
+    `pending`, `excluded`, and partial/unknown rollups are ABSENT — never zero —
+    and sort after every resolved number in BOTH directions. A metadata arrival
+    may legitimately reorder siblings while that field is active; the metadata
+    store coalesces each per-root invalidation batch into one row rebuild.
+  - **A structural change costs TWO full projection rebuild+sorts, and that is
+    the floor today.** MEASURED on a 10,100-row projection with a tokens sort
+    active (`__tests__/explorer-sort-structural-cost.integration.test.tsx`): an
+    expand or collapse rebuilds and re-sorts the WHOLE projection twice — the
+    structural rebuild itself, plus the seam's `invalidateAll` reconciliation,
+    whose per-root revision bump cannot honestly be narrowed to observed
+    changes (the comparator reads file values the store deliberately does not
+    cache — see `subscribeFolder`). It used to be THREE: the deferred rollup
+    flush bumped the same revision unconditionally even though a collapse
+    re-resolves the same totals. That flush now goes through
+    `invalidateDirectories`, which notifies only where a rollup actually moved —
+    honest for DIRECTORY keys specifically, because `getDirectorySnapshot`
+    caches every rollup it is asked for, so the cache IS the projection there.
+    Do not point the flush back at `invalidate`.
+  - **A reorder is NOT a structural change.** The metadata seam's rollup
+    reconciliation keys off `FileTreeRowReuseCache.getStructureRevision()`, never
+    off the rows ARRAY identity: sorting mints a new array, reconciling clears
+    rollups, cleared rollups bump the sort's revision, and the order oscillates
+    once per macrotask forever. Pinned by
+    `__tests__/explorer-sort-rebuild-loop.test.tsx`; do not re-key that effect on
+    `treeRows`.
+  - The comparator reads the seam ONCE PER ROW (Schwartzian, in
+    `sortRowsPerDirectory`), not per comparison — a 10k-row sort makes ~130k
+    comparisons and each seam read allocates a composite key. Row-level reads go
+    through the store's non-caching `peekSnapshot`, because a comparator sweeps
+    the whole projection and caching that sweep would grow the store past the
+    subscribed rows and switch its eviction off. Directory rollups DO stay
+    cached (a folder listener pins them) — recomputing one walks an enumerated
+    subtree. Measured on a synthetic 10,100-node tree in
+    `__tests__/optimized-file-tree-sort-performance.test.ts`, which uses the
+    real store: a synthetic comparator there measures nothing.
+  - Metadata sorts are CAPABILITY-GATED. A surface without the metadata seam
+    does not offer Type/Tokens/Size sort affordances at all, and a persisted one
+    arriving there resets to the default order with a warn — visible
+    degradation, not a crash and not a silent no-op. Name never needs the seam.
+  - a11y for that header: it is `role="presentation"` with `aria-hidden`
+    STATIC labels when they are non-interactive, because one header cannot be
+    ARIA-associated with N sibling treegrids and every metadata cell already
+    self-describes via sr-only text. Sort buttons and resize handles stay in the
+    accessibility tree — never bury focusable controls under `aria-hidden`.
+    `aria-sort` on those presentational `th`s is therefore **inert** — nothing
+    announces it; the sort state reaches AT through each sort button's
+    `aria-label` ("Tokens: sorted descending; restore default order"). The
+    attribute stays because the tests assert the markup contract shared with
+    TreeTable's own header, where it is a real `columnheader` and NOT inert.
+    Each forest section names its own root
+    (`aria-label="File tree: <root>"`); single-root stays `"File tree"`.
+    TreeTable's own header cells carry `scope="col"`.
+  - Below 300px of panel width every metadata COLUMN is suppressed, leaving the
+    name column alone. The header itself still renders — in BOTH layouts: forest
+    renders it unconditionally, and single-root passes `showColumnHeader`
+    whenever the Explorer sort context is mounted, never off the visible-column
+    count. It carries the Name sort affordance and its `aria-sort`, which are
+    not metadata capabilities and must stay reachable at every width; gating it
+    on metadata columns left a sorted tree with no way to change or clear the
+    sort. Pinned by `__tests__/explorer-column-header.test.tsx`. That threshold
+    is deliberately the same width at which the toolbar can host the Columns
+    control — see the narrow-toolbar geometry in
+    `docs/agents/explorer-search-tapestry.md`; keep the two in step.
+- **A header inside the scrollport offsets PAINTED coordinates, not modelled
+  ones.** TreeTable's sticky `<thead>` is IN FLOW inside its own scrollport, so
+  it contributes to `scrollHeight` and shifts every row's content offset by its
+  height — while the virtualizer models tbody rows alone
+  (`paddingTop = index * rowHeight`; `scrollMargin` is non-zero ONLY in
+  shared-scroller mode, where it carries the table's offset within the shared
+  parent). Anything comparing painted geometry to the model must convert by
+  subtracting the header height; `apps/web/e2e/file-explorer.test.ts`
+  ("paints tree rows at exactly the pitch its virtualizer models") does.
+  This is also why reveal is correct WITHOUT a header offset: a start-aligned
+  `scrollToIndex` sets `scrollTop = index * rowHeight`, the row's real content
+  offset is `headerHeight + index * rowHeight`, and the two cancel so the row
+  lands flush at the header's bottom edge. **Do not "fix" this by adding a
+  header-sized `scrollMargin`** — that would double-count and push revealed rows
+  a header's height too low; and taking the header out of flow would park them
+  underneath it. Both directions are pinned by the reveal assertions in that
+  same spec.
 - Row render stability is a pinned contract (`tree-table-render-stability.test.tsx`):
   row-facing handlers are identity-stable (`useEventCallback`), the keyboard
   `actions` object and the virtualizer measure adapter are memoized, and the
@@ -139,7 +318,10 @@ Windowing and performance:
   controls pinned to the first row line instead of recentering when details
   appear below it.
 - Ephemeral selection actions float at the bottom through
-  `SelectionActionBarOverlay` + `SelectionActionBar`. Keep the scroll owner
+  `SelectionActionBarOverlay` + `SelectionActionBar`. `BulkActionBar`
+  (`packages/ui/src/bulk-action-bar/`) is the shared node-kind-aware wrapper over
+  `SelectionActionBar`; it is surface-neutral, not collection-browser-specific.
+  Keep the scroll owner
   padded at the bottom while the overlay is present; never insert the toolbar in
   normal flow or compensate with top padding, because selection must not shift
   the tree. The overlay's positioned ancestor must own the full available panel
@@ -164,7 +346,10 @@ Windowing and performance:
   site; that drift is what BST-939 fixed.
 
 When modifying TreeTable strategy or pagination behavior:
-- Update the related collection browser/file explorer/context preview adapters.
+- Update the related file explorer / workspace-search adapters.
+  (Two adapters have since dropped out: the collection browser, retired by
+  BST-1213 — its jobs live in the Explorer import action and the Explorer|Search
+  panel — and the context preview table, retired by BST-1211.)
 - Add or update tests validating grouped slicing semantics and selection correctness.
 - Document intentional tradeoffs (e.g., paged vs virtual) in code comments or PR notes.
 
@@ -189,12 +374,15 @@ truth across renderer reloads.
 
 Right-click menus are projections of a shared action system. Do not hand-roll
 per-surface context menus (coordinate state + positioned DropdownMenu is the
-legacy pattern; it was removed from the collection browser).
+legacy pattern, and it has no remaining call sites).
 
 Layers:
 - Headless core: packages/context-actions — ContextTarget union, ContextAction,
   createActionRegistry, ClipboardService, path helpers. No React rendering, no
-  Electron imports.
+  Electron imports. The command registry (⌘K palette commands + the one-way
+  bridgeActionToCommand projection) lives in the same package under the
+  `@brainstrike/context-actions/commands` subpath export (folded from the
+  former @brainstrike/commands package, BST-1004).
 - Renderer: packages/ui/src/context-menu — Radix ContextMenu wrapper +
   ActionRegistryProvider + ActionContextMenu + useContextMenuTarget.
 - Composition: packages/app-shell/src/context-action-registry.ts builds the

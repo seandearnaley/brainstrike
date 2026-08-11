@@ -2,11 +2,13 @@
   "name": "@brainstrike/app-shell",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/app-state": "workspace:*",
     "@atlaskit/pragmatic-drag-and-drop": "^2.0.1",
     "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.0.0",
     "@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.0.0",
     "@brainstrike/assistant-contract": "workspace:*",
-    "@brainstrike/commands": "workspace:*",
+    "@brainstrike/assistant-data": "workspace:*",
+    "@brainstrike/assistant-ui": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/db-explorer": "workspace:*",
@@ -21,9 +23,9 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/notes-vault": "workspace:*",
     "@brainstrike/pipeline": "workspace:*",
-    "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/storage": "workspace:*",
+    "@brainstrike/settings-ui": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
@@ -34,7 +36,6 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
-    "fractional-indexing": "^4.0.0",
     "lucide-react": "catalog:"
   },
   "devDependencies": {
@@ -62,15 +63,23 @@
       "types": "./dist/connected-prompt-manager-lazy.d.ts",
       "import": "./dist/connected-prompt-manager-lazy.js"
     },
-    "./assistant-durable-usage-capability": {
-      "types": "./dist/assistant-durable-usage-capability.d.ts",
-      "import": "./dist/assistant-durable-usage-capability.js"
+    "./browser-pane/availability": {
+      "types": "./dist/browser-pane/availability.d.ts",
+      "import": "./dist/browser-pane/availability.js"
     },
-    "./assistant-memory-repository": {
-      "types": "./dist/assistant-memory-repository.d.ts",
-      "import": "./dist/assistant-memory-repository.js"
+    "./browser-pane/browser-pane-content": {
+      "types": "./dist/browser-pane/browser-pane-content.d.ts",
+      "import": "./dist/browser-pane/browser-pane-content.js"
     },
-    "./cost-tracking": {
+    "./changes": {
+      "types": "./dist/changes/index.d.ts",
+      "import": "./dist/changes/index.js"
+    },
+    "./changes/availability": {
+      "types": "./dist/changes/availability.d.ts",
+      "import": "./dist/changes/availability.js"
+    },
+    "./cost-tracking-settings": {
       "types": "./dist/cost-tracking/index.d.ts",
       "import": "./dist/cost-tracking/index.js"
     },
@@ -90,6 +99,14 @@
       "types": "./dist/navigation.d.ts",
       "import": "./dist/navigation.js"
     },
+    "./platform-bridge": {
+      "types": "./dist/platform-bridge.d.ts",
+      "import": "./dist/platform-bridge.js"
+    },
+    "./user-commands-bridge": {
+      "types": "./dist/user-commands-bridge.d.ts",
+      "import": "./dist/user-commands-bridge.js"
+    },
     "./notes-page-content": {
       "types": "./dist/notes-page-content.d.ts",
       "import": "./dist/notes-page-content.js"
@@ -105,6 +122,10 @@
     "./terminal-panel/availability": {
       "types": "./dist/terminal-panel/availability.d.ts",
       "import": "./dist/terminal-panel/availability.js"
+    },
+    "./canvas/canvas-panel": {
+      "types": "./dist/canvas/canvas-panel.d.ts",
+      "import": "./dist/canvas/canvas-panel.js"
     },
     "./root-layout-content": {
       "types": "./dist/root-layout-content.d.ts",

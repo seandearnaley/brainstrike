@@ -7,7 +7,6 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "file-saver": "catalog:",
     "minimatch": "catalog:",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
@@ -20,7 +19,6 @@
     "@stryker-mutator/vitest-runner": "catalog:",
     "@swc/core": "catalog:",
     "@testing-library/react": "catalog:",
-    "@types/file-saver": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

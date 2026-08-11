@@ -5,23 +5,26 @@ import {
   NATIVE_TOOL_DEFAULTS,
 } from '@brainstrike/agent/tool-metadata';
 import { useAssistantAvailability } from '@brainstrike/app-shell';
-import { hasDurableAssistantUsageCapability } from '@brainstrike/app-shell/assistant-durable-usage-capability';
-import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking';
+import { createCostTrackingSettingsCategory } from '@brainstrike/app-shell/cost-tracking-settings';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell/diagnostics';
+import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/app-state/automation-overrides';
+import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
+import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
-import { configureModelRuntimeServices } from '@brainstrike/preferences/settings/models/model-runtime-services';
-import { ModelSelectionPage } from '@brainstrike/preferences/settings/models/model-selection-page';
-import { createNotificationSettingsCategory } from '@brainstrike/preferences/settings/system/notification-settings-category';
-import { createSkillsSettingsCategory } from '@brainstrike/preferences/settings/system/skills-settings-category';
-import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/preferences/settings/system/workspace-instructions-settings-category';
+import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
+import { ModelSelectionPage } from '@brainstrike/settings-ui/settings/models/model-selection-page';
+import { createApiKeysSettingsCategory } from '@brainstrike/settings-ui/settings/secrets/api-keys-settings-category';
+import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/settings/system/notification-settings-category';
+import { createSelfImprovementSignalSettingsCategory } from '@brainstrike/settings-ui/settings/system/self-improvement-signal-settings-category';
+import { createSkillsSettingsCategory } from '@brainstrike/settings-ui/settings/system/skills-settings-category';
+import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settings-ui/settings/system/workspace-instructions-settings-category';
 import {
   createToolsSettingsCategory,
   type ToolDisplayMetadata,
   type ToolExecutionResult,
-} from '@brainstrike/preferences/settings/tools/index';
+} from '@brainstrike/settings-ui/settings/tools/index';
 import {
-  createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createHooksSettingsCategory,
@@ -31,11 +34,11 @@ import {
   createSubagentPersonasSettingsCategory,
   createTokenCountingSettingsCategoryWithRuntimeSupport,
   type HookReviewRoot,
+} from '@brainstrike/settings-ui/settings-category-factories';
+import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
-} from '@brainstrike/preferences/settings-page-content';
-import { getAccurateRuntimeAvailabilityTestOverride } from '@brainstrike/preferences/settings-test-runtime-access';
-import { useNativeToolPreferencesStore } from '@brainstrike/preferences/stores/native-tool-preferences-store';
+} from '@brainstrike/settings-ui/settings-page-content';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';
@@ -382,6 +385,7 @@ export default function SettingsPageContent() {
       createSkillsSettingsCategory(),
       createHooksSettingsCategory({ roots: hookReviewRoots }),
       createWorkspaceInstructionsSettingsCategory(),
+      createSelfImprovementSignalSettingsCategory(),
       createNotificationSettingsCategory(),
       diagnosticsCategory,
       createFactoryResetSettingsCategory({

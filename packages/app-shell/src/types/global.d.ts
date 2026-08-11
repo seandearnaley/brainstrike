@@ -1,14 +1,17 @@
 import type {
   AssistantCheckpointRevertResult,
   AssistantCheckpointRevertRunResult,
-  SkillsScanResultSummary,
-  UserSlashCommandsListResult,
+  AssistantCheckpointUndoAvailabilityMap,
 } from '@brainstrike/assistant-contract';
+import type { SkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
 import type {
   AssistantSelectionUpdatePayload,
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
+import type { ChangesBridge } from '../changes/changes-bridge';
+import type { PlatformBridge } from '../platform-bridge';
+import type { UserCommandsBridge } from '../user-commands-bridge';
 
 declare global {
   interface Window {
@@ -20,6 +23,7 @@ declare global {
      * web never defines it (no assistant server / main process). Invoke-only.
      */
     assistantCheckpoints?: {
+      availability?: (threadId: string) => Promise<AssistantCheckpointUndoAvailabilityMap>;
       revertEntry?: (
         id: string,
         options?: { force?: boolean }
@@ -29,6 +33,15 @@ declare global {
         options?: { force?: boolean }
       ) => Promise<AssistantCheckpointRevertRunResult>;
     };
+    /**
+     * Desktop-only changeset diff bridge (BST-1113/BST-1114). Absent on web
+     * (no preload) — capability-check via `resolveChangesBridge()`
+     * (`changes-bridge.ts`) rather than `isElectron()`. Derived from
+     * `ChangesBridge` so this declaration cannot drift from the interface;
+     * `Partial` because a present-but-incomplete bridge is possible until the
+     * resolver validates it.
+     */
+    changes?: Partial<ChangesBridge>;
     mcp?: {
       getConfig?: () => Promise<
         | {
@@ -87,12 +100,25 @@ declare global {
       ) => (() => void) | undefined;
     };
     /**
-     * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
-     * capability-check `window.skills` rather than `isElectron()`.
+     * Desktop-only OS shell integration bridge. Absent on web (no preload) —
+     * capability-check via `resolvePlatformBridge()` (`platform-bridge.ts`)
+     * rather than `isElectron()`. Derived from `PlatformBridge` so this
+     * declaration cannot drift from the interface; `Partial` because a
+     * present-but-incomplete bridge is possible until the resolver validates
+     * it.
      */
-    skills?: {
-      scan?: () => Promise<SkillsScanResultSummary>;
-    };
+    platform?: Partial<PlatformBridge>;
+    /**
+     * Desktop-only Agent Skills discovery bridge. Absent on web (no preload) —
+     * capability-check via `resolveSkillsBridge()`
+     * (`@brainstrike/assistant-contract/skills-bridge` — shared with
+     * settings-ui, which cannot import app-shell) rather than `isElectron()`.
+     * Derived from `SkillsBridge` so this declaration
+     * cannot drift from the interface; `Partial` because a
+     * present-but-incomplete bridge is possible until the resolver validates
+     * it.
+     */
+    skills?: Partial<SkillsBridge>;
     tools?: {
       execute?: (
         toolId: string,
@@ -119,11 +145,12 @@ declare global {
     };
     /**
      * Desktop-only user-defined slash command discovery bridge. Absent on web
-     * (no preload) — capability-check `window.userCommands` rather than
-     * `isElectron()`.
+     * (no preload) — capability-check via `resolveUserCommandsBridge()`
+     * (`user-commands-bridge.ts`) rather than `isElectron()`. Derived from
+     * `UserCommandsBridge` so this declaration cannot drift from the
+     * interface; `Partial` because a present-but-incomplete bridge is possible
+     * until the resolver validates it.
      */
-    userCommands?: {
-      list?: () => Promise<UserSlashCommandsListResult>;
-    };
+    userCommands?: Partial<UserCommandsBridge>;
   }
 }

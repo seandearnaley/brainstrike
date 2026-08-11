@@ -1,4 +1,4 @@
-import type { WorkspaceCollectionSyncBlockedReason } from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
+import type { WorkspaceCollectionSyncBlockedReason } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 
 export class WorkspaceIndexBlockedError extends Error {
   constructor(

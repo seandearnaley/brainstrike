@@ -1,6 +1,7 @@
+import type { ExplorerActiveTab } from '@brainstrike/app-state/stores/context-explorer-layout-store';
+import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import { FileExplorerPanel } from '@brainstrike/file-explorer-ui/shell';
-import type { ExplorerActiveTab } from '@brainstrike/preferences/stores/context-explorer-layout-store';
-import { useContextExplorerLayoutStore } from '@brainstrike/preferences/stores/context-explorer-layout-store';
+import type { QueueAdapter } from '@brainstrike/queue';
 import {
   PANEL_TAB_TRIGGER_CLASS_NAME,
   Tabs,
@@ -8,7 +9,8 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { lazy, type ReactElement, Suspense, useCallback, useState } from 'react';
+import { lazy, type ReactElement, Suspense, useCallback, useMemo, useState } from 'react';
+import { ExplorerImportActionLazy } from './explorer-import-action-lazy';
 import { useWorkspaceSearchController } from './use-workspace-search-controller';
 
 /**
@@ -53,7 +55,17 @@ function WorkspaceSearchTabContent(): ReactElement {
  * pattern). The Search panel lazy-mounts on first activation and then stays
  * mounted too, preserving its query/results.
  */
-export function ExplorerSearchTabs(): ReactElement {
+interface ExplorerSearchTabsProps {
+  /**
+   * Lazy loader for the app-owned embedding queue, forwarded to the explorer's
+   * collection-import action (the queue the produced chunks are embedded on).
+   */
+  readonly loadEmbeddingQueue?: (() => Promise<QueueAdapter>) | null;
+}
+
+export function ExplorerSearchTabs({
+  loadEmbeddingQueue = null,
+}: ExplorerSearchTabsProps = {}): ReactElement {
   const activeTab = useContextExplorerLayoutStore((state) => state.explorerActiveTab);
   const setExplorerActiveTab = useContextExplorerLayoutStore((state) => state.setExplorerActiveTab);
 
@@ -73,6 +85,13 @@ export function ExplorerSearchTabs(): ReactElement {
       setExplorerActiveTab(value);
     },
     [setExplorerActiveTab]
+  );
+
+  // FileExplorerPanelInner is memoized; a fresh element identity here would
+  // re-render the whole tree panel on every tab switch.
+  const importAction = useMemo(
+    () => <ExplorerImportActionLazy loadEmbeddingQueue={loadEmbeddingQueue} />,
+    [loadEmbeddingQueue]
   );
 
   const searchTabMountProps = searchEverActivated
@@ -119,7 +138,7 @@ export function ExplorerSearchTabs(): ReactElement {
         hidden={activeTab !== 'explorer'}
         value="explorer"
       >
-        <FileExplorerPanel />
+        <FileExplorerPanel selectionActions={importAction} />
       </TabsContent>
 
       <TabsContent

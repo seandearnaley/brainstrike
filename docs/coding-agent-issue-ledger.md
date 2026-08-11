@@ -198,7 +198,7 @@ Action: Configure rotation (pino-roll or maxBytes/maxFiles, e.g. 50MB × 5), doc
 - **[P2][P5 bug] Usage-write failures logged but not surfaced** (`assistant-ui-panel-wrapper.tsx:1285-1289`) — toast on `recordRunUsage` reject.
 - **[P2][P5 docs] `buildContextBudgetNote` doesn't clarify the figure is the effective (post-output-reservation) budget** (`default-instructions.ts:3-8`).
 - **[P2][P5 test-gap] No Mastra schema-drift / backward-compat hydration test** for old-version persisted rows (`mastra-memory-persistence.spec.ts`).
-- **[P2][P4 tech-debt] BST-493: local-LLM manifest integrity verification disabled** (`local-llm-backend.ts:40-52`, `verifyModelIntegrity` throws `integrity_verification_disabled` — VERIFIED). Restore SHA-256 manifest verification "before next release" per the TODO.
+- **[P2][P4 tech-debt] BST-493: local-LLM manifest integrity verification disabled** (`local-llm-backend.ts`, `verifyModelIntegrity` throws `integrity_verification_disabled` — VERIFIED). Restore SHA-256 manifest verification under the ticket; keep the legacy API fail-closed until then.
 - **[P2][P1 test-gap] Mocked Mastra streaming tests dominate; add gated real-provider integration tests** (`mastra-streaming.spec.ts:48-69` mocks `createProvider` for all providers).
 - **[P3][P1 test-gap] Guard-timeout tests use fake timers only** (`guard-tool-execution.spec.ts:25-80`) — add real-timer variants.
 - **[P3][P1 test-gap] Tool-loader has no critical-vs-conditional budget-exhaustion parity test** (`tool-loader.spec.ts:79-224`).

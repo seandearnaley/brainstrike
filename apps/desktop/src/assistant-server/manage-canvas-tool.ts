@@ -1,0 +1,82 @@
+import type { ManageCanvasInput, RuntimeData } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
+import {
+  applyUpdate,
+  type CanvasDatabase,
+  type CanvasListResult,
+  type CanvasMutationResult,
+  createCanvas,
+  listCanvasesForThread,
+  rewriteCanvas,
+} from './canvas-repository';
+
+export type { CanvasDatabase } from './canvas-repository';
+
+export const MANAGE_CANVAS_TOOL_ID = NATIVE_TOOL_ID.manageCanvas;
+
+const logger = createLogger('AssistantCanvas');
+
+export interface ManageCanvasDependencies {
+  /** Injected DB handle for tests; production resolves the main-process handle. */
+  database?: CanvasDatabase;
+}
+
+async function resolveDesktopDatabase(): Promise<CanvasDatabase> {
+  const { getDatabase } = await import('../db-main');
+  return getDatabase();
+}
+
+/**
+ * Closed failure vocabulary: the tool adds exactly one failure of its own
+ * (`no_active_thread`) on top of the repository's — consumers narrowing on
+ * `result.error` keep exhaustiveness checking.
+ */
+export interface ManageCanvasNoThreadFailure {
+  readonly error: 'no_active_thread';
+  readonly hint: string;
+  readonly ok: false;
+}
+
+export type ManageCanvasToolResult =
+  | CanvasListResult
+  | CanvasMutationResult
+  | ManageCanvasNoThreadFailure;
+
+export async function runManageCanvas(
+  input: ManageCanvasInput,
+  runtimeData: RuntimeData | undefined,
+  dependencies: ManageCanvasDependencies = {}
+): Promise<ManageCanvasToolResult> {
+  const threadId = runtimeData?.memory?.threadId;
+  const resourceId = runtimeData?.memory?.resourceId;
+  if (!(threadId && resourceId)) {
+    logger.warn('manageCanvas called without an active memory thread');
+    return {
+      error: 'no_active_thread',
+      hint: 'manageCanvas requires an active memory thread.',
+      ok: false,
+    };
+  }
+
+  const db = dependencies.database ?? (await resolveDesktopDatabase());
+  switch (input.action) {
+    case 'create':
+      return await createCanvas(db, {
+        createdBy: 'assistant',
+        html: input.html,
+        resourceId,
+        threadId,
+        title: input.title,
+      });
+    case 'update':
+      // threadId comes from runtime memory, NEVER from model input: mutations
+      // are hard-scoped to the calling thread (cross-thread ids resolve to the
+      // same uniform not_found as nonexistent ids).
+      return await applyUpdate(db, { ...input, threadId });
+    case 'rewrite':
+      return await rewriteCanvas(db, { ...input, threadId });
+    case 'list':
+      return await listCanvasesForThread(db, threadId);
+  }
+}

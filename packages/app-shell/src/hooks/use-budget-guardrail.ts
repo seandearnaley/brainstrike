@@ -1,8 +1,8 @@
+import { useAssistantBudgetPreferencesStore } from '@brainstrike/app-state/stores/assistant-budget-preferences-store';
+import { useDailySpend } from '@brainstrike/assistant-data/cost-tracking';
+import type { BudgetGuardrailContextValue } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
-import { useAssistantBudgetPreferencesStore } from '@brainstrike/preferences/stores/assistant-budget-preferences-store';
-import type { BudgetGuardrailContextValue } from '@brainstrike/ui/assistant-ui-panel';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useDailySpend } from '../cost-tracking/use-daily-spend';
 
 const budgetGuardrailLogger = createLogger('BudgetGuardrail');
 

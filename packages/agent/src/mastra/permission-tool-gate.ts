@@ -45,6 +45,7 @@ import {
   resolvePermissionDecision,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
+import { sanitizeToolName } from './tool-sanitizer';
 
 export type { PermissionToolGateSnapshot };
 
@@ -255,6 +256,21 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
     // the storage fail-safe + risk hint. The clone + the askToolIds entry MUST
     // move together: a kept ask tool without the flag would run unprompted (a
     // security bug, not a fallback).
+    //
+    // SUSPENDING tools take the SAME clone since the @mastra/core 1.56
+    // approval rework: the framework's pre-execution gate is now the ONLY
+    // Gate A (the old in-tool approval suspension is consumed by the
+    // framework and can never see its answer — the BST-1097 1.56
+    // interception). The flag+suspension combination is viable when the
+    // tool's resume payload is a plain OBJECT, because the resume transport
+    // attaches the `approved: true` rider Mastra's per-leg re-check demands
+    // (agent-streaming.ts, createToolResumeIteratorFromRuntime): run_python's
+    // Gate B, submitPlan, and askUser's `{answer}` envelope
+    // (AskUserResumeData) all qualify. Only a LEGACY pre-envelope askUser
+    // resume — a bare string/array from a run suspended before the envelope
+    // migration — still cannot carry the rider and stays exposed to the
+    // framework's denial (warned loudly at resume time,
+    // mastra_agent_resume_rider_unattachable).
     if (decision === 'ask') {
       filtered[sanitizedId] = withRequireApproval(tool);
       askToolIds.add(sanitizedId);
@@ -271,4 +287,49 @@ export function filterToolsByPermissionWithMetadata<TMap extends Record<string, 
   }
 
   return { askToolIds, askTools, tools: filtered as TMap };
+}
+
+/**
+ * The Gate A decision run_python consults inside `execute()` for its
+ * DIRECT-invocation guard (BST-1097; since the @mastra/core 1.56 approval
+ * rework the in-run Gate A is the framework's pre-execution `requireApproval`
+ * clone above, so inside an agent run this decision arms nothing). Resolves
+ * the SAME permission decision the gate computes for that tool — same
+ * resolver, same risk lookup — so the tool and the gate cannot disagree:
+ *
+ * - No snapshot (enforcement off) → `'allow'`: the permission engine gates
+ *   nothing, exactly as it gates nothing for flag-based ask tools.
+ * - `'allow'` (policy / per-tool override / session grant / yolo) → `'allow'`.
+ * - `'ask'` → `'ask'`: a direct invocation (no suspension channel, no
+ *   framework gate) refuses rather than running unprompted.
+ * - `'deny'` → `'ask'` (fail-safe): a denied tool never enters the gated map,
+ *   so inside an agent run this is unreachable; on a DIRECT invocation the
+ *   safe direction is to require confirmation, and with no suspension channel
+ *   available the tool then refuses rather than running.
+ *
+ * @throws {InvalidPermissionPolicyError} on a malformed policy/override —
+ * propagated, never coerced (no-silent-fallbacks).
+ */
+export function resolveSelfApprovalDecision(
+  snapshot: PermissionToolGateSnapshot | undefined,
+  toolId: string
+): 'allow' | 'ask' {
+  if (!snapshot) {
+    return 'allow';
+  }
+  // Same DUAL name-form lookup as the gate's own resolution: `riskByTool` may
+  // be keyed by the original dotted id OR the Mastra-sanitized id, and the
+  // gate accepts either. Passing only the dotted form here would fall back to
+  // `defaultRisk` ('mcp' → 'allow') for a sanitized-keyed snapshot — an
+  // unprompted run, the exact drift this helper exists to make impossible.
+  const riskCategory = riskForTool(snapshot, toolId, sanitizeToolName(toolId));
+  const decision = resolvePermissionDecision({
+    policies: snapshot.policies,
+    riskCategory,
+    sessionGrants: new Set<ToolRiskCategory>(snapshot.sessionGrants ?? []),
+    toolId,
+    yolo: snapshot.yolo,
+    ...(snapshot.perToolOverrides ? { perToolOverrides: snapshot.perToolOverrides } : {}),
+  });
+  return decision === 'allow' ? 'allow' : 'ask';
 }

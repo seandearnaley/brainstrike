@@ -1,3 +1,5 @@
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import type {
   ChunkSearchResult,
   DrizzleFileChunkRepository,
@@ -6,8 +8,6 @@ import type {
   FileRecord,
 } from '@brainstrike/db';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
-import { useModelRegistryStore } from '@brainstrike/preferences/stores/model-registry-store';
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
 import type { SearchConfig } from '@brainstrike/ui';
 import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import { act, renderHook as baseRenderHook, type RenderHookOptions } from '@testing-library/react';

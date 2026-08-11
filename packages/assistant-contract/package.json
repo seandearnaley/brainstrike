@@ -8,6 +8,7 @@
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
+    "@assistant-ui/react": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
@@ -82,6 +83,11 @@
       "import": "./dist/assistant-attachments.js",
       "require": "./dist/assistant-attachments.js"
     },
+    "./compaction-summary": {
+      "types": "./dist/compaction-summary.d.ts",
+      "import": "./dist/compaction-summary.js",
+      "require": "./dist/compaction-summary.js"
+    },
     "./mastra-memory-schema": {
       "types": "./dist/mastra-memory-schema.d.ts",
       "import": "./dist/mastra-memory-schema.js",
@@ -127,10 +133,20 @@
       "import": "./dist/shell-output.js",
       "require": "./dist/shell-output.js"
     },
+    "./skills-bridge": {
+      "types": "./dist/skills-bridge.d.ts",
+      "import": "./dist/skills-bridge.js",
+      "require": "./dist/skills-bridge.js"
+    },
     "./runtime-data": {
       "types": "./dist/runtime-data.d.ts",
       "import": "./dist/runtime-data.js",
       "require": "./dist/runtime-data.js"
+    },
+    "./approval-action-message": {
+      "types": "./dist/approval-action-message.d.ts",
+      "import": "./dist/approval-action-message.js",
+      "require": "./dist/approval-action-message.js"
     },
     "./tool-approval": {
       "types": "./dist/tool-approval.d.ts",

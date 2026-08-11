@@ -1,4 +1,4 @@
-import { useVectorPreferencesStore } from '@brainstrike/preferences/stores/vector-preferences-store';
+import { useVectorPreferencesStore } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { render, renderHook } from '@testing-library/react';
 import type { ReactElement, ReactNode } from 'react';
 import { useEffect } from 'react';

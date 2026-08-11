@@ -60,14 +60,14 @@ const mockLoggingStore = {
   subscribe: vi.fn(() => () => {}),
 };
 
-vi.mock('@brainstrike/preferences/stores/logging-preferences-store', () => ({
+vi.mock('@brainstrike/app-state/stores/logging-preferences-store', () => ({
   useLoggingPreferencesStore: Object.assign(
     vi.fn(() => mockLoggingStore),
     mockLoggingStore
   ),
 }));
 
-vi.mock('@brainstrike/preferences/components/db-schema-verifier', () => ({
+vi.mock('@brainstrike/settings-ui/components/db-schema-verifier', () => ({
   DbSchemaVerifier: ({ children }: { children: React.ReactNode }) => children,
 }));
 

@@ -96,7 +96,7 @@ describe('desktop diagnostics IPC', () => {
         })),
       },
       telemetry: { getRuntimeMetrics: vi.fn(() => []) },
-    });
+    } as unknown as Parameters<typeof registerDesktopDiagnosticsIpcHandlers>[0]);
 
     const handler = handlers.get(DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL);
     expect(handler).toBeDefined();

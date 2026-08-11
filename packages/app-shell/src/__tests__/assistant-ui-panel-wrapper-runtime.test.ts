@@ -1,7 +1,7 @@
+import type { PermissionToolGateSnapshotInput } from '@brainstrike/app-state/stores/permission-policy-store';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS } from '@brainstrike/assistant-contract/memory-settings';
-import type { PermissionToolGateSnapshotInput } from '@brainstrike/preferences/stores/permission-policy-store';
+import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { describe, expect, it, vi } from 'vitest';
-import type { AssistantThreadRepository } from '../assistant-memory-repository';
 import {
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
@@ -529,6 +529,7 @@ describe('assistant runtime helpers', () => {
       startedAt: input.startedAt ?? new Date('2026-01-01T00:00:00Z'),
       status: input.status ?? 'running',
       threadId: input.threadId,
+      turnMessageId: input.turnMessageId ?? null,
       updatedAt: new Date('2026-01-01T00:00:00Z'),
     }));
     const modelSettings = {
@@ -548,6 +549,7 @@ describe('assistant runtime helpers', () => {
       resolvedModelName: 'gpt-5.2',
       selectedMemoryThreadId: 'thread-1',
       selectedProvider: 'openai',
+      turnMessageId: 'msg-user-7',
     });
 
     expect(runId).toMatch(/^run-/);
@@ -560,6 +562,8 @@ describe('assistant runtime helpers', () => {
         resourceId: 'workspace-a',
         runtimeKind: 'hosted',
         threadId: 'thread-1',
+        // BST-1163: the run-turn link rides the sole-runId-producer seam.
+        turnMessageId: 'msg-user-7',
       })
     );
   });
@@ -574,6 +578,7 @@ describe('assistant runtime helpers', () => {
         resolvedModelName: 'gpt-5.2',
         selectedMemoryThreadId: 'thread-1',
         selectedProvider: 'openai',
+        turnMessageId: null,
       })
     ).toThrow('Assistant run records require an active memory thread.');
   });
@@ -731,6 +736,18 @@ describe('assistant runtime helpers', () => {
     expect(
       buildAssistantRequestData({ ...baseArgs, skillsPreference })['skillsPreference']
     ).toEqual(skillsPreference);
+
+    // Self-improvement signal preference rides the same desktop-only request
+    // attachment seam: absent on web/non-data-stream, exact snapshot when opted in.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty(
+      'selfImprovementSignalPreference'
+    );
+    const selfImprovementSignalPreference = { enabled: true };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, selfImprovementSignalPreference })[
+        'selfImprovementSignalPreference'
+      ]
+    ).toEqual(selfImprovementSignalPreference);
   });
 
   it('attaches mainRootId/mainRootPath only when provided (multi-root main declaration)', () => {
@@ -1500,9 +1517,118 @@ describe('buildEffectiveModelSettings', () => {
   it('does not inject OpenRouter defaults into other providers', () => {
     expect(buildEffectiveModelSettings('anthropic', undefined)).toBeUndefined();
   });
+
+  it('opens the vendor window for Kimi K3 whenever its reasoning is active (BST-1170)', () => {
+    const model = { contextWindow: 1_048_576 };
+    // Auto: the catalog's recorded low effort still reasons, so the window is
+    // Moonshot's documented 131,072 — the 32K ceiling starved thinking+answer
+    // and killed runs at `finishReason: length`.
+    expect(
+      buildEffectiveModelSettings('openrouter', undefined, model, undefined, 'moonshotai/kimi-k3')
+    ).toEqual({ maxOutputTokens: 131_072 });
+    // An explicit effort must size the same window — the run that motivated
+    // this fix sent effort high with a 32,000 window.
+    expect(
+      buildEffectiveModelSettings(
+        'openrouter',
+        undefined,
+        model,
+        undefined,
+        'moonshotai/kimi-k3',
+        'high'
+      )
+    ).toEqual({ maxOutputTokens: 131_072 });
+  });
+
+  it('keeps the coding ceiling when Kimi K3 reasoning is explicitly off', () => {
+    expect(
+      buildEffectiveModelSettings(
+        'openrouter',
+        undefined,
+        { contextWindow: 1_048_576 },
+        undefined,
+        'moonshotai/kimi-k3',
+        'none'
+      )
+    ).toEqual({ maxOutputTokens: 32_000 });
+  });
+
+  it('merges the catalog vendor window over a live snapshot that cannot carry it', () => {
+    expect(
+      buildEffectiveModelSettings(
+        'openrouter',
+        undefined,
+        { contextWindow: 1_048_576 },
+        {
+          checkedAt: 42,
+          contextWindow: 1_048_576,
+          id: 'moonshotai/kimi-k3',
+          reasoning: {
+            defaultEffort: 'max',
+            defaultEnabled: true,
+            mandatory: false,
+            supportedEfforts: ['max', 'high', 'low'],
+            supportsMaxTokens: false,
+          },
+          source: 'openrouter-models-api',
+          supportedParameters: ['reasoning', 'max_tokens'],
+        },
+        'moonshotai/kimi-k3',
+        'high'
+      )
+    ).toEqual({ maxOutputTokens: 131_072 });
+  });
+
+  it('still honours an explicit output limit over the vendor window', () => {
+    expect(
+      buildEffectiveModelSettings(
+        'openrouter',
+        { maxOutputTokens: 48_000 },
+        { contextWindow: 1_048_576 },
+        undefined,
+        'moonshotai/kimi-k3',
+        'high'
+      )
+    ).toEqual({ maxOutputTokens: 48_000 });
+  });
 });
 
 describe('resolveOpenRouterMetadataDisabledReason', () => {
+  it('reserves the reasoning window when validating the input budget (BST-1170)', () => {
+    // Kimi K3: context 1,048,576, margin 52,429, vendor window 131,072 when
+    // reasoning is active → effective input budget 865,075. Against the old
+    // 32K reservation this input limit (900,000) would have passed, silently
+    // promising context the run cannot actually use.
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { agentInputTokenLimit: 900_000, reasoningEffort: 'high' },
+        {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_048_576,
+              id: 'moonshotai/kimi-k3',
+              reasoning: {
+                defaultEffort: 'max',
+                defaultEnabled: true,
+                mandatory: false,
+                supportedEfforts: ['max', 'high', 'low'],
+                supportsMaxTokens: false,
+              },
+              source: 'openrouter-models-api',
+              supportedParameters: ['reasoning', 'max_tokens'],
+            },
+          },
+          state: 'resolved',
+        }
+      )
+    ).toBe(
+      'Configured input limit 900,000 exceeds OpenRouter live effective input budget 865,075.'
+    );
+  });
+
   it('blocks an explicitly configured output limit above the live model maximum', () => {
     expect(
       resolveOpenRouterMetadataDisabledReason(

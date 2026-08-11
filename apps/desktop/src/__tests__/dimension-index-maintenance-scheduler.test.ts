@@ -5,7 +5,10 @@ import {
   resolveIndexBuildMaintenanceWorkMemMb,
 } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
-import { createDesktopDimensionIndexMaintenanceScheduler } from '../dimension-index-maintenance-scheduler';
+import {
+  createDesktopDimensionIndexMaintenanceScheduler,
+  type DesktopDimensionIndexMaintenanceSchedulerOptions,
+} from '../dimension-index-maintenance-scheduler';
 
 function createQueuedCounts(
   overrides: Partial<Record<DatabaseWorkPriority, number>> = {}
@@ -112,7 +115,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
 
   it('runs one maintenance unit through the background DB lane using maintenance exec', async () => {
     let capturedOptions: DatabaseWorkRunOptions | null = null;
-    const maintenanceExec = vi.fn(async () => undefined);
+    const maintenanceExec = vi.fn(async (_sql: string, _params?: readonly unknown[]) => undefined);
     const runScheduledWork = vi.fn(
       async <TResult>(
         options: DatabaseWorkRunOptions,
@@ -121,7 +124,7 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
         capturedOptions = options;
         return await work();
       }
-    );
+    ) as unknown as DesktopDimensionIndexMaintenanceSchedulerOptions['runScheduledWork'];
     const runDimensionMaintenance = vi.fn(async (_db, options) => {
       expect(options.strategy).toBe('regular');
       await options.createIndex({ dimension: 384, strategy: 'regular' });
@@ -206,18 +209,23 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
         getDatabase: vi.fn(async () => ({
           maintenance: { exec: options.maintenanceExec },
           query: options.query,
-        })),
+        })) as unknown as DesktopDimensionIndexMaintenanceSchedulerOptions['getDatabase'],
         getDimensionIndexStrategy: () => 'regular' as const,
         getPowerSnapshot: idleAcSnapshot,
         getSchedulerSnapshot: idleSchedulerSnapshot,
         logger: createLogger(),
-        runDimensionMaintenance: options.runDimensionMaintenance,
-        runScheduledWork: vi.fn(async (_options, work) => await work()),
+        runDimensionMaintenance:
+          options.runDimensionMaintenance as unknown as DesktopDimensionIndexMaintenanceSchedulerOptions['runDimensionMaintenance'],
+        runScheduledWork: vi.fn(
+          async (_options, work) => await work()
+        ) as unknown as DesktopDimensionIndexMaintenanceSchedulerOptions['runScheduledWork'],
       });
     }
 
     it('sets sized maintenance_work_mem before CREATE INDEX and resets after, all on the maintenance channel', async () => {
-      const maintenanceExec = vi.fn(async () => undefined);
+      const maintenanceExec = vi.fn(
+        async (_sql: string, _params?: readonly unknown[]) => undefined
+      );
       const query = createCountingQuery('100000');
       const runDimensionMaintenance = vi.fn(async (_db, options) => {
         await options.createIndex({ dimension: 1024, strategy: 'regular' });
@@ -332,7 +340,9 @@ describe('DesktopDimensionIndexMaintenanceScheduler', () => {
     });
 
     it('skips the SET/RESET pair when the estimated build fits the default maintenance_work_mem', async () => {
-      const maintenanceExec = vi.fn(async () => undefined);
+      const maintenanceExec = vi.fn(
+        async (_sql: string, _params?: readonly unknown[]) => undefined
+      );
       const query = createCountingQuery('10');
       const runDimensionMaintenance = vi.fn(async (_db, options) => {
         await options.createIndex({ dimension: 384, strategy: 'regular' });

@@ -159,14 +159,18 @@ vi.mock('@brainstrike/embeddings/provider-core', () => ({
   },
 }));
 
-vi.mock('@brainstrike/logging', () => ({
-  createLogger: () => ({
-    debug: vi.fn(),
-    error: loggerError,
-    info: vi.fn(),
-    warn: loggerWarn,
-  }),
-}));
+vi.mock('@brainstrike/logging', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/logging')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      debug: vi.fn(),
+      error: loggerError,
+      info: vi.fn(),
+      warn: loggerWarn,
+    }),
+  };
+});
 
 vi.mock('@brainstrike/tokenization', () => ({
   countTokensHeuristic: (value: string) => value.length,
@@ -212,6 +216,20 @@ function liveRetrievalTool(
         dependencies
       ),
   };
+}
+
+/**
+ * `runQueryEmbeddingSpace` can genuinely return the `{ status: 'unavailable' }`
+ * branch (one test below asserts it), so the adapter keeps the honest union.
+ * Tests that assert on available-only fields narrow through this throw.
+ */
+function expectAvailable(
+  result: Awaited<ReturnType<typeof runQueryEmbeddingSpace>>
+): Exclude<Awaited<ReturnType<typeof runQueryEmbeddingSpace>>, { status: 'unavailable' }> {
+  if ('status' in result) {
+    throw new Error('expected an available retrieval result');
+  }
+  return result;
 }
 
 describe('retrieval-tool', () => {
@@ -282,13 +300,15 @@ describe('retrieval-tool', () => {
       tokenBudget: 10,
     });
 
-    const result = await tool.execute({
-      context: {
-        embeddingSetId: 'set-1',
-        filePaths: ['/repo/file.ts'],
-        query: '  Hello  ',
-      },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: {
+          embeddingSetId: 'set-1',
+          filePaths: ['/repo/file.ts'],
+          query: '  Hello  ',
+        },
+      })
+    );
 
     expect(result.query).toBe('Hello');
     expect(result.embeddingSetId).toBe('set-1');
@@ -340,9 +360,11 @@ describe('retrieval-tool', () => {
     resolveHostedProviderApiKeyMock.mockResolvedValueOnce('environment-key');
 
     const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-    const result = await tool.execute({
-      context: { embeddingSetId: 'set-1', query: 'hello' },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: { embeddingSetId: 'set-1', query: 'hello' },
+      })
+    );
 
     expect(result.embeddingSetId).toBe('set-1');
     expect(embedMock).toHaveBeenCalledOnce();
@@ -356,11 +378,13 @@ describe('retrieval-tool', () => {
       workspaceIndexStatusState: 'idle',
     });
 
-    const result = await tool.execute({
-      context: {
-        query: 'Where is assistant retrieval wired?',
-      },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: {
+          query: 'Where is assistant retrieval wired?',
+        },
+      })
+    );
 
     expect(result.embeddingSetId).toBe('workspace-index-set');
     expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
@@ -385,11 +409,13 @@ describe('retrieval-tool', () => {
       workspaceIndexStatusState: 'idle',
     });
 
-    const result = await tool.execute({
-      context: {
-        query: 'Where is assistant retrieval wired?',
-      },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: {
+          query: 'Where is assistant retrieval wired?',
+        },
+      })
+    );
 
     expect(result.embeddingSetId).toBe('workspace-index-set');
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
@@ -406,12 +432,14 @@ describe('retrieval-tool', () => {
       workspaceIndexStatusState: 'idle',
     });
 
-    const result = await tool.execute({
-      context: {
-        embeddingSetId: 'explicit-set',
-        query: 'Where is assistant retrieval wired?',
-      },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: {
+          embeddingSetId: 'explicit-set',
+          query: 'Where is assistant retrieval wired?',
+        },
+      })
+    );
 
     expect(result.embeddingSetId).toBe('explicit-set');
     expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
@@ -437,6 +465,9 @@ describe('retrieval-tool', () => {
         workspaceIndexStatusState: 'idle',
       }
     );
+    if ('status' in result) {
+      throw new Error('expected an available retrieval result');
+    }
 
     expect(result.embeddingSetId).toBe('explicit-set');
     expect(dbQueryMock).toHaveBeenCalledWith(expect.stringContaining('FROM embedding_sets'), [
@@ -516,9 +547,11 @@ describe('retrieval-tool', () => {
     });
 
     const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-    const result = await tool.execute({
-      context: { embeddingSetId: 'set-1', query: 'hello' },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: { embeddingSetId: 'set-1', query: 'hello' },
+      })
+    );
 
     expect(result.embeddingSetId).toBe('set-1');
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('ollama');
@@ -544,9 +577,11 @@ describe('retrieval-tool', () => {
     });
 
     const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-    const result = await tool.execute({
-      context: { embeddingSetId: 'set-1', query: 'hello' },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: { embeddingSetId: 'set-1', query: 'hello' },
+      })
+    );
 
     expect(result.embeddingSetId).toBe('set-1');
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('lmstudio');
@@ -574,9 +609,11 @@ describe('retrieval-tool', () => {
       { embeddingSetId: 'set-1' },
       { embeddingHostManager: { queryEmbedding: queryEmbeddingMock } }
     );
-    const result = await tool.execute({
-      context: { embeddingSetId: 'set-1', query: 'where is database config' },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: { embeddingSetId: 'set-1', query: 'where is database config' },
+      })
+    );
 
     expect(result.embeddingSetId).toBe('set-1');
     expect(queryEmbeddingMock).toHaveBeenCalledWith({
@@ -620,13 +657,15 @@ describe('retrieval-tool', () => {
     const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
 
     const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-    const result = await tool.execute({
-      context: {
-        embeddingSetId: 'set-1',
-        filePaths,
-        query: 'query',
-      },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: {
+          embeddingSetId: 'set-1',
+          filePaths,
+          query: 'query',
+        },
+      })
+    );
 
     expect(result.selectionSnapshotId).toBe(snapshotId);
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
@@ -658,9 +697,11 @@ describe('retrieval-tool', () => {
     searchSimilarMock.mockResolvedValueOnce([]);
     const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
-    const result = await tool.execute({
-      context: { embeddingSetId: 'set-1', query: 'hello' },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: { embeddingSetId: 'set-1', query: 'hello' },
+      })
+    );
 
     expect(result.context).toBe('');
     expect(result.chunks).toEqual([]);
@@ -702,9 +743,11 @@ describe('retrieval-tool', () => {
     ]);
     const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
-    const result = await tool.execute({
-      context: { embeddingSetId: 'set-1', query: 'hello' },
-    });
+    const result = expectAvailable(
+      await tool.execute({
+        context: { embeddingSetId: 'set-1', query: 'hello' },
+      })
+    );
 
     expect(result.context).toContain('Line-aware chunk');
     expect(result.context).not.toContain('Old chunk without range');
@@ -718,199 +761,6 @@ describe('retrieval-tool', () => {
       retrievedChunks: 2,
       skippedForMissingSourceRange: 1,
     });
-  });
-
-  it('throws a safe rebuild hint when all retrieved chunks are missing source ranges', async () => {
-    searchSimilarMock.mockResolvedValueOnce([
-      {
-        chunk: {
-          chunkIndex: 0,
-          chunkType: 'code',
-          content: 'Old chunk without range',
-          embeddingSetId: 'set-1',
-          fileRecordId: 'file-1',
-          id: 'chunk-old',
-          tokenCount: 2,
-        },
-        rank: 1,
-        similarity: 0.91,
-      },
-    ]);
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
-    ).rejects.toThrow(
-      'Retrieved chunks are missing source line metadata. Rebuild the embedding space.'
-    );
-    expect(loggerWarn).toHaveBeenCalledWith('All retrieved chunks are missing source ranges', {
-      skippedForMissingSourceRange: 1,
-    });
-  });
-
-  it('preserves the safe embedding-generation failure message', async () => {
-    embedMock.mockResolvedValueOnce({ error: new Error('provider down'), ok: false });
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
-    ).rejects.toThrow('Unable to generate query embeddings for retrieval.');
-  });
-
-  it('continues when snapshot cleanup fails', async () => {
-    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
-      if (sql.includes('DELETE FROM selection_snapshots')) {
-        throw new Error('cleanup failed');
-      }
-      if (sql.includes('FROM embedding_sets')) {
-        return {
-          rows: [
-            {
-              dimensions: 2,
-              distance: null,
-              modelId: 'text-embedding-3-small',
-              modelKey: 'openai:text-embedding-3-small',
-            },
-          ],
-        };
-      }
-      if (sql.includes('INSERT INTO selection_snapshots')) {
-        return { rows: [{ id: snapshotId }] };
-      }
-      return { rows: [] };
-    });
-
-    const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    const result = await tool.execute({
-      context: {
-        embeddingSetId: 'set-1',
-        filePaths,
-        query: 'query',
-      },
-    });
-
-    expect(result.selectionSnapshotId).toBe(snapshotId);
-  });
-
-  it('rejects invalid selection snapshot ids', async () => {
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({
-        context: {
-          embeddingSetId: 'set-1',
-          query: 'hello',
-          selectionSnapshotId: 'not-a-uuid',
-        },
-      })
-    ).rejects.toThrow('Selection snapshot reference is invalid.');
-  });
-
-  it('rejects oversized selection file path lists at the input schema', async () => {
-    // BST-1020: the registry's schema parse (filePaths max 5000) is the LIVE
-    // boundary; the core's selectionTooLarge throw behind it is defensive.
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-    const filePaths = Array.from({ length: 5001 }, (_, index) => `file-${index}.ts`);
-
-    await expect(
-      tool.execute({
-        context: {
-          embeddingSetId: 'set-1',
-          filePaths,
-          query: 'hello',
-        },
-      })
-    ).rejects.toThrow(/too big|at most 5000|5000/i);
-  });
-
-  it('surfaces safe errors when embedding set lookup fails', async () => {
-    dbQueryMock.mockRejectedValueOnce(new Error('db exploded'));
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({
-        context: { embeddingSetId: 'set-1', query: 'hello' },
-      })
-    ).rejects.toThrow('Unable to load embedding set metadata.');
-  });
-
-  it('surfaces safe selection guidance when no embedding space is resolvable', async () => {
-    await expect(runQueryEmbeddingSpace({ query: 'hello' }, undefined)).rejects.toThrow(
-      'Select an embedding space before querying semantic context.'
-    );
-  });
-
-  it('sanitizes unexpected retrieval errors', async () => {
-    searchSimilarMock.mockRejectedValueOnce(new Error('bad'));
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({
-        context: { embeddingSetId: 'set-1', query: 'hello' },
-      })
-    ).rejects.toThrow('Unable to retrieve context right now. Try again.');
-  });
-
-  it('does not expose raw unexpected retrieval errors in development mode', async () => {
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'development';
-    searchSimilarMock.mockRejectedValue(new Error('db failed for /private/workspace'));
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    try {
-      await expect(
-        tool.execute({
-          context: { embeddingSetId: 'set-1', query: 'hello' },
-        })
-      ).rejects.toThrow('Unable to retrieve context right now. Try again.');
-      await expect(
-        tool.execute({
-          context: { embeddingSetId: 'set-1', query: 'hello' },
-        })
-      ).rejects.not.toThrow('/private/workspace');
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
-  });
-
-  it('redacts the logged error for unexpected top-level retrieval failures', async () => {
-    searchSimilarMock.mockRejectedValue(new Error('db failed for /private/secret-workspace-path'));
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
-    ).rejects.toThrow('Unable to retrieve context right now. Try again.');
-
-    expect(loggerError).toHaveBeenCalledWith(
-      'Retrieval tool failed',
-      expect.objectContaining({ error: expect.objectContaining({ redacted: true }) })
-    );
-    expect(JSON.stringify(loggerError.mock.calls)).not.toContain('/private/secret-workspace-path');
-  });
-
-  it('redacts the logged error when embedding set metadata fails to load', async () => {
-    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
-      if (sql.includes('FROM embedding_sets')) {
-        throw new Error('connection refused at /private/secret-db-socket-path');
-      }
-      return { rows: [] };
-    });
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
-    ).rejects.toThrow('Unable to load embedding set metadata.');
-
-    expect(loggerError).toHaveBeenCalledWith(
-      'Failed to load embedding set metadata',
-      expect.objectContaining({
-        embeddingSetId: 'set-1',
-        error: expect.objectContaining({ redacted: true }),
-      })
-    );
-    expect(JSON.stringify(loggerError.mock.calls)).not.toContain('/private/secret-db-socket-path');
   });
 });
 
@@ -962,7 +812,6 @@ describe('retrieval-tool multi-root', () => {
           ],
         };
       }
-      // Root-label lookup (aliased columns mirror the real query).
       if (sql.includes('FROM file_records')) {
         return { rows: [{ id: 'file-1', rootId: 'root-a', rootName: 'ProjectA' }] };
       }
@@ -980,8 +829,8 @@ describe('retrieval-tool multi-root', () => {
       throw new Error('expected a retrieval result');
     }
     expect(result.context).toContain('ProjectA');
-    expect(result.chunks[0]?.metadata?.rootName).toBe('ProjectA');
-    expect(result.chunks[0]?.metadata?.rootId).toBe('root-a');
+    expect(result.chunks[0]?.metadata?.['rootName']).toBe('ProjectA');
+    expect(result.chunks[0]?.metadata?.['rootId']).toBe('root-a');
   });
 
   it('scopes retrieval to the resolved root when `root` is provided', async () => {

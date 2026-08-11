@@ -5,7 +5,18 @@ import * as React from 'react';
 
 interface FileExplorerToolbarProps {
   bulkSelectionControl?: React.ReactNode;
-  /** Narrow-width menu for actions that cannot coexist with 24px targets and the edge gutters. */
+  /**
+   * Tree-grid column visibility. Revealed only at 300px, where the right track
+   * first fits a FOURTH 28px control without breaking the documented
+   * narrow-toolbar geometry — the same width below which the grid drops its
+   * metadata columns entirely (see explorer-columns-context.ts).
+   */
+  columnsControl?: React.ReactNode;
+  /**
+   * Narrow-width menu for actions that cannot coexist with 24px targets and the
+   * edge gutters. Renders nothing while an operation is cancellable, so the
+   * scanning indicator's cancel gets the slot instead.
+   */
   compactActionsControl?: React.ReactNode;
   /** Filter visibility toggle rendered between the tree actions and the right-edge bulk selection control. */
   filtersControl?: React.ReactNode;
@@ -13,22 +24,33 @@ interface FileExplorerToolbarProps {
   onDirectorySelect: () => Promise<void>;
   selectionStatusControl?: React.ReactNode;
   /**
-   * Tree operations (refresh / expand / collapse) rendered in the right
-   * cluster. They live on the toolbar — not inside the collapsible filter
-   * block — so they stay reachable while view filters are collapsed.
+   * Tree operations (refresh) plus the inline scanning indicator, rendered in
+   * the right cluster. They live on the toolbar — not inside the collapsible
+   * filter block, and not inside the narrow-hidden wrapper — so the indicator's
+   * cancel stays reachable at every panel width.
    */
   treeActionsControl?: React.ReactNode;
+  /**
+   * Expand All / Collapse All. Rendered in the LEFT track beside the selection
+   * status, because the right track is exactly full at every documented width
+   * step. Revealed at the same 236px step as Refresh and View Filters; below it
+   * these fold into `compactActionsControl` (whole-branch review F11 — this
+   * replaces the floating overlay that covered the tree grid's column header).
+   */
+  treeExpansionControl?: React.ReactNode;
 }
 
 const FileExplorerToolbar = React.memo(
   ({
     bulkSelectionControl,
+    columnsControl,
     compactActionsControl,
     filtersControl,
     onDirectorySelect,
     isLoading,
     selectionStatusControl,
     treeActionsControl,
+    treeExpansionControl,
   }: FileExplorerToolbarProps) => {
     // Multi-root: the add-folder action stays mathematically centered between the
     // selection controls. The label no longer flips on focus, and the focused-root
@@ -48,8 +70,16 @@ const FileExplorerToolbar = React.memo(
               centered add-folder button and intercept its pointer events (the
               unclickable-Add regression at narrow panel widths). */}
           <div className="@container/explorer-selection flex min-w-0 items-center justify-start overflow-hidden">
-            <div className="flex w-full min-w-0 items-center justify-start @[128px]/explorer-toolbar:pl-3 @[96px]/explorer-toolbar:pl-1.5 pl-1">
+            {/* The left track is the toolbar's only cluster with slack: the
+                right one is exactly full at 180/236/300px. Expand/Collapse
+                therefore live HERE, and the selection counter yields to them
+                below 180px of track (the mode badge still carries the compact
+                count), so the two never fight for the same pixels. */}
+            <div className="flex w-full min-w-0 items-center gap-1 @[128px]/explorer-toolbar:pl-3 @[96px]/explorer-toolbar:pl-1.5 pl-1">
               {selectionStatusControl}
+              <div className="@[236px]/explorer-toolbar:contents hidden">
+                {treeExpansionControl}
+              </div>
             </div>
           </div>
           <Button
@@ -72,12 +102,24 @@ const FileExplorerToolbar = React.memo(
                 symmetric 12px edge gutter. At 236px, the full Refresh and View
                 Filters actions replace the compact menu; three 28px controls,
                 two 4px gaps, and the 12px gutter exactly fit the 104px track.
-                Select All stays last so it remains the protected edge action. */}
+                Select All stays last so it remains the protected edge action.
+
+                Tree actions sit OUTSIDE the narrow-hidden wrapper: the cluster
+                carries the scanning indicator's Cancel (X), which is the only
+                way to abort a running expand-all sweep, and hiding it wholesale
+                at 180px left desktop users with no abort at all (BST-657
+                regression). The cluster gates its own children instead — only
+                the cancel survives the narrow track, and the compact menu
+                yields its slot for the duration (see CompactToolbarActions). */}
             <div className="flex w-full min-w-0 items-center justify-end @[236px]/explorer-toolbar:gap-1 gap-0 @[128px]/explorer-toolbar:pr-3 @[96px]/explorer-toolbar:pr-1.5 pr-1">
-              <div className="@[236px]/explorer-toolbar:contents hidden">
-                {treeActionsControl}
-                {filtersControl}
-              </div>
+              {/* Columns joins one breakpoint LATER than View Filters: at
+                  236px the track holds exactly three 28px controls. */}
+              <div className="@[300px]/explorer-toolbar:contents hidden">{columnsControl}</div>
+              {/* NOT inside the narrow-hidden wrapper — BST-657: this cluster
+                  carries the scanning indicator's Cancel, the only abort path
+                  for a running sweep. It gates its own children by width. */}
+              {treeActionsControl}
+              <div className="@[236px]/explorer-toolbar:contents hidden">{filtersControl}</div>
               {compactActionsControl}
               {bulkSelectionControl}
             </div>

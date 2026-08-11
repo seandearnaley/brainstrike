@@ -1,4 +1,7 @@
-import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
+import {
+  MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+  ToolProjectionInputRejectedError,
+} from '@brainstrike/agent';
 import type {
   EditDiagnostic,
   InspectLocation,
@@ -8,11 +11,11 @@ import type {
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
+  decodedWorkspaceTextModelOutputChars as decodedChars,
   isNonNegativeInteger,
   isPositiveInteger,
   isRecord,
   makeWorkspaceTextModelOutput as makeTextModelOutput,
-  serializedWorkspaceTextModelOutputChars as serializedChars,
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers';
@@ -91,7 +94,9 @@ function parseFindWorkspaceSymbolResult(output: unknown): FindWorkspaceSymbolRes
       typeof output['truncated'] === 'boolean'
     )
   ) {
-    throw new TypeError('findWorkspaceSymbol model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'findWorkspaceSymbol model projection received a malformed result'
+    );
   }
   return output as unknown as FindWorkspaceSymbolResult;
 }
@@ -147,16 +152,22 @@ function parseLspInspectResult(output: unknown): LspInspectResult {
       hasOptionalArray(output, 'implementation', isInspectLocation)
     )
   ) {
-    throw new TypeError('lspInspect model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'lspInspect model projection received a malformed result'
+    );
   }
   if (
     output['available'] === false &&
     !(isUnavailableReason(output['reason']) && typeof output['message'] === 'string')
   ) {
-    throw new TypeError('lspInspect model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'lspInspect model projection received a malformed result'
+    );
   }
   if (output['available'] === true && output['reason'] !== undefined) {
-    throw new TypeError('lspInspect model projection received a malformed result');
+    throw new ToolProjectionInputRejectedError(
+      'lspInspect model projection received a malformed result'
+    );
   }
   return output as unknown as LspInspectResult;
 }
@@ -178,13 +189,14 @@ function clipPath(value: string): string {
 
 function assertProjectionFits(
   toolName: 'findWorkspaceSymbol' | 'lspInspect',
-  lines: readonly string[]
+  lines: readonly string[],
+  domainModelResultCharBudget: number
 ): void {
-  if (serializedChars(lines) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) <= domainModelResultCharBudget) {
     return;
   }
   throw new RangeError(
-    `${toolName} model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+    `${toolName} model projection exceeds the ${domainModelResultCharBudget}-character domain budget`
   );
 }
 
@@ -219,7 +231,8 @@ function symbolContinuation(result: FindWorkspaceSymbolResult, kept: number): st
 }
 
 export function projectFindWorkspaceSymbolModelOutput(
-  output: unknown
+  output: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
 ): WorkspaceInspectionTextModelOutput {
   const result = parseFindWorkspaceSymbolResult(output);
   const keptLines: string[] = [];
@@ -236,7 +249,7 @@ export function projectFindWorkspaceSymbolModelOutput(
       SYMBOL_INSPECTION_GUIDANCE,
       ...(continuation ? [continuation] : []),
     ];
-    if (serializedChars(candidate) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(candidate) > domainModelResultCharBudget) {
       break;
     }
     keptLines.push(...matchLines);
@@ -250,7 +263,7 @@ export function projectFindWorkspaceSymbolModelOutput(
     ...(kept > 0 ? [SYMBOL_INSPECTION_GUIDANCE] : []),
     ...(continuation ? [continuation] : []),
   ];
-  assertProjectionFits('findWorkspaceSymbol', lines);
+  assertProjectionFits('findWorkspaceSymbol', lines, domainModelResultCharBudget);
   return makeTextModelOutput(lines);
 }
 
@@ -326,7 +339,10 @@ function buildLspProjectionLines(result: LspInspectResult): LspProjectionLine[] 
   ];
 }
 
-export function projectLspInspectModelOutput(output: unknown): WorkspaceInspectionTextModelOutput {
+export function projectLspInspectModelOutput(
+  output: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+): WorkspaceInspectionTextModelOutput {
   const result = parseLspInspectResult(output);
   const header = lspHeader(result);
   if (!result.available) {
@@ -334,7 +350,7 @@ export function projectLspInspectModelOutput(output: unknown): WorkspaceInspecti
       header,
       `message: ${clipEnd(result.message ?? '', MAX_DIAGNOSTIC_CHARS, 'message')}`,
     ];
-    assertProjectionFits('lspInspect', lines);
+    assertProjectionFits('lspInspect', lines, domainModelResultCharBudget);
     return makeTextModelOutput(lines);
   }
 
@@ -362,7 +378,7 @@ export function projectLspInspectModelOutput(output: unknown): WorkspaceInspecti
       candidate.value,
       ...(omitted ? [omitted] : []),
     ];
-    if (serializedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+    if (decodedChars(lines) > domainModelResultCharBudget) {
       continue;
     }
     keptLines.push(candidate.value);
@@ -371,6 +387,6 @@ export function projectLspInspectModelOutput(output: unknown): WorkspaceInspecti
 
   const omitted = omissionSummary(totals, kept);
   const lines = [header, ...(hover ? [hover] : []), ...keptLines, ...(omitted ? [omitted] : [])];
-  assertProjectionFits('lspInspect', lines);
+  assertProjectionFits('lspInspect', lines, domainModelResultCharBudget);
   return makeTextModelOutput(lines);
 }

@@ -337,7 +337,10 @@ function getLiveQuerySurface(db: unknown): PGliteLiveQuerySurface {
   return db as PGliteLiveQuerySurface;
 }
 
-function assertRendererSql(channel: 'db:exec' | 'db:query' | 'db:transaction', sql: string): void {
+export function assertRendererSql(
+  channel: 'db:exec' | 'db:query' | 'db:transaction',
+  sql: string
+): void {
   if (typeof sql !== 'string' || sql.trim().length === 0) {
     throw new Error(`${channel} SQL must be a non-empty string.`);
   }
@@ -766,6 +769,29 @@ export function registerDatabaseIpcHandlers(
             // assistant-ui branch topology is client-owned durable state; clear
             // it explicitly so prompt carousels cannot survive factory reset.
             await clearOptionalRelation(tx, 'brainstrike_assistant_message_parents');
+            // Soft-rewind tombstones (migration 080, BST-1115): hidden-message
+            // bookkeeping over conversation content this clear destroys. No FK,
+            // so clear explicitly per the FACTORY RESET CONTRACT.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_message_tombstones');
+            // Shadow-git snapshot ledger (migration 081, BST-1164): turn↔oid
+            // bookkeeping for threads this clear destroys. No FK, so clear
+            // explicitly per the FACTORY RESET CONTRACT.
+            await clearOptionalRelation(tx, 'brainstrike_workspace_snapshots');
+            // Versioned Canvas documents (migration 082, BST-1173): no FK, so
+            // clear their thread-owned content explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_canvas_versions');
+            // Durable per-tool model-facing telemetry (migration 083): no FK,
+            // so counters for deleted runs must be cleared explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_tool_call_telemetry');
+            // Estimator/provider prompt-token calibration pairs (migration
+            // 086): no FK, so calibration evidence is cleared explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_token_estimate_calibration');
+            // Superseded native-tool projection overlays (migration 084): no
+            // FK, so request-build rewrite state is cleared explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_tool_projection_rewrites');
+            // Conversation-compaction ranges (migration 088): no FK, so exact
+            // summarized-message sets are cleared explicitly.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_compaction_ranges');
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');

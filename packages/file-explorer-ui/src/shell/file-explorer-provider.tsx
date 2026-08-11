@@ -1,6 +1,6 @@
+import { registerFactoryResetSessionStore } from '@brainstrike/app-state/factory-reset';
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
-import { registerFactoryResetSessionStore } from '@brainstrike/preferences/settings/system/factory-reset-helpers';
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState } from '@brainstrike/types';
 import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';

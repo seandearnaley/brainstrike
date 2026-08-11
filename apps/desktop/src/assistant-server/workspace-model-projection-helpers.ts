@@ -1,3 +1,12 @@
+import {
+  clipGrepProjectionLine,
+  decodedTextModelOutputChars,
+  normalizeGrepProjectionLine,
+  PROJECTION_ENVELOPE_RESERVE_CHARS,
+} from '@brainstrike/agent';
+
+export { PROJECTION_ENVELOPE_RESERVE_CHARS };
+
 export interface WorkspaceTextModelOutput {
   type: 'text';
   value: string;
@@ -15,9 +24,11 @@ export function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
-export function projectionSingleLine(value: string): string {
-  return value.replace(/\s+/gu, ' ').trim();
-}
+// Delegates to `@brainstrike/agent`'s grep-model-format so this desktop-side
+// line normalization/clipping and the durable artifact-search projector
+// (packages/agent/src/mastra/tool-output-artifact-reader.ts) share one
+// implementation instead of independent copies that could silently drift.
+export const projectionSingleLine = normalizeGrepProjectionLine;
 
 export function escapeProjectionPathLineBreaks(value: string): string {
   return value
@@ -28,14 +39,7 @@ export function escapeProjectionPathLineBreaks(value: string): string {
 }
 
 export function clipProjectionEnd(value: string, maxChars: number, label: string): string {
-  const normalized = projectionSingleLine(value);
-  const codePoints = Array.from(normalized);
-  if (codePoints.length <= maxChars) {
-    return normalized;
-  }
-  return `${codePoints.slice(0, maxChars).join('')}…[${
-    codePoints.length - maxChars
-  } ${label} chars omitted]`;
+  return clipGrepProjectionLine(value, maxChars, label);
 }
 
 export function clipProjectionMiddle(value: string, maxChars: number, label: string): string {
@@ -55,6 +59,24 @@ export function makeWorkspaceTextModelOutput(lines: readonly string[]): Workspac
   return { type: 'text', value: lines.join('\n') };
 }
 
-export function serializedWorkspaceTextModelOutputChars(lines: readonly string[]): number {
-  return JSON.stringify(makeWorkspaceTextModelOutput(lines)).length;
+/**
+ * The ONE domain-projection budget ruler (BST-1195), delegating to
+ * `@brainstrike/agent`'s `decodedTextModelOutputChars` so this desktop-side
+ * math and the runtime's own domain-projection guards
+ * (`assertDomainProjectionWithinBudget` /`composeHookContextWithProjection`
+ * in `packages/agent/src/mastra/tool-model-output.ts`) can never diverge
+ * again — PR #2334 review caught exactly that divergence when the two sides
+ * held independent copies of this formula. Tokens come from the DECODED
+ * string the model actually reads, where a literal newline is ONE character
+ * — not from the JSON-serialized `{"type":"text","value":"..."}` envelope,
+ * which doubles every newline/quote/backslash. Every domain projector MUST
+ * measure fit through this function against
+ * MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET; no site-local
+ * JSON.stringify(...).length math is allowed. Pass the same `lines` array
+ * you would pass to makeWorkspaceTextModelOutput; for a value you already
+ * have as a single string (e.g. replaying a stored projection's `value`
+ * field), pass it as a one-element array `[value]`.
+ */
+export function decodedWorkspaceTextModelOutputChars(lines: readonly string[]): number {
+  return decodedTextModelOutputChars(lines.join('\n'));
 }

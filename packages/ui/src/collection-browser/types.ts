@@ -1,17 +1,17 @@
 /**
- * CollectionBrowser Types
+ * Collection inspection + semantic-search types.
  *
- * Type definitions for the Collection Browser component that provides
- * a unified hierarchical view of collections, files, chunks, and embeddings.
+ * What is left here after the Collection Browser tree was retired (BST-1213):
+ * the per-node shapes the {@link NodeInspector} renders, and the semantic
+ * search config/result contract shared with the db-explorer executor. The
+ * tree, filter, grouping, and toolbar types went with the browser.
  */
 
-import type * as React from 'react';
-import type { TreeNode } from '../tree-table/types';
+import type { CollectionNodeType } from '../bulk-action-bar';
 
-/**
- * Node types in the collection hierarchy
- */
-export type CollectionNodeType = 'collection' | 'file' | 'chunk' | 'embedding';
+// The node-kind union is owned by the shared bulk action bar; this module
+// re-exports it because the inspector's display config is keyed by it.
+export type { CollectionNodeType };
 
 /**
  * Embedding status for filtering
@@ -71,66 +71,7 @@ export interface EmbeddingData {
 /**
  * Union type for all node data types
  */
-export type BrowserNodeData =
-  | CollectionData
-  | FileData
-  | ChunkData
-  | EmbeddingData
-  | GroupHeaderData;
-
-/**
- * Typed tree node for collection browser
- */
-export type CollectionTreeNode = TreeNode<BrowserNodeData>;
-
-/**
- * Filter state for the collection browser
- */
-export interface CollectionBrowserFilters {
-  /** Filter by embedding status */
-  embeddingStatus: EmbeddingStatus | 'all';
-  /** Filter by node type */
-  nodeTypes: Set<CollectionNodeType>;
-  /** Only show nodes matching search */
-  searchMatchesOnly: boolean;
-  /** Text search query */
-  searchQuery: string;
-}
-
-/**
- * Default filter state
- */
-export const DEFAULT_FILTERS: CollectionBrowserFilters = {
-  embeddingStatus: 'all',
-  nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
-  searchMatchesOnly: false,
-  searchQuery: '',
-};
-
-/**
- * Props for the FilterChip component
- */
-export interface FilterChipProps {
-  /** Whether the chip is active/selected */
-  active: boolean;
-  /**
-   * Custom class name. Passes through `cn`, so `undefined` is a no-op.
-   *
-   * The explicit `| undefined` is required (not redundant) because this repo
-   * sets `exactOptionalPropertyTypes: true` — without it, callers couldn't
-   * write `className={maybeString}` where `maybeString` may be `undefined`
-   * and would have to fall back to a conditional spread.
-   */
-  className?: string | undefined;
-  /** Whether the chip is disabled */
-  disabled?: boolean;
-  /** Icon to show (optional) */
-  icon?: React.ReactNode;
-  /** Label to display */
-  label: string;
-  /** Callback when clicked */
-  onClick: () => void;
-}
+export type BrowserNodeData = CollectionData | FileData | ChunkData | EmbeddingData;
 
 /**
  * Node type configuration for display
@@ -190,11 +131,6 @@ export interface EmbeddingStatusConfig {
 // ============================================================================
 // SEMANTIC SEARCH TYPES
 // ============================================================================
-
-/**
- * Search mode for the collection browser
- */
-export type SearchMode = 'quick' | 'semantic';
 
 /**
  * Distance metric for vector similarity search
@@ -309,78 +245,12 @@ export interface SemanticSearchResult {
 }
 
 /**
- * Props for the SearchModeBar component
- */
-export interface SearchModeBarProps {
-  /** Advanced search controls rendered inside the cog Popover next to the query. */
-  advancedOptions?: React.ReactNode;
-  /** Controlled open state for the advanced-options (cog) Popover. */
-  advancedOptionsOpen?: boolean;
-  /** Custom class name */
-  className?: string;
-  /** Whether the hybrid search controls are disabled. */
-  disabled?: boolean;
-  /** Tooltip text for the disabled state. */
-  disabledReason?: string | undefined;
-  /** Whether semantic search has been executed */
-  hasSearched?: boolean;
-  /** Whether the hybrid search panel is expanded */
-  isSearchExpanded: boolean;
-  /** Whether semantic search is in progress */
-  isSearching: boolean;
-  /** Current search mode */
-  mode: SearchMode;
-  /** Callback when the advanced-options (cog) Popover open state changes. */
-  onAdvancedOptionsOpenChange?: (open: boolean) => void;
-  /** Callback when mode changes */
-  onModeChange: (mode: SearchMode) => void;
-  /** Callback when hybrid search panel expansion changes */
-  onSearchExpandedChange: (expanded: boolean) => void;
-  /** Callback when semantic query changes */
-  onSemanticQueryChange: (query: string) => void;
-  /** Callback to execute semantic search */
-  onSemanticSearch: () => void;
-  /** Number of visible results */
-  resultCount?: number;
-  /** Semantic search query */
-  semanticQuery: string;
-}
-
-/**
- * Props for the collection browser toolbar that sits directly above the grid.
- *
- * The toolbar hosts the inline filter input + Embedded toggle. The controls
- * collapse to a popover when the parent panel is too narrow to fit them; this
- * is driven by Tailwind container queries on the toolbar root, so the toolbar
- * just needs to be inside a `@container/cb-toolbar` (which it sets on itself).
- */
-export interface CollectionBrowserToolbarProps {
-  /** Custom class name */
-  className?: string;
-  /** Current filter state (controlled) — required to render filter UI */
-  filters?: CollectionBrowserFilters;
-  /** Current group-by key */
-  groupBy?: GroupByKey;
-  /** Whether multi-select mode is enabled */
-  multiSelectEnabled?: boolean;
-  /** Callback to collapse all nodes */
-  onCollapseAll?: () => void;
-  /** Callback to expand all nodes */
-  onExpandAll?: () => void;
-  /** Callback when filters change — required to render filter UI */
-  onFiltersChange?: (filters: CollectionBrowserFilters) => void;
-  /** Callback when group-by changes */
-  onGroupByChange?: (groupBy: GroupByKey) => void;
-  /** Callback when multi-select toggle changes */
-  onMultiSelectToggle?: (enabled: boolean) => void;
-}
-
-/**
  * Props for the SearchConfigPanel component.
  *
  * The panel is pure presentational content (search tuning controls). Open/close
- * is owned by whatever surface hosts it — currently the cog Popover in
- * {@link SearchModeBarProps.advancedOptions}.
+ * is owned by whatever surface hosts it — currently the cog Popover in the
+ * Database tab's collection debug drawer (`retrieval-preview-section.tsx`).
+ * The former host, `SearchModeBar`, went with the Collection Browser tree.
  */
 export interface SearchConfigPanelProps {
   /** Custom class name */
@@ -391,47 +261,6 @@ export interface SearchConfigPanelProps {
   config: SearchConfig;
   /** Callback when configuration changes */
   onConfigChange: (config: SearchConfig) => void;
-}
-
-// ============================================================================
-// GROUPING TYPES
-// ============================================================================
-
-/**
- * Available keys for grouping tree nodes.
- * - 'none': No grouping (flat list)
- * - 'status': Group by embedding status
- * - 'type': Group by file extension / MIME type
- */
-export type GroupByKey = 'none' | 'status' | 'type';
-
-/**
- * Grouping configuration for the collection browser.
- */
-export interface GroupingState {
-  /** Active grouping key */
-  groupBy: GroupByKey;
-}
-
-/**
- * Default grouping state (no grouping)
- */
-export const DEFAULT_GROUPING_STATE: GroupingState = {
-  groupBy: 'none',
-};
-
-/**
- * Data for a virtual group header node.
- */
-export interface GroupHeaderData {
-  /** Grouping key that produced this group */
-  groupKey: GroupByKey;
-  /** Group display label */
-  groupLabel: string;
-  /** Value of the group (e.g., 'complete', '.ts') */
-  groupValue: string;
-  /** Number of direct children in this group */
-  itemCount: number;
 }
 
 /**

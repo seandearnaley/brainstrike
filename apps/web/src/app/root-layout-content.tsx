@@ -5,14 +5,14 @@ import {
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell/root-layout-content';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
+import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { ensureVectorPreferencesHydrated } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/panel`) so the startup check does not defeat the lazy code-split in
 // `@brainstrike/app-shell/notes-page-content`.
 import { isNotesVaultAvailable } from '@brainstrike/notes-vault/availability';
-import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import { ensureVectorPreferencesHydrated } from '@brainstrike/preferences/stores/vector-preferences-store';
 import { NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { getEmbeddingQueue, registerWebEmbeddingRuntimeConfig } from '../create-embedding-queue';
@@ -54,7 +54,7 @@ export default function RootLayoutContent() {
   // directory picker exists (Chromium; Safari/Firefox omit it). Resolved once.
   const notesAvailable = useMemo(() => isNotesVaultAvailable(), []);
   const navigationConfig = useMemo<NavigationItem[]>(() => {
-    const items = [...(navigationItems as NavigationItem[])];
+    const items = [...navigationItems];
     if (notesAvailable) {
       items.push(NOTES_NAVIGATION_ITEM);
     }
@@ -87,6 +87,13 @@ export default function RootLayoutContent() {
   // CRITICAL: loadEmbeddingQueue from create-embedding-queue.ts must be passed through
   // so the queue stays singleton while avoiding startup-time workerpool construction.
   const sharedProps: RootLayoutContentProps = {
+    // Canvas surface (BST-1173) deliberately OMITTED on web: nothing can WRITE
+    // brainstrike_canvas_versions here — manageCanvas is desktop-only
+    // (WebNativeToolId), web's PGlite is its own store, and sync will never
+    // cover it. A permanently-empty tab would violate the capability
+    // convention (omit, don't stub). The render tier stays web-capable
+    // (CanvasFrame + /canvas-frame.html serving are live), so wiring
+    // `canvasPanelContent` back is one line once web gains a write path.
     contextExplorerPageContent: <ContextExplorerPageContent />,
     databaseTabChunkingMode: 'local',
     loadEmbeddingQueue, // DO NOT REMOVE - See function docstring

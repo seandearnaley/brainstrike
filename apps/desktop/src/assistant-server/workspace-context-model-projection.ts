@@ -4,15 +4,16 @@ import {
   type RuntimeWorkspaceContextMetadata,
   type RuntimeWorkspaceContextRangeMetadata,
   type RuntimeWorkspaceRoot,
+  ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
 import {
   clipProjectionEnd as clipEnd,
   clipProjectionMiddle,
+  decodedWorkspaceTextModelOutputChars as decodedChars,
   escapeProjectionPathLineBreaks as escapePathLineBreaks,
   isNonNegativeInteger,
   isRecord,
   makeWorkspaceTextModelOutput as makeOutput,
-  serializedWorkspaceTextModelOutputChars as serializedChars,
   type WorkspaceTextModelOutput,
 } from './workspace-model-projection-helpers';
 
@@ -167,7 +168,9 @@ function isTokenEstimate(value: unknown): value is { approxTokens: number | null
 }
 
 function throwMalformed(): never {
-  throw new TypeError('listWorkspaceContext model projection received a malformed result');
+  throw new ToolProjectionInputRejectedError(
+    'listWorkspaceContext model projection received a malformed result'
+  );
 }
 
 function hasCoherentRootState(result: ListWorkspaceContextResult): boolean {
@@ -446,14 +449,22 @@ function buildLines(result: ListWorkspaceContextResult, state: ProjectionState):
   ];
 }
 
-function fits(result: ListWorkspaceContextResult, state: ProjectionState): boolean {
-  return serializedChars(buildLines(result, state)) <= MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET;
+function fits(
+  result: ListWorkspaceContextResult,
+  state: ProjectionState,
+  domainModelResultCharBudget: number
+): boolean {
+  return decodedChars(buildLines(result, state)) <= domainModelResultCharBudget;
 }
 
-function fitSelectedFiles(result: ListWorkspaceContextResult, state: ProjectionState): void {
+function fitSelectedFiles(
+  result: ListWorkspaceContextResult,
+  state: ProjectionState,
+  domainModelResultCharBudget: number
+): void {
   while (state.keptSelectedFiles < result.selectedFiles.length) {
     const candidate = { ...state, keptSelectedFiles: state.keptSelectedFiles + 1 };
-    if (!fits(result, candidate)) {
+    if (!fits(result, candidate, domainModelResultCharBudget)) {
       return;
     }
     state.keptSelectedFiles += 1;
@@ -462,13 +473,14 @@ function fitSelectedFiles(result: ListWorkspaceContextResult, state: ProjectionS
 
 function reserveAdvancingSelectedFile(
   result: ListWorkspaceContextResult,
-  state: ProjectionState
+  state: ProjectionState,
+  domainModelResultCharBudget: number
 ): void {
   if (result.selectedFiles.length === 0) {
     return;
   }
   const candidate = { ...state, keptSelectedFiles: 1 };
-  if (!fits(result, candidate)) {
+  if (!fits(result, candidate, domainModelResultCharBudget)) {
     throw new RangeError(
       'listWorkspaceContext projection cannot emit an advancing selected-file page'
     );
@@ -487,18 +499,26 @@ function assertProjectionCanAdvance(
   }
 }
 
-function fitOtherRoots(result: ListWorkspaceContextResult, state: ProjectionState): void {
+function fitOtherRoots(
+  result: ListWorkspaceContextResult,
+  state: ProjectionState,
+  domainModelResultCharBudget: number
+): void {
   const otherRootCount = Math.max(0, result.workspaceRoots.length - 1);
   while (state.keptOtherRoots < otherRootCount) {
     const candidate = { ...state, keptOtherRoots: state.keptOtherRoots + 1 };
-    if (!fits(result, candidate)) {
+    if (!fits(result, candidate, domainModelResultCharBudget)) {
       return;
     }
     state.keptOtherRoots += 1;
   }
 }
 
-function fitContextDetails(result: ListWorkspaceContextResult, state: ProjectionState): void {
+function fitContextDetails(
+  result: ListWorkspaceContextResult,
+  state: ProjectionState,
+  domainModelResultCharBudget: number
+): void {
   const contextFiles = result.curatedContext?.files ?? [];
   for (const [fileIndex, file] of contextFiles.entries()) {
     const fileLine = contextFileLine(file, fileIndex);
@@ -507,7 +527,7 @@ function fitContextDetails(result: ListWorkspaceContextResult, state: Projection
       contextLines: [...state.contextLines, fileLine],
       keptContextFiles: state.keptContextFiles + 1,
     };
-    if (!fits(result, fileCandidate)) {
+    if (!fits(result, fileCandidate, domainModelResultCharBudget)) {
       return;
     }
     state.contextLines.push(fileLine);
@@ -520,7 +540,7 @@ function fitContextDetails(result: ListWorkspaceContextResult, state: Projection
         contextLines: [...state.contextLines, rangeLine],
         keptRanges: state.keptRanges + 1,
       };
-      if (!fits(result, rangeCandidate)) {
+      if (!fits(result, rangeCandidate, domainModelResultCharBudget)) {
         return;
       }
       state.contextLines.push(rangeLine);
@@ -530,7 +550,8 @@ function fitContextDetails(result: ListWorkspaceContextResult, state: Projection
 }
 
 export function projectListWorkspaceContextModelOutput(
-  output: unknown
+  output: unknown,
+  domainModelResultCharBudget = MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
 ): WorkspaceContextTextModelOutput {
   const result = parseListWorkspaceContextResult(output);
   const state: ProjectionState = {
@@ -541,16 +562,16 @@ export function projectListWorkspaceContextModelOutput(
     keptSelectedFiles: 0,
   };
 
-  reserveAdvancingSelectedFile(result, state);
-  fitOtherRoots(result, state);
-  fitSelectedFiles(result, state);
+  reserveAdvancingSelectedFile(result, state, domainModelResultCharBudget);
+  fitOtherRoots(result, state, domainModelResultCharBudget);
+  fitSelectedFiles(result, state, domainModelResultCharBudget);
   assertProjectionCanAdvance(result, state);
-  fitContextDetails(result, state);
+  fitContextDetails(result, state, domainModelResultCharBudget);
 
   const lines = buildLines(result, state);
-  if (serializedChars(lines) > MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET) {
+  if (decodedChars(lines) > domainModelResultCharBudget) {
     throw new RangeError(
-      `listWorkspaceContext model projection exceeds the ${MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET}-character domain budget`
+      `listWorkspaceContext model projection exceeds the ${domainModelResultCharBudget}-character domain budget`
     );
   }
   return makeOutput(lines);

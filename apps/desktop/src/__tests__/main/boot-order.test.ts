@@ -107,7 +107,7 @@ vi.mock('node:fs', () => ({
 }));
 
 const { createLoggerMock } = vi.hoisted(() => ({
-  createLoggerMock: vi.fn(() => ({
+  createLoggerMock: vi.fn((_scope: string) => ({
     debug: vi.fn(),
     error: vi.fn(),
     info: vi.fn(),

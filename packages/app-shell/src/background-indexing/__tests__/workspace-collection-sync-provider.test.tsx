@@ -1,3 +1,15 @@
+import {
+  __resetBackgroundIndexingPreferencesStoreForTests,
+  useBackgroundIndexingPreferencesStore,
+} from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  __resetVectorStatusUIStoreForTests,
+  useVectorStatusUIStore,
+} from '@brainstrike/app-state/stores/vector-status-ui-store';
+import {
+  __resetWorkspaceCollectionSyncStatusStoreForTests,
+  useWorkspaceCollectionSyncStatusStore,
+} from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type { EmbeddingSet } from '@brainstrike/db';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type {
@@ -5,18 +17,6 @@ import type {
   WorkspaceIndexingQosPolicy,
 } from '@brainstrike/indexing-contract/workspace-indexing-qos';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
-import {
-  __resetBackgroundIndexingPreferencesStoreForTests,
-  useBackgroundIndexingPreferencesStore,
-} from '@brainstrike/preferences/stores/background-indexing-preferences-store';
-import {
-  __resetVectorStatusUIStoreForTests,
-  useVectorStatusUIStore,
-} from '@brainstrike/preferences/stores/vector-status-ui-store';
-import {
-  __resetWorkspaceCollectionSyncStatusStoreForTests,
-  useWorkspaceCollectionSyncStatusStore,
-} from '@brainstrike/preferences/stores/workspace-collection-sync-status-store';
 import {
   __resetBackgroundWorkArbiterForTests,
   acquireBackgroundWorkPauseReason,
@@ -594,7 +594,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       },
     ]);
     processFilesMock.mockResolvedValue({
-      [encodeFileSelection('/workspace/root', 'src/index.ts')]: 'export const value = 1;',
+      [encodeFileSelection('/workspace/root', 'src/index.ts')]: {
+        content: 'export const value = 1;',
+        status: 'accessible',
+      },
     });
     listManagedCacheEntryMetadataMock.mockResolvedValue([]);
     runEnhancedImportMock.mockImplementation(async (params) => {
@@ -1707,16 +1710,18 @@ describe('WorkspaceCollectionSyncProvider', () => {
         type: 'file',
       },
     ]);
-    processFilesMock.mockImplementation(
-      async (requests: Array<{ compositeKey: string }>): Promise<Record<string, string>> =>
-        Object.fromEntries(
-          requests.map((request) => [
-            request.compositeKey,
-            request.compositeKey.includes('binary-content.md')
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          {
+            content: request.compositeKey.includes('binary-content.md')
               ? 'looks like markdown but contains a null\0byte'
               : 'export const value = 1;',
-          ])
-        )
+            status: 'accessible' as const,
+          },
+        ])
+      )
     );
     dbState.current = {
       exec: vi.fn(async () => undefined),
@@ -1802,11 +1807,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
         type: 'file',
       },
     ]);
-    processFilesMock.mockImplementation(
-      async (requests: Array<{ compositeKey: string }>): Promise<Record<string, string>> =>
-        Object.fromEntries(
-          requests.map((request) => [request.compositeKey, 'export const value = 1;'])
-        )
+    processFilesMock.mockImplementation(async (requests: Array<{ compositeKey: string }>) =>
+      Object.fromEntries(
+        requests.map((request) => [
+          request.compositeKey,
+          { content: 'export const value = 1;', status: 'accessible' as const },
+        ])
+      )
     );
     dbState.current = {
       exec: vi.fn(async () => undefined),

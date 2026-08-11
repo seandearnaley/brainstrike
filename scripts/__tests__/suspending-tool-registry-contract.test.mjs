@@ -75,7 +75,12 @@ const REGISTERED_SUSPENDING_TOOL_MODULES = [
  * repo-wide sweep stays exact: a new entry here is a deliberate human decision,
  * never a silent widening.
  */
-const ACKNOWLEDGED_NON_DECLARING_MODULES = ['packages/agent/src/mastra/plan-mode-tool-gate.ts'];
+const ACKNOWLEDGED_NON_DECLARING_MODULES = [
+  // (permission-tool-gate.ts left this list at the @mastra/core 1.56 idiom
+  // adoption: the self-approving exception it read hasSuspendSchema for is
+  // gone — every ask tool takes the requireApproval clone.)
+  'packages/agent/src/mastra/plan-mode-tool-gate.ts',
+];
 
 const SUSPEND_SCHEMA_TOKEN = /\bsuspendSchema\b/;
 

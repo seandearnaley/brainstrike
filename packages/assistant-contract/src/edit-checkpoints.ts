@@ -90,3 +90,20 @@ export interface AssistantCheckpointRevertRunResult {
   readonly outcomes: readonly AssistantCheckpointRevertResult[];
   readonly runId: string;
 }
+
+/**
+ * Snapshot-availability of the undo action for ONE journal entry (BST-1164
+ * T4 — the snapshot-backed undo engine). `restorable: false` carries the
+ * user-facing reason (entry predates workspace snapshots, the turn's capture
+ * failed, or its root has no turn-start coverage) so the renderer can show a
+ * visibly disabled control instead of a click-time refusal.
+ */
+export type AssistantCheckpointUndoAvailability =
+  | { readonly restorable: true }
+  | { readonly reason: string; readonly restorable: false };
+
+/** Per-thread availability map keyed by journal entry id
+ * (`assistant-checkpoint:availability` IPC response). */
+export interface AssistantCheckpointUndoAvailabilityMap {
+  readonly byCheckpointId: Readonly<Record<string, AssistantCheckpointUndoAvailability>>;
+}

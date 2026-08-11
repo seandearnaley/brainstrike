@@ -1,5 +1,17 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { BROWSER_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/browser-pane/availability';
+import { CHANGES_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/changes/availability';
+import { GIT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/git-panel/availability';
+import { PLATFORM_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/platform-bridge';
+import {
+  COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
+  TERMINAL_BRIDGE_REQUIRED_METHODS,
+} from '@brainstrike/app-shell/terminal-panel/availability';
+import { USER_COMMANDS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/app-shell/user-commands-bridge';
+import { SKILLS_BRIDGE_REQUIRED_METHODS } from '@brainstrike/assistant-contract/skills-bridge';
+import { NOTES_VAULT_BRIDGE_REQUIRED_METHODS } from '@brainstrike/notes-vault/desktop-contract';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { DESKTOP_PRELOAD_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { LOGGING_API_CHANNELS } from '../platform/logging-api-contract';
@@ -24,6 +36,61 @@ function removePreloadStringConstantDefinitions(source: string): string {
     /const\s+[A-Z0-9_]+_(?:CHANNEL|EVENT)\s*=\s*['"][^'"]+['"]\s+as\s+const;/g,
     ''
   );
+}
+
+/**
+ * Extract the top-level property names of the object literal passed to
+ * `contextBridge.exposeInMainWorld('<bridgeName>', {...})` from the real
+ * TypeScript AST. Any property form other than a plain `identifier: value`
+ * assignment (spread, computed/quoted key, shorthand, method) throws, so the
+ * exposed surface can never silently diverge from what this parity check sees.
+ */
+function extractExposedBridgeMethodNames(source: string, bridgeName: string): string[] {
+  const sourceFile = ts.createSourceFile(
+    'preload.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  let bridgeObject: ts.ObjectLiteralExpression | undefined;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'contextBridge' &&
+      node.expression.name.text === 'exposeInMainWorld'
+    ) {
+      const [nameArgument, apiArgument] = node.arguments;
+      if (nameArgument && ts.isStringLiteral(nameArgument) && nameArgument.text === bridgeName) {
+        if (bridgeObject) {
+          throw new Error(`Multiple exposeInMainWorld('${bridgeName}', ...) calls in preload.`);
+        }
+        if (!(apiArgument && ts.isObjectLiteralExpression(apiArgument))) {
+          throw new Error(
+            `exposeInMainWorld('${bridgeName}', ...) is not passed an inline object literal.`
+          );
+        }
+        bridgeObject = apiArgument;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (!bridgeObject) {
+    throw new Error(`Missing contextBridge.exposeInMainWorld('${bridgeName}', ...) in preload.`);
+  }
+  return bridgeObject.properties.map((property) => {
+    if (!(ts.isPropertyAssignment(property) && ts.isIdentifier(property.name))) {
+      throw new Error(
+        `Unsupported property form in exposeInMainWorld('${bridgeName}', ...) object ` +
+          '(only plain identifier-keyed property assignments are modeled — extend ' +
+          'extractExposedBridgeMethodNames).'
+      );
+    }
+    return property.name.text;
+  });
 }
 
 function findRawIpcRendererChannels(source: string): string[] {
@@ -148,6 +215,25 @@ describe('preload runtime contract', () => {
         DESKTOP_PRELOAD_IPC_CHANNELS.agent.workspaceContextSelectionUpdate,
       ASSISTANT_WORKSPACE_CONTEXT_TAPESTRY_EVENT:
         DESKTOP_PRELOAD_IPC_CHANNELS.agent.workspaceContextTapestryUpdate,
+      BROWSER_CLOSE_TAB_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.closeTab,
+      BROWSER_CREATE_TAB_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.createTab,
+      BROWSER_GO_BACK_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.goBack,
+      BROWSER_GO_FORWARD_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.goForward,
+      BROWSER_LIST_TABS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.listTabs,
+      BROWSER_NAVIGATE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.navigate,
+      BROWSER_RELOAD_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.reload,
+      BROWSER_SELECT_TAB_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.selectTab,
+      BROWSER_SET_BOUNDS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.setBounds,
+      BROWSER_SET_OCCLUDED_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.browser.setOccluded,
+      BROWSER_TABS_CHANGED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.browser.tabsChanged,
+      CHANGES_APPLY_REWIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.applyRewind,
+      CHANGES_FILE_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.fileDiff,
+      CHANGES_FINALIZE_REWINDS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.finalizeRewinds,
+      CHANGES_INVALIDATED_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.changes.invalidated,
+      CHANGES_INVENTORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.inventory,
+      CHANGES_REDO_REWIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.redoRewind,
+      CHANGES_RESOLVE_VIEW_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.resolveView,
+      CHANGES_REWIND_PREVIEW_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.changes.rewindPreview,
       CLIPBOARD_WRITE_TEXT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.clipboard.writeText,
       COMMAND_SESSIONS_LIST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.commandSessions.list,
       COMMAND_SESSIONS_READ_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.commandSessions.read,
@@ -174,6 +260,8 @@ describe('preload runtime contract', () => {
       DB_TEST_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.db.test,
       DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL:
         DESKTOP_PRELOAD_IPC_CHANNELS.diagnostics.getSnapshot,
+      FILE_EXPORTS_SAVE_TO_DOWNLOADS_CHANNEL:
+        DESKTOP_PRELOAD_IPC_CHANNELS.fileExports.saveToDownloads,
       FILE_SYSTEM_EXISTS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.exists,
       FILE_SYSTEM_READ_DIRECTORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readDirectory,
       FILE_SYSTEM_READ_FILE_BY_PATH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.files.readFileByPath,
@@ -187,7 +275,6 @@ describe('preload runtime contract', () => {
       FILE_SYSTEM_WATCH_EVENT: DESKTOP_PRELOAD_IPC_CHANNELS.files.watchEvent,
       GIT_AHEAD_BEHIND_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.aheadBehind,
       GIT_COMMIT_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commit,
-      GIT_COMMIT_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commitDiff,
       GIT_COMMIT_FILES_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.commitFiles,
       GIT_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.diff,
       GIT_FETCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.fetch,
@@ -197,6 +284,7 @@ describe('preload runtime contract', () => {
       GIT_REPOSITORY_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.repository,
       GIT_STAGE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.stage,
       GIT_STATUS_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.status,
+      GIT_STRUCTURED_FILE_DIFF_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.structuredFileDiff,
       GIT_SWITCH_BRANCH_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.switchBranch,
       GIT_UNSTAGE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.git.unstage,
       LAYOUT_LOAD_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.preferences.layoutLoad,
@@ -252,6 +340,33 @@ describe('preload runtime contract', () => {
     for (const channel of Object.values(expectedConstants)) {
       expect(preloadWithoutContractDefinitions).not.toContain(`'${channel}'`);
       expect(preloadWithoutContractDefinitions).not.toContain(`"${channel}"`);
+    }
+  });
+
+  it('keeps resolver-gated bridge key sets in parity with their required-method contracts', () => {
+    const preloadSource = readPreloadSource();
+    // Each of these bridges is disabled WHOLESALE by its resolver when any
+    // required method is missing from the preload surface, so the exposed key
+    // set must match the resolver's required-method list exactly.
+    const expectedBridgeMethods: Record<string, readonly string[]> = {
+      browser: BROWSER_BRIDGE_REQUIRED_METHODS,
+      changes: CHANGES_BRIDGE_REQUIRED_METHODS,
+      commandSessions: COMMAND_SESSION_BRIDGE_REQUIRED_METHODS,
+      git: GIT_BRIDGE_REQUIRED_METHODS,
+      notesVault: NOTES_VAULT_BRIDGE_REQUIRED_METHODS,
+      platform: PLATFORM_BRIDGE_REQUIRED_METHODS,
+      skills: SKILLS_BRIDGE_REQUIRED_METHODS,
+      terminal: TERMINAL_BRIDGE_REQUIRED_METHODS,
+      userCommands: USER_COMMANDS_BRIDGE_REQUIRED_METHODS,
+    };
+
+    for (const [bridgeName, requiredMethods] of Object.entries(expectedBridgeMethods)) {
+      expect
+        .soft({
+          bridge: bridgeName,
+          methods: [...extractExposedBridgeMethodNames(preloadSource, bridgeName)].sort(),
+        })
+        .toEqual({ bridge: bridgeName, methods: [...requiredMethods].sort() });
     }
   });
 

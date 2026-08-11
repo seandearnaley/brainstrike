@@ -109,9 +109,9 @@ const mockStoreState = {
   setSchemaVerified: vi.fn(),
 };
 
-vi.mock('@brainstrike/preferences/stores/vector-status-ui-store', async (importOriginal) => {
+vi.mock('@brainstrike/app-state/stores/vector-status-ui-store', async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import('@brainstrike/preferences/stores/vector-status-ui-store')>();
+    await importOriginal<typeof import('@brainstrike/app-state/stores/vector-status-ui-store')>();
   return {
     ...actual,
     useVectorStatusUIStore: vi.fn((selector: (state: typeof mockStoreState) => unknown) =>

@@ -1,4 +1,4 @@
-import type { Command } from '@brainstrike/commands';
+import type { Command } from '@brainstrike/context-actions/commands';
 
 /**
  * Case-insensitive substring matcher over a command's label and keywords. MVP

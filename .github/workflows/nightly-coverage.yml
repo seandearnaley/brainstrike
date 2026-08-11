@@ -69,26 +69,29 @@ jobs:
             filters: '--filter=@brainstrike/agent'
           - shard: app-shell
             concurrency: 2
-            filters: '--filter=@brainstrike/app-shell --filter=@brainstrike/web'
+            filters: '--filter=@brainstrike/assistant-data --filter=@brainstrike/app-shell --filter=@brainstrike/web'
           - shard: desktop
             concurrency: 1
             filters: '--filter=@brainstrike/desktop'
           - shard: embeddings-preferences
             concurrency: 2
-            filters: '--filter=@brainstrike/embeddings --filter=@brainstrike/preferences'
+            filters: '--filter=@brainstrike/embeddings --filter=@brainstrike/app-state --filter=@brainstrike/settings-ui'
           - shard: ui-db-explorer
             concurrency: 2
-            filters: '--filter=@brainstrike/ui --filter=@brainstrike/db-explorer'
+            filters: '--filter=@brainstrike/assistant-ui --filter=@brainstrike/ui --filter=@brainstrike/db-explorer'
           - shard: remaining
             concurrency: 4
             filters: >-
               --filter=!@brainstrike/db
               --filter=!@brainstrike/agent
               --filter=!@brainstrike/app-shell
+              --filter=!@brainstrike/assistant-data
               --filter=!@brainstrike/web
               --filter=!@brainstrike/desktop
               --filter=!@brainstrike/embeddings
-              --filter=!@brainstrike/preferences
+              --filter=!@brainstrike/app-state
+              --filter=!@brainstrike/settings-ui
+              --filter=!@brainstrike/assistant-ui
               --filter=!@brainstrike/ui
               --filter=!@brainstrike/db-explorer
     steps:

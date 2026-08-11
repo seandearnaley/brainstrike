@@ -15,16 +15,17 @@
  * empties the menu entirely.
  */
 
+import { useSkillsPreferencesStore } from '@brainstrike/app-state/stores/skills-preferences-store';
 import {
   type SkillScanEntrySummary,
   type SkillsScanResultSummary,
   serializeSkillDirective,
 } from '@brainstrike/assistant-contract';
+import { resolveSkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
+import type { SlashCommand } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
-import { useSkillsPreferencesStore } from '@brainstrike/preferences/stores/skills-preferences-store';
 import { useToast } from '@brainstrike/ui';
-import type { SlashCommand } from '@brainstrike/ui/assistant-ui-panel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
 
@@ -33,26 +34,6 @@ const logger = createLogger('SkillSlashCommands');
 type SkillToast = (input: { description: string; title: string; variant: 'destructive' }) => void;
 
 const EMPTY_RESULT: SkillsScanResultSummary = { entries: [] };
-
-type SkillsBridge = () => Promise<SkillsScanResultSummary>;
-
-/** Resolve the desktop skills bridge, or `null` on web (no preload). */
-function resolveSkillsBridge(): SkillsBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-  const bridge = window.skills;
-  if (!bridge) {
-    return null;
-  }
-  if (typeof bridge.scan !== 'function') {
-    logger.error('window.skills bridge is malformed; skill slash commands disabled', {
-      hasScan: typeof bridge.scan,
-    });
-    return null;
-  }
-  return bridge.scan;
-}
 
 /**
  * Replace the typed trigger with the directive IN PLACE, preserving all
@@ -142,7 +123,8 @@ export function useSkillSlashCommands(threadId: string | undefined): readonly Sl
     }
     generationRef.current += 1;
     const generation = generationRef.current;
-    bridge()
+    bridge
+      .scan()
       .then((result) => {
         if (generation === generationRef.current) {
           setScan(result);

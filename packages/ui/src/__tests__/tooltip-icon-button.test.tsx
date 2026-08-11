@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { TooltipIconButton } from '../assistant-ui-panel/tooltip-icon-button';
 import { TooltipProvider } from '../tooltip';
+import { TooltipIconButton } from '../tooltip-icon-button';
 
 const renderWithTooltip = (ui: React.ReactElement) =>
   render(<TooltipProvider>{ui}</TooltipProvider>);

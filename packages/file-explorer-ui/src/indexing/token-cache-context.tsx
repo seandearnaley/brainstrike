@@ -18,12 +18,12 @@
  * ```
  */
 
-import { databaseQueryTelemetry } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/logging';
 import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
-} from '@brainstrike/preferences/stores/token-preferences-store';
+} from '@brainstrike/app-state/stores/token-preferences-store';
+import { databaseQueryTelemetry } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/logging';
 import type {
   TokenCacheEntry,
   TokenCacheLookupTelemetryRecord,

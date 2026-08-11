@@ -8,7 +8,7 @@ The assistant tool→stream chain must never freeze the thread. The renderer saf
 net, the two server-side resilience layers, and the Mastra error-processor layer
 below are LIVE.
 
-1. **Renderer safety net (LIVE)** — `packages/ui/src/assistant-ui-panel/assistant-panel-error-boundary.tsx`
+1. **Renderer safety net (LIVE)** — `packages/assistant-ui/src/assistant-panel-error-boundary.tsx`
    wraps `ChatThreadUI` (inside `AssistantRuntimeProvider`, so reset preserves
    the runtime). The data-stream adapter surfaces transport errors via `onError`
    and rethrow (never swallows). A run rejected BEFORE any stream part (e.g.
@@ -129,10 +129,19 @@ single choke point; no provider-specific fetch wrapper or retry-attempt
 instrumentation participates. The terminal `run.failed` event carries one
 namespaced `metadata.runError` object with exactly `code`, optional `message`,
 `causeChain`, `httpStatus`, `providerRequestId`, and `responseHeaders`. The
-extractor walks bounded `Error.cause` / AI SDK `APICallError` shapes, uses
-`mastra_agent_stream_provider_error` unless the code belongs to the explicit
-stable allowlist, and emits at most four bounded cause strings. Every truncated
-string ends with `… [truncated]`; truncation is never silent.
+extractor walks bounded `Error.cause` / AI SDK `APICallError` shapes and, when
+the code is not on the explicit stable allowlist, classifies by provider
+evidence: `mastra_agent_stream_provider_error` when the walk found an
+`httpStatus`, `providerRequestId`, allowlisted `responseHeaders`, or an AI SDK
+api-call error marker (`AI_APICallError` / `AI_RetryError` name, or
+`url` + `requestBodyValues` — these exist only for calls that crossed to a
+provider), and `mastra_agent_stream_local_error` when it found none — a local
+runtime fault (e.g. a TypeError inside the stream chain) must never wear the
+provider label (the 2026-08-03 grepSearch-projection incident), and a real
+provider failure that arrived without response metadata must never wear the
+local one. The extractor emits at most
+four bounded cause strings. Every truncated string ends with `… [truncated]`;
+truncation is never silent.
 
 The adjacent diagnostic breadcrumb uses the provider code plus validated HTTP
 status in its diagnostic code so unrelated provider failures do not collapse
@@ -190,7 +199,15 @@ an explicit lower limit. The Output & Limits UI must describe that finite
 default truthfully; an unset override is not an unbounded or "Open" run.
 Output-limit finishes are terminal failures, not successful completions:
 `finishReason: length` emits `run.failed`, an error finish, and a failed durable
-run outcome.
+run outcome. The desktop data-stream session receives the selected provider,
+model, and `requestedReasoningEffort` as narrow output-limit context; that field
+is absent for Auto even when provider options contain a resolved wire effort.
+When Kimi K3 reaches the limit at explicit `high` or `max`, the terminal copy
+tells the user to retry at Low or Auto; it never changes effort, retries, or
+enlarges the output window automatically. Other models and efforts retain the
+generic output-limit failure. Hosted Web accepts but ignores the shared wire
+field because its trust boundary owns model/generation policy server-side and
+currently exposes no explicit client reasoning-effort path.
 
 **EVERY error finish is a failed durable outcome, not just `length`.** All three
 parts of that sentence apply to `finishReason: 'error'` too — the finish emitted
@@ -236,7 +253,7 @@ Only a non-empty raw value outside the SDK/Brainstrike union becomes the
 internal `'unrecognized'` sentinel, emits `run.failed`, surfaces the explicit
 "unrecognized finish reason" message, and persists `thread_runs` as failed.
 Before data-stream serialization, internal `absent` becomes assistant-stream
-0.3.25's completed wire value `unknown`; internal `unrecognized` becomes the
+0.3.34's completed wire value (behavior verified at 0.3.25, unchanged by the 0.3.34 lockstep bump) `unknown`; internal `unrecognized` becomes the
 terminal wire value `error`. Intermediate steps start as `absent`, never as the
 SDK-owned `unknown`. Keep these internal sentinels out of the legacy data-stream
 protocol and never infer provider failure from the AI SDK `unknown` value.
@@ -253,10 +270,11 @@ post-hook execution result without replacing it. A discriminated internal
 carrier takes PostToolUse context to `toModelOutput`; Mastra's official
 display/transcript transforms unwrap it so live application consumers and the
 durable transcript retain the exact domain result. Generated/default
-projections use the 2000-token / 8000-serialized-character ceiling.
-Purpose-built domain
-projectors MUST self-fit complete output within 1500 tokens / 6000 serialized
-characters and fail loudly on overflow; the central seam never truncates an
+projections use the unchanged 2000-token / 8000-serialized-character ceiling.
+Purpose-built domain projectors MUST self-fit complete output within the active
+run's context-window-scaled default (500..3000 tokens / 2000..12000
+characters; 1500 / 6000 at the 128k anchor) and fail loudly on overflow; the
+central seam never truncates an
 opaque page after its continuation was computed. Guarded failures bypass custom
 projectors. Successful PostToolUse metadata is stripped before projection
 (one explicit internal envelope preserves every original result shape),
@@ -266,7 +284,12 @@ truncated at that composition stage. The `skill` activation exception keeps
 its complete 6000-token instruction budget and adds a dedicated bounded hook
 allowance plus structural reserve instead of rebinding to the generic
 1500-token domain budget. Persona agents receive the same projections before
-their independent permission gate. Mastra 1.51's documented CoreTool
+their independent permission gate. A reused parent-owned tool is invoked under
+a save/restore active-budget context for the synchronous custom-projector call,
+so a pinned child producer fits to the child's resolved tier rather than the
+construction-time parent tier; every desktop custom projector is synchronous,
+and the context is restored before any returned Promise can be observed.
+Mastra 1.51's documented CoreTool
 projection callback receives the raw execute output. Brainstrike never
 shape-guesses `{toolCallId,input,output}` as adapter metadata because that exact
 object is valid domain evidence; a future direct AI SDK adapter belongs at a
@@ -274,10 +297,144 @@ separately typed boundary.
 Mastra may replay a stored `providerMetadata.mastra.modelOutput` through the
 same tool projector while preparing a later same-run provider step. A
 purpose-built projector that emits a recognizable canonical envelope must
-therefore accept its own envelope idempotently, validate the same domain budget,
-and never reinterpret arbitrary lookalike domain objects. `grepSearch` pins this
+therefore accept its own envelope idempotently. Stored/settled replay validates
+the default domain portion against the fixed ceiling tier rather than a smaller
+current-run budget; fresh projections use the per-run resolved tier. It must
+validate the applicable domain budget and never reinterpret arbitrary lookalike
+domain objects. `grepSearch` pins this
 with the exact `{ type: 'text', value: 'grep …' }` replay that previously
 terminated a hosted Claude verification run.
+
+**Known tradeoff (BST-1206 review): replay's hook-context composition also
+uses the ceiling tier, not the resolved one — documented, not yet fixed.**
+When a settled/replayed projection carries `hookContext`, the domain payload
+(validated above, accepted at the ceiling tier — up to 12,000 chars) is
+combined with that hook context via `composeHookContextWithProjection`, which
+ALSO receives the ceiling-tier budget object on replay, not the current run's
+resolved one. In principle this could be tightened — accept the stored domain
+projection at the ceiling tier (unchanged, for the reasons above) while fitting
+any newly-composed hook context against the resolved budget, truncating the
+hook context (never the domain payload) when it does not fit. In practice this
+composition step's *total* envelope check is `totalSerializedChars`
+(`MAX_MODEL_TOOL_RESULT_CHAR_BUDGET`, the fixed 8000-character raw-output
+ceiling mentioned above) — a THIRD budget axis, deliberately left fixed and out
+of BST-1206's scope (only the domain and transport budgets scale; see
+`tool-output-limits.ts`'s anchor/floor/ceiling formula). Because that field is
+identical on both the ceiling-tier and per-run-resolved `ModelProjectionBudget`
+objects today, passing one or the other to `composeHookContextWithProjection`
+on replay currently has NO differential effect — making the fix meaningful
+requires also scaling `totalSerializedChars`/`totalTokens`, which would expand
+BST-1206's scope reactively during PR stabilization instead of as a deliberate,
+separately-tested change. Net effect: a projection settled during a huge-window
+run (domain payload sized up to the 12,000-char ceiling) that replays with hook
+context on a small-window run (e.g. an 8192-token local model) can compose a
+combined envelope sized for the ORIGINAL run's budget, not the replaying run's
+— the same 12,000-char-vs-3000-token-window mismatch the domain-only case
+already accepts by design, just one layer further out. BST-1219's paired FRESH-
+path work has now landed: desktop projector producers receive the resolved
+per-run domain budget and the downstream fresh assertion uses that same
+unfloored value. Replay budget context was deliberately not widened. The
+remaining deferred tradeoff is therefore narrower and unchanged: only replay-
+time hook-context composition against the fixed `totalSerializedChars` /
+`totalTokens` axis described above.
+
+`ModelOutputProjectionObserver` receives `(toolName, output)` at this final
+projection seam. `RunTokenDiagnostics` uses it to retain one privacy-safe
+per-call sample (tool id, actual serialized model-facing character count, and
+booleans only), then emits one internal `tool-call-telemetry` chunk before the
+terminal finish. Desktop consumes that chunk through the run-persistence
+capability and writes migration 083's durable ledger; a run without that host
+capability discards the internal chunk before renderer serialization. Generic
+truncation is recognized only from final `{type:'json', value:{truncated:true}}`
+projections. `grepSearch` and `globWorkspace` attach zero-match, request-offset,
+and typed truncation metadata to their raw result in a private WeakMap before
+projection, so no projected-text parsing or user search data enters telemetry.
+
+At run end, the same diagnostics instance may emit one internal
+`token-estimate-calibration` chunk for a completed run. The numerator,
+`estimatedPromptTokens`, is the chars/4 backstop over model-visible
+tool-output projections plus tool definitions, each counted once. The
+denominator is `finalStepPromptTokens`, the single most recent step's
+prompt-token count; via Mastra's resend behavior that prompt already contains
+every prior tool output exactly once, unlike the cross-step accumulated billing
+total. Both figures therefore use the same final-prompt-content basis.
+Conversation/system-prompt text outside tool outputs and definitions is excluded
+from both. The desktop run-persistence capability consumes the chunk before
+renderer serialization; incomplete runs, failed measurement, or missing
+model/provider attribution emit no sample.
+
+The chunk also carries `promptBreakdownBaselineTokens` when a run-start
+`promptBreakdown` exists: `systemInstructionsTokens + (taskListTokens ?? 0) +
+(toolDefinitionsTokens ?? 0)`. Desktop persists it as migration 091's nullable
+`prompt_baseline_tokens`. **BST-1232 review: eligibility for this chunk is no
+longer "at least one measured tool-output projection".** That gate would have
+meant an ordinary tool-free chat turn — and, before the companion fix below,
+EVERY resume leg (tool-approval and suspended-tool) — never persisted a
+baseline at all, silently starving the next turn's trigger of the one value
+this migration exists to give it. The chunk is now emitted whenever there is
+SOMETHING new to report: a measured tool-output projection (`
+modelVisibleProjectionCount > 0`), a `promptBreakdown` to source a baseline
+from, or both; it is skipped only when NEITHER is available. Both resume
+iterators (`createToolApprovalIteratorFromRuntime`,
+`createToolResumeIteratorFromRuntime` in `agent-streaming.ts`) now compute
+`promptBreakdown` from the resumed runtime's own `instructionBreakdown` +
+`toolDefinitionContextBreakdown()` (with `messages: []` — a resume sends no
+new messages) so their calibration row carries the same baseline the initial
+turn would have reported, since prompt composition is unchanged across a
+resume. A zero-projection row can therefore still have a positive
+`estimatedPromptTokens` (from the static tool-definition catalog alone) even
+though nothing was actually measured from a live tool output; the
+`estimator-calibration.sql` lens, not the writer, is where the
+`model_visible_projection_count > 0` RATIO-eligibility gate now lives (its
+WHERE clause requires it explicitly — `estimated_prompt_tokens > 0` alone is
+no longer sufficient to exclude these rows).
+
+Pre-request conversation compaction runs before the next runtime/prompt is
+assembled, so it reads the latest thread-scoped calibration row **whose
+`prompt_baseline_tokens` is NOT NULL** (belt-and-braces alongside the write-side
+fix above: a future leg that forgets to thread `promptBreakdown` cannot shadow
+an earlier real baseline with a later NULL-baseline row) and triggers on
+`previousPromptBaseline + conversationMessageTokens >= 0.90 * inputBudget`. The
+deterministic message-side target is
+`max(1024, 0.70 * inputBudget - previousPromptBaseline)`; the 1024-token floor
+preserves a minimally useful recent exchange/tool-result window when message
+deletion alone cannot reach the nominal total target.
+
+The lookup always runs CONCURRENTLY with the unprojected-message load
+(`Promise.all`), never sequenced after it: neither depends on the other's
+result, so sequencing them would add pure latency for no benefit, and
+concurrency also means the lookup's DB round trip still fires even if message
+loading itself later throws (e.g. a missing trusted compaction-overlay
+lookup) — `agent-stream-init-and-memory.integration.test.ts` pins this by
+counting `getDatabase` calls; an earlier "load messages first, then decide
+whether to bother with the lookup" ordering silently regressed it in review.
+A non-negative baseline only pushes the total UP, never pulls it back under,
+so once the conversation-message share alone already clears the 90% trigger
+the (already-fetched, free) baseline cannot change that decision and recency
+pruning starts immediately. Either way, a missing row (no calibration yet — expected on a
+thread's first turn) uses baseline 0 (the pre-091 behavior) and stays at
+`debug` under code `conversation_compaction_baseline_unavailable`; a failed
+DB read or a corrupt/out-of-range persisted value ALSO falls back to 0 but is
+now `warn`-level under its own distinct code
+(`conversation_compaction_baseline_lookup_failed` /
+`conversation_compaction_baseline_corrupt` respectively) — the earlier
+single-debug-code version made either failure silently and invisibly revert
+the trigger to its pre-fix behavior for every later turn on that thread.
+
+If the baseline alone is at or above the 70% target — realistic on small
+context windows with a large tool catalog — recency pruning and the
+deterministic path toward the 1024-token floor STILL run: pruning is entirely
+message-side (it reclaims tool-output bloat) and is completely unaffected by
+a baseline that message deletion structurally cannot reduce, so skipping it
+would just let the thread grow until the provider throws and overflow
+recovery performs the identical pruning one wasted round trip later. Only the
+AGENTIC summarizer is skipped, under warn code
+`conversation_compaction_baseline_exceeds_target` — latched to once per
+thread for the process lifetime so a thread parked in this steady state does
+not repeat the warning every turn — because it chases the same message-side
+reclaim target that a dominant baseline makes structurally unreachable.
+Provider context-overflow recovery (`createContextOverflowRecovery`) is a
+separate path unaffected by any of the above and stays enabled.
 
 When a trusted host supplies `toolOutputArtifactStore`, the final native/MCP
 tool map is settlement-wrapped after policy/provider transforms and before
@@ -285,9 +442,10 @@ tool map is settlement-wrapped after policy/provider transforms and before
 before an artifact envelope can reach display/transcript. A trusted per-tool
 canonical-name map may lower the inline threshold by
 serialized characters when a complete domain projection has a tighter budget.
-`brainstrike.webExtract` uses 2400 characters: smaller extracts project every
-source byte and exact URL directly; larger extracts settle completely and
-continue through the artifact reader instead of clipping or re-fetching.
+`brainstrike.webExtract` uses the smaller of 2400 characters and the active
+run's resolved domain-projection character budget: smaller extracts project
+every source byte and exact URL directly; larger extracts settle completely
+and continue through the artifact reader instead of clipping or re-fetching.
 If a stricter-threshold artifact still fits one model page, settlement keeps
 the rich raw display and publishes a complete page without an EOF cursor. If
 no durable store exists, an oversized web extract produces an explicit
@@ -307,11 +465,15 @@ display/transcript can render media, and they retain the explicit aggregate
 media plus non-media metadata ceilings with or without durable settlement.
 Desktop builds the paired `brainstrike.readToolOutputArtifact` capability only
 when server-owned resource and thread scope plus the database bridge exist.
-The registered model tool accepts only the opaque continuation cursor, never
-artifact metadata or ownership ids. The tool returns the raw bounded page to display/persistence and a
-separately fitted model projection whose continuation call remains inside the
-domain projection budget. No capability means no registered tool; Desktop
-never installs a stub or an unscoped fallback.
+The registered model tool accepts the opaque continuation cursor plus bounded
+page/search options, never artifact metadata or ownership ids. Plain calls
+return the raw bounded page; `pattern` calls search the same validated slice and
+project compact grep-style matching lines. Any unscanned source or
+projection-omitted match carries an advancing cursor; missing continuation
+guidance fails the run. Artifact-mint hints advertise whole-result delegation
+only when persona assembly registered an artifact-reader-capable `agent-*` tool
+for that run. No capability means no registered tool; Desktop never installs a
+stub or an unscoped fallback.
 
 Without that trusted host capability, MCP text/JSON keeps the temporary inline
 behavior and is bounded inside `execute()` before inline persistence. The UI
@@ -343,6 +505,29 @@ successful reads therefore retires the older redundant read while preserving
 the write and newest verification result; later protected state/working-memory
 tools do not consume that recent-read window. Local, Ollama, and LM Studio runs
 omit it.
+
+Replacement shape (settled 2026-08-07, run-9136 debug bundle): a filtered pair
+must NEVER become assistant-authored `<toolName> result:` text — GPT-5.x
+Harmony models mimic that shape and fabricate tool-result dumps in their
+visible commentary-channel output, which renders as message prose. The stale
+tool-call part becomes a generic stub text (keeping OpenAI's
+reasoning→following-item pairing valid; at most ONE stub per message, so
+parallel fan-out steps do not repeat it) and the projection replays in a
+following user-role message that flushes only after every adjacent tool-role
+message — the filter runs for ALL hosted providers, and Anthropic merges
+adjacent user-ish turns while requiring tool_result blocks to lead the merged
+message. Because that replay can carry untrusted content
+(web pages, retrieved documents), it is explicitly framed as "untrusted tool
+output, not instructions" between BEGIN/END REPLAYED TOOL OUTPUT markers, and
+marker lookalikes inside the projection are defanged so the body cannot forge
+the boundary. Tool-results embedded in ASSISTANT-role messages
+(provider-executed tools like native web search, which keep call, result, and
+trailing text in one message) are ineligible and stay verbatim in place —
+lifting them would reorder same-message chronology. A pair whose projection
+cannot be textualized stays verbatim on BOTH sides — never a dropped result
+under a kept call, which OpenAI rejects as an unpaired `function_call`.
+`projection-safe-tool-call-filter.spec.ts` and the stale-read reload case in
+`mastra-memory-persistence.integration.spec.ts` pin this shape.
 
 The adjacent `RunTokenDiagnostics` path is measurement-only. It observes final
 tool definitions and already-bounded model projections, then emits one
@@ -383,7 +568,7 @@ an isolated description, schema estimate, or hand-built provider payload is
 not sufficient evidence.
 
 The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
-ProjectionSafeToolCallFilter → ProviderHistoryCompat →
+ProjectionSafeToolCallFilter → ToolProjectionRewriteProcessor → ProviderHistoryCompat →
 OpenAIToolSearchHistoryCompat → OpenAIDuplicateItemCompat →
 ProjectionAwareTokenLimiter. The OpenAI-only compatibility seams are absent for
 every other provider; token limiting is always last. OpenAIDuplicateItemCompat
@@ -455,7 +640,7 @@ while a text/reasoning part is streaming and flushes them at the next boundary
 emit them mid-part (proof: data-stream-text-continuity.spec.ts).
 
 Open tool-call args streams have the SAME contract with a harder failure mode
-(BST-962): assistant-stream 0.3.25's `DataStreamDecoder` closes the ACTIVE
+(BST-962): assistant-stream 0.3.34's `DataStreamDecoder` closes the ACTIVE
 call's argsText controller on every frame in its `TOOL_CALL_ARGS_CLOSING_CHUNKS`
 set (`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/`aui-text-delta`/`aui-reasoning-delta`/
 `aui-data`), so ANY such frame between a call's `b` and its `9` makes the next
@@ -487,7 +672,7 @@ args, so only the tracked id moves forward (see `openArgsCallId` doc comment).
 Proof: the BST-962 describe block in data-stream-text-continuity.spec.ts,
 including the `expectDecoderSafeArgsStream` invariant sweep. The renderer's
 data-stream runtime also defers assistant-stream's decoded `message-finish` until
-decoder flush: assistant-stream 0.3.25 emits that marker before its trailing
+decoder flush: assistant-stream 0.3.34 emits that marker before its trailing
 `part-finish`, and exposing completion early lets an immediate next turn abort a
 still-draining text controller. Aborted runs propagate the authoritative abort
 reason without surfacing cancellation teardown as a new assistant error; server
@@ -543,7 +728,7 @@ activity UI, but user expansion must show accumulated text before, during, and
 after intervening tool calls; the active icon clears only on a real terminal
 part.
 
-Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.25's
+Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.34's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,
 tool-call sub-streams) whose settlement paths (`setResponse`, detached
 part-finish continuations) enqueue with NO cancellation guard — if downstream
@@ -552,7 +737,7 @@ mid-settlement, the late enqueue rejects as an unhandled renderer TypeError
 ("Cannot enqueue a chunk into a readable stream that is closed"; upstream root
 fix is unreleased assistant-ui/assistant-ui#5045, and `patchedDependencies` are
 banned — see ci-quality.md). `insulateAssistantStreamPipeline`
-(`packages/ui/src/assistant-ui-panel/stream-insulation.ts`) therefore makes
+(`packages/assistant-ui/src/stream-insulation.ts`) therefore makes
 those states STRUCTURALLY unreachable instead of racing them: the pipeline
 reads a guarded byte source that translates an expected transport abort (the
 run's AbortSignal fired) into a clean EOF, and the consumer reads through a
@@ -749,32 +934,54 @@ regression; do not narrow that margin merely to shorten the integration lane.
 
 ## THREAD SCROLLING (STICK-TO-BOTTOM + JUMP-TO-LATEST)
 
-Scroll position is owned by @assistant-ui's viewport store, never by panel
-state. `ThreadPrimitive.Viewport` runs with `autoScroll`, so a thread pinned at
-the bottom follows streaming growth; the moment the user scrolls up,
-`isAtBottom` flips false and the library stops writing `scrollTop` — streaming
-can never steal the reading position back. Re-engaging is an explicit user act.
+Scroll position is owned by the REPO's follow engine
+(`packages/assistant-ui/src/thread-scroll-follow.tsx`), never by panel state
+and — since the 0.15 upgrade — never by @assistant-ui. The tier-1 scroller is
+a PLAIN div wired to `ThreadScrollFollow` (one engine per panel via
+`ThreadScrollFollowProvider` in ChatThreadUI): a thread pinned at the bottom
+follows streaming growth; the moment the user scrolls up, `isAtBottom` flips
+false and the engine stops writing `scrollTop` — streaming can never steal the
+reading position back. Re-engaging is an explicit user act.
 
-The viewport, the message list and the button are one owned module —
-`packages/ui/src/assistant-ui-panel/assistant-thread-messages.tsx`
-(`ThreadMessagesRegion`, `ThreadScrollRegion`, `ThreadScrollToBottom`, all
-re-exported from assistant-ui-panel.tsx). The panel only composes it and hands
-it the message components.
+**Why repo-owned:** the library's `useThreadViewportAutoScroll` broke twice
+upstream (0.14.28 and 0.15.x tear down its ResizeObserver on every `isRunning`
+flip, silently unpinning follow on every send), and the failure is not
+workable at its public API — the scrollTop clamp misread is indistinguishable
+from a real user scroll from outside (two app-level workarounds were built and
+failed the BST-1039 test; see dependency-updates-breaking-changes.md). The
+engine is a parity port of the library's algorithm with a STABLE observer
+lifecycle (attached once per scroller element, never re-created by renders) —
+the stable lifecycle is the fix. `ThreadPrimitive.Viewport` must not return:
+`assistant-ui-panel-architecture.test.ts` pins the plain-div scroller.
 
-- **Jump-to-latest** (`ThreadScrollToBottom`) wraps
-  `ThreadPrimitive.ScrollToBottom`: the primitive is the behavior (DISABLED
-  while at bottom, scroll + re-engage when clicked), we only style it
+Content growth is detected by `MutationObserver`, measured immediately, then
+verified in one coalesced `requestAnimationFrame`. Mutation delivery can
+precede Chromium's final layout, while a `ResizeObserver` attached to the
+scroller does not reliably observe scroll-height-only growth; relying only on
+the synchronous read can therefore miss the new bottom. Pointer, wheel, and
+touch intent plus detach cancel a pending frame so user navigation, or an
+unmounted scroller, cannot receive a deferred follow write.
+
+The scroller, the message list, the button and the engine are one owned
+module pair — `assistant-thread-messages.tsx` (`ThreadMessagesRegion`,
+`ThreadScrollRegion`, `ThreadScrollToBottom`) + `thread-scroll-follow.tsx`,
+re-exported from assistant-ui-panel.tsx. The panel only composes them and
+hands over the message components.
+
+- **Jump-to-latest** (`ThreadScrollToBottom`) is the follow engine's button
+  (`ThreadStaticScrollToBottom`): DISABLED
+  while at bottom, scroll + re-engage when clicked; we style it
   (`.bs-scroll-to-bottom`, hidden via `:disabled { opacity: 0 }` — no layout
   shift either way). It mounts inside `ThreadScrollRegion` as a SIBLING of the
   scroller, not a child, so it stays anchored ~1rem above the composer instead
-  of scrolling away; that works outside the viewport element because
-  `AssistantRuntimeProvider` mounts an outer viewport store which mirrors
-  `isAtBottom` up and forwards `scrollToBottom` down.
-- **No explicit `behavior`.** An explicit option bypasses CSS
-  `scroll-behavior`, and therefore the global `prefers-reduced-motion` override
-  in globals.css. The default routes through the store's `'auto'`, which defers
-  to CSS (library `smooth`, forced to `auto` under reduced motion). It would be
-  inert regardless — the outer→inner viewport forwarding drops the option.
+  of scrolling away; that works outside the scroller element because the
+  follow engine lives in `ThreadScrollFollowProvider` context above both.
+- **No explicit `behavior` on explicit scrolls.** An explicit option bypasses
+  CSS `scroll-behavior`, and therefore the global `prefers-reduced-motion`
+  override in globals.css — the engine's `scrollToBottom()` deliberately omits
+  it so `scrollTo`'s default routes through CSS. Streaming growth follow is the
+  exception: `'instant'`, because CSS smooth cannot keep up with per-token
+  growth (same stance the library took).
 - **`overflow-anchor: none` is SCOPED to the pinned state** via `data-pinned`
   on `.bs-thread-scroll-region` (mirroring `isAtBottom`). Pinned, JS owns
   `scrollTop` and native scroll anchoring would double-adjust. Scrolled up, the
@@ -783,28 +990,34 @@ it the message components.
   images resolving, tool cards or chain-of-thought folds collapsing, edit
   composers swapping in). Disabling it unconditionally makes the text jump —
   do not "simplify" this back to a blanket rule.
-- **`scrollToBottomOnInitialize` / `scrollToBottomOnRunStart` stay `false`** —
-  that is the reload-hydration stance in assistant-persistence.md: reopening a
-  thread restores its position instead of jumping to the newest message.
+- **No jump on attach or run start** (the library's
+  `scrollToBottomOnInitialize`/`scrollToBottomOnRunStart` equivalents) — that
+  is the reload-hydration stance in assistant-persistence.md: reopening a
+  thread restores its position instead of jumping to the newest message. The
+  ONE navigation jump is the thread SWITCH (`switchKeyRef` in
+  ThreadMessagesRegion → `jumpToBottomInstant()`), parity with the library's
+  `scrollToBottomOnThreadSwitch`; it requires a `threadKey` prop and never
+  routes through the explicit-request listeners.
 - There is deliberately NO collapsed-history affordance (removed in BST-896):
   every message renders. Which messages MOUNT is the render tier's business —
   see below.
 - **Follow-up queue dispatch re-pins explicitly when the thread was pinned**
   (BST-1039). The flush unmounts the composer's chip row, and the browser's
-  resulting `scrollTop` clamp can be misread as a user scroll by the library's
-  auto-scroll bookkeeping — silently unpinning follow with no user act. The
-  dispatch in `follow-up-queue.tsx` captures `isAtBottom` BEFORE the flush and
-  fires the outer store's `scrollToBottom` after appending; a reader who
+  resulting `scrollTop` clamp can be misread as a user scroll by the follow
+  engine's bookkeeping — silently unpinning follow with no user act. The
+  dispatch in `follow-up-queue.tsx` captures `getIsAtBottom()` BEFORE the
+  flush and fires the engine's `scrollToBottom` after appending; a reader who
   scrolled up is never yanked. Do not "simplify" this away as redundant with
-  the library's own resize re-stick — that path loses the clamp-ordering race.
+  the engine's own resize re-stick — that path loses the clamp-ordering race.
 
-Paired tests: `packages/ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
-(real Chromium: pinned/unpinned button states, click-to-bottom, growth below vs
-ABOVE the reading position, anchor scoping), the BST-896 case in
-`assistant-ui-panel-architecture.test.ts`, which pins the mount site, the
-absent `behavior`, and the scoped CSS rule, and
-`follow-up-queue-repin.browser.test.tsx` (BST-1039: real chips + real bridge —
-pinned dispatch requests the explicit re-pin, scrolled-up dispatch never does).
+Paired tests: `packages/assistant-ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`
+(real Chromium against the real follow engine: pinned/unpinned button states,
+click-to-bottom, growth below vs ABOVE the reading position, anchor scoping),
+the BST-896 case in `assistant-ui-panel-architecture.test.ts`, which pins the
+plain-div scroller, the engine wiring, the absent `behavior`, and the scoped
+CSS rule, and `follow-up-queue-repin.browser.test.tsx` (BST-1039: real chips +
+real bridge — pinned dispatch requests the explicit re-pin, scrolled-up
+dispatch never does).
 
 ### Render tiers (BST-897)
 
@@ -1001,10 +1214,211 @@ this section and those tests.
 
 ---
 
+## LOOP GUARDS (BST-1188)
+
+The desktop assistant server applies three thread-scoped, main-process-memory
+guards to stop an agent from repeatedly reconfirming evidence it already has.
+This is a desktop native-tool capability boundary: web does not construct these
+tools, and no network round trip or persistent store participates. Design
+settled across PR #2323 review (both an automated and an LLM reviewer found
+real correctness bugs in the first cut — several rulings below exist BECAUSE
+of that review; do not relitigate without re-reading it).
+
+- **Repeated identical calls — grepSearch/globWorkspace ONLY.**
+  `withRepeatedCallGuard` in
+  `apps/desktop/src/assistant-server/tool-call-loop-guards.ts` tracks stable,
+  recursively key-sorted arguments independently for each `(threadScope,
+  toolId)`. Calls one and two run normally, call three runs and stamps a
+  warning, and call four or later is REFUSED WITHOUT calling `run` at all.
+  Different arguments reset ONLY that tool's streak; an intervening call to
+  another tool NEVER resets it. **`readWorkspaceFile` deliberately does NOT
+  use this mechanism** — an args-only streak has no way to know the file
+  changed between calls, so it would either permanently refuse a legitimate
+  re-read after an edit (the refusal fires BEFORE the file is ever checked) or
+  stamp a false "results have not changed" warning on content that did change.
+  `readWorkspaceFile` relies solely on the mtime-aware window guard below,
+  which always re-reads the file first and can therefore never go stale that
+  way.
+- **The streak only advances on a call that PRODUCES a result.**
+  `peekRepeatedToolCall` is read-only with respect to the observable streak
+  (it never mutates `repeatedToolCalls`); `withRepeatedCallGuard` calls it
+  BEFORE `run`, then calls the mutating `commitRepeatedToolCall` only AFTER
+  `run` resolves. A call that throws (transient ripgrep/fs error) is never
+  committed, so it never advances the streak and never falsely tells the model
+  "the result already in context" when no attempt ever produced one. The peek
+  does separately promote cross-mechanism thread-scope LRU bookkeeping, as
+  detailed under the bounded-state ruling below.
+- **The warning is its own field, never folded into `hint`.** The grep/glob
+  purpose-built projectors' continuation logic returns its offset-form
+  continuation (and skips `hint` entirely) whenever the page was already
+  trimmed by the output-char budget — exactly the large/expensive repeats this
+  guard exists to stop. `withRepeatedCallGuard` therefore stamps
+  `result.loopGuardWarning` (mutated in place, never a spread into a new
+  object — the WeakMap-keyed telemetry in `tool-call-telemetry.ts` is tagged
+  onto the SAME object and a spread would silently drop that tag). Both
+  projectors render `loopGuardWarning` as its own `warning:` line
+  unconditionally, the same way they already render `liveNote`/`probeNote`,
+  so it survives regardless of the continuation branch.
+- **Unchanged file-read windows.** `checkUnchangedReadWindow` keys a fresh
+  `readWorkspaceFile` request by root, normalized workspace path, requested
+  `startLine`/`endLine`, the EFFECTIVE `maxChars`, and observed mtime — two
+  reads of the same range with different `maxChars` are NOT the same read (a
+  bigger budget can return content the smaller one omitted), so `maxChars`
+  participates in the key. The first read returns content, the second
+  unchanged read returns `dedup: true` with `UNCHANGED_READ_STUB_MESSAGE`, and
+  the third returns the same non-throwing hard-refusal shape used by the
+  repeated-call guard. An mtime change resets the window (the model's next
+  identical-args request always sees the edit — this is what makes it safe for
+  `readWorkspaceFile` to skip the args-only streak above). A request with
+  `cursor` is a continuation and MUST NEVER enter this guard; paging must
+  continue normally.
+  - **Checked only AFTER a page is built, and only when it is NOT truncated.**
+    `runReadWorkspaceFile` calls `checkUnchangedReadWindow` after
+    `fitReadWorkspaceFileResult` has already produced `selected.result` — never
+    right after the file scan, where a later page-fitting failure (e.g.
+    `maxChars` too small to advance) would otherwise record an observation for
+    a call that never produced a page, priming the model's very next
+    (corrected) retry to look like a repeat of a read that never happened. And
+    only when `selected.result.truncated === false`: stubbing a TRUNCATED page
+    would discard the only `nextCursor` pointer to the rest of a large file and
+    misreport `truncated: false`/a full `endLine` — the stub's metadata always
+    comes from the real `selected.result`, not a re-derived guess.
+- **Repeated string-replace failures.** `recordEditFailure` counts only
+  consecutive `StringReplaceError` failures whose reason is `ambiguous` or
+  `not_found`, keyed by thread, root, and normalized workspace path. On failure
+  three and later, `runStringReplaceWorkspaceFile` APPENDS
+  `EDIT_FAILURE_HINT_MESSAGE` to the fuzzy matcher's own message rather than
+  replacing it — the matcher's diagnostic (matched line numbers, the "diverged
+  after N lines" cascade) is the single most actionable fact for widening
+  `oldStr`, and replacing it would throw away exactly what the model needs most
+  after two prior failures. `no_op` NEVER increments this streak. A successful
+  `stringReplaceWorkspaceFile` OR a successful `writeWorkspaceFile` to the same
+  path resets the streak — a full rewrite is the recovery path the hint itself
+  recommends, so it must count as recovery too.
+- **One shared scope authority.** Every mechanism MUST receive
+  `threadScope = readStateScope(runtimeData)` from
+  `apps/desktop/src/assistant-server/workspace-file-staleness.ts`; no tool may
+  derive a second thread key. This intentionally shares identity with the
+  read-before-write mtime tracker.
+- **Refusal is data, NEVER an execution error.** `buildRepeatedCallRefusalResult`
+  returns `{ok:false, refused:true, error}` so the model receives a compact
+  decline and the run remains alive. For grep/glob, the object intentionally
+  lacks `outputMode`: `parseGrepToolResult` and
+  `parseGlobWorkspaceToolResult` reject it with
+  `ToolProjectionInputRejectedError`, then `projectExistingModelOutput` in
+  `packages/agent/src/mastra/tool-model-output.ts` catches that explicit marker
+  and emits the generic bounded projection. Other projector errors still fail
+  loudly. `readWorkspaceFile` already uses the generic JSON projection, so its
+  refusal passes directly.
+- **The unguarded read caller is load-bearing.** `workspace-context-tools.ts`
+  calls `runReadWorkspaceFile` directly for bulk context and MUST see no loop
+  guard or widened return. The three-argument overload therefore remains
+  exactly `Promise<ReadWorkspaceFileResult>`; ONLY the four-argument overload
+  used by `buildDesktopAssistantTools` can return `LoopGuardRefusalResult`.
+- **Dedup still records knowledge.** Before an unchanged-read stub or refusal
+  returns, `runReadWorkspaceFile` MUST call `recordKnownFileMtime` with the
+  loop guard's scope and the file's canonical path/mtime. The bytes are not
+  resent, but the thread's knowledge is current; omitting this write corrupts
+  the next write-staleness decision.
+- **Ephemeral, not factory-reset state — and now bounded (BST-1197).** The three
+  maps are process-local. `resetToolCallLoopGuards` serves test isolation AND
+  one production caller: after BST-1192 commits a stale-read projection
+  rewrite batch, it resets that exact `readStateScope(runtimeData)` thread. A
+  dedup stub must never refer the model to an earlier result the newly
+  committed overlay will collapse on the next replay. This mirrors
+  `packages/agent/src/tools/file-read-state.ts` and its `resetFileReadState`
+  and MUST NOT be wired into factory reset. Each per-thread map holds at most
+  the exported `MAX_KEYS_PER_THREAD_SCOPE` (256) keys, using that module's
+  insertion-order, delete-then-set LRU-on-write technique. One shared activity
+  tracker across all three mechanisms holds at most the exported
+  `MAX_TRACKED_THREAD_SCOPES` (256) thread scopes; overflow evicts the
+  least-recently-active scope from every store. The unchanged-read and
+  edit-failure mechanisms are intentionally whole-thread, non-consecutive
+  dedup: their designed behavior is for a key to survive arbitrary unrelated
+  activity between touches. A tight 8-key cap defeated that behavior in
+  ordinary multi-file sessions (PR #2332 review), so 256 preserves useful
+  history while remaining bounded. Repeated-tool state only has grepSearch and
+  globWorkspace entries in practice (at most a couple per thread), making the
+  same generous cap harmless headroom there.
+
+  Every write path (`commitRepeatedToolCall`, `checkUnchangedReadWindow`, and
+  `recordEditFailure`) promotes its scope through `getOrCreateScopeMap`, and the
+  read path (`peekRepeatedToolCall`) promotes it through the same shared
+  `touchThreadScope`. The read-path touch is required because a refused call
+  returns before commit: without it, a thread actively stuck in a refuse-only
+  loop could be evicted as falsely idle and have its refusal silently undone
+  (PR #2332 review, threads 1 and 3). This promotion changes only LRU
+  bookkeeping; peeking still never advances the observable successful-call
+  streak. The bounds remain lossless: a key or scope is forgotten only after
+  `MAX_KEYS_PER_THREAD_SCOPE` or `MAX_TRACKED_THREAD_SCOPES` OTHER identities
+  are touched in between, respectively. At that point the activity is no
+  longer meaningfully contiguous, so restarting at fresh/one is correct.
+
+Paired proofs live in `tool-call-loop-guards.test.ts`,
+`loop-guard-projection-round-trip.test.ts`,
+`assistant-tools-read.integration.test.ts`, and
+`string-replace-workspace-file-live-loop.test.ts`. When changing this flow,
+update this section and those tests.
+
+## GUTTER-PREFIX WRITE GUARD (BST-1202)
+
+`readWorkspaceFile` renders model-visible pages in
+`read-workspace-file-tool.ts` (`renderReadWorkspaceFilePage`) with an unpadded
+`${line}: ` prefix. `gutter-prefix-guard.ts` conservatively identifies that
+display form before it can be pasted back onto disk. Refusal requires ALL of:
+at least three lines matching the exact `^\d+: ` shape; those captured numbers
+forming a monotonic NON-DECREASING run (an exact adjacent repeat is tolerated,
+a decrease is not) with a TIGHT SPAN (`max - min < 2 * count`); and the run's
+first (smallest) number being greater than 1. Do not broaden the prefix shape.
+
+The tight-span bound (not a strict `+1` requirement, and not a majority-of-
+lines proportion — PR #2352 review replaced the original design that used
+both) is what does the actual discriminating work: it tolerates a single
+deleted line from an edited paste (`10,11,13,14,15`, span 5 over 5 matches)
+and a repeated boundary number — `renderReadWorkspaceFilePage` re-emits the
+SAME line number as the prefix on both halves of a line split across a page
+boundary, so a verbatim paste of two continuation pages repeats it — while
+still rejecting two unrelated reads pasted back to back (`40,41,100,101`,
+span 61 over 4 matches) and non-sequential content that merely starts with
+digits (`12,45,90`).
+
+**Known coverage boundary — deliberate, not an oversight.** A page-1 paste
+(gutter numbers starting at 1, e.g. a verbatim `1: a\n2: b\n3: c`) is NEVER
+refused. Legitimate sequential numeric-key content — a YAML mapping
+(`1: January\n2: February\n3: March`), a numbered config list, any 1-based
+enumeration — is textually IDENTICAL to a page-1 gutter paste (the common
+case, since `readWorkspaceFile` defaults to starting at line 1); no signal in
+the text distinguishes them. Blocking the legitimate write is strictly worse
+than missing this one paste shape: a false refusal makes an ordinary numbered
+write permanently impossible through these tools, while a missed page-1 paste
+still gets caught by the model's own read-verify cycle after the corrupted
+write lands. Only a read that started past line 1 (an explicit `startLine`,
+or a continuation cursor) produces gutter numbers starting above 1, so only
+THOSE pastes are guarded. Do not relax the `first > 1` requirement to close
+this gap — it would reopen the YAML/numbered-mapping false positive instead.
+
+The guard applies only to `writeWorkspaceFile.content` and
+`stringReplaceWorkspaceFile.newStr`. It deliberately does not inspect
+`stringReplaceWorkspaceFile.oldStr` (quoted from real file content), and delete
+and rename have no content argument. In `runWriteWorkspaceFile` the
+`MAX_WRITE_WORKSPACE_FILE_BYTES` size check runs BEFORE the guard (both are
+pure pre-lock validations) so an over-limit payload is rejected before it
+pays for the guard's `split('\n')` pass. This is a fourth, independent,
+STATELESS mechanism: it has no thread scope or Map and does not participate
+in `MAX_KEYS_PER_THREAD_SCOPE`/`MAX_TRACKED_THREAD_SCOPES`. A match throws
+`ToolInputError` before locks, disk I/O, or the "Repeated string-replace
+failures" path above can reach `recordEditFailure`; a gutter refusal consumes
+zero edit-failure streak slots. An out-of-safe-integer captured number (e.g.
+an attacker appending `99999999999999999999: x` to an otherwise perfect
+gutter block) disqualifies only that ONE line — it is skipped, not treated as
+a reason to abort the whole check, so it cannot be used to defeat the guard.
+
+---
+
 ## PERMISSION ENGINE (TOOL APPROVAL)
 
 Mutation tools PROMPT for per-call approval by default. The permission policy
-store (`packages/preferences/src/stores/permission-policy-store.ts`) defaults to
+store (`packages/app-state/src/stores/permission-policy-store.ts`) defaults to
 `enforce: true` with policies `{read:allow, mcp:allow, edit:ask, execute:ask}`,
 so by default read/MCP tools run free while edits and shell commands suspend the
 run for user approval. A user can turn `enforce` off (explicit opt-out), set a
@@ -1022,6 +1436,20 @@ Flow (desktop assistant server → agent runtime):
    gates the tool map BEFORE the immutable `Agent` is built: `'deny'`→omit;
    `'allow'`→keep unchanged; `'ask'`→keep a CLONE with Mastra's PER-TOOL
    `requireApproval: true` and record in `askToolIds`.
+   SUSPENDING tools included (`brainstrike.runPython`; BST-1097, mechanism
+   re-based at the @mastra/core ^1.57 adoption — the old SELF-APPROVING
+   exception and its registry are gone): an `'ask'` decision takes the SAME
+   `requireApproval` clone as every other ask tool — the framework's
+   pre-execution approval is Gate A. The 1.56 approval rework made the old
+   self-raised in-tool suspension unworkable (the framework consumes the
+   `{approved}` resume before the tool can read it — an unfinishable loop)
+   and simultaneously made the clone safe: the suspend-resume transport
+   attaches the `approved: true` rider Mastra's per-leg re-check demands, so
+   the tool's OWN `suspend()` pause (Gate B) stays resumable under the flag.
+   `resolveSelfApprovalDecision` (exported beside the gate — same resolver,
+   same risk lookup, cannot drift) is still injected at the composition root,
+   now ONLY for the direct-invocation guard: an `'ask'` call outside an agent
+   run refuses rather than running unprompted.
 3. PER-TOOL, not global: marking each ask tool with `requireApproval` (Mastra
    >=1.37) makes Mastra suspend ONLY when that tool is actually called — allowed
    `read`/`mcp` tools in the same run still run free. We deliberately do NOT force
@@ -1140,7 +1568,23 @@ Flow (desktop assistant server → agent runtime):
    the gate backed by the rebuilt runtime's authoritative `askTools` set. Allowed
    read/internal-state tools keep running, ask-gated mutations may suspend again,
    and the canonical Mastra internal ids (`internal-approval-exempt-tools.ts`:
-   `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt. An EMPTY
+   `updateWorkingMemory`/`setWorkingMemory`) remain explicitly exempt — as are
+   the SELF-APPROVING suspending tools (BST-1097), but ONLY from the ASK-SET
+   half: re-gating one there would make Mastra consume its `{approved}` resume
+   before the tool sees it, so the tool re-runs with no resume data and
+   suspends Gate A again — an approval loop that can never complete. The
+   EXPLICIT GLOBAL posture still gates them: with `permissionEnforced ===
+   false` there is no snapshot, the injected decision resolves `'allow'`, and
+   the in-tool gate is inert — exempting them there would make run_python the
+   one execute-risk tool a global approval request never prompts for (and the
+   loop cannot occur, because the inert self-gate never re-suspends after the
+   framework consumes the approval). The symmetric transport rule also
+   holds: `streamMastraToolResumeAction` verifies via
+   `assertResumedCallIsSuspendPause` that the targeted call is suspended on a
+   PLAIN `suspend()` pause (`requiresApproval === false` in the snapshot) —
+   a generic resume payload must never answer an approval pause, mirroring
+   `readResumedApprovalToolCall`'s `requiresApproval === true` requirement in
+   the other direction. An EMPTY
    `askTools` on the resumed leg is AMBIGUOUS and is disambiguated by the
    runtime's `permissionEnforced` flag (`permissionSnapshot !== undefined`),
    NOT by `askTools.size` alone:
@@ -1365,7 +1809,7 @@ that blocked run_python's Gate B. Flow:
   to the live mapper's output; the existing notices + their resume seams render
   unchanged (an unregistered suspend gets the same dead-end notice as live).
   Staleness is display-only (D5) via the SHARED `RediscoveredPauseLines`
-  (`packages/ui/src/assistant-ui-panel/rediscovered-pause-lines.tsx`, used by
+  (`packages/assistant-ui/src/rediscovered-pause-lines.tsx`, used by
   both notice kinds): a muted "Pending since <relative>" line always, an amber
   advisory when `stale`, controls enabled, NO auto-decline / auto-answer.
 - Restart proofs extend the same specs: a run suspended under `openai` is
@@ -1547,7 +1991,7 @@ loud + fail-closed, the opposite of a silent fallback.
 user's own machine) run without approval. **Project** hooks
 (`<root>/.brainstrike/hooks.json`, per mounted desktop root) run ONLY after a
 per-root approval **pinned to the file's SHA-256**. The trust store
-(`packages/preferences/src/stores/hook-trust-store.ts`, persisted,
+(`packages/app-state/src/stores/hook-trust-store.ts`, persisted,
 factory-reset-registered) records `{rootId → {approvedSha256, approvedAt}}`. The
 store resolves its platform storage through a local deferred state-storage
 proxy, preserving the `persist` API across optimized chunk cycles and retrying
@@ -1745,12 +2189,58 @@ When changing this flow, update this section and the paired tests.
 
 ---
 
+## RUN-CREATION SEAM: WHAT MAY COMPOSE AROUND IT (BST-1115 W5 T4b)
+
+`useAssistantRequestLifecycle.prepareRequestData` is the single place a run
+comes into existence in the renderer: it calls
+`createAssistantThreadRunPromise` → `repository.createThreadRun`, the SOLE
+runId minting site (`docs/agents/assistant-persistence.md`). Features that need
+to act "when a run starts" COMPOSE AROUND that callback in
+`assistant-ui-panel-wrapper.tsx`; they never add a second producer and never
+grow the lifecycle hook a feature-specific branch.
+
+- **It fires for EVERY run, not every user message.** A tool-approval resume, a
+  plan-mode continuation and a stream replay all reach it. Anything that must
+  distinguish "the human sent something" needs a SECOND signal:
+  `AssistantUiPanel`'s `onThreadRunStart`, which is the composer form's
+  `onSubmitCapture` and fires for nothing else.
+- **Neither signal is sufficient alone.** assistant-ui's composer input calls
+  `form.requestSubmit()` on Enter unconditionally, so an Enter on an EMPTY
+  composer fires `onThreadRunStart` and sends nothing (`useComposerSend()`
+  returns null). The conjunction — a submit that is FOLLOWED by a run creation
+  — is the only honest reading of "a user-authored message started a new run".
+- **Conversation Rewind finalization is the first consumer.** `useRewindFinalization`
+  holds a read-and-cleared arming flag: `markUserAuthoredSend` (wired to
+  `onThreadRunStart`) arms it, and the wrapper's `prepareRequestData` wrapper
+  consumes it after the run row exists. That is what ends the one-level redo
+  window; see the FINALIZATION bullet in `assistant-persistence.md` for what
+  the main process then does.
+- **A composed effect MUST NOT be awaited by the send.** `finalizeAfterRunCreated`
+  returns `void` deliberately — the send is what the user asked for, and a
+  cleanup they did not ask for may never delay or fail it. Report failures
+  (log + toast); never swallow them, and never let one reach the composer.
+- **An abort that lands after run creation is not a send.** `prepareRequest`
+  throws the abort reason once `prepareRequestData` resolves, so the wrapper
+  re-checks `abortSignal.aborted` before firing a composed effect. The arming
+  flag stays set, and the retry that actually sends fires it.
+
+Paired tests: `assistant-ui-panel-wrapper-rewind-finalization.test.tsx` (the
+wiring, including the never-settles and throwing-bridge cases) and
+`changes/__tests__/use-rewind-finalization.test.ts` (each half of the
+conjunction alone).
+
+When changing this flow, update this section and the paired tests.
+
+---
+
 ## PLAN MODE & TOOL SUSPENSION (ask-user / submit-plan)
 
 Two SUSPENDING native tools pause the run DURING execution and resume with
 arbitrary data, on a NEW transport that PARALLELS the approval transport (it does
-not overload it). Built on `@mastra/core@1.50` tool `suspend()`/`suspendSchema`/
-`resumeSchema` + `agent.resumeStream(resumeData, {runId, toolCallId})`.
+not overload it). Built on `@mastra/core@1.55` tool `suspend()`/`suspendSchema`/
+`resumeSchema` + `agent.resumeStream(resumeData, {runId, toolCallId})`
+(re-verified at the 1.55 bump; 1.56 changes the approval half of this surface —
+see the version ceiling in mastra-boundary.md).
 
 - **`submitPlan`** (packages/agent/src/tools/submit-plan-tool.ts): takes a
   structured plan INLINE (`{title, overview, steps[], risks?, verification?}` —
@@ -1758,7 +2248,12 @@ not overload it). Built on `@mastra/core@1.50` tool `suspend()`/`suspendSchema`/
   and on resume returns `{status, feedback?}`. Resume vocab is the builtin-
   compatible `{action:'approved'|'rejected', feedback?}` (SubmitPlanDecision).
 - **`askUser`** (ask-user-tool.ts): `{question, options?, selectionMode?}`,
-  resumes with `string | string[]` (AskUserAnswer); multi-select joins with ", ".
+  resumes with the `{answer: string | string[]}` envelope (AskUserResumeData —
+  an OBJECT so the 1.56+ `approved: true` rider attaches when askUser is
+  ask-gated; a bare answer cannot carry the rider and would be denied by
+  Mastra). The tool still accepts the LEGACY bare `string | string[]`
+  (AskUserAnswer) so runs suspended before the envelope migration stay
+  resumable; multi-select joins with ", ".
 
 **Transport table (parallel to approval):**
 
@@ -1820,7 +2315,7 @@ own metadata.
 **No `tool.failed` is emitted upstream either — verified against the live loop,
 do not relitigate from the comment alone.** `data-stream-mapper.ts` carries a
 line deleting the suspended call's `pendingToolErrorTexts` entry, added in #1606
-against @mastra/core 1.50 when Mastra reported `suspend()` through the
+against @mastra/core 1.50 (behavior unchanged at the pinned 1.55) when Mastra reported `suspend()` through the
 `tool-error` path BEFORE the correlated suspension event. If that ordering still
 held, `makeToolLifecycleRunEventChunk` would convert the earlier part into a
 durable `tool.failed` and every claim in the table above would be void. It does
@@ -2007,7 +2502,7 @@ every real factory registered) and
 `scripts/__tests__/suspending-tool-registry-contract.test.mjs` (the
 control-tested reverse-drift scan); the ledger-aggregation and
 run-event-hydration cases in
-`packages/app-shell/src/__tests__/assistant-memory-repository.integration.test.ts`;
+`packages/assistant-data/src/__tests__/assistant-memory-repository.integration.test.ts`;
 the `isAlwaysVisibleRunEvent`, default-detail data-part, duration-pairing and
 `tool.started`-stays-running cases in the UI timeline specs; the streaming +
 data-part-continuity + default-instructions plan-mode specs; the desktop
