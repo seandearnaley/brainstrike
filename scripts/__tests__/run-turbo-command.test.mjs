@@ -485,43 +485,46 @@ describe('nested prebuild turbo contract', () => {
     }
   });
 
-  it('predev guards and filters mirror the prebuild filter list', () => {
-    // predev's `[ -f .../dist/... ]` fast path and its fallback nested build
-    // must cover the same packages prebuild builds, or a standalone `dev` run
-    // starts vite against missing dist artifacts.
-    const byPackage = new Map();
-    for (const entry of wrapperScripts) {
-      const bucket = byPackage.get(entry.packageJsonPath) ?? {};
-      bucket[entry.scriptName] = entry.command;
-      byPackage.set(entry.packageJsonPath, bucket);
-    }
+  it('web predev synchronously rebuilds bundled dependencies before vite can start', () => {
+    const webPackageJsonPath = resolve(process.cwd(), 'apps/web/package.json');
+    const webManifest = JSON.parse(readFileSync(webPackageJsonPath, 'utf8'));
+    const { dev, prebuild, predev } = webManifest.scripts;
 
-    for (const [packageJsonPath, scriptsByName] of byPackage) {
-      if (!(scriptsByName.prebuild && scriptsByName.predev)) {
-        continue;
+    assert.equal(dev, 'vite --port 8080 --host');
+    assert.equal(
+      predev,
+      predev.match(
+        /^node \.\.\/\.\.\/scripts\/run-turbo-command\.mjs -- run build(?: --filter=@brainstrike\/[\w-]+)+$/u
+      )?.[0],
+      'apps/web predev must always complete its synchronous nested build before the package lifecycle starts vite; existing dist sentinels cannot prove a concurrent tsup watch rebuild is finished'
+    );
+    assert.deepEqual(
+      parseFilterList(predev).sort(),
+      parseFilterList(prebuild).sort(),
+      'apps/web predev must synchronously rebuild the same dependency set as prebuild'
+    );
+
+    const events = [];
+    let bundledOutput = 'stale';
+    const status = turboCommand.runTurboCommand(
+      ['node', 'run-turbo-command.mjs', '--', 'run', 'build', ...filterArgs(predev)],
+      'darwin',
+      {
+        env: { HOME: makeFakeHome(), TURBO_HASH: '649b8853e23bc395' },
+        log: () => {},
+        logError: () => {},
+        spawnSyncImpl: () => {
+          events.push(`build:start:${bundledOutput}`);
+          bundledOutput = 'fresh';
+          events.push('build:complete');
+          return { status: 0 };
+        },
       }
+    );
 
-      const prebuildFilters = parseFilterList(scriptsByName.prebuild).sort();
-      const predevFilters = parseFilterList(scriptsByName.predev).sort();
-      assert.deepEqual(
-        predevFilters,
-        prebuildFilters,
-        `${packageJsonPath}: predev's nested build filters must match prebuild's`
-      );
-
-      const guardedPackages = [
-        ...scriptsByName.predev.matchAll(/-f \.\.\/\.\.\/packages\/([^/]+)\//gu),
-      ]
-        .map(
-          ([, dir]) => JSON.parse(readFileSync(join('packages', dir, 'package.json'), 'utf8')).name
-        )
-        .sort();
-      assert.deepEqual(
-        guardedPackages,
-        prebuildFilters,
-        `${packageJsonPath}: predev's dist existence guards must cover exactly the prebuild filter list`
-      );
-    }
+    assert.equal(status, 0);
+    events.push(`vite:start:${bundledOutput}`);
+    assert.deepEqual(events, ['build:start:stale', 'build:complete', 'vite:start:fresh']);
   });
 });
 
@@ -569,6 +572,10 @@ function workspaceDependencyClosure(manifest, manifests) {
 
 function parseFilterList(command) {
   return [...command.matchAll(/--filter=(@brainstrike\/[\w-]+)/gu)].map(([, name]) => name);
+}
+
+function filterArgs(command) {
+  return parseFilterList(command).map((name) => `--filter=${name}`);
 }
 
 function findPackageJsonFiles(root) {
