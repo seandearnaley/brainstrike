@@ -769,7 +769,9 @@ test.describe('Database Persistence', () => {
     if (await clearButton.isVisible()) {
       const cleared = await clearWithButton(activePage, clearButton);
       if (!cleared) {
-        return activePage;
+        throw new Error(
+          'Database cleanup could not be verified: the database entered an error state after Clear Database; records were not cleared.'
+        );
       }
       return activePage;
     }
@@ -789,11 +791,6 @@ test.describe('Database Persistence', () => {
    * total for the active collection.
    */
   async function verifyUIFunctionalityAndState(page: Page): Promise<void> {
-    if (await isDatabaseError(page)) {
-      await expect(page.locator('[data-testid="db-init-error"]').first()).toBeVisible();
-      return;
-    }
-
     await expect(page.locator('[data-testid="database-panel-actions"]')).toBeVisible({
       timeout: 15_000,
     });

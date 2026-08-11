@@ -585,6 +585,14 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Basic Rendering', () => {
+    it('exposes Clear Database by name in a healthy expanded settings panel', async () => {
+      useDatabaseDemoStore.setState({ showSettings: true });
+
+      renderWithProviders(<DatabaseDemoPanel />);
+
+      expect(await screen.findByRole('button', { name: 'Clear Database' })).toBeInTheDocument();
+    });
+
     it('keeps a provider error detail visible when Error.message is empty', () => {
       const emptyMessageError = new Error('placeholder');
       emptyMessageError.message = '';

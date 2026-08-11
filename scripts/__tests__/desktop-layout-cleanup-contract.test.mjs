@@ -99,6 +99,8 @@ function findPostCleanupDatabaseErrorSkips(source) {
   }
 
   visitFunctions(sourceFile);
+  // One local wrapper layer is intentional: this source contract follows the
+  // cleanup helpers declared by the spec, not an unbounded call graph.
   const cleanupWrapperNames = new Set(
     functions
       .filter((node) => findDirectCalls(node, new Set(['clearDatabaseRecords'])).length > 0)
@@ -113,13 +115,37 @@ function findPostCleanupDatabaseErrorSkips(source) {
       return;
     }
     const firstCleanupCall = Math.min(...cleanupCalls.map((call) => call.getStart(sourceFile)));
+    const databaseErrorAliases = new Map();
+
+    function collectDatabaseErrorAliases(current) {
+      if (current !== node && ts.isFunctionLike(current)) {
+        return;
+      }
+      if (
+        ts.isVariableDeclaration(current) &&
+        ts.isIdentifier(current.name) &&
+        current.initializer
+      ) {
+        const databaseErrorCall = findDatabaseErrorCall(current.initializer);
+        if (databaseErrorCall) {
+          databaseErrorAliases.set(current.name.text, databaseErrorCall);
+        }
+      }
+      ts.forEachChild(current, collectDatabaseErrorAliases);
+    }
+
+    collectDatabaseErrorAliases(node);
 
     function inspectBody(current) {
       if (current !== node && ts.isFunctionLike(current)) {
         return;
       }
       if (ts.isIfStatement(current) && containsReturn(current.thenStatement)) {
-        const databaseErrorCall = findDatabaseErrorCall(current.expression);
+        const databaseErrorCall =
+          findDatabaseErrorCall(current.expression) ??
+          (ts.isIdentifier(current.expression)
+            ? databaseErrorAliases.get(current.expression.text)
+            : undefined);
         if (databaseErrorCall && databaseErrorCall.getStart(sourceFile) > firstCleanupCall) {
           const location = sourceFile.getLineAndCharacterOfPosition(
             databaseErrorCall.getStart(sourceFile)
@@ -175,6 +201,11 @@ test('database persistence specs do not treat fail-closed cleanup as a graceful 
     [],
     `a failed cleanup must surface instead of reaching a later database-error skip in the same function; violations: ${violations.join(', ')}`
   );
+  assert.match(
+    source,
+    /if \(!cleared\) \{\s*throw new Error\(\s*'Database cleanup could not be verified: the database entered an error state after Clear Database; records were not cleared\.'\s*\);\s*\}/,
+    'the button cleanup path must surface its failed verification instead of returning the active page'
+  );
 });
 
 test('cleanup-skip contract follows local wrappers and ignores non-returning error checks', () => {
@@ -197,7 +228,14 @@ test('cleanup-skip contract follows local wrappers and ignores non-returning err
       const hasError = await isDatabaseError(cleaned);
       expect(hasError).toBe(false);
     }
+
+    async function cleanupWithAliasedCheck(page: Page) {
+      const cleaned = await clearDatabaseRecords(page);
+      const hasError = await isDatabaseError(cleaned);
+      if (hasError) return cleaned;
+      return cleaned;
+    }
   `;
 
-  assert.deepEqual(findPostCleanupDatabaseErrorSkips(source), ['11:17']);
+  assert.deepEqual(findPostCleanupDatabaseErrorSkips(source), ['11:17', '23:30']);
 });
