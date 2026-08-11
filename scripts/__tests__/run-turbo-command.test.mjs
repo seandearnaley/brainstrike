@@ -508,7 +508,7 @@ describe('nested prebuild turbo contract', () => {
 
     const wrapperPath = resolve(process.cwd(), 'scripts/run-turbo-command.mjs');
     const desktopHelperPath = resolve(process.cwd(), 'scripts/ensure-desktop-dev-deps.mjs');
-    const automationModules = findModuleFiles(resolve(process.cwd(), 'scripts')).filter(
+    const automationModules = findModuleFiles(process.cwd()).filter(
       (modulePath) => modulePath !== wrapperPath
     );
     assert.deepEqual(
@@ -697,7 +697,15 @@ describe('nested prebuild turbo contract', () => {
         .filter((task) => task.task === 'build' && task.command !== '<NONEXISTENT>')
         .map((task) => task.package)
     );
-    for (const filter of parseFilterList(webPrebuild)) {
+    const webPredevFilters = parseFilterList(webPredev);
+    const webPrebuildFilters = parseFilterList(webPrebuild);
+    assert.ok(webPredevFilters.length > 0, 'web predev must declare at least one --filter=<pkg>');
+    assert.ok(
+      webPrebuildFilters.length > 0,
+      'web prebuild must declare at least one --filter=<pkg>'
+    );
+    const webPreparationFilters = new Set([...webPredevFilters, ...webPrebuildFilters]);
+    for (const filter of webPreparationFilters) {
       assert.ok(
         preparedBuilds.has(filter),
         `root dev preparation must include ${filter} before web and desktop watchers start`
