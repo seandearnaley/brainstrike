@@ -685,14 +685,6 @@ test.describe('Database Persistence', () => {
     }
     activeWindow = await clearDatabaseRecords(activeWindow);
 
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      // Expand Import Settings first to check button count
-      await expandImportSettings(activeWindow);
-      await expect(activeWindow.getByRole('button', { name: 'Clear Database' })).toHaveCount(0);
-      return;
-    }
-
     await clickRefreshIfAvailable(activeWindow);
 
     // Expand Import Settings to access Clear Database button
@@ -783,9 +775,6 @@ test.describe('Database Persistence', () => {
     }
 
     activePage = await clearDatabaseRecords(activePage);
-    if (await isDatabaseError(activePage)) {
-      return activePage;
-    }
     return activePage;
   }
 
@@ -843,10 +832,6 @@ test.describe('Database Persistence', () => {
     }
 
     activeWindow = await clearDatabaseRecords(activeWindow);
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
     await clickRefreshIfAvailable(activeWindow);
 
     // Wait for database connection status (now in global status bar)
@@ -872,11 +857,6 @@ test.describe('Database Persistence', () => {
       return;
     }
     relaunchedWindow = await clearDatabaseRecords(relaunchedWindow);
-    if (await isDatabaseError(relaunchedWindow)) {
-      console.log('⚠️ Database start failed after restart – skipping persistence assertions.');
-      await expect(relaunchedWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
     await clickRefreshIfAvailable(relaunchedWindow);
 
     // Wait for database connection status after restart (now in global status bar)

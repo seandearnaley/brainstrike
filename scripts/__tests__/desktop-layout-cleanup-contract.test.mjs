@@ -3,6 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const helperPath = new URL('../../apps/desktop/e2e/utils/layout-helpers.ts', import.meta.url);
+const persistenceSpecPath = new URL(
+  '../../apps/desktop/e2e/database-persistence.test.ts',
+  import.meta.url
+);
 
 test('desktop database cleanup fails closed when cleanup cannot be verified', async () => {
   const source = await readFile(helperPath, 'utf8');
@@ -30,5 +34,15 @@ test('desktop database cleanup fails closed when cleanup cannot be verified', as
     source,
     /Using UI-based deletion fallback|falling back to UI deletion/,
     'logs must not claim the removed UI deletion path will run'
+  );
+});
+
+test('database persistence specs do not treat fail-closed cleanup as a graceful skip', async () => {
+  const source = await readFile(persistenceSpecPath, 'utf8');
+
+  assert.doesNotMatch(
+    source,
+    /await clearDatabaseRecords\(([^)]+)\);\s*if \(await isDatabaseError\(\1\)\)/,
+    'a failed cleanup must surface instead of reaching a post-cleanup database-error skip'
   );
 });
