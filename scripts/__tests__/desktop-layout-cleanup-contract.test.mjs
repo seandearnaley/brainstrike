@@ -229,6 +229,11 @@ test('database persistence specs do not treat fail-closed cleanup as a graceful 
     [],
     `a failed cleanup must surface instead of reaching a later database-error skip in the same function; violations: ${violations.join(', ')}`
   );
+  assert.doesNotMatch(
+    source,
+    /test\.afterEach\([\s\S]*?try\s*\{[\s\S]*?clearDatabaseRecords\(window\)[\s\S]*?\}\s*catch/,
+    'serial-suite teardown must propagate cleanup failures instead of contaminating later cases'
+  );
   const buttonCleanupSource = findNamedFunctionSource(source, 'confirmClearDatabaseAndVerifyEmpty');
   assert.match(
     buttonCleanupSource,

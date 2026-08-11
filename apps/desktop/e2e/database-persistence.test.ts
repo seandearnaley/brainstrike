@@ -223,11 +223,7 @@ test.describe('Database Persistence', () => {
     const preserveState = testInfo.title.includes('should persist data between app restarts');
 
     if (!preserveState) {
-      try {
-        await clearDatabaseRecords(window);
-      } catch {
-        // Ignore cleanup errors; tests already succeeded.
-      }
+      await clearDatabaseRecords(window);
     }
 
     await electron.ensureWindow();
