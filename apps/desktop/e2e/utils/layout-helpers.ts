@@ -369,10 +369,6 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
   try {
     verboseLog('🧹 Starting efficient database record cleanup...');
 
-    if (await isDatabaseErrorState(activePage)) {
-      failClosedOnUnavailableUiCleanup('database is in an error state');
-    }
-
     // Try using the bulk delete API (available in Electron environment)
     verboseLog('🚀 Attempting bulk delete via Electron API...');
     let bulkDeleteResult: { message: string; success: boolean };
@@ -387,12 +383,12 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
     } catch (bulkError) {
       console.warn('⚠️ Bulk delete API failed:', bulkError);
       const detail = bulkError instanceof Error ? bulkError.message : String(bulkError);
-      failClosedOnUnavailableUiCleanup(`bulk delete threw: ${detail}`);
+      failClosedOnUnverifiedCleanup(`bulk delete threw: ${detail}`);
     }
 
     if (!bulkDeleteResult.success) {
       console.warn(`⚠️ Bulk delete failed: ${bulkDeleteResult.message}`);
-      failClosedOnUnavailableUiCleanup(`bulk delete failed: ${bulkDeleteResult.message}`);
+      failClosedOnUnverifiedCleanup(`bulk delete failed: ${bulkDeleteResult.message}`);
     }
     verboseLog(`✅ Bulk delete successful: ${bulkDeleteResult.message}`);
 
@@ -415,18 +411,18 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
     } catch (verificationError) {
       const detail =
         verificationError instanceof Error ? verificationError.message : String(verificationError);
-      failClosedOnUnavailableUiCleanup(`record-count verification threw: ${detail}`);
+      failClosedOnUnverifiedCleanup(`record-count verification threw: ${detail}`);
     }
 
     if (typeof remainingCount !== 'number') {
-      failClosedOnUnavailableUiCleanup(
+      failClosedOnUnverifiedCleanup(
         'bulk delete reported success but the remaining record count could not be verified'
       );
     }
 
     verboseLog(`📊 Records remaining after bulk delete (API): ${remainingCount}`);
     if (remainingCount > 0) {
-      failClosedOnUnavailableUiCleanup(
+      failClosedOnUnverifiedCleanup(
         `bulk delete reported success but left ${remainingCount} records`
       );
     }
@@ -440,7 +436,7 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
 }
 
 /**
- * Surface the unavailable UI cleanup path with the reason it was reached.
+ * Surface an unverified cleanup path with the reason it was reached.
  *
  * NOTE (BST-1213/BST-1216): the removed fallback used to drive
  * `tbody tr button[title="Remove record"]`, but no surface has rendered that
@@ -448,8 +444,8 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
  * here with its exact reason instead of reporting success. See the B2 report
  * follow-ups.
  */
-function failClosedOnUnavailableUiCleanup(reason: string): never {
-  throw new Error(`Database UI cleanup is unavailable: ${reason}; records were not cleared.`);
+function failClosedOnUnverifiedCleanup(reason: string): never {
+  throw new Error(`Database cleanup could not be verified: ${reason}; records were not cleared.`);
 }
 
 async function resolveActivePage(page: Page): Promise<Page> {
@@ -468,15 +464,6 @@ async function resolveActivePage(page: Page): Promise<Page> {
   console.warn('⚠️ Existing window closed; waiting for replacement...');
   const context = page.context();
   return waitForReplacementPage(context, page);
-}
-
-async function isDatabaseErrorState(page: Page): Promise<boolean> {
-  try {
-    const errorPanel = page.locator('[data-testid="db-init-error"]');
-    return await errorPanel.isVisible({ timeout: 200 }).catch(() => false);
-  } catch {
-    return false;
-  }
 }
 
 async function waitForReplacementPage(

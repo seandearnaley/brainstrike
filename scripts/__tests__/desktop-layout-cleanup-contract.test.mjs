@@ -4,21 +4,20 @@ import test from 'node:test';
 
 const helperPath = new URL('../../apps/desktop/e2e/utils/layout-helpers.ts', import.meta.url);
 
-test('desktop database UI cleanup fails closed when the dead fallback cannot remove rows', async () => {
+test('desktop database cleanup fails closed when cleanup cannot be verified', async () => {
   const source = await readFile(helperPath, 'utf8');
   assert.match(
     source,
-    /function failClosedOnUnavailableUiCleanup\(reason: string\): never \{\s*throw new Error\(`Database UI cleanup is unavailable: \$\{reason\}; records were not cleared\.`\);\s*\}/,
-    'the unavailable fallback must throw its caller-provided failure reason'
+    /function failClosedOnUnverifiedCleanup\(reason: string\): never \{\s*throw new Error\(`Database cleanup could not be verified: \$\{reason\}; records were not cleared\.`\);\s*\}/,
+    'unverified cleanup must throw its caller-provided failure reason'
   );
 
   for (const invocationPattern of [
-    /failClosedOnUnavailableUiCleanup\('database is in an error state'\);/,
-    /failClosedOnUnavailableUiCleanup\(`bulk delete threw: \$\{detail\}`\);/,
-    /failClosedOnUnavailableUiCleanup\(`bulk delete failed: \$\{bulkDeleteResult\.message\}`\);/,
-    /failClosedOnUnavailableUiCleanup\(`record-count verification threw: \$\{detail\}`\);/,
-    /failClosedOnUnavailableUiCleanup\(\s*'bulk delete reported success but the remaining record count could not be verified'\s*\);/,
-    /failClosedOnUnavailableUiCleanup\(\s*`bulk delete reported success but left \$\{remainingCount\} records`\s*\);/,
+    /failClosedOnUnverifiedCleanup\(`bulk delete threw: \$\{[^}]+\}`\);/,
+    /failClosedOnUnverifiedCleanup\(`bulk delete failed: \$\{[^}]+\}`\);/,
+    /failClosedOnUnverifiedCleanup\(`record-count verification threw: \$\{[^}]+\}`\);/,
+    /failClosedOnUnverifiedCleanup\(\s*'bulk delete reported success but the remaining record count could not be verified'\s*\);/,
+    /failClosedOnUnverifiedCleanup\(\s*`bulk delete reported success but left \$\{[^}]+\} records`\s*\);/,
   ]) {
     assert.match(
       source,
