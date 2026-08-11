@@ -53,7 +53,9 @@ export function serializeBindings(bindings: LogRecord['bindings']): string {
         0,
         BINDINGS_SERIALIZATION_FAILURE
       );
-      return fallback === '{}' ? BINDINGS_SERIALIZATION_FAILURE : fallback;
+      return fallback === '{}' || fallback === JSON.stringify(BINDINGS_SERIALIZATION_FAILURE)
+        ? BINDINGS_SERIALIZATION_FAILURE
+        : fallback;
     } catch {
       return BINDINGS_SERIALIZATION_FAILURE;
     }

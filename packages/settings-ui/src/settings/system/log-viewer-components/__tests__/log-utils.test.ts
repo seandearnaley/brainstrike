@@ -37,6 +37,22 @@ describe('serializeBindings', () => {
 
     expect(serializeBindings(bindings)).toBe('[Bindings serialization failed]');
   });
+
+  it('renders whole-value proxy failures as a bare bindings marker', () => {
+    const ownKeysProxy = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error('binding ownKeys failed');
+        },
+      }
+    );
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+
+    expect(serializeBindings(ownKeysProxy)).toBe('[Bindings serialization failed]');
+    expect(serializeBindings(revoked.proxy)).toBe('[Bindings serialization failed]');
+  });
 });
 
 describe('getCachedLogSearchHaystack', () => {
