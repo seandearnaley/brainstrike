@@ -535,22 +535,13 @@ test.describe('Database Persistence', () => {
 
   async function handleClearConfirmation(page: Page): Promise<void> {
     const confirmDialog = page.locator('[role="dialog"]');
-    const dialogAppeared = await confirmDialog.isVisible({ timeout: 3000 }).catch(() => false);
-
-    if (!dialogAppeared) {
-      await page.waitForTimeout(3000);
-      return;
-    }
-
+    await expect(confirmDialog).toBeVisible({ timeout: 3000 });
     const confirmButton = confirmDialog
       .locator('button:has-text("Clear Database")')
-      .or(confirmDialog.locator('button[variant="destructive"]:has-text("Clear")'));
-    if (await confirmButton.isVisible()) {
-      await confirmButton.click();
-      await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
-    }
-
-    await page.waitForTimeout(3000);
+      .or(confirmDialog.locator('button[data-variant="destructive"]:has-text("Clear")'));
+    await expect(confirmButton).toBeVisible({ timeout: 5000 });
+    await confirmButton.click();
+    await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
   }
 
   async function handleClearDatabasePage(page: Page): Promise<void> {
@@ -615,7 +606,7 @@ test.describe('Database Persistence', () => {
     await expect(confirmDialog).toBeVisible({ timeout: 5000 });
     const confirmButton = confirmDialog
       .locator('button:has-text("Clear Database")')
-      .or(confirmDialog.locator('button[variant="destructive"]:has-text("Clear")'));
+      .or(confirmDialog.locator('button[data-variant="destructive"]:has-text("Clear")'));
     await expect(confirmButton).toBeVisible({ timeout: 5000 });
     await confirmButton.click();
     await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });

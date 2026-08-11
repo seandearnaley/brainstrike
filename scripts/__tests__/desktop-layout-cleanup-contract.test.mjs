@@ -237,7 +237,7 @@ test('database persistence specs do not treat fail-closed cleanup as a graceful 
   );
   assert.match(
     buttonCleanupSource,
-    /button\[variant="destructive"\]:has-text\("Clear"\)/,
+    /button\[data-variant="destructive"\]:has-text\("Clear"\)/,
     'the shared button cleanup path must keep its broad Clear fallback scoped to the destructive control'
   );
   assert.match(
@@ -250,10 +250,33 @@ test('database persistence specs do not treat fail-closed cleanup as a graceful 
     /throw new Error\([^)]*cleanup could not be verified[^)]*\)/i,
     'the shared button cleanup path must throw an observation-bounded verification error'
   );
-  assert.equal(
-    source.match(/confirmClearDatabaseAndVerifyEmpty\(/g)?.length,
-    3,
-    'both UI cleanup callers must use the one shared confirm-and-verify helper'
+  for (const callerName of ['executeClearDatabaseWorkflow', 'cleanupExistingData']) {
+    const callerSource = findNamedFunctionSource(source, callerName);
+    assert.match(
+      callerSource,
+      /confirmClearDatabaseAndVerifyEmpty\(/,
+      `${callerName} must use the shared confirm-and-verify helper`
+    );
+    assert.doesNotMatch(
+      callerSource,
+      /role=["']dialog["']/,
+      `${callerName} must not re-inline the confirmation dialog flow`
+    );
+  }
+
+  const uninitializedConfirmationSource = findNamedFunctionSource(
+    source,
+    'handleClearConfirmation'
+  );
+  assert.doesNotMatch(
+    uninitializedConfirmationSource,
+    /isVisible\([^)]*\)\.catch\(/,
+    'the uninitialized-database confirmation path must not swallow a missing dialog'
+  );
+  assert.match(
+    uninitializedConfirmationSource,
+    /button\[data-variant="destructive"\]:has-text\("Clear"\)/,
+    'the uninitialized-database confirmation fallback must match the rendered destructive attribute'
   );
 });
 
