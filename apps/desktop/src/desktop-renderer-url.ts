@@ -1,16 +1,7 @@
 import { createLogger } from '@brainstrike/logging';
+import { resolveDesktopDevRendererConfig } from './desktop-renderer-config';
 
-const DEFAULT_DESKTOP_DEV_RENDERER_PORT = 38_181;
 const logger = createLogger('DesktopRendererUrl');
-
-function buildDefaultDesktopDevRendererUrl(): string {
-  return `http://localhost:${DEFAULT_DESKTOP_DEV_RENDERER_PORT}`;
-}
-
-interface ResolvedDesktopDevRendererConfig {
-  port: number;
-  url: string;
-}
 
 function warnInvalidDesktopDevRendererUrl(configuredUrl: string): void {
   logger.warn(
@@ -21,39 +12,12 @@ function warnInvalidDesktopDevRendererUrl(configuredUrl: string): void {
   );
 }
 
-function resolveDesktopDevRendererConfig(): ResolvedDesktopDevRendererConfig {
-  const configuredUrl = process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim();
-  if (!configuredUrl) {
-    return {
-      port: DEFAULT_DESKTOP_DEV_RENDERER_PORT,
-      url: buildDefaultDesktopDevRendererUrl(),
-    };
-  }
-
-  try {
-    const parsedUrl = new URL(configuredUrl);
-    const parsedPort = Number.parseInt(parsedUrl.port, 10);
-    const isHttpRendererUrl = parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:';
-    if (isHttpRendererUrl && Number.isFinite(parsedPort) && parsedPort > 0) {
-      return {
-        port: parsedPort,
-        url: configuredUrl,
-      };
-    }
-    warnInvalidDesktopDevRendererUrl(configuredUrl);
-    return {
-      port: DEFAULT_DESKTOP_DEV_RENDERER_PORT,
-      url: buildDefaultDesktopDevRendererUrl(),
-    };
-  } catch {
-    warnInvalidDesktopDevRendererUrl(configuredUrl);
-    return {
-      port: DEFAULT_DESKTOP_DEV_RENDERER_PORT,
-      url: buildDefaultDesktopDevRendererUrl(),
-    };
-  }
+const resolvedDesktopDevRendererConfig = resolveDesktopDevRendererConfig(
+  process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']
+);
+if (resolvedDesktopDevRendererConfig.kind === 'invalid-override') {
+  warnInvalidDesktopDevRendererUrl(resolvedDesktopDevRendererConfig.configuredUrl);
 }
 
-const resolvedDesktopDevRendererConfig = resolveDesktopDevRendererConfig();
 export const DESKTOP_DEV_RENDERER_PORT = resolvedDesktopDevRendererConfig.port;
 export const DESKTOP_DEV_RENDERER_URL = resolvedDesktopDevRendererConfig.url;

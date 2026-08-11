@@ -20,6 +20,9 @@
 //     re-exported binding fails to link (`does not provide an export named X`).
 //     A dynamic import() of the same module still works, which is why this
 //     surfaced as a selective, confusing failure.
+//   * A relative import that escapes an E2E root is CommonJS-transpiled. If that
+//     target statically imports an ESM-only package, Node loads the package
+//     through require() and can fail before Playwright discovers any tests.
 //
 // This module is a LIBRARY of pure predicates. It runs as a gate only via
 // scripts/__tests__/e2e-module-format-contract.test.mjs (`pnpm test:scripts`,
@@ -221,6 +224,22 @@ export function extractRelativeSpecifiers(source) {
   return [...specifiers];
 }
 
+/** Runtime static import/export specifiers; type-only edges disappear during transpilation. */
+export function extractRuntimeStaticSpecifiers(source) {
+  const cleaned = stripComments(source);
+  const specifiers = new Set();
+  const pattern =
+    /(?:^|[\s;}])(?:import(?!\s+type\b)|export(?!\s+type\b))(?:\s[^;'"]*?from)?\s*['"]([^'"]+)['"]/g;
+
+  let match = pattern.exec(cleaned);
+  while (match !== null) {
+    specifiers.add(match[1]);
+    match = pattern.exec(cleaned);
+  }
+
+  return [...specifiers];
+}
+
 /** Resolves a relative specifier to an on-disk source file, or null. */
 export function resolveRelativeSpecifier(importerFile, specifier) {
   const base = path.resolve(path.dirname(importerFile), specifier);
@@ -344,8 +363,9 @@ export function findConfigFormatViolations(repoRoot) {
 /**
  * Rule B — a relative import that escapes an e2e root lands under the app's own
  * CommonJS manifest, so Playwright transpiles it even though its importer is ESM.
- * That is tolerable only while the target exposes its named exports in a form
- * cjs-module-lexer can read and contains no `import.meta`.
+ * That is tolerable only while the target does not statically import a bare
+ * package, exposes its named exports in a form cjs-module-lexer can read, and
+ * contains no `import.meta`.
  */
 export function findEscapingImportViolations(repoRoot) {
   const violations = [];
@@ -360,7 +380,9 @@ export function findEscapingImportViolations(repoRoot) {
     for (const file of listSourceFiles(e2eRoot)) {
       const source = fs.readFileSync(file, 'utf8');
 
-      for (const specifier of extractRelativeSpecifiers(source)) {
+      for (const specifier of extractRuntimeStaticSpecifiers(source).filter((candidate) =>
+        candidate.startsWith('.')
+      )) {
         const resolved = resolveRelativeSpecifier(file, specifier);
         if (!resolved) {
           continue;
@@ -377,6 +399,17 @@ export function findEscapingImportViolations(repoRoot) {
         const targetSource = fs.readFileSync(resolved, 'utf8');
         const importer = path.relative(repoRoot, file);
         const target = path.relative(repoRoot, resolved);
+
+        const runtimeDependencies = extractRuntimeStaticSpecifiers(targetSource).filter(
+          (candidate) => !candidate.startsWith('.')
+        );
+        if (runtimeDependencies.length > 0) {
+          violations.push(
+            `${importer} imports '${specifier}' (${target}), which is CommonJS-transpiled but has runtime ` +
+              `bare dependencies (${runtimeDependencies.join(', ')}) — keep bare package imports out of an ` +
+              'escaping boundary so CommonJS cannot require an ESM-only package.'
+          );
+        }
 
         if (hasImportMeta(targetSource)) {
           violations.push(

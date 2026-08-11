@@ -748,12 +748,20 @@ Three assertions, over every `apps/*/e2e` directory that holds specs:
    static import of the same library. This was live: web's config imported
    `parsePositiveIntegerConfig` from `@brainstrike/platform-utils`, and removing
    only that one import made the whole web suite collect again.
-3. **Escaping relative imports stay lexer-safe.** A relative import that leaves
-   an e2e root lands under the app's CommonJS manifest, so it is transpiled
-   inside an otherwise-ESM graph. Such a target must contain no `export *` and
-   no `import.meta`. Today the only crossing is desktop's
-   `../../src/desktop-renderer-url` (plain `export const`); web has none since
-   `production-csp.test.ts` moved to `@brainstrike/platform-utils` directly.
+3. **Runtime escaping imports stay CommonJS-safe.** A runtime relative import
+   that leaves an e2e root lands under the app's CommonJS manifest, so it is
+   transpiled inside an otherwise-ESM graph. Such a target must contain no bare
+   runtime dependency, no `export *`, and no `import.meta`. Type-only imports do
+   not create a runtime crossing and are ignored. Today the only crossing is
+   desktop's `../../src/desktop-renderer-config`, an import-free resolver leaf;
+   web's apparent `web-e2e-test-hooks` edges are type-only.
+
+   This third assertion closes the Linux failure BST-1226 exposed after the
+   initial BST-1217 repair: `desktop-renderer-url.ts` was lexer-safe itself but
+   statically imported ESM-only `@brainstrike/logging`, so Node 24.18 tried to
+   require `packages/logging/dist/index.js` from the CommonJS-transpiled target
+   and Playwright collected zero tests. Main keeps the logging adapter in
+   `desktop-renderer-url.ts`; E2E imports only the shared, import-free resolver.
 
 The contract module is a **library** — importing it runs nothing. The test is
 the gate, and every real-tree assertion is paired with a synthetic control

@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   extractRelativeSpecifiers,
+  extractRuntimeStaticSpecifiers,
   findConfigFormatViolations,
   findE2eRoots,
   findEscapingImportViolations,
@@ -62,7 +63,7 @@ describe('apps/*/e2e module format contract', () => {
     assert.deepEqual(findModuleFormatViolations(repoRoot), []);
   });
 
-  it('holds on the real tree: no escaping import drags in export * or import.meta', () => {
+  it('holds on the real tree: runtime crossings stay CommonJS-safe', () => {
     assert.deepEqual(findEscapingImportViolations(repoRoot), []);
   });
 
@@ -176,6 +177,34 @@ describe('apps/*/e2e module format contract', () => {
         assert.equal(violations.length, 1);
         assert.match(violations[0], /export \*/);
       }
+    );
+  });
+
+  it('CONTROL: reports an escaping import whose target has a runtime dependency', () => {
+    withFixture(
+      {
+        'apps/thing/e2e/a.test.ts': "import { u } from '../src/leaky';\nexport const a = u;\n",
+        'apps/thing/e2e/package.json': '{"type":"module"}',
+        'apps/thing/package.json': '{"name":"thing"}',
+        'apps/thing/src/leaky.ts':
+          "import { createLogger } from '@brainstrike/logging';\nexport const u = createLogger('u');\n",
+        'package.json': '{"name":"root"}',
+      },
+      (root) => {
+        const violations = findEscapingImportViolations(root);
+        assert.equal(violations.length, 1);
+        assert.match(violations[0], /runtime bare dependencies/);
+        assert.match(violations[0], /@brainstrike\/logging/);
+      }
+    );
+  });
+
+  it('ignores type-only dependencies when identifying runtime static edges', () => {
+    assert.deepEqual(
+      extractRuntimeStaticSpecifiers(
+        "import type { Thing } from '@brainstrike/types';\nexport type { Other } from './other';\nexport const value = 1;\n"
+      ),
+      []
     );
   });
 
