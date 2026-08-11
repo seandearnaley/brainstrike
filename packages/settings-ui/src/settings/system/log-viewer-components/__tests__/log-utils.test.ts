@@ -24,6 +24,19 @@ describe('serializeBindings', () => {
 
     expect(serializeBindings(bindings)).toBe('{"broken":"[Bindings serialization failed]"}');
   });
+
+  it('marks a bindings proxy whose failure leaves no enumerable fallback structure', () => {
+    const bindings = new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error('binding get failed');
+        },
+      }
+    );
+
+    expect(serializeBindings(bindings)).toBe('[Bindings serialization failed]');
+  });
 });
 
 describe('getCachedLogSearchHaystack', () => {

@@ -66,6 +66,22 @@ describe('log diagnostic metadata', () => {
     );
   });
 
+  it('marks a bindings proxy with no readable fallback structure', () => {
+    const record = createRecord({});
+    record.bindings = new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error('binding get failed');
+        },
+      }
+    );
+
+    expect(JSON.parse(serializeLogRecordJson(record)).bindings).toBe(
+      '[Bindings serialization failed]'
+    );
+  });
+
   it('contains binding metadata access traps across source, code, and fingerprint reads', () => {
     const record = createRecord({});
     record.bindings = new Proxy(

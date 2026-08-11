@@ -47,12 +47,13 @@ export function serializeBindings(bindings: LogRecord['bindings']): string {
     return serialized ?? BINDINGS_SERIALIZATION_FAILURE;
   } catch {
     try {
-      return serializeDiagnosticJson(
+      const fallback = serializeDiagnosticJson(
         bindings ?? {},
         'Log bindings',
         0,
         BINDINGS_SERIALIZATION_FAILURE
       );
+      return fallback === '{}' ? BINDINGS_SERIALIZATION_FAILURE : fallback;
     } catch {
       return BINDINGS_SERIALIZATION_FAILURE;
     }

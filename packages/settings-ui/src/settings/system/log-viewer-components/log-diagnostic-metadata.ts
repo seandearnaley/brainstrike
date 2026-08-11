@@ -113,7 +113,17 @@ function normalizeBindingsValue(value: unknown, active: WeakSet<object>): unknow
       ? BINDINGS_SERIALIZATION_FAILURE_MARKER
       : JSON.parse(serialized);
   } catch {
-    return normalizeDiagnosticValue(value, active, BINDINGS_SERIALIZATION_FAILURE_MARKER);
+    const normalized = normalizeDiagnosticValue(
+      value,
+      active,
+      BINDINGS_SERIALIZATION_FAILURE_MARKER
+    );
+    return typeof normalized === 'object' &&
+      normalized !== null &&
+      !Array.isArray(normalized) &&
+      Object.keys(normalized).length === 0
+      ? BINDINGS_SERIALIZATION_FAILURE_MARKER
+      : normalized;
   }
 }
 
