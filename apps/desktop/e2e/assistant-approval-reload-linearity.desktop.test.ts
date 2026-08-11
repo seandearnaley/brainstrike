@@ -55,8 +55,17 @@ async function sendPrompt(window: Page, text: string): Promise<void> {
   });
 }
 
-async function readLatestThreadEdges(page: Page): Promise<readonly MessageParentEdgeRow[]> {
-  return await page.evaluate(async () => {
+/**
+ * Reads the edge rows for one thread. The thread under test is captured ONCE
+ * (from the composer's live thread via the newest edge row) and then passed
+ * explicitly — a recency-based lookup per read could silently retarget if a
+ * background write bumps another thread's `updatedAt` mid-test.
+ */
+async function readThreadEdges(
+  page: Page,
+  threadId: string | null
+): Promise<readonly MessageParentEdgeRow[]> {
+  return await page.evaluate(async (scopedThreadId) => {
     const api = (window as Window & { electronAPI?: unknown }).electronAPI;
     const query = (
       api as {
@@ -71,18 +80,26 @@ async function readLatestThreadEdges(page: Page): Promise<readonly MessageParent
     if (typeof query !== 'function') {
       throw new Error('Electron db.query bridge is not available');
     }
-    const result = await query(
-      `SELECT edges.message_id AS "messageId",
-              edges.parent_id AS "parentId",
-              edges.thread_id AS "threadId"
-         FROM brainstrike_assistant_message_parents AS edges
-        WHERE edges.thread_id = (
-          SELECT id FROM mastra_threads ORDER BY "updatedAt" DESC LIMIT 1
+    const result = scopedThreadId
+      ? await query(
+          `SELECT edges.message_id AS "messageId",
+                  edges.parent_id AS "parentId",
+                  edges.thread_id AS "threadId"
+             FROM brainstrike_assistant_message_parents AS edges
+            WHERE edges.thread_id = $1
+            ORDER BY edges.created_at ASC, edges.message_id ASC`,
+          [scopedThreadId]
         )
-        ORDER BY edges.created_at ASC, edges.message_id ASC`
-    );
+      : await query(
+          `SELECT edges.message_id AS "messageId",
+                  edges.parent_id AS "parentId",
+                  edges.thread_id AS "threadId"
+             FROM brainstrike_assistant_message_parents AS edges
+            ORDER BY edges.created_at DESC
+            LIMIT 1`
+        );
     return (result.rows ?? []) as unknown as MessageParentEdgeRow[];
-  });
+  }, threadId);
 }
 
 /** Orders edges root-first; throws when the graph is not one linear chain. */
@@ -197,23 +214,30 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
       timeout: E2E_TIMEOUTS.messageVisibility,
     });
 
+    // Capture the thread under test ONCE, from the newest edge the live flow
+    // just wrote, then scope every subsequent read to it explicitly.
+    const newestEdge = (await readThreadEdges(window, null))[0];
+    const threadId = newestEdge?.threadId;
+    if (!threadId) {
+      throw new Error('No edge rows were written by the live flow.');
+    }
+
     // Half 1 — durable-parent invariant on the REAL edge table. The follow-up
     // assistant edge lands at runEnd, slightly after its reply renders.
     await expect
-      .poll(async () => (await readLatestThreadEdges(window)).length, {
+      .poll(async () => (await readThreadEdges(window, threadId)).length, {
         timeout: E2E_TIMEOUTS.messageVisibility,
       })
       .toBe(4);
-    const edges = await readLatestThreadEdges(window);
+    const edges = await readThreadEdges(window, threadId);
+    // Re-assert the count on the snapshot actually used below, so a late
+    // extra edge fails legibly here instead of inside the chain walk.
+    expect(edges).toHaveLength(4);
     const chain = toLinearChain(edges);
     expect(chain).toHaveLength(4);
 
     // Half 2 — seed the content rows the mocked server never persisted (the
     // edges stay exactly as the live flow wrote them), then reload.
-    const threadId = edges[0]?.threadId;
-    if (!threadId) {
-      throw new Error('No thread id on the edge rows.');
-    }
     const title = `Approval linearity E2E ${Date.now()}`;
     await seedContentRowsForChain(window, {
       chain,

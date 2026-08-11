@@ -201,10 +201,27 @@ contracts keep reloaded threads identical to live ones:
    persisted and alias to their nearest durable ancestor; `load()` seeds
    aliases for the synthetic pause ids. Because suspension prevents the
    suspended assistant message's own runEnd history append, the echo append
-   backfills that durable edge (hydrated graph parent when known, else the
-   live session tail) so the reload group keys to the ALIGNED assistant id
-   rather than a snapshot row id. Invalid action markers remain ordinary
-   prompts and keep their edges (strict-guard symmetry with the wire).
+   backfills that durable edge so the reload group keys to the ALIGNED
+   assistant id rather than a snapshot row id. The backfill parent, in order
+   of authority: the hydrated graph parent when the suspended message was
+   loaded; else the suspending run's `turn_message_id` (BST-1163 — the echo
+   marker carries the runId, and every leg of a turn stamps the same link, so
+   this stays exact when other sends land during the suspension and when the
+   suspended run is a regeneration branched from an older prompt); else the
+   live session tail only as a legacy last resort for runs predating the turn
+   link. Invalid action markers remain ordinary prompts and keep their edges
+   (strict-guard symmetry with the wire). Two adjacent stances are SETTLED
+   (PR #2392 review): approving a REDISCOVERED pause anchors the follow-up at
+   the durable thread head — the resumed run's continuation rows land
+   chronologically at the end of `mastra_messages`, so re-parenting under the
+   old run's mid-thread assistant would fabricate a mid-thread branch whose
+   content hydrates at the bottom; and a regeneration taken from a
+   post-approval response (parent = the echo) is structurally
+   indistinguishable from a resume leg at this seam, so its edge is
+   deliberately not persisted — its Mastra content hydrates chronologically
+   inside the turn's group, only the carousel affordance is not
+   reconstructed (a timing-sensitive Mastra-row probe to distinguish them was
+   rejected).
    Read-side hydration is deliberately untouched: re-rooting and the
    conflicting-edge throw stay as-is — fix producers, never coerce at read.
    Paired tests: packages/assistant-data

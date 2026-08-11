@@ -178,7 +178,18 @@ describe('approval/suspend branch topology (BST-1243)', () => {
         resourceId: 'workspace-a',
         threadId: thread.id,
       });
-    return { db, makeAdapter, repository, threadId: thread.id };
+    const seedRun = async (runId: string, turnMessageId: string) => {
+      await repository.createThreadRun({
+        id: runId,
+        model: 'claude-sonnet-5',
+        provider: 'anthropic',
+        resourceId: 'workspace-a',
+        runtimeKind: 'hosted',
+        threadId: thread.id,
+        turnMessageId,
+      });
+    };
+    return { db, makeAdapter, repository, seedRun, threadId: thread.id };
   }
 
   it('keeps a live conversation with a mid-thread approval linear across reload', async () => {
@@ -504,5 +515,306 @@ describe('approval/suspend branch topology (BST-1243)', () => {
       'assistant-a',
       'assistant-regen',
     ]);
+  });
+
+  it('backfills a suspended regeneration via the run turn link, preserving the source branch', async () => {
+    // PR #2392 review (Codex P1 / Claude #1): a regeneration branched from an
+    // OLDER prompt that suspends must not have its edge guessed from the
+    // session tail — the run's turn_message_id (BST-1163) is the durable,
+    // exact anchor and keeps the genuine carousel sibling.
+    const { db, makeAdapter, seedRun, threadId } = await makeHarness('regen-suspend-turn-link');
+
+    for (const [id, text, role, createdAt] of [
+      ['user-1', 'first prompt', 'user', '2026-08-10T17:00:00Z'],
+      ['assistant-1', 'first answer', 'assistant', '2026-08-10T17:00:05Z'],
+      ['user-2', 'second prompt', 'user', '2026-08-10T17:01:00Z'],
+      ['assistant-2', 'second answer', 'assistant', '2026-08-10T17:01:05Z'],
+    ] as const) {
+      await insertMastraMessage(db, { createdAt, id, role, text, threadId });
+    }
+    const seedRepository = createPgliteAssistantThreadRepository(db);
+    for (const edge of [
+      { messageId: 'user-1', parentId: null },
+      { messageId: 'assistant-1', parentId: 'user-1' },
+      { messageId: 'user-2', parentId: 'assistant-1' },
+      { messageId: 'assistant-2', parentId: 'user-2' },
+    ] as const) {
+      await seedRepository.recordMessageParent?.({
+        ...edge,
+        resourceId: 'workspace-a',
+        threadId,
+      });
+    }
+
+    const adapter = makeAdapter();
+    await adapter.load();
+
+    // Regeneration of assistant-1: a NEW run whose turn link is the REUSED
+    // user message (user-1), streaming a fresh aligned assistant id that
+    // suspends at an approval before its runEnd append can fire.
+    await seedRun('run-regen', 'user-1');
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:02:00Z',
+      id: 'assistant-regen',
+      role: 'assistant',
+      text: 'regenerated (suspended at approval)',
+      threadId,
+    });
+    await adapter.append(
+      approveEchoItem({ id: 'echo-1', parentId: 'assistant-regen', runId: 'run-regen' })
+    );
+
+    const edges = await readEdges(db, threadId);
+    // The backfill anchors to the turn link (user-1) — NOT the session tail
+    // (assistant-2), which would fold the regeneration into the wrong branch.
+    expect(edges).toContainEqual(['assistant-regen', 'user-1']);
+    expect(edges).toHaveLength(5);
+
+    const history = await makeAdapter().load();
+    const siblings = history.messages.filter((item) => item.parentId === 'user-1');
+    expect(siblings.map((item) => item.message.id).sort()).toEqual([
+      'assistant-1',
+      'assistant-regen',
+    ]);
+  });
+
+  it('does not mis-parent the suspended message when other sends land during the suspension', async () => {
+    // PR #2392 review (Claude #1): the user can keep typing while an approval
+    // notice is pending. The echo's parent is then the CURRENT tail (already
+    // edged), so no backfill fires and no guessed edge is written for it.
+    const { db, makeAdapter, seedRun, threadId } = await makeHarness('mid-suspension-send');
+    const adapter = makeAdapter();
+
+    await adapter.append(userAppendItem({ id: 'user-1', parentId: null, text: 'first prompt' }));
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:00:00Z',
+      id: 'user-1',
+      role: 'user',
+      text: 'first prompt',
+      threadId,
+    });
+    await seedRun('run-suspended', 'user-1');
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:00:05Z',
+      id: 'assistant-a',
+      role: 'assistant',
+      text: 'suspended at approval',
+      threadId,
+    });
+    // The user types again while the notice is pending: a full second turn.
+    await adapter.append(
+      userAppendItem({ id: 'user-2', parentId: 'assistant-a', text: 'second prompt' })
+    );
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:00:30Z',
+      id: 'user-2',
+      role: 'user',
+      text: 'second prompt',
+      threadId,
+    });
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:00:35Z',
+      id: 'assistant-2',
+      role: 'assistant',
+      text: 'second answer',
+      threadId,
+    });
+    await adapter.append(
+      assistantAppendItem({ id: 'assistant-2', parentId: 'user-2', text: 'second answer' })
+    );
+    // NOW the user approves the still-pending run-1 notice; the echo appends
+    // at the thread tail (assistant-2), which already has its edge.
+    await adapter.append(
+      approveEchoItem({ id: 'echo-1', parentId: 'assistant-2', runId: 'run-suspended' })
+    );
+    await adapter.append(
+      assistantAppendItem({ id: 'resume-leg-1', parentId: 'echo-1', text: 'continuation' })
+    );
+    await adapter.append(
+      userAppendItem({ id: 'user-3', parentId: 'resume-leg-1', text: 'third prompt' })
+    );
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:01:10Z',
+      id: 'user-3',
+      role: 'user',
+      text: 'third prompt',
+      threadId,
+    });
+
+    const edges = await readEdges(db, threadId);
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        ['user-1', null],
+        ['user-2', 'assistant-a'],
+        ['assistant-2', 'user-2'],
+        ['user-3', 'assistant-2'],
+      ])
+    );
+    // Crucially: NO backfilled edge claiming the suspended assistant-a is a
+    // child of anything later than its own turn, and no echo/resume edges.
+    expect(edges).toHaveLength(4);
+
+    const history = await makeAdapter().load();
+    expect(history.messages.filter((item) => item.parentId === null)).toHaveLength(1);
+    expect(history.messages.map((item) => [item.message.id, item.parentId])).toEqual([
+      ['user-1', null],
+      ['assistant-a', 'user-1'],
+      ['user-2', 'assistant-a'],
+      ['assistant-2', 'user-2'],
+      ['user-3', 'assistant-2'],
+    ]);
+  });
+
+  it('pins multi-pause rediscovery: approving an older notice continues from the durable head', async () => {
+    // PR #2392 review (Codex P1 #2) — SETTLED the other way, deliberately:
+    // a resumed old run's continuation rows land chronologically at the END
+    // of mastra_messages, so the durable topology anchors the follow-up at
+    // the thread head where that content actually hydrates. Re-parenting it
+    // under the old run's mid-thread assistant would fabricate a mid-thread
+    // branch whose content lives at the bottom — a worse corruption.
+    const { db, makeAdapter, repository, threadId } = await makeHarness('multi-pause-rediscovery');
+
+    for (const [id, text, role, createdAt] of [
+      ['user-1', 'first prompt', 'user', '2026-08-10T17:00:00Z'],
+      ['assistant-a', 'older suspended run', 'assistant', '2026-08-10T17:00:05Z'],
+      ['user-2', 'second prompt', 'user', '2026-08-10T17:01:00Z'],
+      ['assistant-b', 'newer suspended run', 'assistant', '2026-08-10T17:01:05Z'],
+    ] as const) {
+      await insertMastraMessage(db, { createdAt, id, role, text, threadId });
+    }
+    await repository.recordMessageParent?.({
+      messageId: 'user-1',
+      parentId: null,
+      resourceId: 'workspace-a',
+      threadId,
+    });
+    await repository.recordMessageParent?.({
+      messageId: 'user-2',
+      parentId: 'assistant-a',
+      resourceId: 'workspace-a',
+      threadId,
+    });
+
+    const adapter = createAssistantThreadHistoryAdapter({
+      discoverSuspendedRuns: async () => ({
+        approvals: [
+          makeApproval({
+            runId: 'run-a',
+            suspendedAt: '2026-08-10T17:00:06.000Z',
+            toolCallId: 'call-a',
+          }),
+          makeApproval({
+            runId: 'run-b',
+            suspendedAt: '2026-08-10T17:01:06.000Z',
+            toolCallId: 'call-b',
+          }),
+        ],
+        suspends: [],
+      }),
+      repository,
+      resourceId: 'workspace-a',
+      threadId,
+    });
+    await adapter.load();
+
+    // Approving the OLDER notice: the echo still appends at the thread tail
+    // (the newest synthetic), and resolves through the alias chain to the
+    // durable head assistant-b.
+    await adapter.append(
+      approveEchoItem({
+        id: 'echo-old',
+        parentId: 'suspended-approval:run-b:call-b',
+        runId: 'run-a',
+        toolCallId: 'call-a',
+      })
+    );
+    await adapter.append(
+      assistantAppendItem({ id: 'resume-leg-old', parentId: 'echo-old', text: 'continuation' })
+    );
+    await adapter.append(
+      userAppendItem({ id: 'user-3', parentId: 'resume-leg-old', text: 'third prompt' })
+    );
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:02:00Z',
+      id: 'user-3',
+      role: 'user',
+      text: 'third prompt',
+      threadId,
+    });
+
+    const edges = await readEdges(db, threadId);
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        ['user-1', null],
+        ['user-2', 'assistant-a'],
+        ['assistant-b', 'user-2'],
+        ['user-3', 'assistant-b'],
+      ])
+    );
+    expect(edges).toHaveLength(4);
+
+    const history = await makeAdapter().load();
+    expect(history.messages.filter((item) => item.parentId === null)).toHaveLength(1);
+  });
+
+  it('pins the v1 stance: regenerating a post-approval response is not a persisted branch', async () => {
+    // PR #2392 review (Claude #3): a regeneration taken from the resume-leg
+    // message re-appends with the ECHO as parent and is structurally
+    // indistinguishable from a resume leg at this seam, so its edge is
+    // deliberately not persisted. Content is never lost — the Mastra row
+    // hydrates chronologically inside the turn's group.
+    const { db, makeAdapter, threadId } = await makeHarness('post-approval-regen-drop');
+    const adapter = makeAdapter();
+
+    await adapter.append(userAppendItem({ id: 'user-1', parentId: null, text: 'first prompt' }));
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:00:00Z',
+      id: 'user-1',
+      role: 'user',
+      text: 'first prompt',
+      threadId,
+    });
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:00:05Z',
+      id: 'assistant-a',
+      role: 'assistant',
+      text: 'suspended at approval',
+      threadId,
+    });
+    await adapter.append(approveEchoItem({ id: 'echo-1', parentId: 'assistant-a' }));
+    await adapter.append(
+      assistantAppendItem({ id: 'resume-leg-1', parentId: 'echo-1', text: 'continuation' })
+    );
+    // Regenerate the post-approval response: assistant-ui re-appends the new
+    // aligned message with the echo as parent.
+    await insertMastraMessage(db, {
+      createdAt: '2026-08-10T17:00:40Z',
+      id: 'assistant-regen',
+      role: 'assistant',
+      text: 'regenerated continuation',
+      threadId,
+    });
+    await adapter.append(
+      assistantAppendItem({
+        id: 'assistant-regen',
+        parentId: 'echo-1',
+        text: 'regenerated continuation',
+      })
+    );
+
+    const edges = await readEdges(db, threadId);
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        ['user-1', null],
+        ['assistant-a', 'user-1'],
+      ])
+    );
+    expect(edges).toHaveLength(2);
+
+    const history = await makeAdapter().load();
+    expect(history.messages.filter((item) => item.parentId === null)).toHaveLength(1);
+    // The regenerated content survives reload inside the turn's group.
+    const combined = JSON.stringify(history.messages.map((item) => item.message.content));
+    expect(combined).toContain('regenerated continuation');
   });
 });

@@ -87,6 +87,32 @@ export function isApprovalActionMessage(
   return keys.some((key) => isValidActionMarker(custom, key));
 }
 
+/**
+ * The `runId` carried by a STRUCTURALLY VALID action marker on `message`, or
+ * undefined when the message is not an action message. The topology adapter
+ * uses it to resolve the suspending run's durable turn anchor (BST-1163
+ * `turn_message_id`) instead of guessing a parent from session order.
+ */
+export function readActionMessageRunId(message: unknown): string | undefined {
+  if (!isRecord(message) || message['role'] !== 'user') {
+    return;
+  }
+  const custom = readCustomMetadata(message);
+  if (!custom) {
+    return;
+  }
+  for (const key of ACTION_MESSAGE_RUN_CONFIG_KEYS) {
+    if (!isValidActionMarker(custom, key)) {
+      continue;
+    }
+    const marker = custom[key];
+    if (isRecord(marker) && typeof marker['runId'] === 'string') {
+      return marker['runId'];
+    }
+  }
+  return;
+}
+
 /** Filter action bookkeeping messages out of an outgoing message list. */
 export function excludeApprovalActionMessages<T>(
   messages: readonly T[],
