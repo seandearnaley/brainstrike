@@ -454,7 +454,7 @@ test.describe('Embedding Host Renderer - memory', () => {
     await expect(failedEmbeddingsSection).toContainText(`${fixture.fileCount} file(s), `, {
       timeout: 15_000,
     });
-    await expect(failedEmbeddingsSection).toContainText('file(s) need attention', {
+    await expect(failedEmbeddingsSection).toContainText('200 file(s) need attention', {
       timeout: 15_000,
     });
     const drawerOpenFinishedAt = await activeWindow.evaluate(() => performance.now());
