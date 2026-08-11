@@ -1,9 +1,11 @@
-# `@brainstrike/file-explorer` — AGENTS.md (Sept 22, 2025)
+# `@brainstrike/file-explorer` — AGENTS.md
 
 > **Purpose**
 > Core state, actions, caching, and persistence for the **Brainstrike file explorer**. This package is **UI-agnostic** (no React/Electron/UI code). It is consumed by apps and UI packages (e.g. `@brainstrike/file-explorer-ui`). Changes here must preserve determinism, serializability, and main-thread performance.
 
-* Languages/Tooling: TypeScript 5.9, Node 22, Zustand v5, Vitest, Stryker, tsup (ESM+CJS).
+* Languages/Tooling: TypeScript, the repository's Node 24.x runtime (this
+  package declares compatibility with Node >=22), Zustand v5, Vitest, Stryker,
+  and tsup (ESM+CJS).
 * Boundaries: Import only from declared workspace dependencies and listed peers. No React, no DOM, no Electron.
 
 ---

@@ -127,7 +127,10 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 ## Shell contracts (for host apps & tools)
 
 * **Assistant:** `AssistantChatPanel` calls `GET {assistantBase}/assistant/status -> {enabled:boolean,provider?:SupportedProvider,model?:string,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing; provider and model are an atomic validated pair when present.
-* **Threads:** `ThreadsPanel` is a placeholder-only shell surface for now. Keep it DB-free until thread persistence lands.
+* **Threads:** `ThreadsPanel` is a database-backed thread and group surface. It
+  uses the `@brainstrike/assistant-data` repositories/stores plus
+  `ThreadSearchRepository`; persistence, hydration, and search changes must
+  follow `docs/agents/assistant-persistence.md`.
 * **Vector status surfaces:** host `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `DatabasePanel` into DB-facing views.
 * **Search panel (optional):** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.
 * **Database tab:** lazy-loaded chunk that initializes PGlite when the database tab is opened or preloaded by the host app.
@@ -172,7 +175,9 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 ## Browser/Electron behavior you should count on
 
 * `window.assistant` and `window.mcp` bridges are **optional**. The UI must still render without them.
-* We detect Electron loosely (`window.electronAPI`) only where needed.
+* Gate platform behavior by the exact optional bridge capability being used
+  (for example, a method under `window.electronAPI?.db`), never by treating the
+  presence of `window.electronAPI` as a general Electron-mode flag.
 * PGlite is initialized on-demand from the database tab; the UI presents "initializing" states during setup.
 
 ## Testing guidance (what “good” looks like)

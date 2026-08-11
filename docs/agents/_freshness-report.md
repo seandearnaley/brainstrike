@@ -1,5 +1,10 @@
 # Agent-contract freshness report
 
+> **Point-in-time audit artifact—not a current health signal or routing index.**
+> The statuses below apply only to the audited revision. For current work, route
+> from `AGENTS.md`, search the relevant contract, and verify its claims against
+> current source and tests.
+
 Audited revision: `16ca56bc383c117107d16df073b5cb5d483abf74`.
 
 | Contract | Checkable references scanned | Status |

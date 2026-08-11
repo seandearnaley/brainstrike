@@ -374,7 +374,7 @@ function createLaunchOptions(
       : ['--disable-background-timer-throttling', '--disable-renderer-backgrounding']),
   ];
 
-  // #region agent log - Hypothesis C: DISPLAY resolution logic
+  // #region Linux CI DISPLAY resolution diagnostics
   const currentDisplay = process.env['DISPLAY'];
   const isLinuxCI = process.platform === 'linux' && process.env['CI'];
   const needsDisplayFallback = isLinuxCI && !currentDisplay;
@@ -457,7 +457,7 @@ function createLaunchOptions(
   return options;
 }
 
-// #region agent log - Hypothesis F: Pre-flight Electron binary check
+// #region Linux CI Electron binary preflight
 function runPreflightElectronCheck(displayEnv: string | undefined): void {
   if (process.platform !== 'linux' || !process.env['CI']) {
     return;
@@ -472,7 +472,7 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
   verboseLog('[DEBUG][HYP-F] Binary path:', electronBinaryPath);
   verboseLog('[DEBUG][HYP-F] Effective DISPLAY:', effectiveDisplay);
 
-  // #region agent log - Hypothesis I: Verify X display is accessible
+  // #region X display accessibility diagnostics
   try {
     verboseLog('[DEBUG][HYP-I] Checking if X display is accessible...');
     const xdpyOutput = execSync(`xdpyinfo -display "${effectiveDisplay}" 2>&1 | head -5`, {
@@ -538,7 +538,7 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
 // #endregion
 
 async function startElectron(launchOptions: Parameters<typeof electron.launch>[0]) {
-  // #region agent log - Hypothesis D: Pre-launch diagnostics
+  // #region Electron pre-launch diagnostics
   verboseLog('[DEBUG][HYP-D] Pre-launch diagnostics:');
   verboseLog('[DEBUG][HYP-D] Platform:', process.platform);
   verboseLog('[DEBUG][HYP-D] Arch:', process.arch);
@@ -564,7 +564,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     electronOutputBuffers.set(app, outputBuffer);
     verboseLog(`🔧 Attaching process listeners for stdout/stderr (PID: ${pid})`);
 
-    // #region agent log - Hypothesis G: Verify stdio pipe status
+    // #region Electron stdio availability diagnostics
     verboseLog(
       '[DEBUG][HYP-G] stdout pipe:',
       electronProcess.stdout ? 'available' : 'NOT AVAILABLE'
@@ -579,7 +579,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     let stdoutReceived = false;
     let stderrReceived = false;
 
-    // #region agent log - Hypothesis A: Check for V8 inspector messages
+    // #region Electron process output capture
     electronProcess.stdout?.on('data', (data) => {
       if (!stdoutReceived) {
         verboseLog(
@@ -608,7 +608,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     });
     // #endregion
 
-    // #region agent log - Hypothesis H: Heartbeat to track if we're waiting
+    // #region No-output launch heartbeat
     const heartbeatInterval = setInterval(() => {
       const elapsed = Date.now() - launchStartTime;
       if (stdoutReceived || stderrReceived || elapsed < 15_000) {
@@ -627,7 +627,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
       console.log(
         `[Electron Process Exit] Code: ${code}, Signal: ${signal}, Elapsed: ${elapsed}ms`
       );
-      // #region agent log - Hypothesis E: Analyze exit timing
+      // #region Rapid-exit diagnostics
       if (elapsed < 2000) {
         verboseLog(
           '[DEBUG][HYP-E] RAPID EXIT: Process exited within 2 seconds - likely startup failure'
@@ -645,7 +645,7 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     return app;
   } catch (error) {
     console.error('❌ Failed to launch Electron app:', error);
-    // #region agent log - Additional error context
+    // #region Launch failure diagnostics
     verboseError('[DEBUG] Launch error details:', {
       elapsed: Date.now() - launchStartTime,
       message: error instanceof Error ? error.message : String(error),
