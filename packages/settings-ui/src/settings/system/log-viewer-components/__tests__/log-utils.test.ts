@@ -12,6 +12,18 @@ describe('serializeBindings', () => {
   it('surfaces a toJSON result of undefined instead of silently omitting bindings', () => {
     expect(serializeBindings({ toJSON: () => undefined })).toBe('[Bindings serialization failed]');
   });
+
+  it('uses the bindings-specific marker when structural fallback cannot read properties', () => {
+    const bindings: Record<string, unknown> = {};
+    Object.defineProperty(bindings, 'broken', {
+      enumerable: true,
+      get: () => {
+        throw new Error('binding getter failed');
+      },
+    });
+
+    expect(serializeBindings(bindings)).toBe('{"broken":"[Bindings serialization failed]"}');
+  });
 });
 
 describe('getCachedLogSearchHaystack', () => {

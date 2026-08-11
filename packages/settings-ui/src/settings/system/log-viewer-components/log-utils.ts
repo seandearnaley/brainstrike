@@ -47,7 +47,12 @@ export function serializeBindings(bindings: LogRecord['bindings']): string {
     return serialized ?? BINDINGS_SERIALIZATION_FAILURE;
   } catch {
     try {
-      return serializeDiagnosticJson(bindings ?? {}, 'Log bindings', 0);
+      return serializeDiagnosticJson(
+        bindings ?? {},
+        'Log bindings',
+        0,
+        BINDINGS_SERIALIZATION_FAILURE
+      );
     } catch {
       return BINDINGS_SERIALIZATION_FAILURE;
     }

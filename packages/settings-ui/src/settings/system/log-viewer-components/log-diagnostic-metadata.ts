@@ -13,6 +13,14 @@ function readNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function readBindingValue(record: LogRecord, key: string): unknown {
+  try {
+    return record.bindings?.[key];
+  } catch {
+    return;
+  }
+}
+
 export function getLogRecordContext(record: LogRecord): Record<string, unknown> | null {
   for (const arg of record.args.toReversed()) {
     if (isRecord(arg)) {
@@ -27,18 +35,18 @@ export function getLogRecordSource(record: LogRecord): string {
   if (explicitSource) {
     return explicitSource;
   }
-  return readNonEmptyString(record.bindings?.['runtime']) ?? 'unknown';
+  return readNonEmptyString(readBindingValue(record, 'runtime')) ?? 'unknown';
 }
 
 export function getLogRecordCode(record: LogRecord): string | null {
   return (
-    readNonEmptyString(record.bindings?.['code']) ??
+    readNonEmptyString(readBindingValue(record, 'code')) ??
     readNonEmptyString(getLogRecordContext(record)?.['code'])
   );
 }
 
 export function getLogRecordFingerprint(record: LogRecord): string | null {
-  return readNonEmptyString(record.bindings?.['fingerprint']);
+  return readNonEmptyString(readBindingValue(record, 'fingerprint'));
 }
 
 interface LogRecordCauseChainDiagnostics {
@@ -96,6 +104,17 @@ function normalizeDiagnosticNumber(value: number): number | string {
     return '[NaN]';
   }
   return value > 0 ? '[Infinity]' : '[-Infinity]';
+}
+
+function normalizeBindingsValue(value: unknown, active: WeakSet<object>): unknown {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined
+      ? BINDINGS_SERIALIZATION_FAILURE_MARKER
+      : JSON.parse(serialized);
+  } catch {
+    return normalizeDiagnosticValue(value, active, BINDINGS_SERIALIZATION_FAILURE_MARKER);
+  }
 }
 
 function normalizeDiagnosticValue(
@@ -168,9 +187,12 @@ function normalizeDiagnosticValue(
           const childFailureMarker =
             key === 'bindings' ? BINDINGS_SERIALIZATION_FAILURE_MARKER : failureMarker;
           try {
+            const childValue = Reflect.get(value, key);
             return [
               key,
-              normalizeDiagnosticValue(Reflect.get(value, key), active, childFailureMarker),
+              key === 'bindings'
+                ? normalizeBindingsValue(childValue, active)
+                : normalizeDiagnosticValue(childValue, active, childFailureMarker),
             ];
           } catch {
             return [key, childFailureMarker];
@@ -188,9 +210,14 @@ function normalizeDiagnosticValue(
 export function serializeDiagnosticJson(
   value: unknown,
   description: string,
-  space?: number
+  space?: number,
+  failureMarker = DIAGNOSTIC_SERIALIZATION_FAILURE_MARKER
 ): string {
-  const json = JSON.stringify(normalizeDiagnosticValue(value, new WeakSet<object>()), null, space);
+  const json = JSON.stringify(
+    normalizeDiagnosticValue(value, new WeakSet<object>(), failureMarker),
+    null,
+    space
+  );
   if (json === undefined) {
     throw new Error(`${description} could not be serialized as JSON`);
   }

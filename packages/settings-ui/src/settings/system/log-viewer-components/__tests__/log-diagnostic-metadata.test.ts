@@ -2,6 +2,9 @@ import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { describe, expect, it } from 'vitest';
 import {
   getLogRecordCauseChainDiagnostics,
+  getLogRecordCode,
+  getLogRecordFingerprint,
+  getLogRecordSource,
   serializeLogContextJson,
   serializeLogRecordJson,
 } from '../log-diagnostic-metadata';
@@ -52,6 +55,31 @@ describe('log diagnostic metadata', () => {
       symbolValue: 'Symbol(diagnostic)',
       undefinedValue: '[Undefined]',
     });
+  });
+
+  it('keeps toJSON-undefined bindings visible in record serialization', () => {
+    const record = createRecord({});
+    record.bindings = { toJSON: () => undefined };
+
+    expect(JSON.parse(serializeLogRecordJson(record)).bindings).toBe(
+      '[Bindings serialization failed]'
+    );
+  });
+
+  it('contains binding metadata access traps across source, code, and fingerprint reads', () => {
+    const record = createRecord({});
+    record.bindings = new Proxy(
+      { code: 'E_TRAPPED', fingerprint: 'trapped', runtime: 'trapped-runtime' },
+      {
+        get: () => {
+          throw new Error('binding get failed');
+        },
+      }
+    );
+
+    expect(getLogRecordSource(record)).toBe('unknown');
+    expect(getLogRecordCode(record)).toBeNull();
+    expect(getLogRecordFingerprint(record)).toBeNull();
   });
 
   it('keeps malformed binding properties visible instead of aborting record serialization', () => {
