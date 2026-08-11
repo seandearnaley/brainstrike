@@ -283,6 +283,21 @@ test('database persistence specs do not treat fail-closed cleanup as a graceful 
     /button\[data-variant="destructive"\]:has-text\("Clear"\)/,
     'the uninitialized-database confirmation fallback must match the rendered destructive attribute'
   );
+  assert.match(
+    uninitializedConfirmationSource,
+    /await expect\(confirmButton\)\.toBeVisible\(/,
+    'the uninitialized-database confirmation path must require its confirm control'
+  );
+  assert.doesNotMatch(
+    uninitializedConfirmationSource,
+    /\bif\s*\(/,
+    'the uninitialized-database confirmation path must remain straight-line and fail closed'
+  );
+  assert.match(
+    uninitializedConfirmationSource,
+    /Database Cleared\|Critical Operation Failed\|Clear Function Not Available/,
+    'the uninitialized-database confirmation path must observe a settled clear outcome'
+  );
 });
 
 test('cleanup-skip contract follows local wrappers and ignores non-returning error checks', () => {

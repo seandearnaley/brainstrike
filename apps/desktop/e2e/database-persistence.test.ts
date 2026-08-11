@@ -538,6 +538,10 @@ test.describe('Database Persistence', () => {
     await expect(confirmButton).toBeVisible({ timeout: 5000 });
     await confirmButton.click();
     await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
+    const clearOutcome = page
+      .getByText(/^(Database Cleared|Critical Operation Failed|Clear Function Not Available)$/)
+      .first();
+    await expect(clearOutcome).toBeVisible({ timeout: 15_000 });
   }
 
   async function handleClearDatabasePage(page: Page): Promise<void> {
