@@ -410,6 +410,15 @@ test.describe('Embedding Host Renderer - memory', () => {
         pageSize: recordPageSize,
         totalRecords: fixture.fileCount,
       });
+    await expect
+      .poll(
+        async () => {
+          const snapshot = await getDatabaseDemoImportSnapshot(activeWindow);
+          return snapshot?.recordCount ?? Number.POSITIVE_INFINITY;
+        },
+        { timeout: 30_000 }
+      )
+      .toBeLessThanOrEqual(recordPageSize);
 
     await forceRendererGarbageCollection(activeWindow);
     await forceRendererGarbageCollection(activeWindow);
