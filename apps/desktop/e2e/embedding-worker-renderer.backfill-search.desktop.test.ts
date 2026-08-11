@@ -101,6 +101,22 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     const timeOriginAfterBackfill = await getRendererTimeOrigin(activeWindow);
     expect(timeOriginAfterBackfill).toBe(timeOriginBeforeBackfill);
     await expect(backfillButton).toContainText('Backfill', { timeout: 15_000 });
+
+    // Exercise the shipped drawer and its real semantic executor against the
+    // fixture embedded above. This is intentionally not another SQL assertion.
+    const drawerToggle = databasePanel.getByRole('button', { name: /collection details/i });
+    await drawerToggle.click({ timeout: 5000 });
+    const drawerContent = databasePanel.getByTestId('collection-debug-drawer-content');
+    await expect(drawerContent).toBeVisible({ timeout: 15_000 });
+
+    const drawerQuery = 'desktop chunking backfill';
+    await drawerContent.getByLabel('Retrieval preview query').fill(drawerQuery);
+    await drawerContent.getByRole('button', { name: /^Run$/ }).click({ timeout: 5000 });
+
+    const drawerResults = drawerContent.getByTestId('collection-debug-retrieval-results');
+    await expect(drawerResults).toBeVisible({ timeout: 60_000 });
+    await expect(drawerResults).toContainText(/desktop chunking|manual backfill/i);
+    await expect(drawerContent.getByTestId('collection-debug-retrieval-error')).toHaveCount(0);
   });
 
   test('@desktop-embedding-search end-to-end: import, embed, then vector search returns correct results', async ({
