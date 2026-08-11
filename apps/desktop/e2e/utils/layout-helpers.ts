@@ -365,7 +365,7 @@ export async function resolveRefreshButton(
  * Clear all records from the database for testing using bulk delete
  */
 export async function clearDatabaseRecords(page: Page): Promise<Page> {
-  let activePage = await resolveActivePage(page);
+  const activePage = await resolveActivePage(page);
   try {
     verboseLog('🧹 Starting efficient database record cleanup...');
 
@@ -376,6 +376,7 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
 
     // Try using the bulk delete API (available in Electron environment)
     verboseLog('🚀 Attempting bulk delete via Electron API...');
+    let uiCleanupReason: string;
     try {
       const result = await activePage.evaluate(async () => {
         // Check if we're in Electron and have the API available
@@ -408,22 +409,23 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
             verboseLog('✅ Database cleanup completed successfully');
             return activePage;
           }
+          uiCleanupReason = `bulk delete reported success but left ${remainingCount} records`;
         } else {
           console.warn('⚠️ Could not verify record count via API after bulk delete');
+          uiCleanupReason =
+            'bulk delete reported success but the remaining record count could not be verified';
         }
-
-        verboseLog('⚠️ Records still remain, continuing with UI cleanup...');
       } else {
-        console.warn(`⚠️ Bulk delete failed: ${result.message}, falling back to UI deletion`);
+        console.warn(`⚠️ Bulk delete failed: ${result.message}`);
+        uiCleanupReason = `bulk delete failed: ${result.message}`;
       }
     } catch (bulkError) {
-      console.warn('⚠️ Bulk delete API failed, falling back to UI deletion:', bulkError);
+      console.warn('⚠️ Bulk delete API failed:', bulkError);
+      const detail = bulkError instanceof Error ? bulkError.message : String(bulkError);
+      uiCleanupReason = `bulk delete threw: ${detail}`;
     }
 
-    // Fallback to UI-based deletion (much slower but works in all environments)
-    verboseLog('🔄 Using UI-based deletion fallback...');
-    activePage = await clearDatabaseRecordsViaUI(activePage);
-    return activePage;
+    clearDatabaseRecordsViaUI(uiCleanupReason);
   } catch (error) {
     console.error('❌ Database cleanup failed:', error);
     throw error;
@@ -431,21 +433,17 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
 }
 
 /**
- * Clear records via UI interaction (fallback method).
+ * Surface the unavailable UI cleanup path with the reason it was reached.
  *
  * NOTE (BST-1213/BST-1216): this path is unreachable-by-design. It drives
  * `tbody tr button[title="Remove record"]`, and no surface has rendered a
  * per-record delete button for some time; since the Collections tab lost its
- * record table entirely, `tbody tr` matches nothing here either. It therefore
- * returns "nothing to clear" instead of clearing. It only runs when the bulk
- * Electron API above has ALREADY failed, so it does not mask a working path —
- * and now fails closed with a named error instead of reporting a successful
- * cleanup. See the B2 report follow-ups.
+ * record table entirely, `tbody tr` matches nothing here either. Every bulk
+ * cleanup fall-through therefore fails closed here with its exact reason
+ * instead of reporting a successful cleanup. See the B2 report follow-ups.
  */
-async function clearDatabaseRecordsViaUI(_page: Page): Promise<Page> {
-  throw new Error(
-    'Database UI cleanup is unavailable after the bulk delete API failed; records were not cleared.'
-  );
+function clearDatabaseRecordsViaUI(reason: string): never {
+  throw new Error(`Database UI cleanup is unavailable: ${reason}; records were not cleared.`);
 }
 
 async function resolveActivePage(page: Page): Promise<Page> {

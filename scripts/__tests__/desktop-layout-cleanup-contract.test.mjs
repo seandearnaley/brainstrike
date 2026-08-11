@@ -6,21 +6,27 @@ const helperPath = new URL('../../apps/desktop/e2e/utils/layout-helpers.ts', imp
 
 test('desktop database UI cleanup fails closed when the dead fallback cannot remove rows', async () => {
   const source = await readFile(helperPath, 'utf8');
-  const start = source.indexOf('async function clearDatabaseRecordsViaUI');
-  const end = source.indexOf('async function resolveActivePage', start);
-
-  assert.notEqual(start, -1, 'clearDatabaseRecordsViaUI must exist');
-  assert.notEqual(end, -1, 'clearDatabaseRecordsViaUI must have a bounded source region');
-
-  const cleanupSource = source.slice(start, end);
   assert.match(
-    cleanupSource,
-    /throw new Error\(\s*'Database UI cleanup is unavailable after the bulk delete API failed; records were not cleared\.'\s*\);/,
-    'the unavailable fallback must surface the failed cleanup'
+    source,
+    /function clearDatabaseRecordsViaUI\(reason: string\): never \{\s*throw new Error\(`Database UI cleanup is unavailable: \$\{reason\}; records were not cleared\.`\);\s*\}/,
+    'the unavailable fallback must throw its caller-provided failure reason'
   );
+
+  for (const reason of [
+    'bulk delete reported success but left',
+    'bulk delete reported success but the remaining record count could not be verified',
+    'bulk delete failed:',
+    'bulk delete threw:',
+  ]) {
+    assert.ok(
+      source.includes(reason),
+      `the cleanup caller must preserve the distinct reason: ${reason}`
+    );
+  }
+
   assert.doesNotMatch(
-    cleanupSource,
-    /return\s+/,
-    'the unavailable fallback must not retain a silent-success return path'
+    source,
+    /Using UI-based deletion fallback|falling back to UI deletion/,
+    'logs must not claim the removed UI deletion path will run'
   );
 });
