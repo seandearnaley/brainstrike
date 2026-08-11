@@ -605,8 +605,6 @@ describe('embedding-backfill', () => {
       'candidate-batch',
       'pending',
       'final-counts',
-      'vacuum-chunks',
-      'vacuum-jobs',
       'estimate-embedded-rows',
       'tune-index-memory',
       'rebuild-index',
@@ -733,8 +731,6 @@ describe('embedding-backfill', () => {
       'candidate-batch',
       'pending',
       'final-counts',
-      'vacuum-chunks',
-      'vacuum-jobs',
       'request-maintenance',
     ]);
     expect(maintenanceDb.maintenance.exec).not.toHaveBeenCalledWith(
@@ -775,6 +771,10 @@ describe('embedding-backfill', () => {
         }
         if (sql.includes('DELETE FROM embedding_dimension_index_suspensions')) {
           queryOrder.push('resume-index');
+          return { rows: [] };
+        }
+        if (sql.includes('INSERT INTO embedding_dimension_index_maintenance')) {
+          queryOrder.push('request-maintenance');
           return { rows: [] };
         }
         if (isDimensionIndexMaintenanceQuery(sql)) {
@@ -883,6 +883,7 @@ describe('embedding-backfill', () => {
             throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
           },
           backlogPollMs: 1,
+          dimensionIndexMaintenanceStrategy: 'regular',
           drainTimeoutMs: 10,
           maxQueueDepth: 64,
         }
@@ -981,10 +982,16 @@ describe('embedding-backfill', () => {
       )
     ).rejects.toThrow(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
 
+    const pendingChecksBeforeDrain = queryOrder.filter((event) => event === 'pending').length;
     pendingJobs = 0;
     await vi.waitFor(() => {
-      expect(queryOrder).toContain('vacuum-jobs');
+      expect(queryOrder.filter((event) => event === 'pending')).toHaveLength(
+        pendingChecksBeforeDrain + 1
+      );
     });
+    expect(queryOrder).not.toContain('request-maintenance');
+    expect(queryOrder).not.toContain('vacuum-chunks');
+    expect(queryOrder).not.toContain('vacuum-jobs');
     expect(queryOrder).not.toContain('rebuild-index');
     expect(queryOrder).not.toContain('resume-index');
     expect(maintenanceDb.maintenance.exec).not.toHaveBeenCalledWith(
@@ -2651,7 +2658,7 @@ describe('embedding-backfill', () => {
     expect(result).toEqual({ failed: 0, queued: 0, running: 0, succeeded: 2 });
   });
 
-  it('vacuums backfill tables only after scoped jobs drain', async () => {
+  it('leaves table vacuuming to the idle database maintenance scheduler', async () => {
     let currentTime = 0;
     let pendingCountCalls = 0;
     let succeededCountCalls = 0;
@@ -2756,13 +2763,13 @@ describe('embedding-backfill', () => {
       options
     );
 
-    const firstVacuumIndex = queryEvents.indexOf('vacuum-file-chunks');
     const finalPendingIndex = queryEvents.lastIndexOf(`pending-${pendingCountCalls}`);
-    expect(firstVacuumIndex).toBeGreaterThanOrEqual(0);
-    expect(firstVacuumIndex).toBeGreaterThan(finalPendingIndex);
+    expect(finalPendingIndex).toBeGreaterThanOrEqual(0);
+    expect(queryEvents).not.toContain('vacuum-file-chunks');
+    expect(queryEvents).not.toContain('vacuum-job-queue');
   });
 
-  it('runs a single post-drain vacuum for a 20k-candidate backfill', async () => {
+  it('does not synchronously vacuum after a 20k-candidate backfill', async () => {
     const candidateCount = 20_000;
     let currentTime = 0;
     let queueStatsCalls = 0;
@@ -2867,6 +2874,6 @@ describe('embedding-backfill', () => {
 
     const enqueueBatchCount = vi.mocked(jobQueue.enqueueBatch).mock.calls.length;
     expect(enqueueBatchCount).toBe(Math.ceil(candidateCount / 32));
-    expect(vacuumFileChunksCount).toBe(1);
+    expect(vacuumFileChunksCount).toBe(0);
   }, 60_000);
 });

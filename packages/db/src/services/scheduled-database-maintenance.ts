@@ -11,6 +11,10 @@ export const DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS = 60 * 60 * 
 // planner previously never got.
 export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = [
   'job_queue',
+  // Embedding backfills create large numbers of dead file_chunks tuples.
+  // Reclaim them here, after the desktop idle/busy gates, rather than inline
+  // with backfill completion where a long PGlite VACUUM blocks every query.
+  'file_chunks',
   'brainstrike_tool_call_telemetry',
   'brainstrike_token_estimate_calibration',
 ] as const;
@@ -20,7 +24,7 @@ export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = [
 // 100k+ rows and drive grep JOIN ordering, tsvector/BM25 estimates, and the
 // dedupe CTE plans.
 export const DEFAULT_DATABASE_MAINTENANCE_ANALYZE_TABLES = [
-  'file_chunks',
+  // file_chunks is analyzed by its VACUUM (ANALYZE) entry above.
   'file_records',
   'embedding_cache',
 ] as const;

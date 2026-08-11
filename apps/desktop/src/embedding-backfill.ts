@@ -354,17 +354,8 @@ async function countPendingEmbeddingSetJobs(
   return Number(result.rows[0]?.count ?? 0);
 }
 
-// PGlite runs PostgreSQL in WASM without autovacuum. Each embedding UPDATE
-// creates MVCC dead tuples. Reclaim only after the scoped backfill queue drains:
-// VACUUM is table-wide maintenance and must not occupy the DB host while active
-// embedding workers need claim/complete queries to stay responsive.
-const VACUUM_FAILURE_WARN_EVERY = 10;
 const DRAIN_TICK_FAILURE_WARN_EVERY = 10;
 const deferredDimensionIndexRebuilds = new Set<string>();
-
-interface VacuumLogState {
-  consecutiveVacuumFailures: number;
-}
 
 interface DrainTickLogState {
   consecutiveDrainTickFailures: number;
@@ -570,7 +561,6 @@ function scheduleDeferredBackfillDimensionIndexRebuild(params: {
         drainTimeoutMs,
         now
       );
-      await vacuumBackfillTables(db, { consecutiveVacuumFailures: 0 }, now);
       await completeBackfillDimensionIndexMaintenance(
         db,
         embeddingSetId,
@@ -731,44 +721,6 @@ async function recoverInterruptedBackfillDimensionIndexSafely(
       recoveryError: recoveryError instanceof Error ? recoveryError.message : String(recoveryError),
     });
     return false;
-  }
-}
-
-async function vacuumBackfillTables(
-  db: Pick<IDatabase, 'query'>,
-  logState: VacuumLogState,
-  now: () => number
-): Promise<void> {
-  const startedAt = now();
-  let vacuumTable: 'file_chunks' | 'job_queue' = 'file_chunks';
-  try {
-    // VACUUM (ANALYZE): PGlite has no autovacuum launcher, so a 0→100k ingest
-    // leaves the planner holding empty-table statistics unless ANALYZE runs
-    // here; plain VACUUM does not rebuild column histograms.
-    await db.query('VACUUM (ANALYZE) file_chunks');
-    vacuumTable = 'job_queue';
-    await db.query('VACUUM (ANALYZE) job_queue');
-    logState.consecutiveVacuumFailures = 0;
-    logger.info('Post-drain VACUUM (ANALYZE) after backfill completed', {
-      durationMs: now() - startedAt,
-      tables: ['file_chunks', 'job_queue'],
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logState.consecutiveVacuumFailures += 1;
-    const shouldWarn =
-      logState.consecutiveVacuumFailures === 1 ||
-      logState.consecutiveVacuumFailures % VACUUM_FAILURE_WARN_EVERY === 0;
-    const logPayload = {
-      consecutiveFailureCount: logState.consecutiveVacuumFailures,
-      error: message,
-      failedTable: vacuumTable,
-    };
-    if (shouldWarn) {
-      logger.warn('Post-drain VACUUM after backfill failed (non-fatal)', logPayload);
-      return;
-    }
-    logger.debug('Post-drain VACUUM after backfill failed (non-fatal)', logPayload);
   }
 }
 
@@ -1217,7 +1169,6 @@ export async function enqueueEmbeddingBackfill(
   const onDrainTick = options?.onDrainTick;
 
   const runStartedAt = new Date().toISOString();
-  const vacuumLogState: VacuumLogState = { consecutiveVacuumFailures: 0 };
   const drainTickLogState: DrainTickLogState = { consecutiveDrainTickFailures: 0 };
   const observeDrainProgress = createDrainProgressObserver(
     db,
@@ -1262,7 +1213,6 @@ export async function enqueueEmbeddingBackfill(
       total,
     });
     if (candidates === 0 && drainedExisting) {
-      await vacuumBackfillTables(db, vacuumLogState, now);
       dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(
         db,
         embeddingSetId,
@@ -1312,8 +1262,6 @@ export async function enqueueEmbeddingBackfill(
       );
     }
     onProgress(total, total);
-    // Final VACUUM to reclaim all dead tuples from the completed backfill
-    await vacuumBackfillTables(db, vacuumLogState, now);
     dimensionIndexSuspended = await completeBackfillDimensionIndexMaintenance(
       db,
       embeddingSetId,

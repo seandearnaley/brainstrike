@@ -191,11 +191,12 @@ describe('scheduled database maintenance', () => {
 
     expect(result).toMatchObject({
       activeJobs: 0,
-      analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
+      analyzedTables: ['file_records', 'embedding_cache'],
       prunedTerminalJobs: 3,
       status: 'completed',
       vacuumedTables: [
         'job_queue',
+        'file_chunks',
         'brainstrike_tool_call_telemetry',
         'brainstrike_token_estimate_calibration',
       ],
@@ -230,17 +231,18 @@ describe('scheduled database maintenance', () => {
 
     expect(statements).toEqual([
       'VACUUM (ANALYZE) job_queue',
+      'VACUUM (ANALYZE) file_chunks',
       'VACUUM (ANALYZE) brainstrike_tool_call_telemetry',
       'VACUUM (ANALYZE) brainstrike_token_estimate_calibration',
-      'ANALYZE file_chunks',
       'ANALYZE file_records',
       'ANALYZE embedding_cache',
     ]);
     expect(result).toMatchObject({
-      analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
+      analyzedTables: ['file_records', 'embedding_cache'],
       status: 'completed',
       vacuumedTables: [
         'job_queue',
+        'file_chunks',
         'brainstrike_tool_call_telemetry',
         'brainstrike_token_estimate_calibration',
       ],
@@ -336,16 +338,17 @@ describe('scheduled database maintenance', () => {
     expect(maintenanceExec).toHaveBeenCalledWith(
       'VACUUM (ANALYZE) brainstrike_token_estimate_calibration'
     );
-    expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_chunks');
+    expect(maintenanceExec).toHaveBeenCalledWith('VACUUM (ANALYZE) file_chunks');
     expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_records');
     expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE embedding_cache');
     expect(exec).not.toHaveBeenCalled();
     expect(result.vacuumedTables).toEqual([
       'job_queue',
+      'file_chunks',
       'brainstrike_tool_call_telemetry',
       'brainstrike_token_estimate_calibration',
     ]);
-    expect(result.analyzedTables).toEqual(['file_chunks', 'file_records', 'embedding_cache']);
+    expect(result.analyzedTables).toEqual(['file_records', 'embedding_cache']);
   });
 
   it('surfaces vacuum failures instead of reporting a completed maintenance pass', async () => {

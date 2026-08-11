@@ -584,6 +584,24 @@ stays with each caller via `fetchCollectionsSnapshot`.
 
 ---
 
+## BACKFILL TABLE MAINTENANCE (BST-1169)
+
+Embedding backfill completion must never issue `VACUUM` or `ANALYZE` directly.
+PGlite has one WASM Postgres backend, so a table-wide maintenance statement on
+that path blocks all interactive queries and worker claim/complete traffic.
+The desktop scheduled-database-maintenance pass is the sole owner instead: it
+first verifies the database work scheduler is idle, then verifies there are no
+queued or running jobs before admitting heavyweight maintenance.
+
+`file_chunks` and `job_queue` are both members of
+`DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES`; `VACUUM (ANALYZE)` reclaims their
+dead tuples and refreshes planner statistics in one idle pass. Do not also list
+`file_chunks` in the default plain-ANALYZE set. Failed or interrupted backfills
+leave maintenance to the same scheduled pass; index recovery is independent of
+heap reclamation and must not reacquire the host for an inline vacuum.
+
+---
+
 ## STATS ROLLUP + WAKEUP POLLING (settled 2026-07 — do not relitigate)
 
 `collection_indexing_stats` stays a hand-maintained rollup table (NOT a
