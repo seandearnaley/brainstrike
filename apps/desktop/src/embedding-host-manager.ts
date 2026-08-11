@@ -243,7 +243,6 @@ export class EmbeddingHostManager {
     this.clearPendingInactiveStatus();
     this.lifecycle.destroyHostWindow();
     this.lifecycle.clearHostWindow();
-    this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
     try {
       return await this.ensureStarted({ waitForRunning: true });
     } finally {

@@ -22,6 +22,7 @@ import type {
   EmbedWorkerProgress,
   EmbedWorkerRequest,
   EmbedWorkerSuccess,
+  EmbedWorkerTelemetrySourceClosed,
 } from './shared';
 import {
   cloneAsFloat32,
@@ -844,6 +845,11 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
     if (hasActiveRequests) {
       warnLog('Terminating worker after WebGPU device loss for clean recovery');
     }
+    workerpoolTelemetryChannel?.postMessage({
+      reason: 'device-lost',
+      type: 'telemetry-source-closed',
+      workerInstanceId: embeddingWorkerInstanceId,
+    } satisfies EmbedWorkerTelemetrySourceClosed);
     if (typeof self !== 'undefined' && typeof self.close === 'function') {
       self.close();
     }

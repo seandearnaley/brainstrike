@@ -18,6 +18,7 @@ export type {
   EmbedWorkerRequest,
   EmbedWorkerStreamEvent,
   EmbedWorkerSuccess,
+  EmbedWorkerTelemetrySourceClosed,
 } from '@brainstrike/indexing-contract';
 
 /**

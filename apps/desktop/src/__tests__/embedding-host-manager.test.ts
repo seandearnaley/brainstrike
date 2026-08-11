@@ -384,6 +384,12 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     };
     lifecycleState.ensureStarted.mockReturnValueOnce(
       new Promise((resolve) => {
+        lifecycleState.setStatus({
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:restarted-runtime',
+          state: 'starting',
+        });
         resolveRestart = () => {
           lifecycleState.setStatus(restartStatus);
           resolve(restartStatus);
@@ -396,9 +402,12 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
 
     expect(manager.getPlatformStatus()).toMatchObject({
       runtimeKind: 'embedding-host',
-      sourceState: 'stopped',
+      sourceState: 'starting',
       state: 'restarting',
     });
+    expect(lifecycleState.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'stopped' })
+    );
 
     resolveRestart();
     await expect(restartPromise).resolves.toMatchObject({

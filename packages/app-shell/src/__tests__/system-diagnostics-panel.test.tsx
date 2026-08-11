@@ -236,6 +236,17 @@ describe('SystemDiagnosticsPanel', () => {
       act(() =>
         statusListener({
           active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:restarting',
+          runtimeKind: 'embedding-host',
+          state: 'starting',
+        })
+      );
+      expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('8 KiB');
+
+      act(() =>
+        statusListener({
+          active: false,
           lastError: 'Embedding host renderer crashed.',
           runtimeId: 'embedding-host:crashed',
           runtimeKind: 'embedding-host',

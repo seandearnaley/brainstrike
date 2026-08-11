@@ -131,6 +131,11 @@ Embedding runtime telemetry (BST-402):
   diagnostics emitted during `runEmbedding`. Worker-global diagnostics that occur after
   an RPC settles (notably the five-minute idle-cache eviction) travel over a pool-unique
   `BroadcastChannel`; its name is carried in the managed worker script fragment. The
+  device-loss path announces its source identity on that channel before self-closing, so
+  the adapter removes the source immediately; the termination callback remains an
+  idempotent cleanup seam. Controlled host restarts publish a metadata-free `starting`
+  transition and retain the latest valid snapshot, while terminal `stopped` and `error`
+  states clear it. The
   adapter requires that capability, validates the complete discriminated cache diagnostic
   and every cache-entry/memory field, requires subject entries for hit/load/removal events,
   and requires every non-hit event to carry a unique full snapshot whose entry count matches

@@ -1,5 +1,6 @@
 import {
   assertEmbedWorkerPipelineCacheDiagnostic,
+  assertEmbedWorkerTelemetrySourceClosed,
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   type EmbedWorkerPipelineCacheDiagnostic,
@@ -225,13 +226,16 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     }
     embeddingTelemetrySourceIds.clear();
   };
-  const removeTerminatedWorkerTelemetrySource = (workerScriptUrl: string | undefined): void => {
-    const workerInstanceId = readManagedWorkerInstanceId(workerScriptUrl);
+  const removeWorkerTelemetrySource = (workerInstanceId: string): void => {
     const sourceId = `workerpool-embedding-${workerInstanceId}`;
     if (!embeddingTelemetrySourceIds.delete(sourceId)) {
       return;
     }
     embeddingTelemetry.removeSource(sourceId);
+  };
+  const removeTerminatedWorkerTelemetrySource = (workerScriptUrl: string | undefined): void => {
+    const workerInstanceId = readManagedWorkerInstanceId(workerScriptUrl);
+    removeWorkerTelemetrySource(workerInstanceId);
   };
   const recordPipelineCacheDiagnostic = (
     diagnostic: EmbedWorkerPipelineCacheDiagnostic
@@ -302,6 +306,16 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   };
   telemetryChannel.onmessage = (event: MessageEvent<unknown>): void => {
     try {
+      if (
+        event.data &&
+        typeof event.data === 'object' &&
+        !Array.isArray(event.data) &&
+        (event.data as Record<string, unknown>)['type'] === 'telemetry-source-closed'
+      ) {
+        assertEmbedWorkerTelemetrySourceClosed(event.data);
+        removeWorkerTelemetrySource(event.data.workerInstanceId);
+        return;
+      }
       const diagnostic = readPipelineCacheDiagnostic(event.data);
       if (diagnostic === null || diagnostic.id !== undefined) {
         throw new Error(

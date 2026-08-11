@@ -655,6 +655,35 @@ describe('createWorkerpoolAdapter', () => {
     );
   });
 
+  it('removes a worker telemetry source when the worker announces self-close', async () => {
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    createWorkerpoolAdapter(createWorkerOptions());
+    const telemetryChannel = broadcastChannelInstances[0];
+    if (!telemetryChannel) {
+      throw new Error('Expected a worker-lifetime telemetry channel.');
+    }
+
+    telemetryChannel.emit({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 100,
+      entry: createPipelineCacheEntry(),
+      event: 'hit',
+      type: 'diagnostic',
+      workerInstanceId: 'worker-self-close',
+    });
+    telemetryChannel.emit({
+      reason: 'device-lost',
+      type: 'telemetry-source-closed',
+      workerInstanceId: 'worker-self-close',
+    });
+
+    expect(removeEmbeddingTelemetrySourceMock).toHaveBeenCalledWith(
+      'workerpool-embedding-worker-self-close'
+    );
+    expect(poolTerminateMock).not.toHaveBeenCalled();
+  });
+
   it('cancels pre-aborted tasks immediately', async () => {
     const controller = new AbortController();
     controller.abort();

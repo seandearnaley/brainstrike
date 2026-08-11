@@ -59,6 +59,33 @@ export const EMBED_WORKER_INSTANCE_NAME_PREFIX = 'brainstrike-embedding-worker:'
 export const EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY =
   'brainstrike-embedding-worker-telemetry-channel';
 
+/** Worker-lifetime notice emitted immediately before device-loss self-termination. */
+export interface EmbedWorkerTelemetrySourceClosed {
+  readonly reason: 'device-lost';
+  readonly type: 'telemetry-source-closed';
+  readonly workerInstanceId: string;
+}
+
+export function assertEmbedWorkerTelemetrySourceClosed(
+  value: unknown
+): asserts value is EmbedWorkerTelemetrySourceClosed {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding worker telemetry source-close event must be an object.');
+  }
+  const event = value as Record<string, unknown>;
+  if (event['type'] !== 'telemetry-source-closed') {
+    throw new Error('Embedding worker telemetry source-close event has an invalid type.');
+  }
+  if (event['reason'] !== 'device-lost') {
+    throw new Error('Embedding worker telemetry source-close event has an invalid reason.');
+  }
+  if (!(typeof event['workerInstanceId'] === 'string' && event['workerInstanceId'].length > 0)) {
+    throw new Error(
+      'Embedding worker telemetry source-close event requires a worker instance identity.'
+    );
+  }
+}
+
 interface EmbedWorkerPipelineCacheDiagnosticBase {
   readonly cacheSize: number;
   readonly diagnostic: 'pipeline-cache';

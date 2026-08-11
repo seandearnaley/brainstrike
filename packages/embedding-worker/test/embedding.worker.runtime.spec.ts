@@ -1,3 +1,7 @@
+import {
+  EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+} from '@brainstrike/indexing-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EmbedWorkerRequest, EmbedWorkerSuccess } from '../src';
 
@@ -311,6 +315,18 @@ describe('embedding worker runtime', () => {
 
   it('notifies active streaming requests before closing on WebGPU device loss', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
+    const telemetryPostMessage = vi.fn();
+    vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}worker-device-loss`);
+    vi.stubGlobal('location', {
+      hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=device-loss-channel`,
+    });
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class {
+        readonly close = vi.fn();
+        readonly postMessage = telemetryPostMessage;
+      } as unknown as typeof BroadcastChannel
+    );
     const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
     const postMessage = vi.fn();
     const closeMock = vi.fn();
@@ -380,6 +396,11 @@ describe('embedding worker runtime', () => {
       },
       []
     );
+    expect(telemetryPostMessage).toHaveBeenCalledWith({
+      reason: 'device-lost',
+      type: 'telemetry-source-closed',
+      workerInstanceId: 'worker-device-loss',
+    });
     expect(closeMock).toHaveBeenCalledTimes(1);
   });
 
