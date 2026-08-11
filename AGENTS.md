@@ -19,7 +19,25 @@ Be precise, tool-driven, and skeptical of your own assumptions: verify in code/t
 
 ## Architecture docs — load on demand
 
-Detailed subsystem contracts live in `docs/agents/`. **Before changing one of these areas, read its doc first** — they record hard-won invariants and settled rulings (many marked "do not relitigate"). They are living documents: update the doc and its paired tests in the same change. (Claude Code also auto-loads these via the `*-contract` skills in `.claude/skills/`; the table below is the agent-agnostic map.)
+Detailed subsystem contracts live in `docs/agents/`. **Before changing one of these areas, read its doc first** — they record hard-won invariants and settled rulings (many marked "do not relitigate"). They are living documents: update the doc and its paired tests in the same change. Some local Claude Code setups may mirror these contracts through ignored `.claude/skills/`; that integration is optional and untracked, so the table below is the canonical agent-agnostic map.
+
+### Context-efficient lookup
+
+Do not preload every contract. Start with this routing table, then search the
+one relevant contract for the exact symbol, path, error text, or invariant you
+are changing. Read the matching section and its named source/tests; verify the
+claim there before widening context. A typical lookup is:
+
+```bash
+rg -n "<symbol|path|error text|invariant>" AGENTS.md docs/agents packages apps scripts
+```
+
+Nearest `AGENTS.md` files add package-local rules; they supplement rather than
+replace this root policy. Treat `docs/agents/*.md` as living contracts,
+`docs/adr/` as settled decisions, and dated plans/research under
+`docs/superpowers/`, `docs/archive/`, or other date-stamped paths as historical
+evidence—not current behavior. Prefer code, tests, and live contracts when they
+disagree with a historical document.
 
 | Touching… | Read first |
 | --- | --- |
@@ -32,7 +50,7 @@ Detailed subsystem contracts live in `docs/agents/`. **Before changing one of th
 | DB migrations, model catalog changes, PGlite construction sites/extensions, browser first-run bootstrap | `docs/agents/database.md` |
 | Agent self-query SQL sandbox, `brainstrike.querySelf`, the read-only role — **`statement_timeout` is inert in PGlite** | `docs/agents/agent-self-query.md` |
 | Code execution (CodeExecutor seam, sandbox backends, run_python) — **no vm→fence downgrade, ever** | `docs/agents/code-execution.md` |
-| Prompt workbench, workspace-instructions injection, user-defined /commands, edit-checkpoint undo | `docs/agents/workspace-context.md` |
+| Prompt workbench, AGENTS/CLAUDE workspace instructions, user-defined slash commands, Agent Skills / `SKILL.md`, edit-checkpoint undo, read-before-write staleness guards, workspace root identity | `docs/agents/workspace-context.md` |
 | Explorer Search panel, markdown viewer, Tapestry per-file ranges | `docs/agents/explorer-search-tapestry.md` |
 | Changeset/git diff engine, git inventory + worktree trust, the `changes` IPC domain, the Changes surface, or the git panel's Changes/History tabs | `docs/agents/changeset-diff.md` |
 | Tree views (shared TreeTable), right-click / context action system, z-index of any dialog/popover/menu/tooltip | `docs/agents/ui-conventions.md` |

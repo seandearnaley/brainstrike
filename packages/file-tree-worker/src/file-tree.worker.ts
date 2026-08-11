@@ -31,7 +31,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   warn: 2,
 };
 
-// Default to 'info' to suppress debug logs - set WORKER_LOG_LEVEL=debug for verbose output
+// Static worker log threshold; change this constant locally for verbose diagnosis.
 const WORKER_LOG_LEVEL: LogLevel = 'info';
 
 function shouldLog(level: LogLevel): boolean {

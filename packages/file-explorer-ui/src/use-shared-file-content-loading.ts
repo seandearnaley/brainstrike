@@ -852,11 +852,11 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     void handleFileContentLoading(pendingKeys);
   }, [canLoadWithoutTree, fileTree.length, handleFileContentLoading, indexVersion, store]);
 
-  // NOTE: Eager content loading removed for performance.
-  // Content is now loaded on-demand via handleFileContentLoading() when:
+  // Content loading is demand-driven via handleFileContentLoading() when:
   // 1. User explicitly previews a file
   // 2. Import/export operation is triggered
-  // This prevents loading 1000s of files just because they're selected.
+  // Do not make selection eagerly read content; large selections can contain
+  // thousands of files.
 
   // Use zustand selector to get fileContents with proper memoization
   const fileContents = useFileExplorerStoreSelector((state) => state.fileContents);

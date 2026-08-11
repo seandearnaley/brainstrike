@@ -1,21 +1,20 @@
 /**
- * Sentinel prefix that file-content loaders write into the content map when a file
- * handle exists but the bytes can't be read (permission missing, folder mismatch,
- * etc.). Consumers detect this state by `content.startsWith(INACCESSIBLE_CONTENT_PREFIX)`
- * — a brittle pattern that we keep tightly coupled by sharing this constant rather
- * than letting the producers and consumers each hardcode the string.
+ * UI content-map sentinel used after a typed file-read result reports
+ * `status: 'inaccessible'`, or when a browser permission check fails before a
+ * worker read begins. Content-map consumers detect this presentation state with
+ * `content.startsWith(INACCESSIBLE_CONTENT_PREFIX)`.
  *
- * TODO(inaccessible-typed-status): graduate this from a content-prefix sentinel to a
- * structured status (e.g. an `inaccessible` entry on the tabStatuses map) so producers
- * and consumers exchange a typed contract instead of an English-prose prefix. Until
- * then, importing this constant from a single source guarantees the producers and
- * consumers can't drift independently.
+ * Worker/loader producers already exchange the structured `FileContentReadResult`;
+ * do not regress that boundary to prose classification. The shared prefix remains
+ * only at the UI store/rendering boundary until tab state can represent
+ * inaccessible content separately from text.
  */
 export const INACCESSIBLE_CONTENT_PREFIX = 'File not accessible' as const;
 
 /**
- * Compose a full inaccessible-content message with a producer-supplied reason.
- * Always starts with INACCESSIBLE_CONTENT_PREFIX so consumer guards match.
+ * Compose the UI content-map representation from a structured or permission
+ * failure reason. Always starts with INACCESSIBLE_CONTENT_PREFIX so content-map
+ * consumers match the presentation state.
  */
 export function buildInaccessibleContent(reason: string): string {
   return `${INACCESSIBLE_CONTENT_PREFIX} - ${reason}`;

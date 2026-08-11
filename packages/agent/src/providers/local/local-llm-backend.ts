@@ -39,14 +39,21 @@ export function isModelAllowed(modelId: string): boolean {
   return Boolean(getLocalLlmModelSpec(modelId));
 }
 
-// TODO(BST-493): restore manifest-level artifact integrity verification before the next release.
+/**
+ * Legacy checksum APIs remain blocked on BST-493. Registration intentionally
+ * does nothing and verification fails closed until manifest-level integrity is
+ * restored; do not turn either path into a permissive compatibility fallback.
+ */
 export function setModelChecksums(_modelId: string, _checksums: { onnxSha256: string }): void {
   logger.warn(
     'Local checksum registration is deprecated until manifest-level integrity verification is restored (BST-493)'
   );
 }
 
-// TODO(BST-493): restore manifest-level artifact integrity verification before the next release.
+/**
+ * @todo BST-493 Restore manifest-level artifact integrity verification.
+ * Until then this path must fail closed rather than accept unverified bytes.
+ */
 export async function verifyModelIntegrity(_modelId: string, _data: ArrayBuffer): Promise<never> {
   logger.warn(
     'Built-in local artifact integrity verification is currently disabled for the Gemma manifest path (BST-493)'

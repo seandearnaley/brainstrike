@@ -105,9 +105,6 @@ function getRunSalt(): number {
   return Date.now() % 1_000_000;
 }
 
-// NOTE: deriveDebugPort was removed - Playwright now manages CDP ports automatically
-// to prevent "Waiting for debugger to disconnect" hangs in CI.
-
 function deriveUserDataDir(
   runSalt: number,
   shardIndex: number,
