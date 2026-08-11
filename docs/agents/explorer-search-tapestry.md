@@ -130,10 +130,13 @@ and incomplete embedding coverage.
   unavailable executors and failures visibly; never replace it with a SQL-only
   or mock-only proof.
 - The drawer stays unmounted while collapsed. Its 50k-file Electron proof opens
-  only after retained-memory snapshots, measures click-to-visible latency, and
-  enforces the explicit 1500 ms ceiling. The import/embed Electron proof runs a
-  real drawer query and requires embedded fixture content in the scored result
-  list.
+  only after retained-memory snapshots, measures click-to-settled latency through
+  the size-sensitive failed-embeddings query, and enforces the explicit 1500 ms
+  ceiling separately from a generous Playwright locator timeout. That elapsed
+  value is an upper bound because it includes renderer IPC round trips and
+  locator polling. The import/embed Electron proof verifies retrieval is
+  available before input, runs a real drawer query, and requires embedded
+  fixture content in the scored result list.
 
 Paired tests:
 `packages/db-explorer/src/components/collection-debug-drawer/__tests__/collection-debug-drawer-content.test.tsx`,

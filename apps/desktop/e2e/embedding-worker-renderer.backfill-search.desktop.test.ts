@@ -110,13 +110,13 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     await expect(drawerContent).toBeVisible({ timeout: 15_000 });
 
     const drawerQuery = 'desktop chunking backfill';
+    await expect(drawerContent.getByTestId('collection-debug-retrieval-refusal')).toHaveCount(0);
     await drawerContent.getByLabel('Retrieval preview query').fill(drawerQuery);
     await drawerContent.getByRole('button', { name: /^Run$/ }).click({ timeout: 5000 });
 
     const drawerResults = drawerContent.getByTestId('collection-debug-retrieval-results');
     await expect(drawerResults).toBeVisible({ timeout: 60_000 });
     await expect(drawerResults).toContainText(/desktop chunking|manual backfill/i);
-    await expect(drawerContent.getByTestId('collection-debug-retrieval-error')).toHaveCount(0);
   });
 
   test('@desktop-embedding-search end-to-end: import, embed, then vector search returns correct results', async ({

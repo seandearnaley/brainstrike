@@ -443,13 +443,19 @@ test.describe('Embedding Host Renderer - memory', () => {
 
     // The memory comparison is complete. Now measure the actual disclosure
     // path against the same 50k-file collection: click through lazy import and
-    // render until the real drawer body is visible.
+    // render until the size-sensitive failed-embeddings query has settled.
     const drawerToggle = activeWindow.getByRole('button', { name: /collection details/i });
     const drawerOpenStartedAt = await activeWindow.evaluate(() => performance.now());
     await drawerToggle.click({ timeout: 5000 });
     await expect(activeWindow.getByTestId('collection-debug-drawer-content')).toBeVisible({
-      timeout: LARGE_COLLECTION_DRAWER_OPEN_LIMIT_MS,
+      timeout: 15_000,
     });
+    await expect(activeWindow.getByTestId('collection-debug-failed')).not.toContainText(
+      'Loading…',
+      {
+        timeout: 15_000,
+      }
+    );
     const drawerOpenFinishedAt = await activeWindow.evaluate(() => performance.now());
     const drawerOpenLatencyMs = drawerOpenFinishedAt - drawerOpenStartedAt;
 
@@ -462,6 +468,8 @@ test.describe('Embedding Host Renderer - memory', () => {
       })
     );
 
+    // This Playwright measurement is an upper bound: it includes renderer IPC
+    // round trips and locator polling in addition to application work.
     expect(drawerOpenLatencyMs).toBeLessThan(LARGE_COLLECTION_DRAWER_OPEN_LIMIT_MS);
   });
 

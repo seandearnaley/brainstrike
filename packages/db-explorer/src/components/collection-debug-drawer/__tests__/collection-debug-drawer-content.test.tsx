@@ -142,7 +142,17 @@ function makeDatabase() {
   };
 }
 
-function renderContent(overrides: { systemRole?: 'workspace-index' | null } = {}): {
+function renderContent(
+  overrides: {
+    recordPagination?: {
+      currentPage: number;
+      pageSize: number;
+      totalPages: number;
+      totalRecords: number;
+    };
+    systemRole?: 'workspace-index' | null;
+  } = {}
+): {
   onRecordPageChange: ReturnType<typeof vi.fn<(page: number) => void>>;
   rerenderWithCollection: (collectionId: string | null) => void;
   rerenderWithRecords: (next: DatabaseFileRecordSummary[]) => void;
@@ -160,7 +170,14 @@ function renderContent(overrides: { systemRole?: 'workspace-index' | null } = {}
         database={database}
         fileRepository={null}
         onRecordPageChange={onRecordPageChange}
-        recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 2, totalRecords: 4 }}
+        recordPagination={
+          overrides.recordPagination ?? {
+            currentPage: 0,
+            pageSize: 50,
+            totalPages: 2,
+            totalRecords: 4,
+          }
+        }
         records={records}
       />
     </ActionRegistryProvider>
@@ -396,6 +413,15 @@ describe('collection debug drawer content', () => {
   });
 
   describe('paging the Files pane while a file is selected', () => {
+    it('renders the panel-owned current page and disables Next on the final page', () => {
+      renderContent({
+        recordPagination: { currentPage: 1, pageSize: 50, totalPages: 2, totalRecords: 60 },
+      });
+
+      expect(screen.getByText('Page 2 of 2 · 60 file(s)')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /next file page/i })).toBeDisabled();
+    });
+
     it('routes page changes through the panel-owned pagination callback', async () => {
       const user = userEvent.setup();
       const { onRecordPageChange } = renderContent();
