@@ -191,6 +191,11 @@ test('desktop database cleanup fails closed when cleanup cannot be verified', as
     /Using UI-based deletion fallback|falling back to UI deletion/,
     'logs must not claim the removed UI deletion path will run'
   );
+  assert.match(
+    source,
+    /typeof remainingCount !== 'number' \|\|\s*!Number\.isSafeInteger\(remainingCount\) \|\|\s*remainingCount < 0/,
+    'cleanup verification must reject non-numeric, non-integer, non-finite, and negative counts'
+  );
 });
 
 test('database persistence specs do not treat fail-closed cleanup as a graceful skip', async () => {

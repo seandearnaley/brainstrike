@@ -414,7 +414,11 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
       failClosedOnUnverifiedCleanup(`record-count verification threw: ${detail}`);
     }
 
-    if (typeof remainingCount !== 'number') {
+    if (
+      typeof remainingCount !== 'number' ||
+      !Number.isSafeInteger(remainingCount) ||
+      remainingCount < 0
+    ) {
       failClosedOnUnverifiedCleanup(
         'bulk delete reported success but the remaining record count could not be verified'
       );
