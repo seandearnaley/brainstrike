@@ -489,8 +489,11 @@ describe('nested prebuild turbo contract', () => {
     }
   });
 
-  it('builds web dev dependencies before the outer watcher graph starts', () => {
+  it('builds all app dev dependencies before the outer watcher graph starts', () => {
     const rootManifest = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'));
+    const desktopManifest = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'apps/desktop/package.json'), 'utf8')
+    );
     const webManifest = JSON.parse(
       readFileSync(resolve(process.cwd(), 'apps/web/package.json'), 'utf8')
     );
@@ -499,18 +502,51 @@ describe('nested prebuild turbo contract', () => {
     const webPredev = webManifest.scripts.predev;
 
     assert.match(rootManifest.scripts.dev, /^node scripts\/run-turbo-command\.mjs -- run dev\b/u);
-    assert.match(
+    assert.equal(
       rootPredev,
-      /^node scripts\/run-turbo-command\.mjs -- run build(?: --filter=@brainstrike\/[\w-]+)+$/u,
-      'root predev must finish the one-time dependency build before turbo launches persistent watchers'
+      'node scripts/ensure-desktop-dev-deps.mjs',
+      'root predev must complete the full desktop dependency graph before turbo launches persistent watchers'
     );
+    assert.equal(desktopManifest.scripts.predev, 'node ../../scripts/ensure-desktop-dev-deps.mjs');
     assert.match(
       webPredev,
       /^node \.\.\/\.\.\/scripts\/run-turbo-command\.mjs --skip-under-turbo -- run build(?: --filter=@brainstrike\/[\w-]+)+$/u,
-      'standalone web dev must build dependencies, while the root turbo graph must skip the nested build that would race its watchers'
+      'standalone web dev must build dependencies, while the root turbo graph must skip its nested build'
     );
-    assert.deepEqual(parseFilterList(rootPredev).sort(), parseFilterList(webPrebuild).sort());
-    assert.deepEqual(parseFilterList(webPredev).sort(), parseFilterList(webPrebuild).sort());
+
+    const preparedGraph = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          require.resolve('turbo/bin/turbo'),
+          'run',
+          'desktop-dev-dependencies',
+          '--filter=@brainstrike/desktop',
+          '--dry=json',
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            NO_UPDATE_NOTIFIER: '1',
+            TURBO_TELEMETRY_DISABLED: '1',
+          },
+          maxBuffer: 64 * 1024 * 1024,
+        }
+      )
+    );
+    const preparedBuilds = new Set(
+      preparedGraph.tasks
+        .filter((task) => task.task === 'build' && task.command !== '<NONEXISTENT>')
+        .map((task) => task.package)
+    );
+    for (const filter of parseFilterList(webPrebuild)) {
+      assert.ok(
+        preparedBuilds.has(filter),
+        `root dev preparation must include ${filter} before web and desktop watchers start`
+      );
+    }
   });
 });
 
