@@ -229,17 +229,31 @@ test('database persistence specs do not treat fail-closed cleanup as a graceful 
     [],
     `a failed cleanup must surface instead of reaching a later database-error skip in the same function; violations: ${violations.join(', ')}`
   );
-  assert.match(
-    source,
-    /if \(!cleared\) \{\s*throw new Error\(\s*'Database cleanup could not be verified: the database entered an error state after Clear Database; records were not cleared\.'\s*\);\s*\}/,
-    'the button cleanup path must surface its failed verification instead of returning the active page'
-  );
-
-  const buttonCleanupSource = findNamedFunctionSource(source, 'clearWithButton');
+  const buttonCleanupSource = findNamedFunctionSource(source, 'confirmClearDatabaseAndVerifyEmpty');
   assert.match(
     buttonCleanupSource,
-    /await expect\s*\.poll\(async \(\) => await readActiveCollectionRecordTotal\(page\), \{ timeout: 15_000 \}\)\s*\.toBe\(0\);/,
+    /await expect\([^)]*\)\.toBeEnabled\(/,
+    'the shared button cleanup path must wait for an actionable clear control'
+  );
+  assert.match(
+    buttonCleanupSource,
+    /button\[variant="destructive"\]:has-text\("Clear"\)/,
+    'the shared button cleanup path must keep its broad Clear fallback scoped to the destructive control'
+  );
+  assert.match(
+    buttonCleanupSource,
+    /readActiveCollectionRecordTotal\([^)]*\)[\s\S]*?\.toBe\(0\)/,
     'the button cleanup path must verify that the active collection is empty before reporting success'
+  );
+  assert.match(
+    buttonCleanupSource,
+    /throw new Error\([^)]*cleanup could not be verified[^)]*\)/i,
+    'the shared button cleanup path must throw an observation-bounded verification error'
+  );
+  assert.equal(
+    source.match(/confirmClearDatabaseAndVerifyEmpty\(/g)?.length,
+    3,
+    'both UI cleanup callers must use the one shared confirm-and-verify helper'
   );
 });
 

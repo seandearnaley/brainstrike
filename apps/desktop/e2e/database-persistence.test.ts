@@ -604,6 +604,34 @@ test.describe('Database Persistence', () => {
     }
   }
 
+  async function confirmClearDatabaseAndVerifyEmpty(
+    page: Page,
+    clearButton: Locator
+  ): Promise<void> {
+    await expect(clearButton).toBeEnabled({ timeout: 5000 });
+    await clearButton.click();
+
+    const confirmDialog = page.locator('[role="dialog"]');
+    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
+    const confirmButton = confirmDialog
+      .locator('button:has-text("Clear Database")')
+      .or(confirmDialog.locator('button[variant="destructive"]:has-text("Clear")'));
+    await expect(confirmButton).toBeVisible({ timeout: 5000 });
+    await confirmButton.click();
+    await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
+
+    if (await isDatabaseError(page)) {
+      throw new Error(
+        'Database cleanup could not be verified: the database entered an error state after Clear Database.'
+      );
+    }
+
+    await clickRefreshIfAvailable(page);
+    await expect
+      .poll(async () => await readActiveCollectionRecordTotal(page), { timeout: 15_000 })
+      .toBe(0);
+  }
+
   async function executeClearDatabaseWorkflow(page: Page): Promise<void> {
     if (await isDatabaseError(page)) {
       await expect(page.locator(ERROR_LOCATOR).first()).toBeVisible();
@@ -615,28 +643,7 @@ test.describe('Database Persistence', () => {
 
     const clearButton = page.locator('button:has-text("Clear Database")');
     await expect(clearButton).toBeVisible();
-    await expect(clearButton).toBeEnabled({ timeout: 5000 });
-
-    await clearButton.click();
-
-    const confirmDialog = page.locator('[role="dialog"]');
-    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
-
-    const confirmButton = confirmDialog
-      .locator('button:has-text("Clear Database")')
-      .or(confirmDialog.locator('button[variant="destructive"]:has-text("Clear")'));
-    await expect(confirmButton).toBeVisible();
-    await confirmButton.click();
-
-    await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
-    await page.waitForTimeout(2000);
-    await clickRefreshIfAvailable(page);
-
-    // Post-clear state, read from the panel's live-query-backed hook rather
-    // than from the retired browser table.
-    await expect
-      .poll(async () => await readActiveCollectionRecordTotal(page), { timeout: 15_000 })
-      .toBe(0);
+    await confirmClearDatabaseAndVerifyEmpty(page, clearButton);
   }
 
   test('should clear database via UI button workflow', async ({ window }) => {
@@ -725,31 +732,6 @@ test.describe('Database Persistence', () => {
     return (recordTotal ?? 0) > 0;
   }
 
-  async function confirmClearDialog(dialog: Locator): Promise<void> {
-    await expect(dialog).toBeVisible({ timeout: 5000 });
-    const confirmButton = dialog
-      .locator('button:has-text("Clear Database")')
-      .or(dialog.locator('button:has-text("Clear")'))
-      .or(dialog.locator('button:has-text("Confirm")'));
-    await expect(confirmButton).toBeVisible({ timeout: 5000 });
-    await confirmButton.click();
-    await expect(dialog).not.toBeVisible({ timeout: 10_000 });
-  }
-
-  async function clearWithButton(page: Page, clearButton: Locator): Promise<boolean> {
-    await clearButton.click();
-    await confirmClearDialog(page.locator('[role="dialog"]'));
-    await page.waitForTimeout(2000);
-    if (await isDatabaseError(page)) {
-      return false;
-    }
-    await clickRefreshIfAvailable(page);
-    await expect
-      .poll(async () => await readActiveCollectionRecordTotal(page), { timeout: 15_000 })
-      .toBe(0);
-    return true;
-  }
-
   async function cleanupExistingData(page: Page): Promise<Page> {
     let activePage = page;
     if (await isDatabaseError(activePage)) {
@@ -764,12 +746,7 @@ test.describe('Database Persistence', () => {
 
     const clearButton = activePage.locator('button:has-text("Clear Database")');
     if (await clearButton.isVisible()) {
-      const cleared = await clearWithButton(activePage, clearButton);
-      if (!cleared) {
-        throw new Error(
-          'Database cleanup could not be verified: the database entered an error state after Clear Database; records were not cleared.'
-        );
-      }
+      await confirmClearDatabaseAndVerifyEmpty(activePage, clearButton);
       return activePage;
     }
 
