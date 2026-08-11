@@ -459,6 +459,18 @@ describe('nested prebuild turbo contract', () => {
     }
   });
 
+  it('every predev that re-enters turbo opts into --skip-under-prepared-dev', () => {
+    const predevs = wrapperScripts.filter(({ scriptName }) => scriptName === 'predev');
+    assert.ok(predevs.length > 0, 'expected at least one predev using run-turbo-command.mjs');
+
+    for (const { command, packageJsonPath } of predevs) {
+      assert.ok(
+        command.includes('--skip-under-prepared-dev'),
+        `${packageJsonPath} predev must pass --skip-under-prepared-dev (nested turbo races the outer watcher graph)`
+      );
+    }
+  });
+
   it('restricts --skip-under-turbo to sound lifecycle boundaries', () => {
     // Only prebuilds may use the ^build-backed flag. Prepared dev hooks use a
     // separate explicit-marker flag so TURBO_HASH alone cannot authorize them.
@@ -492,6 +504,28 @@ describe('nested prebuild turbo contract', () => {
       readFileSync(resolve(process.cwd(), 'scripts/ensure-desktop-dev-deps.mjs'), 'utf8'),
       /'--skip-under-prepared-dev'/u,
       'desktop predev preparation must use the explicit prepared-graph skip flag'
+    );
+
+    const wrapperPath = resolve(process.cwd(), 'scripts/run-turbo-command.mjs');
+    const desktopHelperPath = resolve(process.cwd(), 'scripts/ensure-desktop-dev-deps.mjs');
+    const automationModules = findModuleFiles(resolve(process.cwd(), 'scripts')).filter(
+      (modulePath) => modulePath !== wrapperPath
+    );
+    assert.deepEqual(
+      automationModules.filter((modulePath) =>
+        readFileSync(modulePath, 'utf8').includes('--mark-dev-deps-prepared')
+      ),
+      [],
+      'automation helpers must not mint the root preparation marker'
+    );
+    assert.deepEqual(
+      automationModules
+        .filter((modulePath) =>
+          readFileSync(modulePath, 'utf8').includes('--skip-under-prepared-dev')
+        )
+        .sort(),
+      [desktopHelperPath],
+      'only the desktop predev helper may use the prepared-graph skip flag outside package scripts'
     );
   });
 
@@ -629,7 +663,7 @@ describe('nested prebuild turbo contract', () => {
       );
       assert.ok(appDevTask, `expected ${appName}#dev in the resolved dev graph`);
       assert.ok(
-        appDevTask.environmentVariables.specified.passThroughEnv.includes(
+        (appDevTask.environmentVariables.specified.passThroughEnv ?? []).includes(
           'BRAINSTRIKE_DEV_DEPS_PREPARED'
         ),
         `${appName}#dev must pass the root preparation marker through Turbo strict-env mode`
