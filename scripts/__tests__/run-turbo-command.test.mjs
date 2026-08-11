@@ -394,14 +394,18 @@ describe('nested prebuild turbo contract', () => {
     }
   });
 
-  it('only prebuild scripts use --skip-under-turbo', () => {
-    // predev under `turbo run dev` has NO ^build edge, so its nested build is
-    // load-bearing on a fresh clone — it must never skip.
+  it('restricts --skip-under-turbo to sound lifecycle boundaries', () => {
+    // Prebuilds are covered by the outer ^build graph. Web predev is the one
+    // deliberate exception: root predev completes the same build before the
+    // outer dev watcher graph starts, while standalone package dev still runs
+    // this predev because TURBO_HASH is absent.
     const offenders = packageScriptEntries()
-      .filter(
-        ({ command, scriptName }) =>
-          command.includes('--skip-under-turbo') && scriptName !== 'prebuild'
-      )
+      .filter(({ command, packageJsonPath, scriptName }) => {
+        if (!command.includes('--skip-under-turbo') || scriptName === 'prebuild') {
+          return false;
+        }
+        return !(scriptName === 'predev' && packageJsonPath.endsWith('/apps/web/package.json'));
+      })
       .map(({ packageJsonPath, scriptName }) => `${packageJsonPath}:${scriptName}`);
 
     assert.deepEqual(offenders, []);
@@ -485,46 +489,28 @@ describe('nested prebuild turbo contract', () => {
     }
   });
 
-  it('web predev synchronously rebuilds bundled dependencies before vite can start', () => {
-    const webPackageJsonPath = resolve(process.cwd(), 'apps/web/package.json');
-    const webManifest = JSON.parse(readFileSync(webPackageJsonPath, 'utf8'));
-    const { dev, prebuild, predev } = webManifest.scripts;
-
-    assert.equal(dev, 'vite --port 8080 --host');
-    assert.equal(
-      predev,
-      predev.match(
-        /^node \.\.\/\.\.\/scripts\/run-turbo-command\.mjs -- run build(?: --filter=@brainstrike\/[\w-]+)+$/u
-      )?.[0],
-      'apps/web predev must always complete its synchronous nested build before the package lifecycle starts vite; existing dist sentinels cannot prove a concurrent tsup watch rebuild is finished'
+  it('builds web dev dependencies before the outer watcher graph starts', () => {
+    const rootManifest = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'));
+    const webManifest = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'apps/web/package.json'), 'utf8')
     );
-    assert.deepEqual(
-      parseFilterList(predev).sort(),
-      parseFilterList(prebuild).sort(),
-      'apps/web predev must synchronously rebuild the same dependency set as prebuild'
-    );
+    const rootPredev = rootManifest.scripts.predev;
+    const webPrebuild = webManifest.scripts.prebuild;
+    const webPredev = webManifest.scripts.predev;
 
-    const events = [];
-    let bundledOutput = 'stale';
-    const status = turboCommand.runTurboCommand(
-      ['node', 'run-turbo-command.mjs', '--', 'run', 'build', ...filterArgs(predev)],
-      'darwin',
-      {
-        env: { HOME: makeFakeHome(), TURBO_HASH: '649b8853e23bc395' },
-        log: () => {},
-        logError: () => {},
-        spawnSyncImpl: () => {
-          events.push(`build:start:${bundledOutput}`);
-          bundledOutput = 'fresh';
-          events.push('build:complete');
-          return { status: 0 };
-        },
-      }
+    assert.match(rootManifest.scripts.dev, /^node scripts\/run-turbo-command\.mjs -- run dev\b/u);
+    assert.match(
+      rootPredev,
+      /^node scripts\/run-turbo-command\.mjs -- run build(?: --filter=@brainstrike\/[\w-]+)+$/u,
+      'root predev must finish the one-time dependency build before turbo launches persistent watchers'
     );
-
-    assert.equal(status, 0);
-    events.push(`vite:start:${bundledOutput}`);
-    assert.deepEqual(events, ['build:start:stale', 'build:complete', 'vite:start:fresh']);
+    assert.match(
+      webPredev,
+      /^node \.\.\/\.\.\/scripts\/run-turbo-command\.mjs --skip-under-turbo -- run build(?: --filter=@brainstrike\/[\w-]+)+$/u,
+      'standalone web dev must build dependencies, while the root turbo graph must skip the nested build that would race its watchers'
+    );
+    assert.deepEqual(parseFilterList(rootPredev).sort(), parseFilterList(webPrebuild).sort());
+    assert.deepEqual(parseFilterList(webPredev).sort(), parseFilterList(webPrebuild).sort());
   });
 });
 
@@ -572,10 +558,6 @@ function workspaceDependencyClosure(manifest, manifests) {
 
 function parseFilterList(command) {
   return [...command.matchAll(/--filter=(@brainstrike\/[\w-]+)/gu)].map(([, name]) => name);
-}
-
-function filterArgs(command) {
-  return parseFilterList(command).map((name) => `--filter=${name}`);
 }
 
 function findPackageJsonFiles(root) {

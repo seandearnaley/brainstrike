@@ -110,7 +110,7 @@
     "format": "biome format --write .",
     "lint": "pnpm -w lint",
     "prebuild": "node ../../scripts/run-turbo-command.mjs --skip-under-turbo -- run build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/platform-utils --filter=@brainstrike/assistant-service",
-    "predev": "node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/platform-utils --filter=@brainstrike/assistant-service",
+    "predev": "node ../../scripts/run-turbo-command.mjs --skip-under-turbo -- run build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/platform-utils --filter=@brainstrike/assistant-service",
     "serve-static": "serve dist -p 8080",
     "start": "unset NO_COLOR; vite preview --port ${PORT:-8080} --host --strictPort",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
