@@ -298,10 +298,14 @@ export const LARGE_BACKFILL_MAIN_RSS_GROWTH_LIMIT_MB = 180;
 export const LARGE_BACKFILL_MAIN_HEAP_GROWTH_LIMIT_MB = 80;
 export const LARGE_BACKFILL_IDLE_HOST_HEAP_DRIFT_LIMIT_MB = 40;
 export const LARGE_BACKFILL_IDLE_MAIN_RSS_DRIFT_LIMIT_MB = 90;
-export const LARGE_COLLECTION_VISIBLE_HEAP_GROWTH_LIMIT_MB = 120;
-export const LARGE_COLLECTION_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 250;
-export const LARGE_COLLECTION_LIST_VISIBLE_HEAP_GROWTH_LIMIT_MB = 80;
-export const LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 180;
+// Calibrated from three sequential exact-head Ubuntu workflow runs documented
+// in docs/agents/ci-quality.md. Both paths measured 0 MB heap growth and a
+// shrinking working set; these positive floors retain noise headroom while
+// still rejecting a material full-collection hydration regression.
+export const LARGE_COLLECTION_VISIBLE_HEAP_GROWTH_LIMIT_MB = 16;
+export const LARGE_COLLECTION_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 32;
+export const LARGE_COLLECTION_LIST_VISIBLE_HEAP_GROWTH_LIMIT_MB = 16;
+export const LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB = 32;
 export const ACTUAL_IMPORT_STRESS_FILE_COUNT = 1000;
 export const ACTUAL_IMPORT_SENTENCES_PER_FILE = 24;
 export const ACTUAL_IMPORT_VISIBLE_WORKING_SET_LIMIT_MB = 1400;

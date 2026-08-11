@@ -38,6 +38,23 @@ absence as zero made the large-collection thresholds vacuous. Missing PID
 metrics now fail visibly. The older API remains optional only for its private
 and shared-memory diagnostics.
 
+The 50k collection and 50k file-list ceilings are calibrated, not inherited
+from the older Collection Browser measurement window. On 2026-08-11, three
+sequential `memory-baseline` dispatches at exact head `3d3209242` produced:
+
+| Scenario | Visible heap growth (MB) | Visible working-set growth (MB) |
+| --- | --- | --- |
+| 5k files / 50k chunks | `0.0`, `0.0`, `0.0` | `-3.5`, `-3.6`, `-4.1` |
+| 50k-file source-paginated list | `0.0`, `0.0`, `0.0` | `-4.7`, `-74.2`, `-77.3` |
+
+The paired heap and working-set limits are therefore positive floors of 16 MB
+and 32 MB. Those floors preserve 16 MB of heap noise headroom and at least
+35 MB of working-set headroom over the largest observed deltas while still
+failing a material full-collection hydration. Calibration evidence is in
+workflow runs `31458099061`, `31458469270`, and `31459112520`; replace this
+table and re-run three sequential same-head samples when changing the fixture,
+measurement window, or process-memory source.
+
 The AI Tools settings specs are deliberately part of both required PR smoke
 lanes. Their tool category/loading-tier assertions follow the shared assistant
 contract and previously drifted while every PR check stayed green. Web selects
