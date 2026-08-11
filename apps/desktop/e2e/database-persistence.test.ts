@@ -811,10 +811,6 @@ test.describe('Database Persistence', () => {
     }
     activeWindow = await setupDatabaseUIState(activeWindow);
     activeWindow = await cleanupExistingData(activeWindow);
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
     await expect(activeWindow.getByTestId('database-panel-actions')).toBeVisible();
     await clickRefreshIfAvailable(activeWindow);
     await verifyUIFunctionalityAndState(activeWindow);

@@ -33,7 +33,10 @@ import {
   __resetImportActivitySnapshotForTests,
   publishImportActivitySnapshot,
 } from '../import-activity-snapshot';
-import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
+import {
+  __resetDatabaseDemoStoreForTests,
+  useDatabaseDemoStore,
+} from '../stores/database-demo-store';
 
 // Helper to wrap renders with TooltipProvider and the context-action registry
 // (panel surfaces mount the shared ActionContextMenu, whose useActionRegistry
@@ -586,6 +589,7 @@ describe('DatabaseDemoPanel', () => {
       const emptyMessageError = new Error('placeholder');
       emptyMessageError.message = '';
       dbProviderErrorMock.current = emptyMessageError;
+      useDatabaseDemoStore.setState({ showSettings: true });
 
       renderWithProviders(<DatabaseDemoPanel />);
 

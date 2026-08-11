@@ -18,51 +18,123 @@ function findPostCleanupDatabaseErrorSkips(source) {
     ts.ScriptKind.TS
   );
   const violations = [];
+  const functions = [];
 
-  function inspectFunction(node) {
-    const cleanupCalls = [];
-    const databaseErrorCalls = [];
+  function visitFunctions(node) {
+    if (ts.isFunctionLike(node)) {
+      functions.push(node);
+    }
+    ts.forEachChild(node, visitFunctions);
+  }
 
-    function inspectBody(current) {
+  function getLocalFunctionName(node) {
+    if (node.name && ts.isIdentifier(node.name)) {
+      return node.name.text;
+    }
+    if (ts.isVariableDeclaration(node.parent) && ts.isIdentifier(node.parent.name)) {
+      return node.parent.name.text;
+    }
+    return;
+  }
+
+  function findDirectCalls(node, callableNames) {
+    const calls = [];
+
+    function inspect(current) {
       if (current !== node && ts.isFunctionLike(current)) {
         return;
       }
       if (
         ts.isCallExpression(current) &&
         ts.isIdentifier(current.expression) &&
-        current.expression.text === 'clearDatabaseRecords'
+        callableNames.has(current.expression.text)
       ) {
-        cleanupCalls.push(current.getStart(sourceFile));
+        calls.push(current);
+      }
+      ts.forEachChild(current, inspect);
+    }
+
+    inspect(node);
+    return calls;
+  }
+
+  function findDatabaseErrorCall(node) {
+    let match;
+
+    function inspect(current) {
+      if (match || (current !== node && ts.isFunctionLike(current))) {
+        return;
       }
       if (
         ts.isCallExpression(current) &&
         ts.isIdentifier(current.expression) &&
         current.expression.text === 'isDatabaseError'
       ) {
-        databaseErrorCalls.push(current.getStart(sourceFile));
+        match = current;
+        return;
+      }
+      ts.forEachChild(current, inspect);
+    }
+
+    inspect(node);
+    return match;
+  }
+
+  function containsReturn(node) {
+    let found = false;
+
+    function inspect(current) {
+      if (found || (current !== node && ts.isFunctionLike(current))) {
+        return;
+      }
+      if (ts.isReturnStatement(current)) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(current, inspect);
+    }
+
+    inspect(node);
+    return found;
+  }
+
+  visitFunctions(sourceFile);
+  const cleanupWrapperNames = new Set(
+    functions
+      .filter((node) => findDirectCalls(node, new Set(['clearDatabaseRecords'])).length > 0)
+      .map(getLocalFunctionName)
+      .filter((name) => name !== undefined)
+  );
+  const cleanupCallableNames = new Set(['clearDatabaseRecords', ...cleanupWrapperNames]);
+
+  function inspectFunction(node) {
+    const cleanupCalls = findDirectCalls(node, cleanupCallableNames);
+    if (cleanupCalls.length === 0) {
+      return;
+    }
+    const firstCleanupCall = Math.min(...cleanupCalls.map((call) => call.getStart(sourceFile)));
+
+    function inspectBody(current) {
+      if (current !== node && ts.isFunctionLike(current)) {
+        return;
+      }
+      if (ts.isIfStatement(current) && containsReturn(current.thenStatement)) {
+        const databaseErrorCall = findDatabaseErrorCall(current.expression);
+        if (databaseErrorCall && databaseErrorCall.getStart(sourceFile) > firstCleanupCall) {
+          const location = sourceFile.getLineAndCharacterOfPosition(
+            databaseErrorCall.getStart(sourceFile)
+          );
+          violations.push(`${location.line + 1}:${location.character + 1}`);
+        }
       }
       ts.forEachChild(current, inspectBody);
     }
 
     inspectBody(node);
-    const firstCleanupCall = Math.min(...cleanupCalls);
-    const postCleanupErrorCall = databaseErrorCalls.find((position) => position > firstCleanupCall);
-    if (cleanupCalls.length === 0 || postCleanupErrorCall === undefined) {
-      return;
-    }
-
-    const location = sourceFile.getLineAndCharacterOfPosition(postCleanupErrorCall);
-    violations.push(`${location.line + 1}:${location.character + 1}`);
   }
-
-  function visit(node) {
-    if (ts.isFunctionLike(node)) {
-      inspectFunction(node);
-    }
-    ts.forEachChild(node, visit);
+  for (const node of functions) {
+    inspectFunction(node);
   }
-
-  visit(sourceFile);
   return violations;
 }
 
@@ -105,16 +177,27 @@ test('database persistence specs do not treat fail-closed cleanup as a graceful 
   );
 });
 
-test('cleanup-skip contract catches renamed results and intervening statements', () => {
+test('cleanup-skip contract follows local wrappers and ignores non-returning error checks', () => {
   const source = `
-    async function cleanup(page: Page) {
+    async function cleanupRecords(page: Page) {
       const cleaned = await clearDatabaseRecords(page);
+      return cleaned;
+    }
+
+    async function cleanup(page: Page) {
+      const cleaned = await cleanupRecords(page);
       await clickRefreshIfAvailable(cleaned);
       // A comment or renamed result must not hide the post-cleanup skip.
       if (await isDatabaseError(cleaned)) return cleaned;
       return cleaned;
     }
+
+    async function observe(page: Page) {
+      const cleaned = await clearDatabaseRecords(page);
+      const hasError = await isDatabaseError(cleaned);
+      expect(hasError).toBe(false);
+    }
   `;
 
-  assert.deepEqual(findPostCleanupDatabaseErrorSkips(source), ['6:17']);
+  assert.deepEqual(findPostCleanupDatabaseErrorSkips(source), ['11:17']);
 });
