@@ -2,6 +2,8 @@ import type { CombinedMemorySnapshot, Page } from './embedding-worker-renderer.s
 import * as shared from './embedding-worker-renderer.shared';
 import { expect, test } from './embedding-worker-renderer.shared';
 
+const LARGE_COLLECTION_DRAWER_OPEN_LIMIT_MS = 1500;
+
 const {
   ERROR_LOCATOR,
   LARGE_BACKFILL_CHUNKS_PER_FILE,
@@ -386,15 +388,9 @@ test.describe('Embedding Host Renderer - memory', () => {
     // collection never pulls 50k rows into the visible renderer. It is asserted
     // HEADLESS here, through the panel's existing test-hook snapshot.
     //
-    // The old page-forward leg is deliberately not re-created. The only
-    // remaining control that advances `recordPage` is the Files pager inside
-    // the collection debug drawer (BST-1214), which is collapsed by default and
-    // lazily mounted — reaching it would mean opening that drawer and, with it,
-    // the retrieval executor, the model registry and a coverage live query.
-    // That is exactly the kind of extra renderer subtree this MEMORY lane
-    // exists to hold still, so driving it here would pollute the snapshots
-    // taken either side of this step. Assert the drawer's own pager in the
-    // drawer's own tests, not in a leak lane.
+    // The Files pager lives inside the collapsed, lazily mounted collection
+    // drawer. Keep that subtree closed until after the retained-memory snapshot
+    // below; opening it earlier would pollute the source-pagination comparison.
     const recordPageSize = 50;
     await expect
       .poll(
@@ -450,6 +446,42 @@ test.describe('Embedding Host Renderer - memory', () => {
     expect(visibleWorkingSetGrowthMB).toBeLessThan(
       LARGE_COLLECTION_LIST_VISIBLE_WORKING_SET_GROWTH_LIMIT_MB
     );
+
+    // The memory comparison is complete. Now measure the actual disclosure
+    // path against the same 50k-file collection: click through lazy import and
+    // render until the size-sensitive failed-embeddings query has settled.
+    const drawerToggle = activeWindow.getByRole('button', { name: /collection details/i });
+    await expect(drawerToggle).toBeEnabled({ timeout: 15_000 });
+    const drawerOpenStartedAt = await activeWindow.evaluate(() => performance.now());
+    await drawerToggle.click({ timeout: 5000 });
+    await expect(activeWindow.getByTestId('collection-debug-drawer-content')).toBeVisible({
+      timeout: 15_000,
+    });
+    const failedEmbeddingsSection = activeWindow.getByTestId('collection-debug-failed');
+    await expect(failedEmbeddingsSection).toContainText(`${fixture.fileCount} file(s), `, {
+      timeout: 15_000,
+    });
+    // 200 is DRAWER_INCOMPLETE_FILE_LIMIT. The fixture creates 50k records with
+    // no chunks and NULL chunks_processed_at, so every row matches and the
+    // limit must bind; loading, error, and empty states cannot produce 200.
+    await expect(failedEmbeddingsSection).toContainText('200 file(s) need attention', {
+      timeout: 15_000,
+    });
+    const drawerOpenFinishedAt = await activeWindow.evaluate(() => performance.now());
+    const drawerOpenLatencyMs = drawerOpenFinishedAt - drawerOpenStartedAt;
+
+    console.log(
+      JSON.stringify({
+        drawerOpenLatencyMs,
+        fileCount: fixture.fileCount,
+        limitMs: LARGE_COLLECTION_DRAWER_OPEN_LIMIT_MS,
+        type: 'desktop-large-collection-drawer-open-latency',
+      })
+    );
+
+    // This Playwright measurement is an upper bound: it includes renderer IPC
+    // round trips and locator polling in addition to application work.
+    expect(drawerOpenLatencyMs).toBeLessThan(LARGE_COLLECTION_DRAWER_OPEN_LIMIT_MS);
   });
 
   test('shows a newly created collection immediately without leaving the database tab', async ({

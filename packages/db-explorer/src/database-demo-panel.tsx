@@ -166,6 +166,7 @@ export function DatabaseDemoPanel({
   const showSettings = useDatabaseDemoStore((s) => s.showSettings);
   const recordPage = useDatabaseDemoStore((s) => s.recordPage);
   const recordPageSize = useDatabaseDemoStore((s) => s.recordPageSize);
+  const setRecordPage = useDatabaseDemoStore((s) => s.setRecordPage);
   const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
 
   const importSettings = useImportSettings();
@@ -291,6 +292,7 @@ export function DatabaseDemoPanel({
         chunkRepository={dbChunkRepository}
         database={dbContext}
         fileRepository={repository}
+        onRecordPageChange={setRecordPage}
         recordPagination={recordPagination}
         records={records}
       />

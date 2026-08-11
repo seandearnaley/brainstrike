@@ -67,6 +67,7 @@ function renderDrawer(database: { query: ReturnType<typeof vi.fn> }) {
         chunkRepository={null}
         database={database}
         fileRepository={null}
+        onRecordPageChange={vi.fn()}
         recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 1, totalRecords: 1 }}
         records={RECORDS}
       />

@@ -142,13 +142,25 @@ function makeDatabase() {
   };
 }
 
-function renderContent(overrides: { systemRole?: 'workspace-index' | null } = {}): {
+function renderContent(
+  overrides: {
+    recordPagination?: {
+      currentPage: number;
+      pageSize: number;
+      totalPages: number;
+      totalRecords: number;
+    };
+    systemRole?: 'workspace-index' | null;
+  } = {}
+): {
+  onRecordPageChange: ReturnType<typeof vi.fn<(page: number) => void>>;
   rerenderWithCollection: (collectionId: string | null) => void;
   rerenderWithRecords: (next: DatabaseFileRecordSummary[]) => void;
   writtenTexts: string[];
 } {
   const { registry, writtenTexts } = createTestActionRegistry({ actions: collectionActions });
   const database = makeDatabase();
+  const onRecordPageChange = vi.fn<(page: number) => void>();
   const tree = (records: DatabaseFileRecordSummary[], collectionId: string | null = 'col-1') => (
     <ActionRegistryProvider registry={registry}>
       <CollectionDebugDrawerContent
@@ -157,13 +169,22 @@ function renderContent(overrides: { systemRole?: 'workspace-index' | null } = {}
         chunkRepository={null}
         database={database}
         fileRepository={null}
-        recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 2, totalRecords: 4 }}
+        onRecordPageChange={onRecordPageChange}
+        recordPagination={
+          overrides.recordPagination ?? {
+            currentPage: 0,
+            pageSize: 50,
+            totalPages: 2,
+            totalRecords: 4,
+          }
+        }
         records={records}
       />
     </ActionRegistryProvider>
   );
   const { rerender } = render(tree(RECORDS));
   return {
+    onRecordPageChange,
     rerenderWithCollection: (collectionId) => rerender(tree(RECORDS, collectionId)),
     rerenderWithRecords: (next) => rerender(tree(next)),
     writtenTexts,
@@ -194,6 +215,7 @@ function renderContentWithPendingFailedList(): {
         chunkRepository={null}
         database={database}
         fileRepository={null}
+        onRecordPageChange={vi.fn()}
         recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 2, totalRecords: 4 }}
         records={RECORDS}
       />
@@ -281,6 +303,7 @@ describe('collection debug drawer content', () => {
             chunkRepository={null}
             database={{ query: () => Promise.reject(new Error('pglite exploded')) }}
             fileRepository={null}
+            onRecordPageChange={vi.fn()}
             recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 1, totalRecords: 3 }}
             records={RECORDS}
           />
@@ -390,6 +413,25 @@ describe('collection debug drawer content', () => {
   });
 
   describe('paging the Files pane while a file is selected', () => {
+    it('renders the panel-owned current page and disables Next on the final page', () => {
+      renderContent({
+        recordPagination: { currentPage: 1, pageSize: 50, totalPages: 2, totalRecords: 60 },
+      });
+
+      expect(screen.getByText('Page 2 of 2 · 60 file(s)')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /next file page/i })).toBeDisabled();
+    });
+
+    it('routes page changes through the panel-owned pagination callback', async () => {
+      const user = userEvent.setup();
+      const { onRecordPageChange } = renderContent();
+
+      await user.click(screen.getByRole('button', { name: /next file page/i }));
+
+      expect(onRecordPageChange).toHaveBeenCalledOnce();
+      expect(onRecordPageChange).toHaveBeenCalledWith(1);
+    });
+
     it('drops the previous file’s chunks instead of leaving them rendered', async () => {
       const user = userEvent.setup();
       const { rerenderWithRecords } = renderContent();
@@ -566,6 +608,7 @@ describe('collection debug drawer content', () => {
             chunkRepository={null}
             database={makeDatabase()}
             fileRepository={null}
+            onRecordPageChange={vi.fn()}
             recordPagination={{ currentPage: 0, pageSize: 50, totalPages: 0, totalRecords: 0 }}
             records={[]}
           />

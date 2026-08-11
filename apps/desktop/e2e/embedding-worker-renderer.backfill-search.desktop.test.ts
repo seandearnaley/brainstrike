@@ -33,6 +33,8 @@ test.describe('Embedding Host Renderer - backfill search', () => {
   test('@desktop-embedding-backfill backfills chunked imported data without hanging and updates collection coverage', async ({
     window,
   }) => {
+    test.setTimeout(300_000);
+
     let activeWindow = await showDatabaseDemoPanel(window);
 
     if (await isDatabaseError(activeWindow)) {
@@ -101,6 +103,30 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     const timeOriginAfterBackfill = await getRendererTimeOrigin(activeWindow);
     expect(timeOriginAfterBackfill).toBe(timeOriginBeforeBackfill);
     await expect(backfillButton).toContainText('Backfill', { timeout: 15_000 });
+
+    // Exercise the shipped drawer and its real semantic executor against the
+    // fixture embedded above. This is intentionally not another SQL assertion.
+    const drawerToggle = databasePanel.getByRole('button', { name: /collection details/i });
+    await drawerToggle.click({ timeout: 5000 });
+    const drawerContent = databasePanel.getByTestId('collection-debug-drawer-content');
+    await expect(drawerContent).toBeVisible({ timeout: 15_000 });
+
+    const drawerQuery = 'desktop chunking backfill';
+    await expect(drawerContent.getByTestId('collection-debug-retrieval-refusal')).toHaveCount(0);
+    await drawerContent.getByLabel('Retrieval preview query').fill(drawerQuery);
+    await drawerContent.getByRole('button', { name: /^Run$/ }).click({ timeout: 5000 });
+
+    const drawerResults = drawerContent.getByTestId('collection-debug-retrieval-results');
+    const drawerError = drawerContent.getByTestId('collection-debug-retrieval-error');
+    await expect
+      .poll(async () => (await drawerResults.count()) + (await drawerError.count()), {
+        timeout: 60_000,
+      })
+      .toBeGreaterThan(0);
+    if ((await drawerError.count()) > 0) {
+      throw new Error(`Drawer retrieval failed: ${await drawerError.innerText()}`);
+    }
+    await expect(drawerResults).toContainText(/desktop chunking|manual backfill/i);
   });
 
   test('@desktop-embedding-search end-to-end: import, embed, then vector search returns correct results', async ({

@@ -20,6 +20,7 @@ export default function CollectionDebugDrawerContent({
   chunkRepository,
   database,
   fileRepository,
+  onRecordPageChange,
   recordPagination,
   records,
 }: CollectionDebugDrawerProps) {
@@ -67,6 +68,7 @@ export default function CollectionDebugDrawerContent({
           activeCollectionId={activeCollectionId}
           database={database}
           onClaimTarget={handleClaimTarget}
+          onRecordPageChange={onRecordPageChange}
           recordPagination={recordPagination}
           records={records}
         />

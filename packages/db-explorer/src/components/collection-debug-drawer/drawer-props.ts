@@ -25,6 +25,8 @@ export interface CollectionDebugDrawerProps {
    */
   readonly database: unknown;
   readonly fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  /** Updates the panel-owned page that produced `records` and `recordPagination`. */
+  readonly onRecordPageChange: (page: number) => void;
   /**
    * The page of collection files already materialized by the panel's live
    * query. The drawer deliberately does NOT open a second file-list

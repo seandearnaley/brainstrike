@@ -8,7 +8,6 @@
 
 import { type BrowserNodeData, NodeInspector } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useDatabaseDemoStore } from '../../stores/database-demo-store';
 import {
   DRAWER_CHUNK_PAGE_SIZE,
   type DrawerChunkSummary,
@@ -27,7 +26,7 @@ import {
 interface ChunkInspectorSectionProps
   extends Pick<
     CollectionDebugDrawerProps,
-    'activeCollectionId' | 'database' | 'recordPagination' | 'records'
+    'activeCollectionId' | 'database' | 'onRecordPageChange' | 'recordPagination' | 'records'
   > {
   readonly onClaimTarget: ClaimTarget;
 }
@@ -36,12 +35,10 @@ export function ChunkInspectorSection({
   activeCollectionId,
   database,
   onClaimTarget,
+  onRecordPageChange,
   recordPagination,
   records,
 }: ChunkInspectorSectionProps) {
-  const recordPage = useDatabaseDemoStore((s) => s.recordPage);
-  const setRecordPage = useDatabaseDemoStore((s) => s.setRecordPage);
-
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
   const [chunkPage, setChunkPage] = useState(0);
@@ -186,9 +183,9 @@ export function ChunkInspectorSection({
           files={files}
           onClaimTarget={onClaimTarget}
           onSelectFile={handleSelectFile}
-          page={recordPage}
+          page={recordPagination.currentPage}
           selectedFileId={effectiveFileId}
-          setPage={setRecordPage}
+          setPage={onRecordPageChange}
           totalPages={recordPagination.totalPages}
         />
 
