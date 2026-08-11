@@ -110,7 +110,7 @@
     "format": "biome format --write .",
     "lint": "pnpm -w lint",
     "prebuild": "node ../../scripts/run-turbo-command.mjs --skip-under-turbo -- run build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/platform-utils --filter=@brainstrike/assistant-service",
-    "predev": "if [ -f ../../packages/file-explorer/dist/index.mjs ] && [ -f ../../packages/build-utils/dist/index.js ] && [ -f ../../packages/agent/dist/index.mjs ] && [ -f ../../packages/platform-utils/dist/index.js ] && [ -f ../../packages/assistant-service/dist/request.mjs ]; then true; else node ../../scripts/run-turbo-command.mjs -- run build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/platform-utils --filter=@brainstrike/assistant-service; fi",
+    "predev": "node ../../scripts/run-turbo-command.mjs --skip-under-prepared-dev -- run build --filter=@brainstrike/file-explorer --filter=@brainstrike/build-utils --filter=@brainstrike/agent --filter=@brainstrike/platform-utils --filter=@brainstrike/assistant-service",
     "serve-static": "serve dist -p 8080",
     "start": "unset NO_COLOR; vite preview --port ${PORT:-8080} --host --strictPort",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",

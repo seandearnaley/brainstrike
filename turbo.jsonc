@@ -305,6 +305,11 @@
       "persistent": true,
       // Development tasks usually shouldn't be cached as they are interactive/watch processes.
       "cache": false,
+      // Root `pnpm dev` sets this only after synchronous dependency preparation.
+      // App predev hooks fail closed under bare `turbo run dev` when it is absent.
+      "passThroughEnv": [
+        "BRAINSTRIKE_DEV_DEPS_PREPARED"
+      ],
       // Specifies other tasks that should be run *alongside* this one.
       // Ideal for starting library watchers when the main app's dev server starts.
       "with": [

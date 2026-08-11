@@ -74,6 +74,19 @@ statically resolved tags, the desktop file remains PR-allowlisted and
 nightly-routed, and the pull-request E2E jobs still invoke both smoke scripts
 without PR-excluding conditions.
 
+### Development startup ordering (BST-1168)
+
+Root `pnpm dev` has a two-phase lifecycle: root `predev` synchronously prepares
+the complete app dependency graph, then the root `dev` wrapper marks the outer
+Turbo graph with `BRAINSTRIKE_DEV_DEPS_PREPARED=1`. Web and desktop `predev`
+hooks may skip their standalone preparation only when both `TURBO_HASH` and
+that explicit marker are present. A bare `turbo run dev` has no marker and must
+fail closed with guidance to use `pnpm dev`; it must never start nested builds
+beside persistent watchers. Direct package-level web or desktop `pnpm dev`
+invocations have no `TURBO_HASH`, so they still prepare dependencies
+synchronously. Do not replace this ordering with sleeps, polling, or `dist`
+existence sentinels.
+
 ### The package-boundary gate runs first in Static (BST-967)
 
 The `Static` job runs `pnpm exec turbo boundaries` as its first substantive
@@ -1479,14 +1492,19 @@ Never replace this with a code-only or package-wide warning suppression.
 
 ### Desktop development dependency freshness
 
-`apps/desktop` runs `scripts/ensure-desktop-dev-deps.mjs` before every
-development launch, including `dev:agent-debug`. Agent-debug runs that preflight
+`apps/desktop` invokes `scripts/ensure-desktop-dev-deps.mjs` for development,
+including `dev:agent-debug`. Under root `pnpm dev`, the root pre-script already
+completed that graph, so the desktop pre-script skips only when Turbo carries
+the explicit preparation marker described in
+[Development startup ordering (BST-1168)](#development-startup-ordering-bst-1168).
+Standalone desktop and agent-debug launches run the helper synchronously.
+Agent-debug runs that preflight
 to completion before loading the Windows Job Object addon, then starts the
 internal `dev:runtime` script under the initialized Job. This order is
 mandatory on Windows: a loaded native addon cannot be replaced by node-gyp, so
 loading the Job Object first would make a cold dependency build fail with
-`EPERM`. The helper must always ask Turbo to build the exact `build-utils` +
-`agent` + `ui` dependency graph.
+`EPERM`. When it is not inside a marked, already-prepared graph, the helper must ask
+Turbo to build the exact desktop dependency graph.
 Turbo's content hashes and cache are the freshness authority; checking only
 whether `dist` files exist is forbidden because branch updates can leave
 tool schemas, prompts, or provider code silently pinned to an older commit.

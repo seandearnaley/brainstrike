@@ -10,6 +10,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const NESTED_TURBO_RUN_LOCK_DIRNAME = 'nested-turbo-run.lock';
 const NESTED_RUN_LOCK_POLL_MS = 200;
 const NESTED_RUN_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
+const DEV_DEPS_PREPARED_ENV = 'BRAINSTRIKE_DEV_DEPS_PREPARED';
 
 export function isProcessAlive(pid) {
   try {
@@ -264,17 +265,29 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
 
   if (separatorIndex === -1 || separatorIndex === argv.length - 1) {
     logError(
-      'Usage: node scripts/run-turbo-command.mjs [--windows-concurrency=N] [--skip-under-turbo] -- <turbo args...>'
+      'Usage: node scripts/run-turbo-command.mjs [--windows-concurrency=N] [--skip-under-turbo] [--skip-under-prepared-dev] [--mark-dev-deps-prepared] -- <turbo args...>'
     );
     return 1;
   }
 
   let windowsConcurrency;
   let skipUnderTurbo = false;
+  let skipUnderPreparedDev = false;
+  let markDevDepsPrepared = false;
 
   for (const option of argv.slice(2, separatorIndex)) {
     if (option === '--skip-under-turbo') {
       skipUnderTurbo = true;
+      continue;
+    }
+
+    if (option === '--skip-under-prepared-dev') {
+      skipUnderPreparedDev = true;
+      continue;
+    }
+
+    if (option === '--mark-dev-deps-prepared') {
+      markDevDepsPrepared = true;
       continue;
     }
 
@@ -312,6 +325,23 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
   if (skipUnderTurbo && env['TURBO_HASH']) {
     log(
       'Skipping nested turbo invocation (--skip-under-turbo): TURBO_HASH is set, so an outer turbo task is running this script and its ^build graph already builds these packages.'
+    );
+    return 0;
+  }
+
+  // App predev hooks may skip only when root predev completed synchronous
+  // dependency preparation and explicitly marked the outer dev graph.
+  // TURBO_HASH alone merely proves Turbo is running; direct `turbo run dev`
+  // must fail closed rather than launch nested builds beside live watchers.
+  if (skipUnderPreparedDev && env['TURBO_HASH']) {
+    if (env[DEV_DEPS_PREPARED_ENV] !== '1') {
+      logError(
+        `Refusing to start dev without synchronous dependency preparation. Run \`pnpm dev\` instead of invoking Turbo directly; if you already ran \`pnpm dev\`, verify dev.passThroughEnv in turbo.jsonc includes ${DEV_DEPS_PREPARED_ENV}.`
+      );
+      return 1;
+    }
+    log(
+      `Skipping nested dev dependency build: root predev completed it before the outer watcher graph (${DEV_DEPS_PREPARED_ENV}=1).`
     );
     return 0;
   }
@@ -358,7 +388,7 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
   try {
     const invocation = createSpawnInvocation('turbo', args, platform);
     const result = spawnSyncImpl(invocation.command, invocation.args, {
-      env,
+      env: markDevDepsPrepared ? { ...env, [DEV_DEPS_PREPARED_ENV]: '1' } : env,
       shell: invocation.shell,
       stdio: 'inherit',
     });
