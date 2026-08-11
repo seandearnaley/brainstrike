@@ -591,6 +591,7 @@ describe('DatabaseDemoPanel', () => {
 
       expect(screen.getByRole('alert')).toHaveTextContent('Database failed to initialize');
       expect(screen.getByTestId('db-init-error')).toHaveTextContent('Error');
+      expect(screen.queryByRole('button', { name: 'Clear Database' })).not.toBeInTheDocument();
       // The surface is named Collections (matching its Library tab); only the
       // engine-level error copy still speaks about the database itself.
       expect(screen.getByTestId('database-panel-loading-label')).toHaveTextContent(
