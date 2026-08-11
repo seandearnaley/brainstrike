@@ -129,8 +129,8 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 * **Assistant:** `AssistantChatPanel` calls `GET {assistantBase}/assistant/status -> {enabled:boolean,provider?:SupportedProvider,model?:string,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing; provider and model are an atomic validated pair when present.
 * **Threads:** `ThreadsPanel` is a database-backed thread and group surface. It
   uses the `@brainstrike/assistant-data` repositories/stores plus
-  `ThreadSearchRepository`; persistence, hydration, and search changes must
-  follow `docs/agents/assistant-persistence.md`.
+  `ThreadSearchRepository` from `@brainstrike/db`; persistence, hydration, and
+  search changes must follow `docs/agents/assistant-persistence.md`.
 * **Vector status surfaces:** host `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `DatabasePanel` into DB-facing views.
 * **Search panel (optional):** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.
 * **Database tab:** lazy-loaded chunk that initializes PGlite when the database tab is opened or preloaded by the host app.

@@ -28,6 +28,10 @@ To use a locally hosted chat model, see [Ollama and LM Studio setup](docs/local-
 
 ## Monorepo Layout
 
+Selected high-level entries are shown for orientation; this is not an exhaustive
+workspace inventory. Use `pnpm-workspace.yaml` and package manifests for the
+current complete set.
+
 ```
 apps/
   web/       # Vite + React web app (Playwright E2E)
@@ -48,7 +52,7 @@ packages/
   file-explorer-hooks/# File explorer hooks
   file-system/        # FS abstractions/adapters
   storage/            # Storage abstractions/adapters
-  config/             # Shared TypeScript configuration
+  config/             # Shared Biome, TSConfig, and Tailwind v4 configuration
   db/                 # Local DB helpers
   agent/              # Mastra AI agent integration
   embeddings/         # Vector embedding generation

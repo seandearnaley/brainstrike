@@ -50,6 +50,10 @@ export function setModelChecksums(_modelId: string, _checksums: { onnxSha256: st
   );
 }
 
+/**
+ * @todo BST-493 Restore manifest-level artifact integrity verification.
+ * Until then this path must fail closed rather than accept unverified bytes.
+ */
 export async function verifyModelIntegrity(_modelId: string, _data: ArrayBuffer): Promise<never> {
   logger.warn(
     'Built-in local artifact integrity verification is currently disabled for the Gemma manifest path (BST-493)'
