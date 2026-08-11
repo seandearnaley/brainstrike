@@ -57,6 +57,12 @@ export interface DatabaseWorkPriorityStats {
 }
 
 export interface DatabaseWorkSchedulerOptions {
+  /**
+   * Maximum continuous wait before one queued background task receives a turn.
+   * The wait clock restarts after that task, preserving foreground preference
+   * while guaranteeing bounded progress under sustained foreground arrivals.
+   */
+  readonly backgroundStarvationMs?: number;
   readonly foregroundQuietMs?: number;
   readonly now?: () => number;
 }
@@ -116,6 +122,7 @@ type QueuedTask = ScheduledTask<unknown>;
 type CallableUnknown = (...args: unknown[]) => unknown;
 
 const PRIORITY_ORDER: readonly DatabaseWorkPriority[] = ['foreground', 'normal', 'background'];
+const DEFAULT_BACKGROUND_STARVATION_MS = 250;
 const DEFAULT_FOREGROUND_QUIET_MS = 75;
 const METRICS_WINDOW_SIZE = 64;
 const SCHEDULER_SYMBOL = Symbol.for('brainstrike.databaseWorkScheduler');
@@ -315,6 +322,7 @@ function hasForegroundOrNormalWork(
 }
 
 class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
+  readonly #backgroundStarvationMs: number;
   readonly #foregroundQuietMs: number;
   readonly #listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
   readonly #now: () => number;
@@ -337,6 +345,12 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   #runningPriority: DatabaseWorkPriority | null = null;
 
   constructor(options: DatabaseWorkSchedulerOptions = {}) {
+    const backgroundStarvationMs =
+      options.backgroundStarvationMs ?? DEFAULT_BACKGROUND_STARVATION_MS;
+    if (!Number.isFinite(backgroundStarvationMs) || backgroundStarvationMs < 0) {
+      throw new Error('DatabaseWorkScheduler backgroundStarvationMs must be non-negative.');
+    }
+    this.#backgroundStarvationMs = backgroundStarvationMs;
     this.#foregroundQuietMs = Math.max(0, options.foregroundQuietMs ?? DEFAULT_FOREGROUND_QUIET_MS);
     this.#now = options.now ?? (() => Date.now());
   }
@@ -430,6 +444,14 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     this.#backgroundWaitingSince = null;
   }
 
+  #isBackgroundStarved(now: number): boolean {
+    return (
+      this.#queues.background.length > 0 &&
+      this.#backgroundWaitingSince !== null &&
+      now - this.#backgroundWaitingSince >= this.#backgroundStarvationMs
+    );
+  }
+
   #nextDelayMs(): number {
     if (this.#running || !hasQueuedWork(this.#queues)) {
       return 0;
@@ -440,16 +462,36 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     }
 
     const now = this.#now();
+    if (this.#isBackgroundStarved(now)) {
+      return 0;
+    }
     const lastForegroundAt = this.#lastForegroundAt;
     if (lastForegroundAt === null) {
       return 0;
     }
-    return Math.max(0, this.#foregroundQuietMs - (now - lastForegroundAt));
+    const quietWindowRemainingMs = Math.max(0, this.#foregroundQuietMs - (now - lastForegroundAt));
+    const starvationRemainingMs =
+      this.#backgroundWaitingSince === null
+        ? this.#backgroundStarvationMs
+        : Math.max(0, this.#backgroundStarvationMs - (now - this.#backgroundWaitingSince));
+    return Math.min(quietWindowRemainingMs, starvationRemainingMs);
   }
 
   #pickNextTask(): QueuedTask | null {
     if (this.#running) {
       return null;
+    }
+
+    const now = this.#now();
+    if (this.#isBackgroundStarved(now)) {
+      const starvedTask = this.#queues.background.shift();
+      if (starvedTask) {
+        this.#lastStartedAt = now;
+        this.#runningStartedAt = now;
+        this.#recordTaskStarted(starvedTask, now);
+        this.#clearBackgroundWaiting();
+        return starvedTask;
+      }
     }
 
     for (const priority of PRIORITY_ORDER) {

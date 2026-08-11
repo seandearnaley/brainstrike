@@ -50,6 +50,24 @@ up to one coarse bucket after its individual event crosses the strict duration-
 sample cutoff. A nonzero count with zero retained percentile inputs at that
 boundary is therefore expected.
 
+## DATABASE WORK SCHEDULER FAIRNESS
+
+`DatabaseWorkScheduler` is the single-process admission boundary around each
+PGlite host. Foreground work receives a 75 ms quiet window after its latest
+arrival, but that preference is bounded: once the oldest queued background
+task has waited 250 ms, the scheduler admits exactly one background task before
+returning to foreground-first ordering. The wait clock restarts after each
+background admission. This keeps embedding claims, completion writes, and
+background indexing live under continuous foreground polling without turning
+the background lane into an equal-priority queue.
+
+The bound is configurable through `backgroundStarvationMs` for deterministic
+tests and specialized hosts; invalid negative or non-finite values throw. Work
+admitted through the background lane must therefore be short and bounded. Long
+maintenance statements such as `VACUUM (ANALYZE)` may run only after the
+maintenance scheduler has established an idle database/queue state; do not use
+background priority as authority to run an unbounded maintenance statement.
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.

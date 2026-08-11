@@ -84,6 +84,66 @@ describe('DatabaseWorkScheduler', () => {
     }
   });
 
+  it('runs waiting background work once sustained foreground pressure reaches the starvation bound', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({
+        backgroundStarvationMs: 200,
+        foregroundQuietMs: 50,
+      });
+      const events: string[] = [];
+
+      await scheduler.run(
+        async () => {
+          events.push('foreground-0');
+        },
+        { priority: 'foreground' }
+      );
+
+      const background = scheduler.run(
+        async () => {
+          events.push('background');
+        },
+        { label: 'embedding completion', priority: 'background' }
+      );
+
+      for (let index = 1; index <= 5; index += 1) {
+        await vi.advanceTimersByTimeAsync(40);
+        await scheduler.run(
+          async () => {
+            events.push(`foreground-${index}`);
+          },
+          { priority: 'foreground' }
+        );
+      }
+
+      await background;
+
+      expect(events).toEqual([
+        'foreground-0',
+        'foreground-1',
+        'foreground-2',
+        'foreground-3',
+        'foreground-4',
+        'background',
+        'foreground-5',
+      ]);
+      expect(scheduler.getSnapshot().priorityStats.background.longestWaitMs).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    -1,
+    Number.POSITIVE_INFINITY,
+    Number.NaN,
+  ])('rejects an invalid background starvation bound (%s)', (backgroundStarvationMs) => {
+    expect(() => createDatabaseWorkScheduler({ backgroundStarvationMs })).toThrow(
+      'DatabaseWorkScheduler backgroundStarvationMs must be non-negative.'
+    );
+  });
+
   it('does not treat normal-priority work as scheduler foreground quiet-window pressure', async () => {
     vi.useFakeTimers();
     try {
