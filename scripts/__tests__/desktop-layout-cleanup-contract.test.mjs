@@ -164,6 +164,29 @@ function findPostCleanupDatabaseErrorSkips(source) {
   return violations;
 }
 
+function findNamedFunctionSource(source, functionName) {
+  const sourceFile = ts.createSourceFile(
+    'database-persistence.test.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  let match;
+
+  function visit(node) {
+    if (!match && ts.isFunctionDeclaration(node) && node.name?.text === functionName) {
+      match = node.getText(sourceFile);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  assert.ok(match, `expected to find function ${functionName}`);
+  return match;
+}
+
 test('desktop database cleanup fails closed when cleanup cannot be verified', async () => {
   const source = await readFile(helperPath, 'utf8');
   assert.match(
@@ -210,6 +233,13 @@ test('database persistence specs do not treat fail-closed cleanup as a graceful 
     source,
     /if \(!cleared\) \{\s*throw new Error\(\s*'Database cleanup could not be verified: the database entered an error state after Clear Database; records were not cleared\.'\s*\);\s*\}/,
     'the button cleanup path must surface its failed verification instead of returning the active page'
+  );
+
+  const buttonCleanupSource = findNamedFunctionSource(source, 'clearWithButton');
+  assert.match(
+    buttonCleanupSource,
+    /await expect\s*\.poll\(async \(\) => await readActiveCollectionRecordTotal\(page\), \{ timeout: 15_000 \}\)\s*\.toBe\(0\);/,
+    'the button cleanup path must verify that the active collection is empty before reporting success'
   );
 });
 

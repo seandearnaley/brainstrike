@@ -725,31 +725,28 @@ test.describe('Database Persistence', () => {
     return (recordTotal ?? 0) > 0;
   }
 
-  async function confirmClearIfDialogVisible(dialog: Locator): Promise<void> {
-    try {
-      if (await dialog.isVisible({ timeout: 2000 })) {
-        const confirmButton = dialog
-          .locator('button:has-text("Clear Database")')
-          .or(dialog.locator('button:has-text("Clear")'))
-          .or(dialog.locator('button:has-text("Confirm")'));
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
-        }
-        await dialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
-      }
-    } catch {
-      // Ignore visibility timeouts; absence of dialog is acceptable.
-    }
+  async function confirmClearDialog(dialog: Locator): Promise<void> {
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    const confirmButton = dialog
+      .locator('button:has-text("Clear Database")')
+      .or(dialog.locator('button:has-text("Clear")'))
+      .or(dialog.locator('button:has-text("Confirm")'));
+    await expect(confirmButton).toBeVisible({ timeout: 5000 });
+    await confirmButton.click();
+    await expect(dialog).not.toBeVisible({ timeout: 10_000 });
   }
 
   async function clearWithButton(page: Page, clearButton: Locator): Promise<boolean> {
     await clearButton.click();
-    await confirmClearIfDialogVisible(page.locator('[role="dialog"]'));
+    await confirmClearDialog(page.locator('[role="dialog"]'));
     await page.waitForTimeout(2000);
     if (await isDatabaseError(page)) {
       return false;
     }
     await clickRefreshIfAvailable(page);
+    await expect
+      .poll(async () => await readActiveCollectionRecordTotal(page), { timeout: 15_000 })
+      .toBe(0);
     return true;
   }
 
