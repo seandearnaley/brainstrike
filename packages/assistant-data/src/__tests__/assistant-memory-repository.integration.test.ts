@@ -2868,31 +2868,24 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
             {
               createdAt: new Date('2026-04-22T09:00:00Z'),
               id: 'thread-1',
+              latestRunCompletedAt: new Date('2026-04-22T10:31:00Z'),
+              latestRunCreatedAt: new Date('2026-04-22T10:30:00Z'),
+              latestRunError: null,
+              latestRunId: 'run-2',
+              latestRunModel: 'claude-sonnet-4-6',
+              latestRunModelSettings: JSON.stringify({ maxOutputTokens: 2048 }),
+              latestRunProvider: 'anthropic',
+              latestRunProviderOptions: null,
+              latestRunResourceId: '/tmp/workspace-a',
+              latestRunRuntimeKind: 'hosted',
+              latestRunStartedAt: new Date('2026-04-22T10:30:00Z'),
+              latestRunStatus: 'completed',
+              latestRunThreadId: 'thread-1',
+              latestRunTurnMessageId: null,
+              latestRunUpdatedAt: new Date('2026-04-22T10:31:00Z'),
               resourceId: '/tmp/workspace-a',
               title: 'Persistence bug',
               updatedAt: new Date('2026-04-22T10:00:00Z'),
-            },
-          ],
-        };
-      }
-      if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
-        return {
-          rows: [
-            {
-              completed_at: new Date('2026-04-22T10:31:00Z'),
-              created_at: new Date('2026-04-22T10:30:00Z'),
-              error: null,
-              id: 'run-2',
-              model: 'claude-sonnet-4-6',
-              model_settings: JSON.stringify({ maxOutputTokens: 2048 }),
-              provider: 'anthropic',
-              provider_options: null,
-              resource_id: '/tmp/workspace-a',
-              runtime_kind: 'hosted',
-              started_at: new Date('2026-04-22T10:30:00Z'),
-              status: 'completed',
-              thread_id: 'thread-1',
-              updated_at: new Date('2026-04-22T10:31:00Z'),
             },
           ],
         };
@@ -2919,6 +2912,10 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
       turnMessageId: null,
       updatedAt: new Date('2026-04-22T10:31:00Z'),
     });
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining('LEFT JOIN'), [
+      '/tmp/workspace-a',
+    ]);
   });
 
   it('rejects corrupt message timestamps instead of substituting the current time', async () => {

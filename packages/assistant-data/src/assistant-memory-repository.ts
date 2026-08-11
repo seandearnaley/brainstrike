@@ -1750,6 +1750,32 @@ function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunReco
   };
 }
 
+function toLatestThreadRunRecord(
+  threadRow: Record<string, unknown>
+): AssistantThreadRunRecord | undefined {
+  const id = threadRow['latestRunId'];
+  if (id === null || id === undefined) {
+    return;
+  }
+  return toThreadRunRecord({
+    completedAt: threadRow['latestRunCompletedAt'],
+    createdAt: threadRow['latestRunCreatedAt'],
+    error: threadRow['latestRunError'],
+    id,
+    model: threadRow['latestRunModel'],
+    modelSettings: threadRow['latestRunModelSettings'],
+    provider: threadRow['latestRunProvider'],
+    providerOptions: threadRow['latestRunProviderOptions'],
+    resourceId: threadRow['latestRunResourceId'],
+    runtimeKind: threadRow['latestRunRuntimeKind'],
+    startedAt: threadRow['latestRunStartedAt'],
+    status: threadRow['latestRunStatus'],
+    threadId: threadRow['latestRunThreadId'],
+    turnMessageId: threadRow['latestRunTurnMessageId'],
+    updatedAt: threadRow['latestRunUpdatedAt'],
+  });
+}
+
 function toRunEventDataParts(runEvents: readonly AssistantRunEvent[]): Array<{
   readonly data: AssistantRunEvent;
   readonly name: typeof ASSISTANT_RUN_EVENT_DATA_NAME;
@@ -3386,18 +3412,57 @@ export function createPgliteAssistantThreadRepository(
     async listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]> {
       await initialize();
       const result = await database.query<Record<string, unknown>>(
-        `SELECT id, "resourceId", title, metadata, "createdAt", "updatedAt"
-         FROM ${MASTRA_MEMORY_TABLES.threads}
-         WHERE "resourceId" = $1
-         ORDER BY "updatedAt" DESC, id DESC`,
+        `SELECT
+           threads.id,
+           threads."resourceId",
+           threads.title,
+           threads.metadata,
+           threads."createdAt",
+           threads."updatedAt",
+           latest_run.id AS "latestRunId",
+           latest_run.resource_id AS "latestRunResourceId",
+           latest_run.thread_id AS "latestRunThreadId",
+           latest_run.provider AS "latestRunProvider",
+           latest_run.model AS "latestRunModel",
+           latest_run.model_settings AS "latestRunModelSettings",
+           latest_run.provider_options AS "latestRunProviderOptions",
+           latest_run.runtime_kind AS "latestRunRuntimeKind",
+           latest_run.status AS "latestRunStatus",
+           latest_run.error AS "latestRunError",
+           latest_run.started_at AS "latestRunStartedAt",
+           latest_run.completed_at AS "latestRunCompletedAt",
+           latest_run.created_at AS "latestRunCreatedAt",
+           latest_run.updated_at AS "latestRunUpdatedAt",
+           latest_run.turn_message_id AS "latestRunTurnMessageId"
+         FROM ${MASTRA_MEMORY_TABLES.threads} AS threads
+         LEFT JOIN (
+           SELECT DISTINCT ON (thread_id)
+             id,
+             resource_id,
+             thread_id,
+             provider,
+             model,
+             model_settings,
+             provider_options,
+             runtime_kind,
+             status,
+             error,
+             started_at,
+             completed_at,
+             created_at,
+             updated_at,
+             turn_message_id
+           FROM ${ASSISTANT_THREAD_RUNS_TABLE}
+           WHERE resource_id = $1
+           ORDER BY thread_id, started_at DESC, id DESC
+         ) AS latest_run ON latest_run.thread_id = threads.id
+         WHERE threads."resourceId" = $1
+         ORDER BY threads."updatedAt" DESC, threads.id DESC`,
         [resourceId]
-      );
-      const latestRunByThreadId = new Map(
-        (await listLatestThreadRuns(resourceId)).map((run) => [run.threadId, run])
       );
       return result.rows.map((row) => {
         const threadId = requireString(row['id'], 'id');
-        const latestRun = latestRunByThreadId.get(threadId);
+        const latestRun = toLatestThreadRunRecord(row);
         return toMemoryThread({
           createdAt: row['createdAt'],
           id: threadId,

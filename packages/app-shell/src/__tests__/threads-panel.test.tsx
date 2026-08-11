@@ -312,6 +312,45 @@ beforeEach(() => {
   );
   mockDb.exec.mockClear();
   mockDb.query.mockClear();
+  const latestRunRows = [
+    {
+      completedAt: new Date('2026-04-22T11:00:10Z'),
+      createdAt: new Date('2026-04-22T11:00:00Z'),
+      error: null,
+      id: 'run-1',
+      model: 'gpt-5.2',
+      modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
+      provider: 'openai',
+      providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-04-22T11:00:00Z'),
+      status: 'completed',
+      threadId: 'thread-b',
+      turnMessageId: null,
+      updatedAt: new Date('2026-04-22T11:00:10Z'),
+    },
+    {
+      completedAt: new Date('2026-04-22T09:00:10Z'),
+      createdAt: new Date('2026-04-22T09:00:00Z'),
+      error: null,
+      id: 'run-openrouter-1',
+      model: 'openai/gpt-5.6-terra',
+      modelSettings: null,
+      provider: 'openrouter',
+      providerOptions: JSON.stringify({
+        openrouter: { reasoning: { effort: 'low', summary: 'auto' } },
+      }),
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      runtimeKind: 'hosted',
+      startedAt: new Date('2026-04-22T09:00:00Z'),
+      status: 'completed',
+      threadId: 'thread-a',
+      turnMessageId: null,
+      updatedAt: new Date('2026-04-22T09:00:10Z'),
+    },
+  ];
+  const latestRunByThreadId = new Map(latestRunRows.map((run) => [run.threadId, run] as const));
   mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
     if (sql.includes('deleted_threads AS')) {
       const threadIds = (params ?? []).map(String);
@@ -460,47 +499,35 @@ beforeEach(() => {
       return { rows: [...placementRows] };
     }
     if (sql.includes('FROM mastra_threads')) {
-      return { rows: [...threadRows] };
+      return {
+        rows: threadRows.map((thread) => {
+          const latestRun = latestRunByThreadId.get(String(thread['id']));
+          if (!latestRun) {
+            return { ...thread };
+          }
+          return {
+            ...thread,
+            latestRunCompletedAt: latestRun.completedAt,
+            latestRunCreatedAt: latestRun.createdAt,
+            latestRunError: latestRun.error,
+            latestRunId: latestRun.id,
+            latestRunModel: latestRun.model,
+            latestRunModelSettings: latestRun.modelSettings,
+            latestRunProvider: latestRun.provider,
+            latestRunProviderOptions: latestRun.providerOptions,
+            latestRunResourceId: latestRun.resourceId,
+            latestRunRuntimeKind: latestRun.runtimeKind,
+            latestRunStartedAt: latestRun.startedAt,
+            latestRunStatus: latestRun.status,
+            latestRunThreadId: latestRun.threadId,
+            latestRunTurnMessageId: latestRun.turnMessageId,
+            latestRunUpdatedAt: latestRun.updatedAt,
+          };
+        }),
+      };
     }
     if (sql.includes('FROM brainstrike_assistant_thread_runs')) {
-      return {
-        rows: [
-          {
-            completedAt: new Date('2026-04-22T11:00:10Z'),
-            createdAt: new Date('2026-04-22T11:00:00Z'),
-            error: null,
-            id: 'run-1',
-            model: 'gpt-5.2',
-            modelSettings: JSON.stringify({ maxOutputTokens: 512 }),
-            provider: 'openai',
-            providerOptions: JSON.stringify({ openai: { reasoningEffort: 'high' } }),
-            resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-            runtimeKind: 'hosted',
-            startedAt: new Date('2026-04-22T11:00:00Z'),
-            status: 'completed',
-            threadId: 'thread-b',
-            updatedAt: new Date('2026-04-22T11:00:10Z'),
-          },
-          {
-            completedAt: new Date('2026-04-22T09:00:10Z'),
-            createdAt: new Date('2026-04-22T09:00:00Z'),
-            error: null,
-            id: 'run-openrouter-1',
-            model: 'openai/gpt-5.6-terra',
-            modelSettings: null,
-            provider: 'openrouter',
-            providerOptions: JSON.stringify({
-              openrouter: { reasoning: { effort: 'low', summary: 'auto' } },
-            }),
-            resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-            runtimeKind: 'hosted',
-            startedAt: new Date('2026-04-22T09:00:00Z'),
-            status: 'completed',
-            threadId: 'thread-a',
-            updatedAt: new Date('2026-04-22T09:00:10Z'),
-          },
-        ],
-      };
+      return { rows: [...latestRunRows] };
     }
     return { rows: [] };
   });

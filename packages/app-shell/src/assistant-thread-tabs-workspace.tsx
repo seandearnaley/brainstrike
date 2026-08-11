@@ -16,15 +16,7 @@ import {
 } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { ActionContextMenu, Button, useContextMenuTarget } from '@brainstrike/ui';
-import {
-  ArrowLeft,
-  ArrowRight,
-  ChevronLeft,
-  ChevronRight,
-  MessageSquare,
-  Plus,
-  X,
-} from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react';
 import type { KeyboardEvent, ReactElement, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
@@ -32,6 +24,7 @@ import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import {
   getAssistantThreadColorSurface,
+  getAssistantThreadIconPresentation,
   THREAD_CONTROL_ACTION_CLASS_NAME,
   THREAD_CONTROL_HEIGHT_CLASS_NAME,
   THREAD_CONTROL_MARK_CLASS_NAME,
@@ -674,6 +667,8 @@ export function AssistantThreadTabsWorkspace({
                 const isActive = threadId === activeThreadId;
                 const colorId = thread?.metadata?.color;
                 const colorSurface = getAssistantThreadColorSurface(colorId);
+                const iconId = thread?.metadata?.icon ?? 'message';
+                const ThreadIcon = getAssistantThreadIconPresentation(iconId).iconComponent;
                 return (
                   <AssistantThreadTabDndShell key={threadId} threadId={threadId}>
                     {(dragHandleRef) => (
@@ -706,7 +701,10 @@ export function AssistantThreadTabsWorkspace({
                             className={`${THREAD_CONTROL_MARK_CLASS_NAME} ${colorSurface.markClassName}`}
                             data-testid={`assistant-thread-tab-icon-${colorId ?? 'unassigned'}`}
                           >
-                            <MessageSquare className="h-3 w-3" />
+                            <ThreadIcon
+                              className="h-3 w-3"
+                              data-testid={`assistant-thread-tab-glyph-${iconId}`}
+                            />
                           </span>
                           <span className={THREAD_CONTROL_TITLE_CLASS_NAME}>{title}</span>
                         </button>

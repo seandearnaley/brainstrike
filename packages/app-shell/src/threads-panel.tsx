@@ -52,24 +52,18 @@ import {
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import {
   ArrowLeft,
-  Bug,
   Check,
   ChevronDown,
   ChevronUp,
-  ClipboardList,
-  Code2,
   Folder,
   FolderMinus,
   FolderPlus,
   ListChecks,
-  type LucideIcon,
   MessageSquare,
   MoreHorizontal,
   Palette,
   Pencil,
   Plus,
-  Rocket,
-  Search,
   SlidersHorizontal,
   SwatchBook,
   Trash2,
@@ -81,6 +75,7 @@ import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
+  ASSISTANT_THREAD_ICON_PRESENTATION,
   getAssistantThreadColorSurface,
   THREAD_CONTROL_ACTION_CLASS_NAME,
   THREAD_CONTROL_MARK_CLASS_NAME,
@@ -124,18 +119,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   openrouter: 'OpenRouter',
 };
-
-const THREAD_ICON_CONFIG = {
-  bug: { iconComponent: Bug, label: 'Bug' },
-  code: { iconComponent: Code2, label: 'Code' },
-  message: { iconComponent: MessageSquare, label: 'Message' },
-  plan: { iconComponent: ClipboardList, label: 'Plan' },
-  research: { iconComponent: Search, label: 'Research' },
-  rocket: { iconComponent: Rocket, label: 'Rocket' },
-} satisfies Record<
-  AssistantThreadIconId,
-  { readonly iconComponent: LucideIcon; readonly label: string }
->;
 
 function getProviderLabel(provider: string | undefined): string | null {
   if (!provider) {
@@ -932,7 +915,7 @@ function ThreadRowDisplay({
 function ThreadIdentityMark({ thread }: { readonly thread: AssistantMemoryThread }): ReactElement {
   const iconId = getThreadIconId(thread);
   const colorId = getThreadColorId(thread);
-  const Icon = THREAD_ICON_CONFIG[iconId].iconComponent;
+  const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
   const colorConfig = getThreadColorConfig(thread);
   return (
     <span
@@ -984,8 +967,8 @@ function ThreadCustomizationPanel({
           <div className="mb-1.5 text-[11px] text-muted-foreground">Icon</div>
           <div className="grid grid-cols-6 gap-1">
             {ASSISTANT_THREAD_ICON_IDS.map((iconId) => {
-              const Icon = THREAD_ICON_CONFIG[iconId].iconComponent;
-              const label = THREAD_ICON_CONFIG[iconId].label;
+              const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
+              const label = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].label;
               const selected = getThreadIconId(thread) === iconId;
               return (
                 <Button
@@ -1292,7 +1275,9 @@ function ThreadGroupHeader({
   const [customizing, setCustomizing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const colorConfig = getAssistantThreadColorSurface(group.color);
-  const GroupIcon = group.icon ? THREAD_ICON_CONFIG[group.icon].iconComponent : Folder;
+  const GroupIcon = group.icon
+    ? ASSISTANT_THREAD_ICON_PRESENTATION[group.icon].iconComponent
+    : Folder;
   return (
     <div className="min-w-0" data-testid="thread-group-header">
       <div className="group/thread-group flex min-h-10 min-w-0 items-center gap-2 px-2">
@@ -1368,8 +1353,8 @@ function ThreadGroupHeader({
                       <div className="mb-1 text-[11px] text-muted-foreground">Icon</div>
                       <div className="grid grid-cols-6 gap-1" data-testid="thread-group-icon-grid">
                         {ASSISTANT_THREAD_ICON_IDS.map((iconId) => {
-                          const Icon = THREAD_ICON_CONFIG[iconId].iconComponent;
-                          const label = THREAD_ICON_CONFIG[iconId].label;
+                          const Icon = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].iconComponent;
+                          const label = ASSISTANT_THREAD_ICON_PRESENTATION[iconId].label;
                           return (
                             <Button
                               aria-label={`Use ${label} icon for ${group.name}`}
