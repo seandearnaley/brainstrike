@@ -43,8 +43,8 @@ function parseAggregateCount(value: unknown): number | null {
   let parsed: number;
   if (typeof value === 'number') {
     parsed = value;
-  } else if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
-    parsed = Number(value.trim());
+  } else if (typeof value === 'string' && /^\d+$/.test(value)) {
+    parsed = Number(value);
   } else {
     return null;
   }

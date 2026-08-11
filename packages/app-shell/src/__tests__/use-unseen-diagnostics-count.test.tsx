@@ -167,6 +167,8 @@ describe('useUnseenDiagnosticsCount', () => {
   it.each([
     ['null', null],
     ['blank string', ''],
+    ['space-padded decimal string', ' 7 '],
+    ['control-whitespace-padded decimal string', '\t7\n'],
     ['boolean true', true],
     ['boolean false', false],
     ['empty array', []],
