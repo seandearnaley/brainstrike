@@ -199,7 +199,15 @@ an explicit lower limit. The Output & Limits UI must describe that finite
 default truthfully; an unset override is not an unbounded or "Open" run.
 Output-limit finishes are terminal failures, not successful completions:
 `finishReason: length` emits `run.failed`, an error finish, and a failed durable
-run outcome.
+run outcome. The desktop data-stream session receives the selected provider,
+model, and `requestedReasoningEffort` as narrow output-limit context; that field
+is absent for Auto even when provider options contain a resolved wire effort.
+When Kimi K3 reaches the limit at explicit `high` or `max`, the terminal copy
+tells the user to retry at Low or Auto; it never changes effort, retries, or
+enlarges the output window automatically. Other models and efforts retain the
+generic output-limit failure. Hosted Web accepts but ignores the shared wire
+field because its trust boundary owns model/generation policy server-side and
+currently exposes no explicit client reasoning-effort path.
 
 **EVERY error finish is a failed durable outcome, not just `length`.** All three
 parts of that sentence apply to `finishReason: 'error'` too — the finish emitted
