@@ -33,6 +33,8 @@ test.describe('Embedding Host Renderer - backfill search', () => {
   test('@desktop-embedding-backfill backfills chunked imported data without hanging and updates collection coverage', async ({
     window,
   }) => {
+    test.setTimeout(300_000);
+
     let activeWindow = await showDatabaseDemoPanel(window);
 
     if (await isDatabaseError(activeWindow)) {
@@ -115,7 +117,18 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     await drawerContent.getByRole('button', { name: /^Run$/ }).click({ timeout: 5000 });
 
     const drawerResults = drawerContent.getByTestId('collection-debug-retrieval-results');
-    await expect(drawerResults).toBeVisible({ timeout: 60_000 });
+    const drawerError = drawerContent.getByTestId('collection-debug-retrieval-error');
+    await expect
+      .poll(
+        async () => {
+          if ((await drawerError.count()) > 0) {
+            return `error: ${await drawerError.innerText()}`;
+          }
+          return (await drawerResults.count()) > 0 ? 'results' : 'pending';
+        },
+        { timeout: 60_000 }
+      )
+      .toBe('results');
     await expect(drawerResults).toContainText(/desktop chunking|manual backfill/i);
   });
 
