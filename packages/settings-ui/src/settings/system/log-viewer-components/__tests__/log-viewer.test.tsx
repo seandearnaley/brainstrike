@@ -169,6 +169,74 @@ describe('LogViewer', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a circular-bindings serialization failure visible without dropping the log record', async () => {
+    const circularBindings: Record<string, unknown> = {};
+    circularBindings['self'] = circularBindings;
+    const logSource = {
+      getInitialRecords: async () => [
+        createMockLogRecord({
+          bindings: circularBindings,
+          message: 'Circular bindings record',
+        }),
+      ],
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    expect(await screen.findByText('Circular bindings record')).toBeInTheDocument();
+    expect(screen.getByText('{"self":"[Circular]"}')).toBeInTheDocument();
+  });
+
+  it('exports circular bindings with an explicit circular marker', async () => {
+    const circularBindings: Record<string, unknown> = { runtime: 'electron-renderer' };
+    circularBindings['self'] = circularBindings;
+    Object.defineProperty(circularBindings, 'broken', {
+      enumerable: true,
+      get: () => {
+        throw new Error('binding getter failed');
+      },
+    });
+    const logSource = {
+      getInitialRecords: async () => [
+        createMockLogRecord({
+          bindings: circularBindings,
+          message: 'Circular bindings export record',
+        }),
+      ],
+      subscribe: () => () => {},
+    };
+    let exportedBlob: Blob | null = null;
+    const createObjectUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockImplementation((blob: Blob | MediaSource) => {
+        exportedBlob = blob as Blob;
+        return 'blob:circular-logs';
+      });
+    const anchorClickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {});
+
+    try {
+      render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+      expect(await screen.findByText('Circular bindings export record')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Export Logs' }));
+
+      expect(exportedBlob).not.toBeNull();
+      const payload = JSON.parse(await exportedBlob!.text());
+      expect(payload.records[0].bindings).toEqual({
+        broken: '[Bindings serialization failed]',
+        runtime: 'electron-renderer',
+        self: '[Circular]',
+      });
+      expect(mockToast).not.toHaveBeenCalled();
+    } finally {
+      createObjectUrlSpy.mockRestore();
+      anchorClickSpy.mockRestore();
+    }
+  });
+
   it('serializes unchanged records only once across incremental notifications', () => {
     vi.useFakeTimers();
     let subscribedHandler: ((records: readonly LogRecord[]) => void) | undefined;

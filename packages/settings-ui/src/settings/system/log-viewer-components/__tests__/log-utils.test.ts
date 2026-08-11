@@ -5,7 +5,55 @@ import {
   getCachedLogSearchHaystack,
   type LogRecordRow,
   MAX_CACHED_LOG_SEARCH_HAYSTACK_CHARACTERS,
+  serializeBindings,
 } from '../log-utils';
+
+describe('serializeBindings', () => {
+  it('surfaces a toJSON result of undefined instead of silently omitting bindings', () => {
+    expect(serializeBindings({ toJSON: () => undefined })).toBe('[Bindings serialization failed]');
+  });
+
+  it('uses the bindings-specific marker when structural fallback cannot read properties', () => {
+    const bindings: Record<string, unknown> = {};
+    Object.defineProperty(bindings, 'broken', {
+      enumerable: true,
+      get: () => {
+        throw new Error('binding getter failed');
+      },
+    });
+
+    expect(serializeBindings(bindings)).toBe('{"broken":"[Bindings serialization failed]"}');
+  });
+
+  it('marks a bindings proxy whose failure leaves no enumerable fallback structure', () => {
+    const bindings = new Proxy(
+      {},
+      {
+        get: () => {
+          throw new Error('binding get failed');
+        },
+      }
+    );
+
+    expect(serializeBindings(bindings)).toBe('[Bindings serialization failed]');
+  });
+
+  it('renders whole-value proxy failures as a bare bindings marker', () => {
+    const ownKeysProxy = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error('binding ownKeys failed');
+        },
+      }
+    );
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+
+    expect(serializeBindings(ownKeysProxy)).toBe('[Bindings serialization failed]');
+    expect(serializeBindings(revoked.proxy)).toBe('[Bindings serialization failed]');
+  });
+});
 
 describe('getCachedLogSearchHaystack', () => {
   it('builds the lowercase projection once per record across incremental searches', () => {

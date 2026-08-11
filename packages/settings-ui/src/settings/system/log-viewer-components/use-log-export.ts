@@ -5,6 +5,7 @@ import {
   formatTimestampedDownloadFilename,
 } from '@brainstrike/utils/browser-download';
 import { useCallback } from 'react';
+import { serializeDiagnosticJson } from './log-diagnostic-metadata';
 
 interface UseLogExportOptions {
   readonly getExportRecords: () => readonly LogRecord[];
@@ -25,22 +26,22 @@ export function useLogExport({
     if (records.length === 0) {
       return;
     }
-    const blob = new Blob(
-      [
-        JSON.stringify(
-          {
-            exportedAt: new Date().toISOString(),
-            recordCount: records.length,
-            records,
-            sourceCoverage: sourceCoverage(records),
-          },
-          null,
-          2
-        ),
-      ],
-      { type: 'application/json' }
-    );
     try {
+      const blob = new Blob(
+        [
+          serializeDiagnosticJson(
+            {
+              exportedAt: new Date().toISOString(),
+              recordCount: records.length,
+              records,
+              sourceCoverage: sourceCoverage(records),
+            },
+            'Log export',
+            2
+          ),
+        ],
+        { type: 'application/json' }
+      );
       await downloadBlobFile({
         blob,
         filename: formatTimestampedDownloadFilename({

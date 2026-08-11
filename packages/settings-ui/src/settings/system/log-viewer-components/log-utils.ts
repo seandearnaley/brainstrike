@@ -1,4 +1,7 @@
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
+import { serializeDiagnosticJson } from './log-diagnostic-metadata';
+
+const BINDINGS_SERIALIZATION_FAILURE = '[Bindings serialization failed]';
 
 export function sortLogRecords(records: readonly LogRecord[]): LogRecord[] {
   return [...records].sort((a, b) => a.timestamp - b.timestamp);
@@ -34,6 +37,29 @@ export function serializeArgs(args?: readonly unknown[]): string {
       }
     })
     .join(' ');
+}
+
+export function serializeBindings(bindings: LogRecord['bindings']): string {
+  try {
+    // Preserve normal JSON/toJSON semantics on the common path; only invoke the
+    // diagnostic normalizer when native serialization proves the value unsafe.
+    const serialized = JSON.stringify(bindings ?? {});
+    return serialized ?? BINDINGS_SERIALIZATION_FAILURE;
+  } catch {
+    try {
+      const fallback = serializeDiagnosticJson(
+        bindings ?? {},
+        'Log bindings',
+        0,
+        BINDINGS_SERIALIZATION_FAILURE
+      );
+      return fallback === '{}' || fallback === JSON.stringify(BINDINGS_SERIALIZATION_FAILURE)
+        ? BINDINGS_SERIALIZATION_FAILURE
+        : fallback;
+    } catch {
+      return BINDINGS_SERIALIZATION_FAILURE;
+    }
+  }
 }
 
 export function getLevelBadgeVariant(

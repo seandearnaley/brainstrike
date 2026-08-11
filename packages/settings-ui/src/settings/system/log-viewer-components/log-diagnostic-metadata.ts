@@ -2,6 +2,8 @@ import type { LogRecord } from '@brainstrike/logging';
 import { type DiagnosticCauseEntry, isDiagnosticCauseEntry } from '@brainstrike/utils/diagnostics';
 
 const CIRCULAR_REFERENCE_MARKER = '[Circular]';
+const DIAGNOSTIC_SERIALIZATION_FAILURE_MARKER = '[Diagnostic serialization failed]';
+const BINDINGS_SERIALIZATION_FAILURE_MARKER = '[Bindings serialization failed]';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -9,6 +11,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readNonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readBindingValue(record: LogRecord, key: string): unknown {
+  try {
+    return record.bindings?.[key];
+  } catch {
+    return;
+  }
 }
 
 export function getLogRecordContext(record: LogRecord): Record<string, unknown> | null {
@@ -25,18 +35,18 @@ export function getLogRecordSource(record: LogRecord): string {
   if (explicitSource) {
     return explicitSource;
   }
-  return readNonEmptyString(record.bindings?.['runtime']) ?? 'unknown';
+  return readNonEmptyString(readBindingValue(record, 'runtime')) ?? 'unknown';
 }
 
 export function getLogRecordCode(record: LogRecord): string | null {
   return (
-    readNonEmptyString(record.bindings?.['code']) ??
+    readNonEmptyString(readBindingValue(record, 'code')) ??
     readNonEmptyString(getLogRecordContext(record)?.['code'])
   );
 }
 
 export function getLogRecordFingerprint(record: LogRecord): string | null {
-  return readNonEmptyString(record.bindings?.['fingerprint']);
+  return readNonEmptyString(readBindingValue(record, 'fingerprint'));
 }
 
 interface LogRecordCauseChainDiagnostics {
@@ -96,7 +106,32 @@ function normalizeDiagnosticNumber(value: number): number | string {
   return value > 0 ? '[Infinity]' : '[-Infinity]';
 }
 
-function normalizeDiagnosticValue(value: unknown, active: WeakSet<object>): unknown {
+function normalizeBindingsValue(value: unknown, active: WeakSet<object>): unknown {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined
+      ? BINDINGS_SERIALIZATION_FAILURE_MARKER
+      : JSON.parse(serialized);
+  } catch {
+    const normalized = normalizeDiagnosticValue(
+      value,
+      active,
+      BINDINGS_SERIALIZATION_FAILURE_MARKER
+    );
+    return typeof normalized === 'object' &&
+      normalized !== null &&
+      !Array.isArray(normalized) &&
+      Object.keys(normalized).length === 0
+      ? BINDINGS_SERIALIZATION_FAILURE_MARKER
+      : normalized;
+  }
+}
+
+function normalizeDiagnosticValue(
+  value: unknown,
+  active: WeakSet<object>,
+  failureMarker = DIAGNOSTIC_SERIALIZATION_FAILURE_MARKER
+): unknown {
   if (value === undefined) {
     return '[Undefined]';
   }
@@ -121,36 +156,78 @@ function normalizeDiagnosticValue(value: unknown, active: WeakSet<object>): unkn
 
   active.add(value);
   try {
-    if (value instanceof Date) {
-      return Number.isFinite(value.getTime()) ? value.toISOString() : '[Invalid Date]';
-    }
-    if (Array.isArray(value)) {
-      return value.map((entry) => normalizeDiagnosticValue(entry, active));
-    }
-    if (value instanceof Error) {
-      const customEntries = Object.entries(value).filter(
-        ([key]) => !['cause', 'message', 'name', 'stack'].includes(key)
+    try {
+      if (value instanceof Date) {
+        return Number.isFinite(value.getTime()) ? value.toISOString() : '[Invalid Date]';
+      }
+      if (Array.isArray(value)) {
+        return value.map((entry) => {
+          try {
+            return normalizeDiagnosticValue(entry, active, failureMarker);
+          } catch {
+            return failureMarker;
+          }
+        });
+      }
+      if (value instanceof Error) {
+        const customEntries = Object.entries(value).filter(
+          ([key]) => !['cause', 'message', 'name', 'stack'].includes(key)
+        );
+        return {
+          ...Object.fromEntries(
+            customEntries.map(([key, entry]) => [
+              key,
+              normalizeDiagnosticValue(entry, active, failureMarker),
+            ])
+          ),
+          cause: normalizeDiagnosticValue(value.cause, active, failureMarker),
+          message: value.message,
+          name: value.name,
+          stack: value.stack ?? '[Undefined]',
+        };
+      }
+      let keys: string[];
+      try {
+        keys = Object.keys(value);
+      } catch {
+        return failureMarker;
+      }
+      return Object.fromEntries(
+        keys.map((key) => {
+          const childFailureMarker =
+            key === 'bindings' ? BINDINGS_SERIALIZATION_FAILURE_MARKER : failureMarker;
+          try {
+            const childValue = Reflect.get(value, key);
+            return [
+              key,
+              key === 'bindings'
+                ? normalizeBindingsValue(childValue, active)
+                : normalizeDiagnosticValue(childValue, active, childFailureMarker),
+            ];
+          } catch {
+            return [key, childFailureMarker];
+          }
+        })
       );
-      return {
-        ...Object.fromEntries(
-          customEntries.map(([key, entry]) => [key, normalizeDiagnosticValue(entry, active)])
-        ),
-        cause: normalizeDiagnosticValue(value.cause, active),
-        message: value.message,
-        name: value.name,
-        stack: value.stack ?? '[Undefined]',
-      };
+    } catch {
+      return failureMarker;
     }
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, normalizeDiagnosticValue(entry, active)])
-    );
   } finally {
     active.delete(value);
   }
 }
 
-function serializeDiagnosticJson(value: unknown, description: string): string {
-  const json = JSON.stringify(normalizeDiagnosticValue(value, new WeakSet<object>()), null, 2);
+export function serializeDiagnosticJson(
+  value: unknown,
+  description: string,
+  space?: number,
+  failureMarker = DIAGNOSTIC_SERIALIZATION_FAILURE_MARKER
+): string {
+  const json = JSON.stringify(
+    normalizeDiagnosticValue(value, new WeakSet<object>(), failureMarker),
+    null,
+    space
+  );
   if (json === undefined) {
     throw new Error(`${description} could not be serialized as JSON`);
   }
@@ -158,9 +235,9 @@ function serializeDiagnosticJson(value: unknown, description: string): string {
 }
 
 export function serializeLogContextJson(context: Record<string, unknown> | null): string {
-  return serializeDiagnosticJson(context ?? {}, 'Log context');
+  return serializeDiagnosticJson(context ?? {}, 'Log context', 2);
 }
 
 export function serializeLogRecordJson(record: LogRecord): string {
-  return serializeDiagnosticJson(record, 'Log record');
+  return serializeDiagnosticJson(record, 'Log record', 2);
 }

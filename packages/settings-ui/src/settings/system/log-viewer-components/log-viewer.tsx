@@ -40,6 +40,7 @@ import {
   type LogRecordRow,
   type LogSearchHaystackCache,
   serializeArgs,
+  serializeBindings,
   sortLogRecords,
 } from './log-utils';
 import { useLogExport } from './use-log-export';
@@ -110,7 +111,7 @@ function getLogRecordRow(
   }
   const row: LogRecordRow = {
     ...record,
-    flattenedBindings: JSON.stringify(record.bindings ?? {}),
+    flattenedBindings: serializeBindings(record.bindings),
     originalRecord: record,
     serializedArgs: serializeArgs(record.args),
   };
