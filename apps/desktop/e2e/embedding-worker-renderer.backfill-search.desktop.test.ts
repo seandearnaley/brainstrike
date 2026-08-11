@@ -119,16 +119,13 @@ test.describe('Embedding Host Renderer - backfill search', () => {
     const drawerResults = drawerContent.getByTestId('collection-debug-retrieval-results');
     const drawerError = drawerContent.getByTestId('collection-debug-retrieval-error');
     await expect
-      .poll(
-        async () => {
-          if ((await drawerError.count()) > 0) {
-            return `error: ${await drawerError.innerText()}`;
-          }
-          return (await drawerResults.count()) > 0 ? 'results' : 'pending';
-        },
-        { timeout: 60_000 }
-      )
-      .toBe('results');
+      .poll(async () => (await drawerResults.count()) + (await drawerError.count()), {
+        timeout: 60_000,
+      })
+      .toBeGreaterThan(0);
+    if ((await drawerError.count()) > 0) {
+      throw new Error(`Drawer retrieval failed: ${await drawerError.innerText()}`);
+    }
     await expect(drawerResults).toContainText(/desktop chunking|manual backfill/i);
   });
 

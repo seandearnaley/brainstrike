@@ -131,11 +131,11 @@ and incomplete embedding coverage.
   or mock-only proof.
 - The drawer stays unmounted while collapsed. Its 50k-file Electron proof opens
   only after retained-memory snapshots, measures click-to-settled latency through
-  the size-sensitive failed-embeddings query, and enforces the explicit 1500 ms
-  ceiling separately from a generous Playwright locator timeout. That elapsed
-  value is an upper bound because it includes renderer IPC round trips and
-  locator polling. The import/embed Electron proof verifies retrieval is
-  available before input, runs a real drawer query, and requires embedded
+  both the coverage live query and the incomplete-file rollup, and enforces the
+  explicit 1500 ms ceiling separately from a generous Playwright locator timeout.
+  That elapsed value is an upper bound because it includes renderer IPC round
+  trips and locator polling. The import/embed Electron proof verifies retrieval
+  is available before input, runs a real drawer query, and requires embedded
   fixture content in the scored result list.
 
 Paired tests:

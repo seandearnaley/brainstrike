@@ -450,12 +450,13 @@ test.describe('Embedding Host Renderer - memory', () => {
     await expect(activeWindow.getByTestId('collection-debug-drawer-content')).toBeVisible({
       timeout: 15_000,
     });
-    await expect(activeWindow.getByTestId('collection-debug-failed')).not.toContainText(
-      'Loading…',
-      {
-        timeout: 15_000,
-      }
-    );
+    const failedEmbeddingsSection = activeWindow.getByTestId('collection-debug-failed');
+    await expect(failedEmbeddingsSection).toContainText(`${fixture.fileCount} file(s), `, {
+      timeout: 15_000,
+    });
+    await expect(failedEmbeddingsSection).toContainText('file(s) need attention', {
+      timeout: 15_000,
+    });
     const drawerOpenFinishedAt = await activeWindow.evaluate(() => performance.now());
     const drawerOpenLatencyMs = drawerOpenFinishedAt - drawerOpenStartedAt;
 
