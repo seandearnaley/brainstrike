@@ -31,6 +31,13 @@ max-failure truncation. Use the narrow mode for controlled, sequential
 same-head memory calibration runs; it is evidence collection, not a way to
 replace or route required PR checks.
 
+Desktop renderer working-set snapshots use `app.getAppMetrics()` joined to
+each `webContents.getOSProcessId()`. Electron 43 does not expose the older
+`webContents.getProcessMemoryInfo()` API on the CI runner; treating that
+absence as zero made the large-collection thresholds vacuous. Missing PID
+metrics now fail visibly. The older API remains optional only for its private
+and shared-memory diagnostics.
+
 The AI Tools settings specs are deliberately part of both required PR smoke
 lanes. Their tool category/loading-tier assertions follow the shared assistant
 contract and previously drifted while every PR check stayed green. Web selects

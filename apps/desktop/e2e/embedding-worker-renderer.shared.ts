@@ -1163,6 +1163,17 @@ export function getRuntimeSnapshot(
   return runtime;
 }
 
+export function requireRuntimeWorkingSetMB(
+  snapshot: DesktopProcessSnapshot,
+  runtimeKind: RuntimeProcessSnapshot['runtimeKind']
+): number {
+  const workingSetMB = getRuntimeSnapshot(snapshot, runtimeKind).workingSetMB;
+  if (typeof workingSetMB !== 'number') {
+    throw new Error(`Missing ${runtimeKind} working-set measurement.`);
+  }
+  return workingSetMB;
+}
+
 export function growth(after: number, before: number): number {
   return Math.round((after - before) * 10) / 10;
 }
@@ -1368,16 +1379,31 @@ export async function readCombinedMemorySnapshot(
   hostPage: Page,
   label: string
 ): Promise<CombinedMemorySnapshot> {
-  const [visibleHeap, hostHeap, process] = await Promise.all([
-    readRendererHeapSnapshot(activeWindow, `${label}-visible`),
-    readRendererHeapSnapshot(hostPage, `${label}-host`),
-    readDesktopProcessSnapshot(electronApp),
-  ]);
+  const [visibleHeap, hostHeap, process, visibleWorkingSetMB, hostWorkingSetMB] = await Promise.all(
+    [
+      readRendererHeapSnapshot(activeWindow, `${label}-visible`),
+      readRendererHeapSnapshot(hostPage, `${label}-host`),
+      readDesktopProcessSnapshot(electronApp),
+      waitForTrackedRuntimeWorkingSetMB(electronApp, activeWindow, 'visible-ui'),
+      waitForTrackedRuntimeWorkingSetMB(electronApp, activeWindow, 'embedding-host'),
+    ]
+  );
 
   return {
     hostHeap,
     label,
-    process,
+    process: {
+      ...process,
+      runtimes: process.runtimes.map((runtime) => {
+        if (runtime.runtimeKind === 'visible-ui') {
+          return { ...runtime, workingSetMB: visibleWorkingSetMB };
+        }
+        if (runtime.runtimeKind === 'embedding-host') {
+          return { ...runtime, workingSetMB: hostWorkingSetMB };
+        }
+        return runtime;
+      }),
+    },
     visibleHeap,
   };
 }

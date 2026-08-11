@@ -43,6 +43,7 @@ const {
   readCombinedMemorySnapshot,
   readRendererHeapSnapshot,
   reloadRendererInTest,
+  requireRuntimeWorkingSetMB,
   resetEmbeddingHost,
   sampleMemoryWhileBackfillActive,
   setVectorDevicePreference,
@@ -309,12 +310,10 @@ test.describe('Embedding Host Renderer - memory', () => {
       'after-large-collection-open'
     );
 
-    const baselineVisibleProcess = getRuntimeSnapshot(baseline.process, 'visible-ui');
-    const selectedVisibleProcess = getRuntimeSnapshot(selected.process, 'visible-ui');
     const visibleHeapGrowthMB = growth(selected.visibleHeap.usedMB, baseline.visibleHeap.usedMB);
     const visibleWorkingSetGrowthMB = growth(
-      selectedVisibleProcess.workingSetMB ?? 0,
-      baselineVisibleProcess.workingSetMB ?? 0
+      requireRuntimeWorkingSetMB(selected.process, 'visible-ui'),
+      requireRuntimeWorkingSetMB(baseline.process, 'visible-ui')
     );
 
     console.log(
@@ -430,12 +429,10 @@ test.describe('Embedding Host Renderer - memory', () => {
       'after-large-file-list-open'
     );
 
-    const baselineVisibleProcess = getRuntimeSnapshot(baseline.process, 'visible-ui');
-    const pagedVisibleProcess = getRuntimeSnapshot(paged.process, 'visible-ui');
     const visibleHeapGrowthMB = growth(paged.visibleHeap.usedMB, baseline.visibleHeap.usedMB);
     const visibleWorkingSetGrowthMB = growth(
-      pagedVisibleProcess.workingSetMB ?? 0,
-      baselineVisibleProcess.workingSetMB ?? 0
+      requireRuntimeWorkingSetMB(paged.process, 'visible-ui'),
+      requireRuntimeWorkingSetMB(baseline.process, 'visible-ui')
     );
 
     console.log(
