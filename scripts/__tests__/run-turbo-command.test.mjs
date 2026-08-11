@@ -460,20 +460,39 @@ describe('nested prebuild turbo contract', () => {
   });
 
   it('restricts --skip-under-turbo to sound lifecycle boundaries', () => {
-    // Prebuilds are covered by the outer ^build graph. Web predev is the one
-    // deliberate exception: root predev completes the same build before the
-    // outer dev watcher graph starts, while standalone package dev still runs
-    // this predev because TURBO_HASH is absent.
+    // Only prebuilds may use the ^build-backed flag. Prepared dev hooks use a
+    // separate explicit-marker flag so TURBO_HASH alone cannot authorize them.
     const offenders = packageScriptEntries()
-      .filter(({ command, packageJsonPath, scriptName }) => {
-        if (!command.includes('--skip-under-turbo') || scriptName === 'prebuild') {
-          return false;
-        }
-        return !(scriptName === 'predev' && packageJsonPath.endsWith('/apps/web/package.json'));
-      })
+      .filter(
+        ({ command, scriptName }) =>
+          command.includes('--skip-under-turbo') && scriptName !== 'prebuild'
+      )
       .map(({ packageJsonPath, scriptName }) => `${packageJsonPath}:${scriptName}`);
 
     assert.deepEqual(offenders, []);
+  });
+
+  it('restricts prepared-dev marker flags to their lifecycle owners', () => {
+    const preparedSkipOffenders = packageScriptEntries()
+      .filter(
+        ({ command, scriptName }) =>
+          command.includes('--skip-under-prepared-dev') && scriptName !== 'predev'
+      )
+      .map(({ packageJsonPath, scriptName }) => `${packageJsonPath}:${scriptName}`);
+    assert.deepEqual(preparedSkipOffenders, []);
+
+    const markerOwners = packageScriptEntries()
+      .filter(({ command }) => command.includes('--mark-dev-deps-prepared'))
+      .map(({ packageJsonPath, scriptName }) => ({ packageJsonPath, scriptName }));
+    assert.deepEqual(markerOwners, [
+      { packageJsonPath: resolve(process.cwd(), 'package.json'), scriptName: 'dev' },
+    ]);
+
+    assert.match(
+      readFileSync(resolve(process.cwd(), 'scripts/ensure-desktop-dev-deps.mjs'), 'utf8'),
+      /'--skip-under-prepared-dev'/u,
+      'desktop predev preparation must use the explicit prepared-graph skip flag'
+    );
   });
 
   it('prebuild filter lists stay within the outer ^build graph (workspace dep closure)', () => {
@@ -581,11 +600,41 @@ describe('nested prebuild turbo contract', () => {
       /^node \.\.\/\.\.\/scripts\/run-turbo-command\.mjs --skip-under-prepared-dev -- run build(?: --filter=@brainstrike\/[\w-]+)+$/u,
       'standalone web dev must build dependencies, while the root turbo graph must skip its nested build'
     );
-    assert.match(
-      readFileSync(resolve(process.cwd(), 'turbo.jsonc'), 'utf8'),
-      /"BRAINSTRIKE_DEV_DEPS_PREPARED"/u,
-      'the root preparation marker must pass through Turbo strict-env mode to app predev tasks'
+    const devDryRun = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          require.resolve('turbo/bin/turbo'),
+          'run',
+          'dev',
+          '--filter=@brainstrike/web',
+          '--filter=@brainstrike/desktop',
+          '--dry=json',
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            NO_UPDATE_NOTIFIER: '1',
+            TURBO_TELEMETRY_DISABLED: '1',
+          },
+          maxBuffer: 64 * 1024 * 1024,
+        }
+      )
     );
+    for (const appName of ['@brainstrike/web', '@brainstrike/desktop']) {
+      const appDevTask = devDryRun.tasks.find(
+        (task) => task.task === 'dev' && task.package === appName
+      );
+      assert.ok(appDevTask, `expected ${appName}#dev in the resolved dev graph`);
+      assert.ok(
+        appDevTask.environmentVariables.specified.passThroughEnv.includes(
+          'BRAINSTRIKE_DEV_DEPS_PREPARED'
+        ),
+        `${appName}#dev must pass the root preparation marker through Turbo strict-env mode`
+      );
+    }
 
     const preparedGraph = JSON.parse(
       execFileSync(

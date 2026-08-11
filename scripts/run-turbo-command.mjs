@@ -336,7 +336,7 @@ export function runTurboCommand(argv = process.argv, platform = process.platform
   if (skipUnderPreparedDev && env['TURBO_HASH']) {
     if (env[DEV_DEPS_PREPARED_ENV] !== '1') {
       logError(
-        `Refusing to start dev after bypassing synchronous dependency preparation. Run \`pnpm dev\` instead of invoking Turbo directly (${DEV_DEPS_PREPARED_ENV} is missing).`
+        `Refusing to start dev without synchronous dependency preparation. Run \`pnpm dev\` instead of invoking Turbo directly; if you already ran \`pnpm dev\`, verify dev.passThroughEnv in turbo.jsonc includes ${DEV_DEPS_PREPARED_ENV}.`
       );
       return 1;
     }
