@@ -203,28 +203,11 @@ export function hasImportMeta(source) {
 }
 
 /**
- * Relative specifiers in static `import ... from` / `export ... from` positions,
- * plus bare `import '...'` side-effect imports. Comments are blanked first so a
- * commented-out import is not counted; string literals are preserved because the
- * specifier itself lives in one.
+ * Runtime static import/export specifiers; statement-level type-only edges
+ * disappear during transpilation. Inline type modifiers are conservatively
+ * retained so the contract may inspect an extra file but cannot miss a runtime
+ * edge.
  */
-export function extractRelativeSpecifiers(source) {
-  const cleaned = stripComments(source);
-  const specifiers = new Set();
-  const pattern = /(?:^|[\s;}])(?:import|export)(?:\s[^;'"]*?from)?\s*['"]([^'"]+)['"]/g;
-
-  let match = pattern.exec(cleaned);
-  while (match !== null) {
-    if (match[1].startsWith('.')) {
-      specifiers.add(match[1]);
-    }
-    match = pattern.exec(cleaned);
-  }
-
-  return [...specifiers];
-}
-
-/** Runtime static import/export specifiers; type-only edges disappear during transpilation. */
 export function extractRuntimeStaticSpecifiers(source) {
   const cleaned = stripComments(source);
   const specifiers = new Set();
@@ -363,14 +346,15 @@ export function findConfigFormatViolations(repoRoot) {
 /**
  * Rule B — a relative import that escapes an e2e root lands under the app's own
  * CommonJS manifest, so Playwright transpiles it even though its importer is ESM.
- * That is tolerable only while the target does not statically import a bare
- * package, exposes its named exports in a form cjs-module-lexer can read, and
- * contains no `import.meta`.
+ * That is tolerable only while every CommonJS-transpiled module reachable from
+ * the target avoids static bare-package imports, exposes named exports in a
+ * form cjs-module-lexer can read, and contains no `import.meta`.
  */
 export function findEscapingImportViolations(repoRoot) {
   const violations = [];
+  const e2eRoots = findE2eRoots(repoRoot);
 
-  for (const e2eRoot of findE2eRoots(repoRoot)) {
+  for (const e2eRoot of e2eRoots) {
     const rootManifest = findNearestPackageJson(e2eRoot, repoRoot);
     if (!(rootManifest && manifestDeclaresEsm(rootManifest))) {
       // Rule A already reports this; do not double-report.
@@ -396,32 +380,68 @@ export function findEscapingImportViolations(repoRoot) {
           continue; // escapes into another ESM manifest — fine
         }
 
-        const targetSource = fs.readFileSync(resolved, 'utf8');
         const importer = path.relative(repoRoot, file);
-        const target = path.relative(repoRoot, resolved);
+        const boundaryTarget = path.relative(repoRoot, resolved);
+        const pending = [resolved];
+        const visited = new Set();
 
-        const runtimeDependencies = extractRuntimeStaticSpecifiers(targetSource).filter(
-          (candidate) => !candidate.startsWith('.')
-        );
-        if (runtimeDependencies.length > 0) {
-          violations.push(
-            `${importer} imports '${specifier}' (${target}), which is CommonJS-transpiled but has runtime ` +
-              `bare dependencies (${runtimeDependencies.join(', ')}) — keep bare package imports out of an ` +
-              'escaping boundary so CommonJS cannot require an ESM-only package.'
-          );
-        }
+        while (pending.length > 0) {
+          const current = pending.shift();
+          if (!current || visited.has(current)) {
+            continue;
+          }
+          visited.add(current);
 
-        if (hasImportMeta(targetSource)) {
-          violations.push(
-            `${importer} imports '${specifier}' (${target}), which is CommonJS-transpiled and uses import.meta — ` +
-              'that cannot be represented in CommonJS and will throw at load.'
+          if (
+            e2eRoots.some((root) => {
+              const relative = path.relative(root, current);
+              return relative === '' || !(relative.startsWith('..') || path.isAbsolute(relative));
+            })
+          ) {
+            continue;
+          }
+
+          const currentManifest = findNearestPackageJson(path.dirname(current), repoRoot);
+          if (currentManifest && manifestDeclaresEsm(currentManifest)) {
+            continue;
+          }
+
+          const currentSource = fs.readFileSync(current, 'utf8');
+          const currentTarget = path.relative(repoRoot, current);
+          const runtimeSpecifiers = extractRuntimeStaticSpecifiers(currentSource);
+          const runtimeDependencies = runtimeSpecifiers.filter(
+            (candidate) => !candidate.startsWith('.')
           );
-        }
-        if (hasStarReexport(targetSource)) {
-          violations.push(
-            `${importer} imports '${specifier}' (${target}), which is CommonJS-transpiled and uses \`export *\` — ` +
-              'cjs-module-lexer cannot see through the transpiled getter loop, so static named imports will fail to link.'
-          );
+          if (runtimeDependencies.length > 0) {
+            violations.push(
+              `${importer} imports '${specifier}' (${boundaryTarget}), whose CommonJS-transpiled runtime graph ` +
+                `reaches ${currentTarget} with runtime bare dependencies (${runtimeDependencies.join(', ')}) — ` +
+                'keep bare package imports out of an escaping boundary so CommonJS cannot require an ESM-only package.'
+            );
+          }
+
+          if (hasImportMeta(currentSource)) {
+            violations.push(
+              `${importer} imports '${specifier}' (${boundaryTarget}), whose CommonJS-transpiled runtime graph ` +
+                `reaches ${currentTarget} using import.meta — that cannot be represented in CommonJS and will throw at load.`
+            );
+          }
+          if (hasStarReexport(currentSource)) {
+            violations.push(
+              `${importer} imports '${specifier}' (${boundaryTarget}), whose CommonJS-transpiled runtime graph ` +
+                `reaches ${currentTarget} using \`export *\` — cjs-module-lexer cannot see through the transpiled ` +
+                'getter loop, so static named imports will fail to link.'
+            );
+          }
+
+          for (const relativeSpecifier of runtimeSpecifiers.filter((candidate) =>
+            candidate.startsWith('.')
+          )) {
+            const next = resolveRelativeSpecifier(current, relativeSpecifier);
+            if (next && !visited.has(next)) {
+              pending.push(next);
+            }
+          }
         }
       }
     }

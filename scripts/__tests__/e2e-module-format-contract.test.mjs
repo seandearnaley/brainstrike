@@ -19,7 +19,6 @@ import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
-  extractRelativeSpecifiers,
   extractRuntimeStaticSpecifiers,
   findConfigFormatViolations,
   findE2eRoots,
@@ -199,6 +198,26 @@ describe('apps/*/e2e module format contract', () => {
     );
   });
 
+  it('CONTROL: reports a transitive runtime dependency beyond an escaping import', () => {
+    withFixture(
+      {
+        'apps/thing/e2e/a.test.ts': "import { u } from '../src/leaf';\nexport const a = u;\n",
+        'apps/thing/e2e/package.json': '{"type":"module"}',
+        'apps/thing/package.json': '{"name":"thing"}',
+        'apps/thing/src/leaf.ts': "import { value } from './sibling';\nexport const u = value;\n",
+        'apps/thing/src/sibling.ts':
+          "import './leaf';\nimport { createLogger } from '@brainstrike/logging';\nexport const value = createLogger('u');\n",
+        'package.json': '{"name":"root"}',
+      },
+      (root) => {
+        const violations = findEscapingImportViolations(root);
+        assert.equal(violations.length, 1);
+        assert.match(violations[0], /apps\/thing\/src\/sibling\.ts/);
+        assert.match(violations[0], /@brainstrike\/logging/);
+      }
+    );
+  });
+
   it('ignores type-only dependencies when identifying runtime static edges', () => {
     assert.deepEqual(
       extractRuntimeStaticSpecifiers(
@@ -307,7 +326,7 @@ describe('apps/*/e2e module format contract', () => {
     assert.ok(!hasImportMeta('const x = thing.import.meta;'));
   });
 
-  it('extracts relative specifiers and ignores commented-out imports', () => {
+  it('extracts runtime static specifiers and ignores comments and type-only edges', () => {
     const source = [
       "import { a } from './a';",
       "import type { B } from '../b.js';",
@@ -317,11 +336,11 @@ describe('apps/*/e2e module format contract', () => {
       "// import { d } from './d';",
     ].join('\n');
 
-    assert.deepEqual(extractRelativeSpecifiers(source).sort(), [
-      '../b.js',
+    assert.deepEqual(extractRuntimeStaticSpecifiers(source).sort(), [
       './a',
       './c',
       './side-effect',
+      '@scope/pkg',
     ]);
   });
 
