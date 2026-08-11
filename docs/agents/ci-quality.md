@@ -24,6 +24,13 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+Desktop `workflow_dispatch` exposes a `suite` choice. `full` preserves the
+scheduled workflow exactly. `memory-baseline` skips the unrelated broad
+regression job and runs only the desktop embedding memory spec with no
+max-failure truncation. Use the narrow mode for controlled, sequential
+same-head memory calibration runs; it is evidence collection, not a way to
+replace or route required PR checks.
+
 The AI Tools settings specs are deliberately part of both required PR smoke
 lanes. Their tool category/loading-tier assertions follow the shared assistant
 contract and previously drifted while every PR check stayed green. Web selects

@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: '53 7 * * *'
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Desktop E2E suite to run
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - memory-baseline
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,6 +35,7 @@ env:
 jobs:
   desktop-full-regression:
     name: Desktop Full Regression
+    if: github.event_name != 'workflow_dispatch' || inputs.suite == 'full'
     runs-on: ubuntu-latest
     # 30m broad regression + 2m AI Tools nightly lane + setup/build headroom.
     timeout-minutes: 40
@@ -200,22 +210,35 @@ jobs:
       # don't fill the log with `[ERROR:dbus/bus.cc:405] Failed to connect`.
       - name: Run desktop embedding regression
         working-directory: apps/desktop
+        env:
+          DESKTOP_E2E_SUITE: ${{ inputs.suite || 'full' }}
         run: |
           unset NO_COLOR
+          if [[ "$DESKTOP_E2E_SUITE" == "memory-baseline" ]]; then
+            test_files=(e2e/embedding-worker-renderer.memory.desktop.test.ts)
+            test_grep="@desktop-embedding-memory"
+            max_failures=0
+          else
+            test_files=(
+              e2e/embedding-worker-renderer.smoke.desktop.test.ts
+              e2e/embedding-worker-renderer.backfill-search.desktop.test.ts
+              e2e/embedding-worker-renderer.memory.desktop.test.ts
+              e2e/embedding-worker-renderer.diagnostics.desktop.test.ts
+              e2e/embedding-worker-renderer.crash-a.desktop.test.ts
+              e2e/embedding-worker-renderer.crash-b.desktop.test.ts
+              e2e/embedding-backfill-capacity.desktop.test.ts
+            )
+            test_grep="@desktop-embedding-"
+            max_failures=1
+          fi
           BRAINSTRIKE_DISABLE_FILE_LOGS=1 LOG_LEVEL=warn dbus-run-session -- pnpm exec xvfb-maybe pnpm exec playwright test \
-            e2e/embedding-worker-renderer.smoke.desktop.test.ts \
-            e2e/embedding-worker-renderer.backfill-search.desktop.test.ts \
-            e2e/embedding-worker-renderer.memory.desktop.test.ts \
-            e2e/embedding-worker-renderer.diagnostics.desktop.test.ts \
-            e2e/embedding-worker-renderer.crash-a.desktop.test.ts \
-            e2e/embedding-worker-renderer.crash-b.desktop.test.ts \
-            e2e/embedding-backfill-capacity.desktop.test.ts \
+            "${test_files[@]}" \
             --project=regression \
             --workers=1 \
             --retries=0 \
-            --max-failures=1 \
+            --max-failures="${max_failures}" \
             --global-timeout=3000000 \
-            --grep="@desktop-embedding-"
+            --grep="${test_grep}"
 
       - name: Upload desktop embedding traces
         if: failure()
