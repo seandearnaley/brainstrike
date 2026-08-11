@@ -169,6 +169,25 @@ describe('LogViewer', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a circular-bindings serialization failure visible without dropping the log record', async () => {
+    const circularBindings: Record<string, unknown> = {};
+    circularBindings['self'] = circularBindings;
+    const logSource = {
+      getInitialRecords: async () => [
+        createMockLogRecord({
+          bindings: circularBindings,
+          message: 'Circular bindings record',
+        }),
+      ],
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    expect(await screen.findByText('Circular bindings record')).toBeInTheDocument();
+    expect(screen.getByText('[Bindings serialization failed]')).toBeInTheDocument();
+  });
+
   it('serializes unchanged records only once across incremental notifications', () => {
     vi.useFakeTimers();
     let subscribedHandler: ((records: readonly LogRecord[]) => void) | undefined;

@@ -1,5 +1,7 @@
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
 
+const BINDINGS_SERIALIZATION_FAILURE = '[Bindings serialization failed]';
+
 export function sortLogRecords(records: readonly LogRecord[]): LogRecord[] {
   return [...records].sort((a, b) => a.timestamp - b.timestamp);
 }
@@ -34,6 +36,14 @@ export function serializeArgs(args?: readonly unknown[]): string {
       }
     })
     .join(' ');
+}
+
+export function serializeBindings(bindings: LogRecord['bindings']): string {
+  try {
+    return JSON.stringify(bindings ?? {}) ?? BINDINGS_SERIALIZATION_FAILURE;
+  } catch {
+    return BINDINGS_SERIALIZATION_FAILURE;
+  }
 }
 
 export function getLevelBadgeVariant(
