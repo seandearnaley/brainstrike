@@ -169,16 +169,17 @@ describe('Explorer per-directory sort parity', () => {
 
   it('sorts extensions locale-aware and preserves directories-first', () => {
     const folder = directory('/root/z-folder', []);
+    const extensionless = file('/root/LICENSE');
     const markdown = file('/root/a.md');
     const typescript = file('/root/z.ts');
     const metadataFor = (node: IFileNode): SortMetadata => ({
       size: 1,
       tokens: 1,
-      type: node.path.endsWith('.md') ? 'md' : node.path.endsWith('.ts') ? 'ts' : '',
+      type: node.path.endsWith('.md') ? 'md' : node.path.endsWith('.ts') ? 'ts' : 'file',
     });
 
     expect(
-      [typescript, markdown, folder]
+      [typescript, markdown, extensionless, folder]
         .sort((a, b) =>
           compareFileTreeSiblings(a, b, {
             getMetadata: metadataFor,
@@ -186,7 +187,7 @@ describe('Explorer per-directory sort parity', () => {
           })
         )
         .map((node) => node.path)
-    ).toEqual([folder.path, markdown.path, typescript.path]);
+    ).toEqual([folder.path, extensionless.path, markdown.path, typescript.path]);
   });
 
   it('reuses untouched row objects when a sort change preserves their subtree order', () => {

@@ -32,6 +32,7 @@
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { getFileExtension, isBinaryFile } from '@brainstrike/utils/file-utils';
+import { EXTENSIONLESS_FILE_TYPE } from '../utils/grouping-configs';
 
 /**
  * Why the indexer will never produce a count for a row. These mirror the two
@@ -57,7 +58,7 @@ export type FileRowTokenState = number | 'excluded' | 'pending';
 interface FileRowMetadataCommon {
   /** Bytes. Absent when neither the tree node nor the token cache knows it. */
   readonly size?: number;
-  /** Lowercase, dot-free extension; `''` when the name has none. */
+  /** Lowercase, dot-free extension; `file` when the name has none. */
   readonly type: string;
 }
 
@@ -349,7 +350,7 @@ export function createFileRowMetadataStore(sources: FileRowMetadataSources): Fil
     const exclusionReason = resolveExclusionReason(path, size);
     const common = {
       ...(size === undefined ? {} : { size }),
-      type: getFileExtension(path),
+      type: getFileExtension(path) || EXTENSIONLESS_FILE_TYPE,
     };
     if (exclusionReason !== null) {
       return { ...common, exclusionReason, tokens: 'excluded' };

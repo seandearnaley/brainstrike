@@ -34,6 +34,7 @@ import type {
   FileRowMetadataStore,
 } from '../indexing/file-row-metadata-store';
 import { formatTokenCount } from '../preview/use-preview-panel-state';
+import { EXTENSIONLESS_FILE_TYPE } from '../utils/grouping-configs';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
 import { reportUnidentifiedRow } from './file-tree-metadata-diagnostics';
 import { useFileTreeSelection } from './file-tree-selection-context';
@@ -151,10 +152,7 @@ export const FileTreeTypeCell = memo(function FileTreeTypeCellComponent({
   if (type !== 'file') {
     return null;
   }
-  const extension = getFileExtension(name);
-  if (!extension) {
-    return null;
-  }
+  const extension = getFileExtension(name) || EXTENSIONLESS_FILE_TYPE;
   return <ExtensionBadge extension={extension} size="compact" />;
 });
 
