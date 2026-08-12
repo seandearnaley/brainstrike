@@ -641,22 +641,20 @@ export function registerFileSystemIpcHandlers({
     if (!entry) {
       throw new Error('Stored last folder is not registered as a workspace root.');
     }
-    if (sessionRevokedRootIds.has(entry.rootId)) {
-      return null;
-    }
-    const canonicalPath = await mountWorkspaceRoot(entry);
-    if (sessionRevokedRootIds.has(entry.rootId)) {
-      workspaceFileCapabilities.unmountRoot(entry.rootId);
-      return null;
-    }
-    const handle: DirectoryHandle = {
-      kind: 'directory',
-      name: path.basename(canonicalPath),
-      path: canonicalPath,
-      platform: 'electron',
-      rootId: entry.rootId,
-    };
-    return handle;
+    return runSerializedRootMutation(async () => {
+      if (sessionRevokedRootIds.has(entry.rootId)) {
+        return null;
+      }
+      const canonicalPath = await mountWorkspaceRoot(entry);
+      const handle: DirectoryHandle = {
+        kind: 'directory',
+        name: path.basename(canonicalPath),
+        path: canonicalPath,
+        platform: 'electron',
+        rootId: entry.rootId,
+      };
+      return handle;
+    });
   });
 
   registry.registerInvoke(

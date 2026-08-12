@@ -21,13 +21,13 @@ describe('fs:saveLastFolder capability rollback', () => {
     removeHandler.mockClear();
   });
 
-  it('revokes an in-flight legacy restore when a concurrent disconnect finishes first', async () => {
+  it('serializes disconnect and re-add behind an in-flight legacy restore', async () => {
     const entry = {
       addedAt: 1,
       path: path.resolve('/users/test/my-project'),
       rootId: 'root-existing',
     };
-    const fileSystem = createFileSystem();
+    const fileSystem = createFileSystem(entry.path);
     const storage = createStorage({
       lastFolderPath: entry.path,
       rootsList: JSON.stringify([entry]),
@@ -56,16 +56,17 @@ describe('fs:saveLastFolder capability rollback', () => {
     const restorePromise = handlers.get('fs:restoreLastFolder')?.({} as IpcMainInvokeEvent);
     await mountStarted;
     const removePromise = handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, entry.rootId);
+    const addPromise = handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    expect(getRootsDatabase).toHaveBeenCalledOnce();
-    expect(capabilities.unmountRoot).toHaveBeenCalledTimes(1);
+    expect(getRootsDatabase).not.toHaveBeenCalled();
+    expect(capabilities.mountRoot).toHaveBeenCalledTimes(1);
 
     releaseMount?.();
-    const [restored] = await Promise.all([restorePromise, removePromise]);
-    expect(restored).toBeNull();
+    const [restored, , added] = await Promise.all([restorePromise, removePromise, addPromise]);
+    expect(restored).toMatchObject({ rootId: entry.rootId });
+    expect(added).toMatchObject({ rootId: expect.any(String) });
     expect(capabilities.unmountRoot).toHaveBeenCalledWith(entry.rootId);
-    expect(capabilities.unmountRoot).toHaveBeenCalledTimes(2);
-    await expect(storage.getItem('rootsList')).resolves.toBe('[]');
+    expect(capabilities.unmountRoot).toHaveBeenCalledTimes(1);
   });
 
   it.each([
