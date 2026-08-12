@@ -44,12 +44,18 @@ export function registerMainPlatformIpcHandlers({
 }: MainPlatformIpcDependencies): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
-  registry.registerInvoke('agent', DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl, () =>
-    getAssistantUrl()
+  registry.registerAuthorizedInvoke(
+    'agent',
+    DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetUrl,
+    { roles: ['visible-ui'] },
+    () => getAssistantUrl()
   );
 
-  registry.registerInvoke('agent', DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetAuth, () =>
-    getAssistantAuth()
+  registry.registerAuthorizedInvoke(
+    'agent',
+    DESKTOP_PRELOAD_IPC_CHANNELS.agent.assistantGetAuth,
+    { roles: ['visible-ui'] },
+    () => getAssistantAuth()
   );
 
   registry.registerInvoke('runtime', DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot, () =>

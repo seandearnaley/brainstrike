@@ -332,13 +332,14 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   private buildWindow(): BrowserWindow {
     const isTestMode = process.argv.includes('--test-mode') && !app.isPackaged;
     const enableSandbox = !isTestMode;
-    const preloadPath = path.join(resolveDistRoot(), 'preload.js');
+    const preloadPath = path.join(resolveDistRoot(), 'hidden-preload.js');
     const window = new BrowserWindow({
       focusable: false,
       height: 240,
       show: false,
       skipTaskbar: true,
       webPreferences: {
+        additionalArguments: [`--brainstrike-hidden-renderer-role=${this.options.role}`],
         allowRunningInsecureContent: false,
         backgroundThrottling: false,
         contextIsolation: true,

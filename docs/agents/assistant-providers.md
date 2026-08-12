@@ -83,6 +83,15 @@
   - API keys:
   - Managed via Settings.
   - Desktop: encrypted keychain.
+    The secrets bridge is a visible-UI capability. Every secrets IPC operation
+    declares and enforces the `visible-ui` sender role in the main-process IPC
+    registry before arguments are parsed or keychain code runs. Chunking,
+    embedding, local-LLM, and untracked renderers are rejected even if they
+    invoke the channel directly. Hidden hosts load `hidden-preload.js`, whose
+    role manifests contain neither the secrets bridge nor assistant URL/token
+    credentials. The assistant auth and URL handlers enforce the same
+    independent visible-UI policy; possession of a preload channel is never
+    authority.
     Desktop also loads provider credentials from environment files before any
     provider/key inspection runs. `src/main-bootstrap.ts` is the packaged main
     entry: it completes this load before dynamically importing the full

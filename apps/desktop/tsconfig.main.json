@@ -120,6 +120,7 @@
     "src/main-bootstrap.ts",
     "src/main.ts",
     "src/preload.ts",
+    "src/hidden-preload.ts",
     "src/db-host-entry.ts",
     "src/db-host-manager.ts",
     "src/db-host-protocol.ts",

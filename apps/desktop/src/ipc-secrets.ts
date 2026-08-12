@@ -140,9 +140,10 @@ export function registerSecretsIpcHandlers(
   const registry = createDesktopIpcRegistry({ ipcMain });
   const envFileFailures = options.envFileFailures ?? [];
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.save,
+    { roles: ['visible-ui'] },
     async (_event, provider: string, value: string) => {
       // In test mode, use in-memory storage
       if (isTestMode()) {
@@ -161,9 +162,10 @@ export function registerSecretsIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.get,
+    { roles: ['visible-ui'] },
     async (_event, provider: string) => {
       // In test mode, check in-memory storage
       if (isTestMode()) {
@@ -175,9 +177,10 @@ export function registerSecretsIpcHandlers(
     }
   );
 
-  registry.registerInvoke(
+  registry.registerAuthorizedInvoke(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.delete,
+    { roles: ['visible-ui'] },
     async (_event, provider: string) => {
       // In test mode, remove from in-memory storage
       if (isTestMode()) {
@@ -189,49 +192,60 @@ export function registerSecretsIpcHandlers(
     }
   );
 
-  registry.registerInvoke('preferences', DESKTOP_IPC_CHANNELS.secrets.list, async () => {
-    throwEnvFileFailures(envFileFailures);
+  registry.registerAuthorizedInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.list,
+    { roles: ['visible-ui'] },
+    async () => {
+      throwEnvFileFailures(envFileFailures);
 
-    // In test mode, only use in-memory storage (ignore env vars)
-    if (isTestMode()) {
+      // In test mode, only use in-memory storage (ignore env vars)
+      if (isTestMode()) {
+        const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
+        appendTestModeProviders(providers);
+        return Array.from(providers.values());
+      }
+
+      // Merge environment-configured providers with stored secrets so renderer consumers
+      // (assistant preferences, etc.) discover env-only setups.
+      // Consumers that only want persisted secrets should call secrets:listStored.
       const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
-      appendTestModeProviders(providers);
+      appendEnvConfiguredProviders(providers);
+      await appendStoredProviders(providers, secrets);
       return Array.from(providers.values());
     }
+  );
 
-    // Merge environment-configured providers with stored secrets so renderer consumers
-    // (assistant preferences, etc.) discover env-only setups.
-    // Consumers that only want persisted secrets should call secrets:listStored.
-    const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
-    appendEnvConfiguredProviders(providers);
-    await appendStoredProviders(providers, secrets);
-    return Array.from(providers.values());
-  });
-
-  registry.registerInvoke('preferences', DESKTOP_IPC_CHANNELS.secrets.listStored, async () => {
-    if (isTestMode()) {
-      const providers = new Set<string>();
-      appendTestModeStoredProviderIds(providers);
-      return Array.from(providers);
-    }
-
-    const storedProviders = new Set<string>();
-    const providers = await secrets.listProviders();
-    for (const provider of providers) {
-      if (typeof provider !== 'string') {
-        continue;
+  registry.registerAuthorizedInvoke(
+    'preferences',
+    DESKTOP_IPC_CHANNELS.secrets.listStored,
+    { roles: ['visible-ui'] },
+    async () => {
+      if (isTestMode()) {
+        const providers = new Set<string>();
+        appendTestModeStoredProviderIds(providers);
+        return Array.from(providers);
       }
-      const trimmed = provider.trim();
-      if (trimmed.length > 0) {
-        storedProviders.add(trimmed);
-      }
-    }
-    return Array.from(storedProviders);
-  });
 
-  registry.registerInvoke(
+      const storedProviders = new Set<string>();
+      const providers = await secrets.listProviders();
+      for (const provider of providers) {
+        if (typeof provider !== 'string') {
+          continue;
+        }
+        const trimmed = provider.trim();
+        if (trimmed.length > 0) {
+          storedProviders.add(trimmed);
+        }
+      }
+      return Array.from(storedProviders);
+    }
+  );
+
+  registry.registerAuthorizedInvoke(
     'preferences',
     DESKTOP_IPC_CHANNELS.secrets.clearAll,
+    { roles: ['visible-ui'] },
     async (_event, confirmationToken?: string) => {
       if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
         return {

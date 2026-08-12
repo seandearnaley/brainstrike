@@ -1,4 +1,5 @@
 import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
+import { type DesktopWindowRole, getWindowRoleByWebContentsId } from '../window-role';
 
 export type DesktopIpcDomain =
   | 'agent'
@@ -59,6 +60,10 @@ interface DesktopIpcRegistryOptions {
   readonly ipcMain: DesktopIpcMainLike;
 }
 
+export interface DesktopIpcSenderPolicy {
+  readonly roles: readonly DesktopWindowRole[];
+}
+
 interface RegisteredInvokeChannel extends DesktopIpcChannelRegistration {
   readonly kind: 'invoke';
 }
@@ -72,6 +77,17 @@ type RegisteredChannel = RegisteredEventChannel | RegisteredInvokeChannel;
 
 export interface DesktopIpcRegistry {
   readonly getSnapshot: () => DesktopIpcChannelRegistration[];
+  /**
+   * Registers a sensitive invoke channel with a fail-closed, server-owned
+   * sender-role policy. Authorization runs before the handler receives or
+   * parses any renderer-controlled arguments.
+   */
+  readonly registerAuthorizedInvoke: <Args extends readonly unknown[], Result>(
+    domain: DesktopIpcDomain,
+    channel: string,
+    policy: DesktopIpcSenderPolicy,
+    handler: DesktopIpcInvokeHandler<Args, Result>
+  ) => void;
   readonly registerEvent: <Payload>(
     domain: DesktopIpcDomain,
     channel: string,
@@ -92,6 +108,19 @@ function assertNonEmptyChannel(channel: string): void {
   if (channel.includes('\0')) {
     throw new Error('Desktop IPC channel must not contain null bytes.');
   }
+}
+
+function assertSenderPolicy(policy: DesktopIpcSenderPolicy): void {
+  if (policy.roles.length === 0) {
+    throw new Error('Desktop IPC sender policy must allow at least one window role.');
+  }
+  if (new Set(policy.roles).size !== policy.roles.length) {
+    throw new Error('Desktop IPC sender policy must not contain duplicate window roles.');
+  }
+}
+
+function formatRequiredSenderRoles(roles: readonly DesktopWindowRole[]): string {
+  return roles.join(', ');
 }
 
 function sortSnapshot(
@@ -145,6 +174,25 @@ export function createDesktopIpcRegistry({
     registrations.set(channel, { channel, domain, handler: eventHandler, kind: 'event' });
   }
 
+  function registerAuthorizedInvoke<Args extends readonly unknown[], Result>(
+    domain: DesktopIpcDomain,
+    channel: string,
+    policy: DesktopIpcSenderPolicy,
+    handler: DesktopIpcInvokeHandler<Args, Result>
+  ): void {
+    assertSenderPolicy(policy);
+    const allowedRoles = new Set(policy.roles);
+    registerInvoke(domain, channel, async (event, ...args: Args) => {
+      const senderRole = getWindowRoleByWebContentsId(event.sender.id);
+      if (!(senderRole && allowedRoles.has(senderRole))) {
+        throw new Error(
+          `Desktop IPC ${channel} requires sender role ${formatRequiredSenderRoles(policy.roles)}.`
+        );
+      }
+      return await handler(event, ...args);
+    });
+  }
+
   function unregisterAll(): void {
     for (const registration of registrations.values()) {
       if (registration.kind === 'invoke') {
@@ -158,6 +206,7 @@ export function createDesktopIpcRegistry({
 
   return {
     getSnapshot: () => sortSnapshot(registrations.values()),
+    registerAuthorizedInvoke,
     registerEvent,
     registerInvoke,
     unregisterAll,

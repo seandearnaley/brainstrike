@@ -65,6 +65,26 @@ the persistence to every applicable factory-reset path in the same change.
 
 ---
 
+## SENSITIVE DESKTOP IPC AUTHORIZATION
+
+Electron preload possession is not an authorization boundary. Sensitive invoke
+handlers use `registerAuthorizedInvoke` from
+`apps/desktop/src/platform/desktop-ipc-registry.ts` and declare a non-empty set
+of server-owned `DesktopWindowRole` values. The registry resolves the sender by
+`event.sender.id` and rejects missing or disallowed roles before the handler
+receives renderer-controlled arguments. Empty and duplicate policies are
+registration errors; unknown senders never inherit `visible-ui`.
+
+Provider secrets plus assistant URL/token credentials are visible-UI-only.
+Hidden chunking, embedding, and local-LLM windows use the role-selected
+`dist/hidden-preload.js` capability manifest and do not receive those bridges.
+This packaging boundary is defense in depth: main-process sender authorization
+must remain even when a preload omits the channel. Add new sensitive invoke
+channels through the authorized registration API and cover both an allowed
+sender and hidden/untracked rejection.
+
+---
+
 ## FACTORY RESET CONTRACT
 
 “Factory Reset Brainstrike” = true fresh start.

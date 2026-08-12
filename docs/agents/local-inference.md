@@ -18,9 +18,15 @@ Flow:
 1. Hidden host renderer
    - Files:
      - apps/desktop/src/embedding-host-manager.ts
+     - apps/desktop/src/hidden-preload.ts
      - apps/desktop/src/renderer/components/embedding-host-app.tsx
      - apps/desktop/src/renderer/components/embedding-host-runtime.tsx
    - Main creates a hidden BrowserWindow with `?mode=embedding-host`.
+   - The window loads `hidden-preload.js` with the server-owned
+     `embedding-host` role argument. That manifest exposes only the embedding
+     report/request bridge, power events, logging ingest, and the database
+     capabilities the current renderer-owned queue needs. It never exposes
+     provider secrets or assistant-server credentials.
    - The host renderer mounts `DbProvider` with `useElectronIPC=true`.
    - The host renderer uses `startEmbeddingWorker()` from `@brainstrike/embeddings`.
    - It pulls jobs from the PGlite-backed `job_queue`.
@@ -241,11 +247,16 @@ Flow:
 1. Hidden host renderer (desktop)
    - Files:
      - apps/desktop/src/llm-host-manager.ts
+     - apps/desktop/src/hidden-preload.ts
      - apps/desktop/src/ipc-llm-host.ts
      - apps/desktop/src/llm-host-shared.ts
      - apps/desktop/src/renderer/components/llm-host-app.tsx
      - apps/desktop/src/renderer/components/llm-host-runtime.tsx
    - Main creates a hidden BrowserWindow with `?mode=llm-host`.
+   - The window loads the `llm-host` capability manifest from
+     `hidden-preload.js`; the manifest exposes only host request/report and
+     logging capabilities, never the visible UI's secrets, assistant auth, or
+     database bridges.
    - The host renderer owns `LocalLlmBackend` initialization, warmup, generation, and progress events.
    - The host renderer reports status/progress/response back to main over dedicated IPC channels.
 2. Desktop chat path — local THROUGH the Mastra loop (data-stream)
@@ -340,10 +351,17 @@ Flow:
 4. Main
    - Files:
      - apps/desktop/src/main.ts
-     - apps/desktop/src/preload.ts
+     - apps/desktop/src/preload.ts (visible UI only)
+     - apps/desktop/src/hidden-preload.ts (role-selected hidden hosts)
    - Does NOT execute Gemma inference in-process (the Mastra loop runs in
      main, but every generation is proxied to the hidden llm-host renderer).
    - Owns hidden-host lifecycle, IPC registration, and shutdown/reset coordination.
+   - `RendererHostLifecycle` assigns the server-owned window role before load,
+     pins every hidden window to `hidden-preload.js`, and passes exactly one
+     matching role argument. Missing, duplicate, and unknown manifest roles
+     fail closed. Sensitive main-process IPC remains independently
+     sender-authorized, so a future preload packaging regression cannot restore
+     secret or assistant-auth access.
 5. Shared local runtime
    - Files:
      - packages/agent/src/local-llm.ts
