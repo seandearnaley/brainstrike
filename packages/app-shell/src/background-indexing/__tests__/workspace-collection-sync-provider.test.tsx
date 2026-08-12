@@ -1209,6 +1209,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
     resolveDbRootIdMock.mockImplementation(async (_rootPath: string, rootId?: string | null) =>
       rootId === 'root-b-id' ? 'db-root-b-id' : 'db-root-a-id'
     );
+    const reconcileMountedRootsSpy = vi.spyOn(
+      WorkspaceCollectionSyncService.prototype,
+      'reconcileMountedRoots'
+    );
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
 
     try {
@@ -1220,6 +1224,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
       syncSpy.mockClear();
+      reconcileMountedRootsSpy.mockClear();
 
       const change = {
         kind: 'file' as const,
@@ -1258,8 +1263,16 @@ describe('WorkspaceCollectionSyncProvider', () => {
           },
         })
       );
+      expect(reconcileMountedRootsSpy).toHaveBeenLastCalledWith(
+        '00000000-0000-0000-0000-000000000101',
+        [
+          { dbRootId: 'db-root-a-id', rootPath: '/workspace/root-a' },
+          { dbRootId: 'db-root-b-id', rootPath: '/workspace/root-b' },
+        ]
+      );
       expect(resolveDbRootIdMock).toHaveBeenLastCalledWith('/workspace/root-b', 'root-b-id');
     } finally {
+      reconcileMountedRootsSpy.mockRestore();
       syncSpy.mockRestore();
     }
   });

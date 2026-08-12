@@ -1005,6 +1005,24 @@ describe('WorkspaceCollectionSyncService', () => {
       })
     );
 
+    service.reconcileMountedRoots('set-1', [{ dbRootId: DB_ROOT_B_ID, rootPath: ROOT_B_PATH }]);
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([]);
+    vi.mocked(deps.resolveDbRootId).mockResolvedValueOnce(DB_ROOT_B_ID);
+    await service.sync({
+      backfillMode: 'defer',
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+    });
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_B_PATH,
+        lastError: null,
+        state: 'idle',
+      })
+    );
+
     vi.mocked(deps.embeddingSetsRepository.getById).mockResolvedValueOnce(
       createCollection({ id: 'set-2', name: 'Replacement collection' })
     );

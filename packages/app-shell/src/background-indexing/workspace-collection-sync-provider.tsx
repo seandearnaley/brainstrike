@@ -1932,6 +1932,10 @@ export function WorkspaceCollectionSyncProvider({
         rootIdByPath,
         scope,
       });
+      const mountedHandles = getActiveRootHandles({
+        rootDirectoryHandle,
+        rootDirectoryHandles,
+      });
       if (
         handleActiveSyncLoopRequest({
           options,
@@ -1975,11 +1979,22 @@ export function WorkspaceCollectionSyncProvider({
           return;
         }
         // eslint-disable-next-line react-doctor/async-defer-await -- the post-await generation guard prevents stale loops from syncing after cancellation during root-id resolution.
-        const resolvedTargets = await Promise.all(
-          targets.map(async (target): Promise<SyncLoopTarget & { dbRootId: string | null }> => {
-            const adapterRootId = target.handle.rootId ?? rootIdByPath.get(target.handle.path);
-            const dbRootId = await resolveDbRootId(target.handle.path, adapterRootId);
-            return { ...target, dbRootId };
+        const resolvedMountedRoots = await Promise.all(
+          mountedHandles.map(async (handle) => {
+            const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path);
+            return {
+              dbRootId: await resolveDbRootId(handle.path, adapterRootId),
+              rootPath: handle.path,
+            };
+          })
+        );
+        const mountedDbRootIdByPath = new Map(
+          resolvedMountedRoots.map((root) => [root.rootPath, root.dbRootId])
+        );
+        const resolvedTargets = targets.map(
+          (target): SyncLoopTarget & { dbRootId: string | null } => ({
+            ...target,
+            dbRootId: mountedDbRootIdByPath.get(target.handle.path) ?? null,
           })
         );
         if (syncLoopGenerationRef.current !== myGeneration) {
@@ -1998,6 +2013,7 @@ export function WorkspaceCollectionSyncProvider({
         }
 
         const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
+        service.reconcileMountedRoots(managedCollectionId, resolvedMountedRoots);
         // Order by ACTUAL indexed coverage: least-indexed roots sync first. A
         // folder you just added (0 files), or one whose earlier pass imported
         // nothing, is processed before a giant repo that is only partway through

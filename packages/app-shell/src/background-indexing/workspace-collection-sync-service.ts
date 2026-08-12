@@ -242,6 +242,22 @@ export class WorkspaceCollectionSyncService {
 
   constructor(private readonly deps: WorkspaceCollectionSyncServiceDependencies) {}
 
+  reconcileMountedRoots(
+    collectionId: string | null,
+    mountedRoots: readonly { dbRootId: string | null; rootPath: string }[]
+  ): void {
+    for (const [scopeKey, scope] of this.terminalChunkingErrorsByScope) {
+      const remainsMounted = mountedRoots.some(
+        (root) =>
+          root.rootPath === scope.context.rootPath &&
+          (root.dbRootId === null || root.dbRootId === scope.context.dbRootId)
+      );
+      if (scope.context.collection.id !== collectionId || !remainsMounted) {
+        this.terminalChunkingErrorsByScope.delete(scopeKey);
+      }
+    }
+  }
+
   async cancel(): Promise<void> {
     this.runId += 1;
     await this.resetActiveWork({ cancelTrackedBackfill: true });

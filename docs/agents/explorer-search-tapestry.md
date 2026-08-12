@@ -311,7 +311,10 @@ there rather than hiding entries after the adapter has already read them.
   clear only errors covered by that scoped scan; an ignored root-self removal
   preserves the existing errors. Inaccessible content reads preserve the
   matching path errors during both scoped and full scans. Switching or disabling
-  the managed collection discards errors owned by the retired collection. Full
+  the managed collection discards errors owned by the retired collection. Each
+  provider loop also reconciles the service against the complete mounted-root
+  identity set, so removing one root cannot leave its error attached to healthy
+  sibling roots. Full
   scans prune retry state for paths no longer present. Never replace this with
   an unbounded retry or a
   quiet skip. This is intentionally not persistent sync state: restarting the
