@@ -80,7 +80,8 @@ function containsNullByte(value: string): boolean {
 }
 
 function countTraversalSegments(value: string): number {
-  return value.split(/[\\/]+/).filter((segment) => segment === '..').length;
+  const separators = process.platform === 'win32' ? /[\\/]+/ : /\/+/;
+  return value.split(separators).filter((segment) => segment === '..').length;
 }
 
 function isSensitiveUnixPath(candidate: string): boolean {

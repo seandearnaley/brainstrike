@@ -407,6 +407,20 @@ export function registerFileSystemIpcHandlers({
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
   const sessionOnlyRootIds = new Set<string>();
+  let rootMutationQueue = Promise.resolve();
+  const runSerializedRootMutation = async <T>(operation: () => Promise<T>): Promise<T> => {
+    const previous = rootMutationQueue;
+    let release = (): void => undefined;
+    rootMutationQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  };
   const mountWorkspaceRoot = async (entry: StoredRootEntry): Promise<string> => {
     if (isMockFileSystemIpcPath(entry.path)) {
       return path.normalize(entry.path);
@@ -637,16 +651,11 @@ export function registerFileSystemIpcHandlers({
     try {
       const rootsDatabase = await getRootsDatabase();
       // Re-read rootsList HERE rather than reusing the entries this handler
-      // opened with. restoreRoots awaits per-entry path resolution, so an
-      // fs:addRoot CAN interleave mid-restore (boot is not user-gesture-driven,
-      // unlike the handlers the addRoot no-mutex note covers). That add writes
-      // its rootsList entry BEFORE returning, and the renderer's reconcileRoots
-      // inserts the DB row only after the IPC resolves — so a live row can only
-      // exist for a path already in this list. Reading it immediately before the
-      // UPDATE therefore makes the mount set a strict SUPERSET of every path
-      // that could own a live row. Over-inclusion is the safe direction: at
-      // worst a genuinely stale row survives to the next boot, whereas
-      // under-inclusion would silently drop a just-mounted root.
+      // opened with. addRoot and restoreRoots serialize their mutations, but
+      // this defensive read keeps DB convergence tied to the durable current
+      // list if another future writer is introduced. Over-inclusion is the safe
+      // direction: at worst a genuinely stale row survives to the next boot,
+      // whereas under-inclusion would silently drop a just-mounted root.
       const current = await readRootsListResult(storage);
       if (current.malformed) {
         // NO SILENT FALLBACKS: `readRootsList` coerces an unreadable store to
@@ -681,53 +690,40 @@ export function registerFileSystemIpcHandlers({
     }
   };
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () => {
-    const entries = await readRootsList(storage);
-    if (entries.length === 0) {
-      workspaceFileCapabilities.retainRoots(new Set());
-      // Not an early return: zero mounted folders is exactly the state in which
-      // every remaining 'live' row is stale and must be demoted.
-      await convergeRootStatuses([]);
-      return [];
+  const restoreStoredRootEntry = async (
+    entry: StoredRootEntry,
+    canonicalPaths: Set<string>
+  ): Promise<{ descriptor: RootDescriptor; storedEntry: StoredRootEntry } | null> => {
+    let exists: boolean;
+    try {
+      const resolvedPath = await resolveFileSystemIpcPath(entry.path, 'stored root');
+      // Mock-aware existence: a raw fileSystem.exists would stat the real disk
+      // and prune e2e-seeded mock roots (see ipcPathExists).
+      exists = await ipcPathExists(fileSystem, resolvedPath);
+    } catch (error) {
+      logger.debug('Skipping invalid root entry during restore', { error, path: entry.path });
+      return null;
+    }
+    if (!exists) {
+      logger.debug('Pruning stale root from rootsList', { path: entry.path });
+      return null;
     }
 
-    const survivors: StoredRootEntry[] = [];
-    const descriptors: RootDescriptor[] = [];
-    const canonicalPaths = new Set<string>();
-
-    for (const entry of entries) {
-      let exists: boolean;
-      try {
-        const resolvedPath = await resolveFileSystemIpcPath(entry.path, 'stored root');
-        // Mock-aware existence: a raw fileSystem.exists would stat the real
-        // disk and prune e2e-seeded mock roots (see ipcPathExists).
-        exists = await ipcPathExists(fileSystem, resolvedPath);
-      } catch (error) {
-        logger.debug('Skipping invalid root entry during restore', { error, path: entry.path });
-        continue;
-      }
-      if (!exists) {
-        logger.debug('Pruning stale root from rootsList', { path: entry.path });
-        continue;
-      }
-
-      // Capability construction failures are not proof that the saved root is
-      // stale. Surface them and leave rootsList untouched so a transient addon,
-      // descriptor, or permission failure cannot permanently delete user state.
-      const canonicalPath = await mountWorkspaceRoot(entry);
-      if (canonicalPaths.has(canonicalPath)) {
-        workspaceFileCapabilities.unmountRoot(entry.rootId);
-        logger.warn('restoreRoots: discarded duplicate canonical workspace root', {
-          path: canonicalPath,
-          rootId: entry.rootId,
-        });
-        continue;
-      }
-      canonicalPaths.add(canonicalPath);
-      const basename = path.basename(canonicalPath);
-      const canonicalEntry = { ...entry, path: canonicalPath };
-      survivors.push(canonicalEntry);
-      descriptors.push({
+    // Capability construction failures are not proof that the saved root is
+    // stale. Surface them so transient failure cannot delete user state.
+    const canonicalPath = await mountWorkspaceRoot(entry);
+    if (canonicalPaths.has(canonicalPath)) {
+      workspaceFileCapabilities.unmountRoot(entry.rootId);
+      logger.warn('restoreRoots: discarded duplicate canonical workspace root', {
+        path: canonicalPath,
+        rootId: entry.rootId,
+      });
+      return null;
+    }
+    canonicalPaths.add(canonicalPath);
+    const basename = path.basename(canonicalPath);
+    return {
+      descriptor: {
         displayName: basename,
         handle: {
           kind: 'directory',
@@ -740,107 +736,136 @@ export function registerFileSystemIpcHandlers({
         permissionState: 'granted',
         persisted: true,
         rootId: entry.rootId,
-      });
-    }
-
-    const rootsChanged =
-      survivors.length !== entries.length ||
-      survivors.some((entry, index) => entry.path !== entries[index]?.path);
-    workspaceFileCapabilities.retainRoots(new Set(survivors.map((entry) => entry.rootId)));
-    if (rootsChanged) {
-      await writeRootsList(storage, survivors);
-    }
-
-    // Compare on the RESOLVED path: that is what addRoot/reconcileRoots store on
-    // the DB row, whereas a rootsList entry may hold the unresolved form.
-    await convergeRootStatuses(descriptors.map((descriptor) => descriptor.handle.path));
-
-    return descriptors;
-  });
-
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () => {
-    // Test-mode aware (same contract as fs:requestDirectoryAccess): the real
-    // adapter stats the picked path, which ENOENTs on e2e mock paths.
-    const [handle, entries] = await Promise.all([
-      resolveRequestedDirectoryHandle(fileSystem),
-      readRootsList(storage),
-    ]);
-    const resolvedPath = await resolveFileSystemIpcPath(handle.path, 'added root');
-    // Upsert into rootsList keyed by resolved path.
-    // No mutex: these handlers are user-gesture-driven (single dialog at a time).
-    // Concurrent RMW is only possible across multiple renderer windows, which is
-    // not yet a use case. Revisit if programmatic addRoot calls are introduced.
-    let existing = entries.find((entry) => entry.path === resolvedPath);
-    let rootId = existing?.rootId ?? crypto.randomUUID();
-    let persisted = true;
-
-    let canonicalPath = await mountWorkspaceRoot({
-      addedAt: Date.now(),
-      path: resolvedPath,
-      rootId,
-    });
-    const canonicalExisting = existing ?? entries.find((entry) => entry.path === canonicalPath);
-    if (canonicalExisting && canonicalExisting.rootId !== rootId) {
-      workspaceFileCapabilities.unmountRoot(rootId);
-      rootId = canonicalExisting.rootId;
-      canonicalPath = await mountWorkspaceRoot({
-        addedAt: Date.now(),
-        path: canonicalPath,
-        rootId,
-      });
-    }
-    existing = canonicalExisting;
-    const basename = path.basename(canonicalPath);
-
-    if (existing) {
-      const updated: StoredRootEntry[] = entries.map((e) =>
-        e.rootId === rootId ? { ...e, addedAt: Date.now(), path: canonicalPath } : e
-      );
-      try {
-        await writeRootsList(storage, updated);
-        sessionOnlyRootIds.delete(rootId);
-      } catch (error) {
-        // The root is ALREADY durably stored — a failed addedAt bump does not
-        // change that. Per the RootDescriptor.persisted contract, persisted
-        // stays true: reporting false here would make callers skip DB
-        // registration for a perfectly durable root.
-        logger.warn('addRoot: failed to bump addedAt on existing rootsList entry', { error });
-      }
-    } else {
-      const newEntry: StoredRootEntry = { addedAt: Date.now(), path: canonicalPath, rootId };
-      try {
-        await writeRootsList(storage, [...entries, newEntry]);
-        sessionOnlyRootIds.delete(rootId);
-      } catch (error) {
-        logger.warn('addRoot: failed to write rootsList', { error });
-        persisted = false;
-        sessionOnlyRootIds.add(rootId);
-      }
-    }
-
-    // Shim parity: keep writing lastFolderPath
-    try {
-      await storage.setItem(LAST_FOLDER_STORAGE_KEY, canonicalPath);
-    } catch (error) {
-      logger.warn('addRoot: failed to write lastFolderPath', { error });
-    }
-
-    const descriptor: RootDescriptor = {
-      displayName: basename,
-      handle: {
-        kind: 'directory',
-        name: basename,
-        path: canonicalPath,
-        platform: 'electron',
-        rootId,
       },
-      kind: 'path',
-      permissionState: 'granted',
-      persisted,
-      rootId,
+      storedEntry: { ...entry, path: canonicalPath },
     };
-    return descriptor;
-  });
+  };
+
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () =>
+    runSerializedRootMutation(async () => {
+      const entries = await readRootsList(storage);
+      if (entries.length === 0) {
+        workspaceFileCapabilities.retainRoots(new Set());
+        // Not an early return: zero mounted folders is exactly the state in which
+        // every remaining 'live' row is stale and must be demoted.
+        await convergeRootStatuses([]);
+        return [];
+      }
+
+      const survivors: StoredRootEntry[] = [];
+      const descriptors: RootDescriptor[] = [];
+      const canonicalPaths = new Set<string>();
+
+      for (const entry of entries) {
+        const restored = await restoreStoredRootEntry(entry, canonicalPaths);
+        if (!restored) {
+          continue;
+        }
+        survivors.push(restored.storedEntry);
+        descriptors.push(restored.descriptor);
+      }
+
+      const rootsChanged =
+        survivors.length !== entries.length ||
+        survivors.some((entry, index) => entry.path !== entries[index]?.path);
+      workspaceFileCapabilities.retainRoots(new Set(survivors.map((entry) => entry.rootId)));
+      if (rootsChanged) {
+        await writeRootsList(storage, survivors);
+      }
+
+      // Compare on the RESOLVED path: that is what addRoot/reconcileRoots store on
+      // the DB row, whereas a rootsList entry may hold the unresolved form.
+      await convergeRootStatuses(descriptors.map((descriptor) => descriptor.handle.path));
+
+      return descriptors;
+    })
+  );
+
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () =>
+    runSerializedRootMutation(async () => {
+      // Test-mode aware (same contract as fs:requestDirectoryAccess): the real
+      // adapter stats the picked path, which ENOENTs on e2e mock paths.
+      const [handle, entries] = await Promise.all([
+        resolveRequestedDirectoryHandle(fileSystem),
+        readRootsList(storage),
+      ]);
+      const resolvedPath = await resolveFileSystemIpcPath(handle.path, 'added root');
+      // Upsert into rootsList keyed by resolved path.
+      // restoreRoots runs on boot and can otherwise interleave at any await. Both
+      // mutations share the queue so stale restore snapshots cannot unmount or
+      // overwrite a root that addRoot has just persisted.
+      let existing = entries.find((entry) => entry.path === resolvedPath);
+      let rootId = existing?.rootId ?? crypto.randomUUID();
+      let persisted = true;
+
+      let canonicalPath = await mountWorkspaceRoot({
+        addedAt: Date.now(),
+        path: resolvedPath,
+        rootId,
+      });
+      const canonicalExisting = existing ?? entries.find((entry) => entry.path === canonicalPath);
+      if (canonicalExisting && canonicalExisting.rootId !== rootId) {
+        workspaceFileCapabilities.unmountRoot(rootId);
+        rootId = canonicalExisting.rootId;
+        canonicalPath = await mountWorkspaceRoot({
+          addedAt: Date.now(),
+          path: canonicalPath,
+          rootId,
+        });
+      }
+      existing = canonicalExisting;
+      const basename = path.basename(canonicalPath);
+
+      if (existing) {
+        const updated: StoredRootEntry[] = entries.map((e) =>
+          e.rootId === rootId ? { ...e, addedAt: Date.now(), path: canonicalPath } : e
+        );
+        try {
+          await writeRootsList(storage, updated);
+          sessionOnlyRootIds.delete(rootId);
+        } catch (error) {
+          // The root is ALREADY durably stored — a failed addedAt bump does not
+          // change that. Per the RootDescriptor.persisted contract, persisted
+          // stays true: reporting false here would make callers skip DB
+          // registration for a perfectly durable root.
+          logger.warn('addRoot: failed to bump addedAt on existing rootsList entry', { error });
+        }
+      } else {
+        const newEntry: StoredRootEntry = { addedAt: Date.now(), path: canonicalPath, rootId };
+        try {
+          await writeRootsList(storage, [...entries, newEntry]);
+          sessionOnlyRootIds.delete(rootId);
+        } catch (error) {
+          logger.warn('addRoot: failed to write rootsList', { error });
+          persisted = false;
+          sessionOnlyRootIds.add(rootId);
+        }
+      }
+
+      // Shim parity: keep writing lastFolderPath
+      try {
+        await storage.setItem(LAST_FOLDER_STORAGE_KEY, canonicalPath);
+      } catch (error) {
+        logger.warn('addRoot: failed to write lastFolderPath', { error });
+      }
+
+      const descriptor: RootDescriptor = {
+        displayName: basename,
+        handle: {
+          kind: 'directory',
+          name: basename,
+          path: canonicalPath,
+          platform: 'electron',
+          rootId,
+        },
+        kind: 'path',
+        permissionState: 'granted',
+        persisted,
+        rootId,
+      };
+      return descriptor;
+    })
+  );
 
   registry.registerInvoke(
     'files',

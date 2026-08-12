@@ -6,6 +6,7 @@ vi.mock('electron', async () => (await import('./file-system-ipc-test-harness'))
 
 import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
 import {
+  clearE2eFileSystemFixture,
   createAdapterBackedCapabilities,
   createFileSystem,
   createStorage,
@@ -18,6 +19,7 @@ describe('fs:restoreRoots canonical identity', () => {
   beforeEach(() => {
     handlers.clear();
     removeHandler.mockClear();
+    clearE2eFileSystemFixture();
   });
 
   it('deduplicates stored aliases that canonicalize to the same root', async () => {
@@ -64,5 +66,54 @@ describe('fs:restoreRoots canonical identity', () => {
     );
     expect(storage.setItem).not.toHaveBeenCalledWith('rootsList', expect.anything());
     expect(capabilities.retainRoots).not.toHaveBeenCalled();
+  });
+
+  it('serializes addRoot behind restore finalization so neither mutation is lost', async () => {
+    const restoredPath = path.resolve('/users/test/restored');
+    const restoredEntry = { addedAt: 1000, path: restoredPath, rootId: 'root-restored' };
+    const fileSystem = createFileSystem('/users/test/added');
+    const storage = createStorage({ rootsList: JSON.stringify([restoredEntry]) });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    let releaseRestore: (() => void) | undefined;
+    let markRestoreStarted: (() => void) | undefined;
+    const restorePause = new Promise<void>((resolve) => {
+      releaseRestore = resolve;
+    });
+    const restoreStarted = new Promise<void>((resolve) => {
+      markRestoreStarted = resolve;
+    });
+    vi.mocked(capabilities.mountRoot).mockImplementationOnce(async ({ path: rootPath }) => {
+      markRestoreStarted?.();
+      await restorePause;
+      return path.resolve(rootPath);
+    });
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    const restorePromise = handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+    await restoreStarted;
+    let addSettled = false;
+    const addPromise = Promise.resolve(
+      handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)
+    ).finally(() => {
+      addSettled = true;
+    });
+    await Promise.resolve();
+    expect(addSettled).toBe(false);
+
+    releaseRestore?.();
+    await Promise.all([restorePromise, addPromise]);
+    const storedRoots = JSON.parse((await storage.getItem('rootsList')) ?? '[]') as Array<{
+      path: string;
+      rootId: string;
+    }>;
+    expect(storedRoots).toEqual([
+      restoredEntry,
+      expect.objectContaining({ path: '/mock/test/directory' }),
+    ]);
   });
 });

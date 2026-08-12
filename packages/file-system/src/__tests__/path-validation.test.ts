@@ -121,6 +121,20 @@ describe('resolveValidatedPath', () => {
     expect(result).toEqual({ ok: true, path: await fsPromises.realpath(dottedFile) });
   });
 
+  it.skipIf(isWin32)('treats POSIX backslashes as literal filename characters', async () => {
+    const literalBackslashFile = path.join(tempDir, 'foo\\..\\bar.txt');
+    await fsPromises.writeFile(literalBackslashFile, 'valid');
+
+    const result = await resolveValidatedPath({
+      allowMissing: false,
+      maxTraversal: 0,
+      requestedPath: literalBackslashFile,
+      rootDir: tempDir,
+    });
+
+    expect(result).toEqual({ ok: true, path: await fsPromises.realpath(literalBackslashFile) });
+  });
+
   it('rejects paths outside the root when missing', async () => {
     const result = await resolveValidatedPath({
       requestedPath: '../outside-root',
