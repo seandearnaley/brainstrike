@@ -1203,7 +1203,7 @@ export async function runRootFolderCacheImport(args: {
         rootId: rootId ?? null,
         totalFiles: changes.length,
       });
-      onChunkingBatchStart?.(batch);
+      onChunkingBatchStart?.(batch.filter((change) => selectedFilePaths.has(change.compositeKey)));
       const batchResults = await runEnhancedImport<IFileNode>({
         abortSignal,
         baseImportRunner: async ({

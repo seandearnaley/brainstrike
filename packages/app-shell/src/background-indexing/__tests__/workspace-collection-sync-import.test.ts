@@ -940,6 +940,18 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         fileSystemAdapter: {} as FileSystemAdapter,
       },
     };
+    const thirdChange: PreparedCacheChange = {
+      ...makeMinimalChange(),
+      compositeKey: `${ROOT}::c.ts`,
+      id: 'file-id-c',
+      name: 'c.ts',
+      relativePath: 'c.ts',
+      request: {
+        compositeKey: `${ROOT}::c.ts`,
+        fileNode: makeFileNode('c.ts', 42, 1000),
+        fileSystemAdapter: {} as FileSystemAdapter,
+      },
+    };
     const onChunkingBatchStart = vi.fn();
     vi.mocked(runEnhancedImport).mockRejectedValueOnce(new Error('first batch failed'));
 
@@ -947,7 +959,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
       runRootFolderCacheImport({
         abortSignal: new AbortController().signal,
         applyManagedCacheBatch: vi.fn(async () => {}),
-        changes: [firstChange, secondChange],
+        changes: [firstChange, secondChange, thirdChange],
         chunkingWorkerPort: {
           chunkBatch: vi.fn().mockResolvedValue([]),
           chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
@@ -962,7 +974,21 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         } as never,
         collection: makeMinimalCollection(),
         db: makeMinimalDb() as never,
-        fileContentProcessor: makeMinimalFileContentProcessor(firstChange),
+        fileContentProcessor: {
+          processFiles: vi.fn(async (requests: readonly FileContentRequest[]) =>
+            Object.fromEntries(
+              requests.map((request) => [
+                request.compositeKey,
+                request.compositeKey === secondChange.compositeKey
+                  ? { message: 'temporarily unreadable', status: 'inaccessible' as const }
+                  : {
+                      content: `content-of-${request.fileNode.path}`,
+                      status: 'accessible' as const,
+                    },
+              ])
+            )
+          ),
+        } as unknown as FileContentProcessor,
         fileRecordRepository: {
           findByCollectionId: vi.fn().mockResolvedValue([]),
           upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
@@ -973,7 +999,7 @@ describe('runRootFolderCacheImport — rootId threading', () => {
           allowNewWork: true,
           contentReadBatchSize: 10,
           contentReadConcurrency: 1,
-          importBatchSize: 1,
+          importBatchSize: 2,
         },
         rootId: 'root-db-1',
         setImporting: () => {},

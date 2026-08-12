@@ -319,8 +319,9 @@ there rather than hiding entries after the adapter has already read them.
   roots and same-path web roots cannot exchange identities. Full
   scans prune retry state for paths no longer present. Never replace this with
   an unbounded retry. A redispatch attempt is recorded only when its concrete
-  import batch reaches the chunking handoff; cancellation or failure in an
-  earlier batch must not spend later batches' retry budgets. Never use a
+  import batch reaches the chunking handoff and the second content read selected
+  that file for chunking; unreadable files and cancellation or failure in an
+  earlier batch must not spend untouched retry budgets. Never use a
   quiet skip. This is intentionally not persistent sync state: restarting the
   renderer grants a fresh bounded budget.
 
