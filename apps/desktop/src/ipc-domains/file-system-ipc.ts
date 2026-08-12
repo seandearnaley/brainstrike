@@ -408,6 +408,7 @@ export function registerFileSystemIpcHandlers({
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
   const sessionOnlyRootIds = new Set<string>();
+  const sessionRevokedRootIds = new Set<string>();
   let rootMutationQueue = Promise.resolve();
   const runSerializedRootMutation = async <T>(operation: () => Promise<T>): Promise<T> => {
     const previous = rootMutationQueue;
@@ -436,6 +437,11 @@ export function registerFileSystemIpcHandlers({
       return { canonicalPath: existingMount.path, newlyMounted: false };
     }
     return { canonicalPath: await mountWorkspaceRoot(entry), newlyMounted: true };
+  };
+  const revokeRootForSession = (rootId: string): void => {
+    sessionOnlyRootIds.delete(rootId);
+    sessionRevokedRootIds.add(rootId);
+    workspaceFileCapabilities.unmountRoot(rootId);
   };
   const resolveLastFolderForSave = async (folderPath: string): Promise<string | null> => {
     try {
@@ -483,6 +489,7 @@ export function registerFileSystemIpcHandlers({
       if (mounted.supersededPreexistingRootId) {
         workspaceFileCapabilities.unmountRoot(mounted.supersededPreexistingRootId);
       }
+      sessionRevokedRootIds.delete(mounted.entry.rootId);
     } catch (error) {
       for (const rootId of newlyMountedRootIds) {
         workspaceFileCapabilities.unmountRoot(rootId);
@@ -648,6 +655,9 @@ export function registerFileSystemIpcHandlers({
     if (!entry) {
       throw new Error('Stored last folder is not registered as a workspace root.');
     }
+    if (sessionRevokedRootIds.has(entry.rootId)) {
+      return null;
+    }
     const canonicalPath = await mountWorkspaceRoot(entry);
     const handle: DirectoryHandle = {
       kind: 'directory',
@@ -728,6 +738,9 @@ export function registerFileSystemIpcHandlers({
     newlyMounted: boolean;
     storedEntry: StoredRootEntry;
   } | null> => {
+    if (sessionRevokedRootIds.has(entry.rootId)) {
+      return null;
+    }
     let exists: boolean;
     try {
       const resolvedPath = await resolveFileSystemIpcPath(entry.path, 'stored root');
@@ -892,6 +905,7 @@ export function registerFileSystemIpcHandlers({
       }
       existing = canonicalExisting;
       const basename = path.basename(canonicalPath);
+      sessionRevokedRootIds.delete(rootId);
 
       if (existing) {
         const updated: StoredRootEntry[] = entries.map((e) =>
@@ -958,8 +972,8 @@ export function registerFileSystemIpcHandlers({
         const entries = await readRootsList(storage);
         const removed = entries.find((entry) => entry.rootId === rootId);
         if (!removed) {
-          if (sessionOnlyRootIds.delete(rootId)) {
-            workspaceFileCapabilities.unmountRoot(rootId);
+          if (sessionOnlyRootIds.has(rootId)) {
+            revokeRootForSession(rootId);
             return;
           }
           logger.debug('removeRoot: rootId not found in rootsList — nothing to remove', { rootId });
@@ -972,8 +986,14 @@ export function registerFileSystemIpcHandlers({
         // from roots.id for path-matched legacy rows. The inverse ordering
         // (rootsList written, then a failed UPDATE) would leave the assistant
         // server serving a folder the UI no longer shows.
-        const rootsDatabase = await getRootsDatabase();
-        const disconnectedRootIds = await markRootDisconnectedByPath(rootsDatabase, removed.path);
+        let disconnectedRootIds: readonly string[];
+        try {
+          const rootsDatabase = await getRootsDatabase();
+          disconnectedRootIds = await markRootDisconnectedByPath(rootsDatabase, removed.path);
+        } catch (error) {
+          revokeRootForSession(rootId);
+          throw error;
+        }
         if (disconnectedRootIds.length === 0) {
           // A rootsList entry is a persisted root, so it SHOULD own a DB row. Zero
           // rows matched means the row's stored `path` diverged from this entry's
@@ -990,9 +1010,13 @@ export function registerFileSystemIpcHandlers({
         }
 
         const remaining = entries.filter((entry) => entry.rootId !== rootId);
-        await writeRootsList(storage, remaining);
-        sessionOnlyRootIds.delete(rootId);
-        workspaceFileCapabilities.unmountRoot(rootId);
+        try {
+          await writeRootsList(storage, remaining);
+        } catch (error) {
+          revokeRootForSession(rootId);
+          throw error;
+        }
+        revokeRootForSession(rootId);
 
         // Tear down any pooled LSP language server for this root (report R2): the
         // folder is leaving the workspace, so its server child process must not

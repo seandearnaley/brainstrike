@@ -13,12 +13,14 @@ import {
   getRootsDatabase,
   handlers,
   removeHandler,
+  rootsDbQuery,
 } from './file-system-ipc-test-harness';
 
 describe('fs:restoreRoots canonical identity', () => {
   beforeEach(() => {
     handlers.clear();
     removeHandler.mockClear();
+    rootsDbQuery.mockClear();
     clearE2eFileSystemFixture();
   });
 
@@ -238,5 +240,72 @@ describe('fs:restoreRoots canonical identity', () => {
     await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
 
     expect(capabilities.retainRoots).toHaveBeenLastCalledWith(new Set([added.rootId]));
+  });
+
+  it('keeps a failed-persistence disconnect revoked during later restores', async () => {
+    const entry = {
+      addedAt: 1,
+      path: path.resolve('/users/test/revoked'),
+      rootId: 'root-revoked',
+    };
+    const fileSystem = createFileSystem(entry.path);
+    const storage = createStorage({ rootsList: JSON.stringify([entry]) });
+    vi.mocked(storage.setItem).mockImplementation(async (key) => {
+      if (key === 'rootsList') {
+        throw new Error('storage unavailable');
+      }
+    });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    await expect(
+      handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, entry.rootId)
+    ).rejects.toThrow('storage unavailable');
+    expect(capabilities.unmountRoot).toHaveBeenCalledWith(entry.rootId);
+    vi.mocked(capabilities.mountRoot).mockClear();
+
+    await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).rejects.toThrow(
+      'storage unavailable'
+    );
+    expect(capabilities.mountRoot).not.toHaveBeenCalledWith(entry);
+
+    vi.mocked(storage.setItem).mockResolvedValue(undefined);
+    await handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, entry.path);
+    vi.mocked(capabilities.mountRoot).mockClear();
+    await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+    expect(capabilities.mountRoot).toHaveBeenCalledWith(
+      expect.objectContaining({ path: entry.path, rootId: entry.rootId })
+    );
+  });
+
+  it('revokes session authority when the durable DB transition fails', async () => {
+    const entry = {
+      addedAt: 1,
+      path: path.resolve('/users/test/db-failure'),
+      rootId: 'root-db-failure',
+    };
+    const fileSystem = createFileSystem();
+    const storage = createStorage({ rootsList: JSON.stringify([entry]) });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    rootsDbQuery.mockRejectedValueOnce(new Error('db unavailable'));
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    await expect(
+      handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, entry.rootId)
+    ).rejects.toThrow('db unavailable');
+
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(storage.removeItem).not.toHaveBeenCalled();
+    expect(capabilities.unmountRoot).toHaveBeenCalledWith(entry.rootId);
   });
 });

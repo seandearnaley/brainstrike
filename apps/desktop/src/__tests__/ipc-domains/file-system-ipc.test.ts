@@ -943,22 +943,6 @@ describe('fs:removeRoot', () => {
     }
   });
 
-  it('fails closed: a status-transition failure rejects and leaves rootsList untouched', async () => {
-    storage = createStorage({ rootsList: JSON.stringify([entryA, entryB]) });
-    rootsDbQuery.mockRejectedValueOnce(new Error('db unavailable'));
-    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
-
-    await expect(
-      handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, 'root-id-a')
-    ).rejects.toThrow('db unavailable');
-
-    // Coherent failure: the root stays fully mounted — no half-disconnected
-    // state where the UI forgot the root but the DB still serves it (or vice
-    // versa). The user retries the disconnect.
-    expect(storage.setItem).not.toHaveBeenCalled();
-    expect(storage.removeItem).not.toHaveBeenCalled();
-  });
-
   it('clears lastFolderPath when it equals the removed root path', async () => {
     storage = createStorage({
       lastFolderPath: pathA,

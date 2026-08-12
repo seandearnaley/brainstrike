@@ -316,6 +316,13 @@ Session-only roots created after a
 persistence failure remain retained by later restores until explicit removal or
 shutdown. The legacy last-folder shim likewise reuses a pre-existing capability
 and rolls back only capabilities it created when either persistence write fails.
+Disconnect always revokes the native capability, including when the DB status
+transition or durable roots-list removal fails. The renderer deliberately treats
+platform removal as best-effort and still removes its handle, so the root is
+tombstoned for the current process and stale storage cannot remount hidden file
+authority; only an explicit re-add clears that session revocation. Failed
+persistence remains visible to the caller and durable state is not silently
+rewritten.
 E2E in-memory fixture paths are the sole explicit exception: their handlers
 serve registered fixture data directly and never touch the host filesystem or
 native capability. A rejected content read becomes the worker's explicit
