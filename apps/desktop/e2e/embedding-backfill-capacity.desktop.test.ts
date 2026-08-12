@@ -122,18 +122,23 @@ async function seedLargeImportFixture(
  * pause indefinitely, leaving the backfill waiting on capacity only that worker
  * could free.
  */
-async function startForegroundDatabasePressure(page: Page): Promise<void> {
-  await page.evaluate(async () => {
+async function startForegroundDatabasePressure(page: Page): Promise<number> {
+  return page.evaluate(async () => {
     const targetWindow = window as Window & {
       __capacityReproPressure?: { failure: string | null; stop: () => void };
       electronAPI?: {
-        db?: { query?: (sql: string) => Promise<{ rows: unknown[] }> };
+        db?: {
+          query?: (sql: string) => Promise<{ rows: unknown[] }>;
+          schedulerSnapshot?: () => Promise<{ backgroundYieldCount: number }>;
+        };
       };
     };
     const query = targetWindow.electronAPI?.db?.query;
-    if (!query) {
-      throw new Error('Database API not available');
+    const schedulerSnapshot = targetWindow.electronAPI?.db?.schedulerSnapshot;
+    if (!(query && schedulerSnapshot)) {
+      throw new Error('Database query and scheduler snapshot APIs are required');
     }
+    const backgroundYieldBaseline = (await schedulerSnapshot()).backgroundYieldCount;
     // A successful query is the pressure-loop handshake. Without it, a broken
     // IPC bridge could make the detached loop swallow every rejection and let
     // the starvation regression pass while applying no foreground pressure.
@@ -169,6 +174,7 @@ async function startForegroundDatabasePressure(page: Page): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, 40));
       }
     })();
+    return backgroundYieldBaseline;
   });
 }
 
@@ -186,6 +192,23 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
       throw new Error(pressure.failure);
     }
   });
+}
+
+async function assertBackgroundYieldObserved(page: Page, baseline: number): Promise<void> {
+  const backgroundYieldCount = await page.evaluate(async () => {
+    const schedulerSnapshot = (
+      window as Window & {
+        electronAPI?: {
+          db?: { schedulerSnapshot?: () => Promise<{ backgroundYieldCount: number }> };
+        };
+      }
+    ).electronAPI?.db?.schedulerSnapshot;
+    if (!schedulerSnapshot) {
+      throw new Error('Database scheduler snapshot API is not available');
+    }
+    return (await schedulerSnapshot()).backgroundYieldCount;
+  });
+  expect(backgroundYieldCount).toBeGreaterThan(baseline);
 }
 
 async function stopForegroundDatabasePressure(page: Page): Promise<void> {
@@ -224,9 +247,9 @@ async function runCapacityBackfill(
   await expect(backfillButton).toBeVisible({ timeout: 15_000 });
   await waitForBackfillButtonEnabled(activeWindow, backfillButton);
 
-  if (options.foregroundPressure) {
-    await startForegroundDatabasePressure(activeWindow);
-  }
+  const backgroundYieldBaseline = options.foregroundPressure
+    ? await startForegroundDatabasePressure(activeWindow)
+    : null;
   try {
     await backfillButton.click({ timeout: 5000 });
 
@@ -247,6 +270,10 @@ async function runCapacityBackfill(
           }
         )
         .toBeGreaterThan(0);
+      if (backgroundYieldBaseline === null) {
+        throw new Error('Foreground pressure scheduler baseline was not captured');
+      }
+      await assertBackgroundYieldObserved(activeWindow, backgroundYieldBaseline);
       return;
     }
 

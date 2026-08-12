@@ -58,8 +58,10 @@ arrival, but that preference is bounded: once the background lane has been
 deferred for 250 ms, the scheduler admits exactly one background task before
 returning to foreground-first ordering. The wait clock restarts after each
 background admission, so the guarantee is one admission per bound, not a
-250 ms per-task latency ceiling: a task at queue position N can wait up to
-N × 250 ms. Background consumers must be sized for bounded progress. This
+250 ms per-task latency ceiling: a task at queue position N waits at least
+N × 250 ms under sustained foreground pressure, plus the service time of the
+tasks admitted ahead of it. Background consumers must be sized for bounded
+progress. This
 keeps embedding claims, completion writes, and background indexing live under
 continuous foreground polling without turning the background lane into an
 equal-priority queue.
