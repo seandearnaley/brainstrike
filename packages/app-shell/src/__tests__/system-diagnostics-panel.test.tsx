@@ -150,6 +150,43 @@ describe('SystemDiagnosticsPanel', () => {
       );
     });
 
+    it('surfaces invalid embedding telemetry from a desktop snapshot', async () => {
+      (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
+        getSnapshot: vi.fn(async () => ({
+          collectedAt: '2026-08-01T00:00:00.000Z',
+          embeddingHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'embedding-host:idle',
+            runtimeKind: 'embedding-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          llmHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'llm-host:idle',
+            runtimeKind: 'llm-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          reset: { userDataPath: '/tmp/brainstrike-user-data' },
+          telemetry: { backgroundRuntimeMetrics: [], embedding: 'invalid-telemetry' },
+        })),
+      };
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(
+        await screen.findByText(
+          'Desktop embedding telemetry is invalid: Embedding telemetry snapshot must be an object.'
+        )
+      ).toBeInTheDocument();
+      expect(screen.queryByText('invalid-telemetry')).not.toBeInTheDocument();
+    });
+
     it('refreshes desktop embedding telemetry when the hidden host reports status', async () => {
       const createSnapshot = (totalBytes: number) => {
         const telemetry = {

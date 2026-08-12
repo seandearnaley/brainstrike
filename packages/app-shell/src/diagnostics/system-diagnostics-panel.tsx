@@ -893,12 +893,22 @@ export function SystemDiagnosticsPanel({
     void bridge.getSnapshot().then(
       (snapshot) => {
         if (!cancelled) {
-          setDesktopSnapshot(snapshot);
-          setDesktopDiagnosticsError((currentError) =>
-            currentError?.startsWith('Embedding host status telemetry is invalid:')
-              ? currentError
-              : null
-          );
+          try {
+            if (snapshot.telemetry?.embedding !== undefined) {
+              assertEmbeddingTelemetrySnapshot(snapshot.telemetry.embedding);
+            }
+            setDesktopSnapshot(snapshot);
+            setDesktopDiagnosticsError((currentError) =>
+              currentError?.startsWith('Embedding host status telemetry is invalid:')
+                ? currentError
+                : null
+            );
+          } catch (error) {
+            setDesktopSnapshot(null);
+            setDesktopDiagnosticsError(
+              `Desktop embedding telemetry is invalid: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
         }
       },
       (error: unknown) => {
