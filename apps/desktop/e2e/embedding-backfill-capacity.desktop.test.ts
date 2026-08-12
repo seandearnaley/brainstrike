@@ -145,35 +145,46 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     await query('SELECT COUNT(*)::int AS count FROM file_chunks');
     let running = true;
     let consecutiveFailures = 0;
+    let pressureTimer: number | null = null;
     const pressure = {
       failure: null as string | null,
       stop: () => {
         running = false;
+        if (pressureTimer !== null) {
+          window.clearInterval(pressureTimer);
+          pressureTimer = null;
+        }
       },
     };
     targetWindow.__capacityReproPressure = pressure;
-    void (async () => {
-      while (running) {
-        try {
-          await query('SELECT COUNT(*)::int AS count FROM file_chunks');
+    const enqueuePressureQuery = (): void => {
+      void query('SELECT COUNT(*)::int AS count FROM file_chunks').then(
+        () => {
+          if (!running) {
+            return;
+          }
           consecutiveFailures = 0;
-        } catch (error) {
+        },
+        (error: unknown) => {
+          if (!running) {
+            return;
+          }
           consecutiveFailures += 1;
           if (consecutiveFailures >= 3) {
             pressure.failure = `Foreground database pressure failed 3 consecutive times: ${
               error instanceof Error ? error.message : String(error)
             }`;
-            running = false;
-            return;
+            pressure.stop();
           }
         }
-        // Paced, not saturating: one foreground query every 40ms keeps
-        // `lastForegroundAt` inside the scheduler's 75ms quiet window — the same
-        // signal a live-query-driven panel produces — without monopolising the
-        // DB host, which would starve host startup instead of claim admission.
-        await new Promise((resolve) => setTimeout(resolve, 40));
-      }
-    })();
+      );
+    };
+    // Enqueue on a fixed cadence rather than sleeping after each response. A
+    // slow query must not stretch foreground arrivals beyond the scheduler's
+    // 75ms quiet window and let the regression pass without exercising the
+    // starvation bound.
+    pressureTimer = window.setInterval(enqueuePressureQuery, 40);
+    enqueuePressureQuery();
     return backgroundYieldBaseline;
   });
 }
