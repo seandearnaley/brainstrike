@@ -115,7 +115,7 @@ const activeStreamRequestIds = new Set<string>();
 // It cannot be tested in Node.js. Coverage is excluded via c8 ignore.
 /* c8 ignore next 36 -- Worker globals only exist in browser Web Worker context */
 if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
-  const emitGlobalFailure = (message: string, cause?: string): void => {
+  const emitGlobalFailure = (message: string, cause?: string): boolean => {
     const workerpoolRequestId = activeWorkerpoolRequestId;
     workerEmit({
       cause,
@@ -130,6 +130,7 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     if (ownerWasNotified && typeof self.close === 'function') {
       self.close();
     }
+    return ownerWasNotified;
   };
 
   // Global error handler to catch any uncaught errors in the worker
@@ -150,7 +151,14 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     const message = reason instanceof Error ? reason.message : String(reason);
     const stack = reason instanceof Error ? reason.stack : undefined;
     errorLog('Unhandled worker promise rejection', { message, reason, stack });
-    emitGlobalFailure(`Worker unhandled rejection: ${message}`, stack);
+    const ownerWasNotified = emitGlobalFailure(`Worker unhandled rejection: ${message}`, stack);
+    if (!ownerWasNotified) {
+      // Unlike an uncaught worker error, an unhandled rejection does not propagate to the
+      // owning Worker. Re-report it as an uncaught error so workerpool/direct-client error
+      // listeners visibly fail and retire this idle runtime before its next request.
+      self.onerror = null;
+      reportError(reason instanceof Error ? reason : new Error(message));
+    }
   };
 
   // Log worker initialization at debug level (removed - too verbose)

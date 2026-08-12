@@ -94,6 +94,7 @@ describe('embedding worker runtime', () => {
     transformersImportState.error = null;
     transformersImportState.env = { allowRemoteModels: false };
     vi.unstubAllGlobals();
+    vi.stubGlobal('reportError', vi.fn());
   });
 
   afterEach(() => {
@@ -233,6 +234,27 @@ describe('embedding worker runtime', () => {
         id: 'global',
         type: 'error',
       });
+    });
+
+    it('reports an idle unhandled rejection through the owner-visible worker error channel', async () => {
+      const close = vi.fn();
+      const reportError = vi.fn(() => {
+        expect(mockSelf.onerror).toBeNull();
+      });
+      const mockSelf = {
+        close,
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      vi.stubGlobal('reportError', reportError);
+      await import('../src/embedding.worker');
+      const rejection = new Error('idle rejection');
+
+      mockSelf.onunhandledrejection?.({ reason: rejection } as PromiseRejectionEvent);
+
+      expect(reportError).toHaveBeenCalledWith(rejection);
+      expect(close).not.toHaveBeenCalled();
     });
 
     it('scopes global failures to the active workerpool request', async () => {
