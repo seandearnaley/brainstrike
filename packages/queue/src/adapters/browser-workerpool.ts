@@ -1,8 +1,10 @@
 import {
+  assertEmbedWorkerLifetimeError,
   assertEmbedWorkerPipelineCacheDiagnostic,
   assertEmbedWorkerTelemetrySourceClosed,
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+  type EmbedWorkerLifetimeError,
   type EmbedWorkerPipelineCacheDiagnostic,
 } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
@@ -102,6 +104,8 @@ const MANAGED_WORKER_SCRIPT_FRAGMENT_KEY = 'brainstrike-embedding-worker-instanc
 const WORKER_LIFETIME_TELEMETRY_CHANNEL_PREFIX = 'brainstrike-embedding-worker-telemetry:';
 const MISSING_PIPELINE_CACHE_DIAGNOSTIC_REASON =
   'Workerpool result arrived without a pipeline-cache source diagnostic.';
+const WORKER_LIFETIME_RECOVERY_REASON =
+  'Embedding worker lifetime failure required workerpool recovery.';
 
 function tagManagedWorkerScript(
   workerScript: string | undefined,
@@ -343,14 +347,51 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     workerOpts: { type: 'module' },
     workerType: 'web',
   };
+  let terminalState: 'active' | 'canceled' | 'disposed' = 'active';
+  const createPool = (): Pool => workerpool.pool(workerScript, poolOptions);
   let pool: Pool;
   try {
-    pool = workerpool.pool(workerScript, poolOptions);
+    pool = createPool();
   } catch (error) {
     closeTelemetryChannel();
     throw error;
   }
   let workerLifetimeTelemetryFailure: Error | null = null;
+  let workerLifetimeRecovery: Promise<void> | null = null;
+  const recoverWorkerpoolAfterLifetimeError = (event: EmbedWorkerLifetimeError): void => {
+    assertActiveWorkerInstanceId(event.workerInstanceId);
+    if (workerLifetimeRecovery !== null || terminalState !== 'active') {
+      return;
+    }
+    embeddingTelemetry.recordFailure(WORKER_LIFETIME_RECOVERY_REASON);
+    logger.error('Embedding worker lifetime failure triggered workerpool recovery.', {
+      reason: event.message,
+      workerInstanceId: event.workerInstanceId,
+    });
+    const failedPool = pool;
+    workerLifetimeRecovery = (async (): Promise<void> => {
+      try {
+        await failedPool.terminate(true);
+        clearEmbeddingTelemetrySources();
+        if (terminalState === 'active') {
+          pool = createPool();
+        }
+      } catch (error) {
+        workerLifetimeTelemetryFailure = new Error(
+          'Embedding workerpool recovery after a worker lifetime failure failed.',
+          { cause: error }
+        );
+        embeddingTelemetry.recordFailure(workerLifetimeTelemetryFailure.message);
+        logger.error('Embedding workerpool recovery after a lifetime failure failed.', {
+          reason: error instanceof Error ? error.message : 'Unknown workerpool recovery error.',
+        });
+        closeTelemetryChannel();
+        clearEmbeddingTelemetrySources();
+      } finally {
+        workerLifetimeRecovery = null;
+      }
+    })();
+  };
   const failWorkerLifetimeTelemetry = (error: unknown): void => {
     if (workerLifetimeTelemetryFailure !== null) {
       return;
@@ -385,6 +426,16 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         event.data &&
         typeof event.data === 'object' &&
         !Array.isArray(event.data) &&
+        (event.data as Record<string, unknown>)['type'] === 'worker-lifetime-error'
+      ) {
+        assertEmbedWorkerLifetimeError(event.data);
+        recoverWorkerpoolAfterLifetimeError(event.data);
+        return;
+      }
+      if (
+        event.data &&
+        typeof event.data === 'object' &&
+        !Array.isArray(event.data) &&
         (event.data as Record<string, unknown>)['type'] === 'telemetry-source-closed'
       ) {
         assertEmbedWorkerTelemetrySourceClosed(event.data);
@@ -409,7 +460,6 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   };
 
   let paused = false;
-  let terminalState: 'active' | 'canceled' | 'disposed' = 'active';
   const resumeWaiters: Array<() => void> = [];
   const cancelWaiters: Array<() => void> = [];
   const emitter = new ProgressEmitter<WorkerEvent>();
@@ -448,6 +498,11 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     opts?: QueueAddOptions | QueueAddBulkOptions
   ): Promise<QueueResult> => {
     await waitForResume();
+    const recovery = workerLifetimeRecovery;
+    if (recovery !== null) {
+      await recovery;
+      assertAcceptingWork();
+    }
     const { promise, cancelable, startedAt, telemetrySource } = createExecutionPromise(task);
     attachAbort((opts as QueueAddOptions | undefined)?.signal, cancelable, task.id);
     activeTasks += 1;

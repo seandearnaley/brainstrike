@@ -147,11 +147,13 @@ Embedding runtime telemetry (BST-402):
   A worker self-terminates after a global failure only when it has notified at least one
   active owning transport, so workerpool cannot reuse an invocation still running inference
   and a direct stream cannot remain pending. Idle global failures retain the explicit
-  `global` sentinel and do not silently self-close. An idle unhandled rejection is also
-  re-reported through the browser's uncaught-worker-error channel so the existing owner
-  error listener visibly fails and retires the worker before reuse. Active direct streams
-  each also receive their own request-scoped device-loss message. A validated
-  request-scoped worker error is
+  `global` sentinel and do not silently self-close. An idle pool worker sends a validated
+  worker-lifetime error over its managed channel; the adapter terminates that pool, gates
+  new executions on recovery, and creates the replacement before accepting another task.
+  An idle direct worker instead re-reports an unhandled rejection through the browser's
+  uncaught-worker-error channel so the existing client listener visibly fails and retires
+  it. Active direct streams each also receive their own request-scoped device-loss message.
+  A validated request-scoped worker error is
   terminal: the workerpool adapter emits it for diagnostics, cancels the RPC, and rejects
   the task even if the worker later tries to return vectors.
   Controlled host restarts publish a metadata-free `starting`

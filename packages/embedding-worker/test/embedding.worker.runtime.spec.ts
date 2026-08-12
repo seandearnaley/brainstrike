@@ -257,6 +257,45 @@ describe('embedding worker runtime', () => {
       expect(close).not.toHaveBeenCalled();
     });
 
+    it('requests adapter recovery for an idle workerpool rejection', async () => {
+      const telemetryPostMessage = vi.fn();
+      vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}idle-failed-worker`);
+      vi.stubGlobal('location', {
+        hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=idle-failure-channel`,
+      });
+      vi.stubGlobal(
+        'BroadcastChannel',
+        class {
+          readonly close = vi.fn();
+          readonly postMessage = telemetryPostMessage;
+        } as unknown as typeof BroadcastChannel
+      );
+      const close = vi.fn();
+      const mockSelf = {
+        close,
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      const reportError = vi.fn();
+      vi.stubGlobal('reportError', reportError);
+      await import('../src/embedding.worker');
+
+      mockSelf.onunhandledrejection?.({
+        reason: new Error('idle pool rejection'),
+      } as PromiseRejectionEvent);
+
+      expect(telemetryPostMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Worker unhandled rejection: idle pool rejection',
+          type: 'worker-lifetime-error',
+          workerInstanceId: 'idle-failed-worker',
+        })
+      );
+      expect(reportError).not.toHaveBeenCalled();
+      expect(close).not.toHaveBeenCalled();
+    });
+
     it('scopes global failures to the active workerpool request', async () => {
       const close = vi.fn();
       const mockSelf = {

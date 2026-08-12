@@ -86,6 +86,35 @@ export function assertEmbedWorkerTelemetrySourceClosed(
   }
 }
 
+/** Worker-lifetime failure delivered outside a workerpool RPC so the owner can replace it. */
+export interface EmbedWorkerLifetimeError {
+  readonly cause?: string;
+  readonly message: string;
+  readonly type: 'worker-lifetime-error';
+  readonly workerInstanceId: string;
+}
+
+export function assertEmbedWorkerLifetimeError(
+  value: unknown
+): asserts value is EmbedWorkerLifetimeError {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding worker lifetime-error event must be an object.');
+  }
+  const event = value as Record<string, unknown>;
+  if (event['type'] !== 'worker-lifetime-error') {
+    throw new Error('Embedding worker lifetime-error event has an invalid type.');
+  }
+  if (!(typeof event['message'] === 'string' && event['message'].length > 0)) {
+    throw new Error('Embedding worker lifetime-error event requires a message.');
+  }
+  if (event['cause'] !== undefined && typeof event['cause'] !== 'string') {
+    throw new Error('Embedding worker lifetime-error event cause must be a string.');
+  }
+  if (!(typeof event['workerInstanceId'] === 'string' && event['workerInstanceId'].length > 0)) {
+    throw new Error('Embedding worker lifetime-error event requires a worker instance identity.');
+  }
+}
+
 interface EmbedWorkerPipelineCacheDiagnosticBase {
   readonly cacheSize: number;
   readonly diagnostic: 'pipeline-cache';

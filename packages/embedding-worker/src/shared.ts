@@ -11,6 +11,7 @@ export type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
   EmbedWorkerError,
+  EmbedWorkerLifetimeError,
   EmbedWorkerPipelineCacheDiagnostic,
   EmbedWorkerPipelineCacheEntryDiagnostic,
   EmbedWorkerPipelineCacheMemoryDiagnostic,

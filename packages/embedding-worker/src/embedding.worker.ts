@@ -17,6 +17,7 @@ import type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
   EmbedWorkerError,
+  EmbedWorkerLifetimeError,
   EmbedWorkerPipelineCacheDiagnostic,
   EmbedWorkerPipelineCacheEntryDiagnostic,
   EmbedWorkerProgress,
@@ -126,11 +127,20 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     for (const id of activeStreamRequestIds) {
       postStreamEvent({ cause, id, message, type: 'error' });
     }
-    const ownerWasNotified = workerpoolRequestId !== null || activeStreamRequestIds.size > 0;
-    if (ownerWasNotified && typeof self.close === 'function') {
+    const activeOwnerWasNotified = workerpoolRequestId !== null || activeStreamRequestIds.size > 0;
+    if (!activeOwnerWasNotified && workerpoolTelemetryChannel) {
+      workerpoolTelemetryChannel.postMessage({
+        ...(cause === undefined ? {} : { cause }),
+        message,
+        type: 'worker-lifetime-error',
+        workerInstanceId: embeddingWorkerInstanceId,
+      } satisfies EmbedWorkerLifetimeError);
+      return true;
+    }
+    if (activeOwnerWasNotified && typeof self.close === 'function') {
       self.close();
     }
-    return ownerWasNotified;
+    return activeOwnerWasNotified;
   };
 
   // Global error handler to catch any uncaught errors in the worker
