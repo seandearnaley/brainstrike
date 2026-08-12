@@ -119,8 +119,8 @@ function assertCacheEntry(
   if (device !== 'webgpu' && device !== 'wasm') {
     throw new Error(`Embedding telemetry cache.entries[${index}].device is invalid.`);
   }
-  if (!(typeof dtype === 'string' && dtype.length > 0)) {
-    throw new Error(`Embedding telemetry cache.entries[${index}].dtype must be non-empty.`);
+  if (dtype !== 'fp16' && dtype !== 'fp32' && dtype !== 'q4') {
+    throw new Error(`Embedding telemetry cache.entries[${index}].dtype is invalid.`);
   }
   if (!(typeof model === 'string' && model.length > 0)) {
     throw new Error(`Embedding telemetry cache.entries[${index}].model must be non-empty.`);
@@ -154,7 +154,7 @@ function assertCacheEntry(
       `Embedding telemetry cache.entries[${index}].createdAt`
     ),
     device,
-    dtype: dtype as EmbeddingPipelineCacheTelemetry['entries'][number]['dtype'],
+    dtype,
     lastUsedAt: assertNonNegativeNumber(
       candidate['lastUsedAt'],
       `Embedding telemetry cache.entries[${index}].lastUsedAt`

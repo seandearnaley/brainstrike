@@ -236,6 +236,38 @@ describe('embedding telemetry store', () => {
     ).toThrow('Embedding telemetry cache.entries contains duplicate source/cache identities.');
   });
 
+  it('rejects unsupported cache entry dtypes at the process boundary', () => {
+    expect(() =>
+      assertEmbeddingTelemetrySnapshot({
+        ...createEmptyEmbeddingTelemetrySnapshot(),
+        cache: {
+          entries: [
+            {
+              cacheKey: 'model-a|webgpu|int8',
+              createdAt: 100,
+              device: 'webgpu',
+              dtype: 'int8',
+              lastUsedAt: 200,
+              memory: {
+                gpuBytes: 1024,
+                heapBytes: 0,
+                reason: 'model-size-estimate',
+              },
+              model: 'model-a',
+              residencyMs: 100,
+              sourceId: 'worker-a',
+            },
+          ],
+          estimatedGpuBytes: 1024,
+          estimatedHeapBytes: 0,
+          memoryEstimateUnavailableCount: 0,
+          residentCount: 1,
+        },
+        lastUpdatedAt: 200,
+      })
+    ).toThrow('Embedding telemetry cache.entries[0].dtype is invalid.');
+  });
+
   it.each([
     [
       'a transferred batch',
