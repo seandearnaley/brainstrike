@@ -815,4 +815,110 @@ describe('EmbeddingHostRuntime', () => {
       })
     );
   });
+
+  it('keeps telemetry reports active while a foreground query embedding is running', async () => {
+    storeState.hasHydrated = true;
+    dbHandle.query.mockResolvedValue({
+      rows: [
+        {
+          capabilities: { defaultDimension: 2 },
+          description: '',
+          id: 'Xenova/all-MiniLM-L6-v2',
+          name: 'MiniLM',
+          parameters: {},
+          providerId: 'local',
+        },
+      ],
+    });
+    startEmbeddingWorkerMock.mockImplementationOnce(async (options) => {
+      options.onRuntimeMetadataChange?.({
+        device: 'webgpu',
+        dtype: 'fp32',
+        fallbackApplied: false,
+      });
+      return { stop: stopMock };
+    });
+    let releaseQuery: (() => void) | null = null;
+    generateQueryEmbeddingMock.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseQuery = resolve;
+      });
+      return {
+        embedding: [0.1, 0.2],
+        runtime: {
+          device: 'webgpu',
+          dtype: 'fp32',
+          fallbackApplied: false,
+        },
+      };
+    });
+
+    render(<EmbeddingHostRuntime />);
+    await waitFor(() => {
+      expect(startEmbeddingWorkerMock).toHaveBeenCalled();
+    });
+    const queryEmbeddingListener = queryEmbeddingListenerRef.current;
+    if (!queryEmbeddingListener) {
+      throw new Error('Expected embedding host query embedding listener to be registered.');
+    }
+
+    queryEmbeddingListener({
+      channel: 'query-embedding',
+      payload: {
+        dimensions: 2,
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local:Xenova/all-MiniLM-L6-v2',
+        query: 'long-running query',
+      },
+      requestId: 'embedding-query:telemetry-active',
+      runtimeId: 'test-runtime',
+      type: 'request',
+    });
+    await waitFor(() => {
+      expect(generateQueryEmbeddingMock).toHaveBeenCalled();
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({ active: true, state: 'running' })
+      );
+    });
+    reportStatusMock.mockClear();
+
+    act(() => {
+      recordEmbeddingBatchTelemetry('foreground-query-worker', {
+        batchIndex: 0,
+        endIndex: 1,
+        id: 'foreground-query-batch',
+        peakVectorsInFlight: 1,
+        startIndex: 0,
+        transferBytes: 8,
+        type: 'batch',
+        vectors: [new Float32Array(2)],
+        vectorsInFlight: 1,
+      });
+    });
+
+    await waitFor(() => {
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          active: true,
+          embeddingRuntime: expect.objectContaining({
+            telemetry: expect.objectContaining({
+              batchTransfer: expect.objectContaining({ batchCount: 1 }),
+            }),
+          }),
+          state: 'running',
+        })
+      );
+    });
+
+    const finishQuery = releaseQuery as (() => void) | null;
+    if (!finishQuery) {
+      throw new Error('Expected query embedding generation to remain pending.');
+    }
+    finishQuery();
+    await waitFor(() => {
+      expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: 'embedding-query:telemetry-active' })
+      );
+    });
+  });
 });

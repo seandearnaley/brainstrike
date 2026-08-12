@@ -720,7 +720,9 @@ export function EmbeddingHostRuntime(): null {
       reportStatus: () => {
         const fatalError = fatalErrorRef.current;
         reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalError ? 'error' : 'running', {
-          active: fatalError ? false : activeRef.current,
+          active: fatalError
+            ? false
+            : activeRef.current || queryEmbeddingActiveCountRef.current > 0,
           embeddingRuntime: embeddingRuntimeRef.current,
           lastError: fatalError,
         });
