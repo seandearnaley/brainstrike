@@ -64,6 +64,7 @@ const workerpoolMocks = vi.hoisted(() => {
 
   let implementation = createDefaultImplementation();
   let statsImpl: undefined | (() => { pendingTasks: number });
+  let workerInstanceId: string | null = null;
 
   const execSpy = vi.fn<
     [
@@ -73,6 +74,9 @@ const workerpoolMocks = vi.hoisted(() => {
     ],
     Promise<unknown> & { cancel: () => void }
   >((method, args, options) => {
+    if (workerInstanceId === null) {
+      throw new Error('Expected the workerpool mock to create a managed worker.');
+    }
     const [payload] = args;
     options?.on?.({
       cacheSize: 1,
@@ -91,16 +95,40 @@ const workerpoolMocks = vi.hoisted(() => {
       event: 'hit',
       id: (payload as { id: string }).id,
       type: 'diagnostic',
-      workerInstanceId: 'queue-spec-worker',
+      workerInstanceId,
     });
     return implementation(method, args, options);
   });
 
-  const poolSpy = vi.fn((_script: unknown, _options: unknown) => ({
-    exec: execSpy,
-    stats: statsImpl,
-    terminate,
-  }));
+  const poolSpy = vi.fn((script: unknown, options: unknown) => {
+    const poolOptions = options as {
+      onCreateWorker?: (args: {
+        script?: string;
+        workerOpts?: WorkerOptions;
+      }) => { script?: string; workerOpts?: WorkerOptions } | undefined;
+    };
+    const createdWorker = poolOptions.onCreateWorker?.({
+      script: typeof script === 'string' ? script : undefined,
+      workerOpts: { type: 'module' },
+    });
+    const taggedScript = createdWorker?.script;
+    if (!taggedScript) {
+      throw new Error('Expected the adapter to tag its managed worker script.');
+    }
+    workerInstanceId = new URL(taggedScript).hash
+      ? new URLSearchParams(new URL(taggedScript).hash.slice(1)).get(
+          'brainstrike-embedding-worker-instance'
+        )
+      : null;
+    if (workerInstanceId === null) {
+      throw new Error('Expected the adapter to assign a managed worker identity.');
+    }
+    return {
+      exec: execSpy,
+      stats: statsImpl,
+      terminate,
+    };
+  });
 
   return {
     cancel,
@@ -113,6 +141,7 @@ const workerpoolMocks = vi.hoisted(() => {
       poolSpy.mockClear();
       implementation = createDefaultImplementation();
       statsImpl = undefined;
+      workerInstanceId = null;
     },
     setImplementation(
       fn: (
