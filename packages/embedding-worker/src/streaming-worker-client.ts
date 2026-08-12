@@ -230,11 +230,11 @@ export class StreamingEmbeddingWorkerClient {
       }
       try {
         assertEmbedWorkerPipelineCacheDiagnostic(message);
+        recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, message);
       } catch (error) {
         this.runtime.markFailed(error);
         return;
       }
-      recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, message);
     });
   }
 
@@ -341,12 +341,12 @@ export class StreamingEmbeddingWorkerClient {
     if (payload.type === 'diagnostic') {
       try {
         assertEmbedWorkerPipelineCacheDiagnostic(payload);
+        if (payload.id !== undefined) {
+          recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, payload);
+        }
       } catch (error) {
         this.runtime.markFailed(error);
         return;
-      }
-      if (payload.id !== undefined) {
-        recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, payload);
       }
       options.onDiagnostic?.(payload);
       return;

@@ -268,6 +268,40 @@ describe('embedding telemetry store', () => {
     ).toThrow('Embedding telemetry cache.entries[0].dtype is invalid.');
   });
 
+  it('rejects contradictory cache memory at the process boundary', () => {
+    expect(() =>
+      assertEmbeddingTelemetrySnapshot({
+        ...createEmptyEmbeddingTelemetrySnapshot(),
+        cache: {
+          entries: [
+            {
+              cacheKey: 'model-a|wasm|fp32',
+              createdAt: 100,
+              device: 'wasm',
+              dtype: 'fp32',
+              lastUsedAt: 200,
+              memory: {
+                gpuBytes: 1024,
+                heapBytes: 0,
+                reason: 'model-size-estimate',
+              },
+              model: 'model-a',
+              residencyMs: 100,
+              sourceId: 'worker-a',
+            },
+          ],
+          estimatedGpuBytes: 1024,
+          estimatedHeapBytes: 0,
+          memoryEstimateUnavailableCount: 0,
+          residentCount: 1,
+        },
+        lastUpdatedAt: 200,
+      })
+    ).toThrow(
+      'Embedding telemetry cache.entries[0].memory.gpuBytes must be null or zero for wasm.'
+    );
+  });
+
   it.each([
     [
       'a transferred batch',

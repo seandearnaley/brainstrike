@@ -333,6 +333,130 @@ describe('StreamingEmbeddingWorkerClient', () => {
     expect(getEmbeddingTelemetrySnapshot().cache.residentCount).toBe(0);
   });
 
+  it('terminally rejects request-scoped cache hits that contradict tracked state', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const streamPromise = client.stream(createRequest());
+    await flushMicrotasks();
+    const residentEntry = createPipelineCacheEntry();
+
+    worker.emitMessage({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 1000,
+      entries: [residentEntry],
+      entry: residentEntry,
+      event: 'loaded',
+      id: 'embed-1',
+      type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
+    } satisfies EmbedWorkerPipelineCacheDiagnostic);
+    worker.emitMessage({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 1001,
+      entry: {
+        ...residentEntry,
+        cacheKey: 'local:other-model|wasm|fp32',
+        model: 'local:other-model',
+      },
+      event: 'hit',
+      id: 'embed-1',
+      type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
+    } satisfies EmbedWorkerPipelineCacheDiagnostic);
+
+    await expect(streamPromise).rejects.toThrow(
+      'Embedding telemetry cache hit must reference tracked resident cache state.'
+    );
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminally latches id-less cache hits that contradict tracked state', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const firstStream = client.stream({ ...createRequest(), texts: [] });
+    await flushMicrotasks();
+    const residentEntry = createPipelineCacheEntry();
+
+    worker.emitMessage({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 1000,
+      entries: [residentEntry],
+      entry: residentEntry,
+      event: 'loaded',
+      id: 'embed-1',
+      type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
+    } satisfies EmbedWorkerPipelineCacheDiagnostic);
+    worker.emitMessage({
+      id: 'embed-1',
+      metadata: {
+        batchSize: 0,
+        device: 'wasm',
+        dimensions: 3,
+        dtype: 'fp32',
+        elapsedMs: 1,
+        fallbackApplied: false,
+        model: 'local:test-model',
+      },
+      type: 'complete',
+    });
+    await firstStream;
+
+    worker.emitMessage({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 1001,
+      entry: {
+        ...residentEntry,
+        cacheKey: 'local:other-model|wasm|fp32',
+        model: 'local:other-model',
+      },
+      event: 'hit',
+      type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
+    } satisfies EmbedWorkerPipelineCacheDiagnostic);
+
+    await expect(client.stream(createRequest())).rejects.toThrow(
+      'Embedding telemetry cache hit must reference tracked resident cache state.'
+    );
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminally rejects contradictory cache memory diagnostics', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const streamPromise = client.stream(createRequest());
+    await flushMicrotasks();
+    const entry = {
+      ...createPipelineCacheEntry(),
+      memory: {
+        gpuBytes: 128,
+        heapBytes: null,
+        reason: 'model-size-unknown' as const,
+      },
+    };
+
+    worker.emitMessage({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 1000,
+      entries: [entry],
+      entry,
+      event: 'loaded',
+      id: 'embed-1',
+      type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
+    } satisfies EmbedWorkerPipelineCacheDiagnostic);
+
+    await expect(streamPromise).rejects.toThrow(
+      'Embedding worker pipeline-cache diagnostic.entry.memory must not report bytes when its reason is model-size-unknown.'
+    );
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
+
   it('terminally latches a malformed id-less cache diagnostic', async () => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);

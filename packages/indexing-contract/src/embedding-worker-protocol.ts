@@ -142,6 +142,50 @@ function assertNonNegativePipelineCacheDiagnosticNumber(
   }
 }
 
+export function assertEmbedWorkerPipelineCacheMemoryDiagnostic(
+  value: unknown,
+  device: EmbeddingDevice,
+  path: string
+): asserts value is EmbedWorkerPipelineCacheMemoryDiagnostic {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error(`${path} must be an object.`);
+  }
+  const memory = value as Record<string, unknown>;
+  for (const field of ['gpuBytes', 'heapBytes'] as const) {
+    const bytes = memory[field];
+    if (bytes !== null) {
+      assertNonNegativePipelineCacheDiagnosticNumber(bytes, `${path}.${field}`);
+    }
+  }
+  const reason = memory['reason'];
+  if (
+    reason !== 'browser-runtime-unavailable' &&
+    reason !== 'measured' &&
+    reason !== 'model-size-estimate' &&
+    reason !== 'model-size-unknown'
+  ) {
+    throw new Error(`${path}.reason is invalid.`);
+  }
+  const gpuBytes = memory['gpuBytes'];
+  const heapBytes = memory['heapBytes'];
+  if (
+    (reason === 'browser-runtime-unavailable' || reason === 'model-size-unknown') &&
+    (gpuBytes !== null || heapBytes !== null)
+  ) {
+    throw new Error(`${path} must not report bytes when its reason is ${reason}.`);
+  }
+  if (
+    (reason === 'measured' || reason === 'model-size-estimate') &&
+    gpuBytes === null &&
+    heapBytes === null
+  ) {
+    throw new Error(`${path} must report bytes when its reason is ${reason}.`);
+  }
+  if (device === 'wasm' && gpuBytes !== null && gpuBytes !== 0) {
+    throw new Error(`${path}.gpuBytes must be null or zero for wasm.`);
+  }
+}
+
 function assertEmbedWorkerPipelineCacheEntryDiagnostic(
   value: unknown,
   path: string
@@ -162,26 +206,11 @@ function assertEmbedWorkerPipelineCacheEntryDiagnostic(
   assertNonEmptyPipelineCacheDiagnosticString(entry['model'], `${path}.model`);
   assertNonNegativePipelineCacheDiagnosticNumber(entry['residencyMs'], `${path}.residencyMs`);
 
-  const memory = entry['memory'];
-  if (!(memory && typeof memory === 'object' && !Array.isArray(memory))) {
-    throw new Error(`${path}.memory must be an object.`);
-  }
-  const memoryRecord = memory as Record<string, unknown>;
-  for (const field of ['gpuBytes', 'heapBytes'] as const) {
-    const bytes = memoryRecord[field];
-    if (bytes !== null) {
-      assertNonNegativePipelineCacheDiagnosticNumber(bytes, `${path}.memory.${field}`);
-    }
-  }
-  const memoryReason = memoryRecord['reason'];
-  if (
-    memoryReason !== 'browser-runtime-unavailable' &&
-    memoryReason !== 'measured' &&
-    memoryReason !== 'model-size-estimate' &&
-    memoryReason !== 'model-size-unknown'
-  ) {
-    throw new Error(`${path}.memory.reason is invalid.`);
-  }
+  assertEmbedWorkerPipelineCacheMemoryDiagnostic(
+    entry['memory'],
+    entry['device'],
+    `${path}.memory`
+  );
 }
 
 function readEmbedWorkerPipelineCacheEntries(

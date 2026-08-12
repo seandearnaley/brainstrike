@@ -1,3 +1,4 @@
+import { assertEmbedWorkerPipelineCacheMemoryDiagnostic } from '@brainstrike/indexing-contract';
 import type { EmbedWorkerBatch, EmbedWorkerPipelineCacheDiagnostic } from './shared';
 
 type EmbeddingPipelineCacheDiagnosticEntry = NonNullable<
@@ -128,24 +129,12 @@ function assertCacheEntry(
   if (!(typeof sourceId === 'string' && sourceId.length > 0)) {
     throw new Error(`Embedding telemetry cache.entries[${index}].sourceId must be non-empty.`);
   }
-  if (!(memory && typeof memory === 'object' && !Array.isArray(memory))) {
-    throw new Error(`Embedding telemetry cache.entries[${index}].memory must be an object.`);
-  }
-  const memoryCandidate = memory as Record<string, unknown>;
-  const reason = memoryCandidate['reason'];
-  if (
-    reason !== 'browser-runtime-unavailable' &&
-    reason !== 'measured' &&
-    reason !== 'model-size-estimate' &&
-    reason !== 'model-size-unknown'
-  ) {
-    throw new Error(`Embedding telemetry cache.entries[${index}].memory.reason is invalid.`);
-  }
+  const memoryPath = `Embedding telemetry cache.entries[${index}].memory`;
+  assertEmbedWorkerPipelineCacheMemoryDiagnostic(memory, device, memoryPath);
+  const reason = memory.reason;
   const readNullableBytes = (key: 'gpuBytes' | 'heapBytes'): number | null => {
-    const bytes = memoryCandidate[key];
-    return bytes === null
-      ? null
-      : assertNonNegativeNumber(bytes, `Embedding telemetry cache.entries[${index}].memory.${key}`);
+    const bytes = memory[key];
+    return bytes === null ? null : assertNonNegativeNumber(bytes, `${memoryPath}.${key}`);
   };
   return {
     cacheKey,
