@@ -1991,6 +1991,7 @@ export function WorkspaceCollectionSyncProvider({
           mountedHandles.map(async (handle) => {
             const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path);
             return {
+              adapterRootId: adapterRootId ?? null,
               dbRootId: await resolveDbRootId(handle.path, adapterRootId),
               identityKey: createMountedRootIdentityKey(handle, rootIdByPath),
               rootPath: handle.path,
@@ -2027,7 +2028,11 @@ export function WorkspaceCollectionSyncProvider({
         const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
         service.reconcileMountedRoots(
           managedCollectionId,
-          resolvedMountedRoots.map(({ dbRootId, rootPath }) => ({ dbRootId, rootPath }))
+          resolvedMountedRoots.map(({ adapterRootId, dbRootId, rootPath }) => ({
+            adapterRootId,
+            dbRootId,
+            rootPath,
+          }))
         );
         // Order by ACTUAL indexed coverage: least-indexed roots sync first. A
         // folder you just added (0 files), or one whose earlier pass imported

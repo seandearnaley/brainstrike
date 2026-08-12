@@ -1263,8 +1263,16 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(reconcileMountedRootsSpy).toHaveBeenLastCalledWith(
         '00000000-0000-0000-0000-000000000101',
         [
-          { dbRootId: 'db-root-a-id', rootPath: '/workspace/shared' },
-          { dbRootId: 'db-root-b-id', rootPath: '/workspace/shared' },
+          {
+            adapterRootId: 'root-a-id',
+            dbRootId: 'db-root-a-id',
+            rootPath: '/workspace/shared',
+          },
+          {
+            adapterRootId: 'root-b-id',
+            dbRootId: 'db-root-b-id',
+            rootPath: '/workspace/shared',
+          },
         ]
       );
       expect(resolveDbRootIdMock).toHaveBeenLastCalledWith('/workspace/shared', 'root-b-id');

@@ -214,6 +214,7 @@ export type WorkspaceCollectionSyncScope =
 
 interface ResolvedSyncContext {
   activeRootPath: string;
+  adapterRootId: string | null;
   collection: EmbeddingSet;
   /** DB root id from the `roots` table, or null if the path is unmapped. */
   dbRootId: string | null;
@@ -244,14 +245,22 @@ export class WorkspaceCollectionSyncService {
 
   reconcileMountedRoots(
     collectionId: string | null,
-    mountedRoots: readonly { dbRootId: string | null; rootPath: string }[]
+    mountedRoots: readonly {
+      adapterRootId: string | null;
+      dbRootId: string | null;
+      rootPath: string;
+    }[]
   ): void {
     for (const [scopeKey, scope] of this.terminalChunkingErrorsByScope) {
-      const remainsMounted = mountedRoots.some(
-        (root) =>
-          root.rootPath === scope.context.rootPath &&
-          (root.dbRootId === null || root.dbRootId === scope.context.dbRootId)
-      );
+      const remainsMounted = mountedRoots.some((root) => {
+        if (root.rootPath !== scope.context.rootPath) {
+          return false;
+        }
+        if (scope.context.adapterRootId !== null) {
+          return root.adapterRootId === scope.context.adapterRootId;
+        }
+        return root.dbRootId === null || root.dbRootId === scope.context.dbRootId;
+      });
       if (scope.context.collection.id !== collectionId || !remainsMounted) {
         this.terminalChunkingErrorsByScope.delete(scopeKey);
       }
@@ -443,6 +452,7 @@ export class WorkspaceCollectionSyncService {
         : request.dbRootId;
     return {
       activeRootPath: rootPath ?? '',
+      adapterRootId: request.rootDirectoryHandle?.rootId ?? null,
       collection,
       dbRootId,
       provider,

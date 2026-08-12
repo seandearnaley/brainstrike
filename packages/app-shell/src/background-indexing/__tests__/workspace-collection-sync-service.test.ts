@@ -863,7 +863,7 @@ describe('WorkspaceCollectionSyncService', () => {
       enabled: true,
       indexingPolicyPreset: 'balanced' as const,
       managedCollectionId: 'set-1',
-      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      rootDirectoryHandle: { ...createRootHandle(ROOT_PATH), rootId: 'root-a-id' },
     };
 
     await service.sync(request);
@@ -1005,19 +1005,21 @@ describe('WorkspaceCollectionSyncService', () => {
       })
     );
 
-    service.reconcileMountedRoots('set-1', [{ dbRootId: DB_ROOT_B_ID, rootPath: ROOT_B_PATH }]);
+    service.reconcileMountedRoots('set-1', [
+      { adapterRootId: 'root-b-id', dbRootId: null, rootPath: ROOT_PATH },
+    ]);
     readFullTreeWithOptionsMock.mockResolvedValueOnce([]);
-    vi.mocked(deps.resolveDbRootId).mockResolvedValueOnce(DB_ROOT_B_ID);
     await service.sync({
       backfillMode: 'defer',
+      dbRootId: DB_ROOT_B_ID,
       enabled: true,
       indexingPolicyPreset: 'balanced',
       managedCollectionId: 'set-1',
-      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+      rootDirectoryHandle: { ...createRootHandle(ROOT_PATH), rootId: 'root-b-id' },
     });
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        activeRootPath: ROOT_B_PATH,
+        activeRootPath: ROOT_PATH,
         lastError: null,
         state: 'idle',
       })

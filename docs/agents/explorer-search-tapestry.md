@@ -313,9 +313,10 @@ there rather than hiding entries after the adapter has already read them.
   matching path errors during both scoped and full scans. Switching or disabling
   the managed collection discards errors owned by the retired collection. Each
   provider loop also reconciles the service against the complete mounted-root
-  identity set, keyed by durable adapter root ID plus path (never path alone), so
-  removing one root cannot leave its error attached to healthy sibling roots and
-  same-path web roots cannot exchange DB identities. Full
+  identity set. The durable adapter root ID is retained through both DB routing
+  and terminal-scope reconciliation (never project down to path plus nullable DB
+  ID), so removing one root cannot leave its error attached to healthy sibling
+  roots and same-path web roots cannot exchange identities. Full
   scans prune retry state for paths no longer present. Never replace this with
   an unbounded retry or a
   quiet skip. This is intentionally not persistent sync state: restarting the
