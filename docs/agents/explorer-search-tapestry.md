@@ -321,13 +321,19 @@ serve registered fixture data directly and never touch the host filesystem or
 native capability. A rejected content read becomes the worker's explicit
 `inaccessible` result; Workspace Index excludes that entry before importer
 handoff, so no file record/chunk persistence is created for escaped content.
+Descriptor-relative opens preserve a distinct `not-found` result for normal
+delete/rename races, allowing the IPC boundary to return `NOT_FOUND` instead of
+retryable generic I/O failure. Windows root listings open a fresh root-relative
+directory file object per worker, so concurrent multi-buffer enumeration does
+not share cursor state.
 
 Paired tests:
 `workspace-file-capabilities.test.ts`,
 `workspace-file-capabilities.integration.test.ts`, `file-system-ipc.test.ts`,
 `file-system-ipc-canonical-roots.test.ts`,
-`file-system-ipc-lexical-path.test.ts`, and
-`file-system-ipc-last-folder-capability.test.ts`.
+`file-system-ipc-lexical-path.test.ts`,
+`file-system-ipc-last-folder-capability.test.ts`,
+`file-system-ipc-not-found.test.ts`, and `secure-root.test.cjs`.
 
 ---
 

@@ -188,7 +188,10 @@ NtCreateFileFn ResolveNtCreateFile() {
 }
 
 NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name,
-                                   bool directory) {
+                                   bool directory, bool* not_found = nullptr) {
+  if (not_found != nullptr) {
+    *not_found = false;
+  }
   const auto nt_create_file = ResolveNtCreateFile();
   if (nt_create_file == nullptr || name.empty() || name.size() > 32767) {
     return kInvalidHandle;
@@ -213,6 +216,13 @@ NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name
       &result, access, &attributes, &status_block, nullptr, FILE_ATTRIBUTE_NORMAL,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN, options, nullptr, 0);
   if (status < 0 || result == kInvalidHandle || IsReparsePoint(result)) {
+    if (not_found != nullptr) {
+      constexpr NTSTATUS kStatusNoSuchFile = static_cast<NTSTATUS>(0xC000000FUL);
+      constexpr NTSTATUS kStatusObjectNameNotFound = static_cast<NTSTATUS>(0xC0000034UL);
+      constexpr NTSTATUS kStatusObjectPathNotFound = static_cast<NTSTATUS>(0xC000003AUL);
+      *not_found = status == kStatusNoSuchFile || status == kStatusObjectNameNotFound ||
+                   status == kStatusObjectPathNotFound;
+    }
     CloseNativeHandle(result);
     return kInvalidHandle;
   }
@@ -287,17 +297,28 @@ NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path) {
 }
 
 NativeHandle OpenRelativeDirectory(NativeHandle root,
-                                   const std::vector<std::string>& components) {
-  NativeHandle current = kInvalidHandle;
-  if (!DuplicateHandle(GetCurrentProcess(), root, GetCurrentProcess(), &current, 0, FALSE,
-                       DUPLICATE_SAME_ACCESS)) {
+                                   const std::vector<std::string>& components,
+                                   bool* not_found = nullptr) {
+  if (not_found != nullptr) {
+    *not_found = false;
+  }
+  bool component_not_found = false;
+  NativeHandle current = OpenRelativeComponent(root, L".", true, &component_not_found);
+  if (current == kInvalidHandle) {
+    if (not_found != nullptr) {
+      *not_found = component_not_found;
+    }
     return kInvalidHandle;
   }
   for (const auto& component : components) {
     const std::wstring wide_component = Utf8ToWide(component);
-    NativeHandle next = OpenRelativeComponent(current, wide_component, true);
+    NativeHandle next =
+        OpenRelativeComponent(current, wide_component, true, &component_not_found);
     CloseNativeHandle(current);
     if (next == kInvalidHandle) {
+      if (not_found != nullptr) {
+        *not_found = component_not_found;
+      }
       return kInvalidHandle;
     }
     current = next;
@@ -359,7 +380,7 @@ bool ListDirectory(NativeHandle root, const std::vector<std::string>& components
   }
 }
 
-enum class ReadStatus { kOk, kOversized, kUnreadable };
+enum class ReadStatus { kNotFound, kOk, kOversized, kUnreadable };
 
 ReadStatus ReadRelativeFile(NativeHandle root, const std::vector<std::string>& components,
                             size_t max_bytes, std::vector<uint8_t>* content) {
@@ -367,14 +388,16 @@ ReadStatus ReadRelativeFile(NativeHandle root, const std::vector<std::string>& c
     return ReadStatus::kUnreadable;
   }
   std::vector<std::string> parent_components(components.begin(), components.end() - 1);
-  NativeHandle parent = OpenRelativeDirectory(root, parent_components);
+  bool not_found = false;
+  NativeHandle parent = OpenRelativeDirectory(root, parent_components, &not_found);
   if (parent == kInvalidHandle) {
-    return ReadStatus::kUnreadable;
+    return not_found ? ReadStatus::kNotFound : ReadStatus::kUnreadable;
   }
-  NativeHandle file = OpenRelativeComponent(parent, Utf8ToWide(components.back()), false);
+  NativeHandle file =
+      OpenRelativeComponent(parent, Utf8ToWide(components.back()), false, &not_found);
   CloseNativeHandle(parent);
   if (file == kInvalidHandle) {
-    return ReadStatus::kUnreadable;
+    return not_found ? ReadStatus::kNotFound : ReadStatus::kUnreadable;
   }
   FILE_STANDARD_INFO information{};
   if (!GetFileInformationByHandleEx(file, FileStandardInfo, &information, sizeof(information))) {
@@ -446,7 +469,11 @@ NativeHandle OpenAbsoluteDirectory(const std::string& path) {
 }
 
 NativeHandle OpenRelativeDirectory(NativeHandle root,
-                                   const std::vector<std::string>& components) {
+                                   const std::vector<std::string>& components,
+                                   bool* not_found = nullptr) {
+  if (not_found != nullptr) {
+    *not_found = false;
+  }
   // `dup` would share the directory offset with the pinned root's open-file
   // description. Opening `.` relative to the pinned descriptor creates an
   // independent description so concurrent/repeated listings cannot consume
@@ -459,8 +486,12 @@ NativeHandle OpenRelativeDirectory(NativeHandle root,
   for (const auto& component : components) {
     const NativeHandle next =
         openat(current, component.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    const int open_error = errno;
     CloseNativeHandle(current);
     if (next == kInvalidHandle) {
+      if (not_found != nullptr) {
+        *not_found = open_error == ENOENT;
+      }
       return kInvalidHandle;
     }
     current = next;
@@ -519,7 +550,7 @@ bool ListDirectory(NativeHandle root, const std::vector<std::string>& components
   return succeeded;
 }
 
-enum class ReadStatus { kOk, kOversized, kUnreadable };
+enum class ReadStatus { kNotFound, kOk, kOversized, kUnreadable };
 
 ReadStatus ReadRelativeFile(NativeHandle root, const std::vector<std::string>& components,
                             size_t max_bytes, std::vector<uint8_t>* content) {
@@ -527,15 +558,17 @@ ReadStatus ReadRelativeFile(NativeHandle root, const std::vector<std::string>& c
     return ReadStatus::kUnreadable;
   }
   std::vector<std::string> parent_components(components.begin(), components.end() - 1);
-  NativeHandle parent = OpenRelativeDirectory(root, parent_components);
+  bool not_found = false;
+  NativeHandle parent = OpenRelativeDirectory(root, parent_components, &not_found);
   if (parent == kInvalidHandle) {
-    return ReadStatus::kUnreadable;
+    return not_found ? ReadStatus::kNotFound : ReadStatus::kUnreadable;
   }
   const NativeHandle file =
       openat(parent, components.back().c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  const int open_error = errno;
   CloseNativeHandle(parent);
   if (file == kInvalidHandle) {
-    return ReadStatus::kUnreadable;
+    return open_error == ENOENT ? ReadStatus::kNotFound : ReadStatus::kUnreadable;
   }
   struct stat information {};
   if (fstat(file, &information) != 0 || !S_ISREG(information.st_mode)) {
@@ -599,6 +632,8 @@ Napi::Object BuildReadResult(Napi::Env env, ReadStatus status,
   Napi::Object result = Napi::Object::New(env);
   if (status == ReadStatus::kOversized) {
     result.Set("status", "oversized");
+  } else if (status == ReadStatus::kNotFound) {
+    result.Set("status", "not-found");
   } else if (status == ReadStatus::kOk) {
     result.Set("status", "ok");
     result.Set("content", Napi::Buffer<uint8_t>::Copy(env, content.data(), content.size()));

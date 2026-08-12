@@ -33,7 +33,7 @@ export interface SecureWorkspaceRoot {
     maxBytes: number
   ): Promise<
     | { readonly content: Buffer; readonly status: 'ok' }
-    | { readonly status: 'oversized' | 'unreadable' }
+    | { readonly status: 'not-found' | 'oversized' | 'unreadable' }
   >;
 }
 
@@ -291,6 +291,9 @@ export function createWorkspaceFileCapabilities(
             requestedAbsolutePath,
             'read'
           );
+        }
+        if (result.status === 'not-found') {
+          throw new AccessError('ENOENT: File not found', requestedAbsolutePath, 'read');
         }
         throw new AccessError('File is not accessible.', requestedAbsolutePath, 'read');
       }

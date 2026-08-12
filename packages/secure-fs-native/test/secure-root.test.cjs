@@ -66,24 +66,45 @@ test('lists metadata and reads regular files asynchronously beneath a pinned roo
 
 test('repeated and concurrent root listings each enumerate the complete directory', async () => {
   const { workspace } = fixture();
-  writeFileSync(path.join(workspace, 'first.txt'), 'first');
-  writeFileSync(path.join(workspace, 'second.txt'), 'second');
+  const generatedNames = Array.from(
+    { length: 600 },
+    (_, index) => `entry-${String(index).padStart(4, '0')}-${'x'.repeat(80)}.txt`
+  );
+  for (const name of generatedNames) {
+    writeFileSync(path.join(workspace, name), name);
+  }
   const root = new SecureRoot(workspace);
   try {
     const [first, second] = await Promise.all([
-      root.listDirAsync('.', 20),
-      root.listDirAsync('.', 20),
+      root.listDirAsync('.', 1000),
+      root.listDirAsync('.', 1000),
     ]);
-    const expectedNames = ['.brainstrike', 'first.txt', 'second.txt'];
+    const expectedNames = ['.brainstrike', ...generatedNames].sort();
     assert.deepEqual(first.entries.map((entry) => entry.name).sort(), expectedNames);
     assert.deepEqual(second.entries.map((entry) => entry.name).sort(), expectedNames);
     assert.deepEqual(
       root
-        .listDir('.', 20)
+        .listDir('.', 1000)
         .entries.map((entry) => entry.name)
         .sort(),
       expectedNames
     );
+  } finally {
+    root.close();
+  }
+});
+
+test('reports a missing leaf distinctly from an unreadable path', async () => {
+  const { commands, workspace } = fixture();
+  rmSync(path.join(commands, 'review.md'));
+  const root = new SecureRoot(workspace);
+  try {
+    assert.deepEqual(root.readFile('.brainstrike/commands/review.md', 1024), {
+      status: 'not-found',
+    });
+    assert.deepEqual(await root.readFileAsync('.brainstrike/commands/review.md', 1024), {
+      status: 'not-found',
+    });
   } finally {
     root.close();
   }

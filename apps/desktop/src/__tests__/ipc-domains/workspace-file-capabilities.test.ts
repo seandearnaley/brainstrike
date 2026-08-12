@@ -71,6 +71,21 @@ describe('workspace file capabilities', () => {
     );
   });
 
+  it('preserves native not-found status as an ENOENT read error', async () => {
+    const secureRoot = createFakeSecureRoot();
+    vi.mocked(secureRoot.readFile).mockResolvedValue({ status: 'not-found' });
+    const capabilities = createWorkspaceFileCapabilities({
+      createSecureRoot: () => secureRoot,
+      resolveCanonicalPath: resolveTestPath,
+    });
+    const canonicalRoot = path.resolve('/workspace/project');
+    await capabilities.mountRoot({ path: canonicalRoot, rootId: 'root-1' });
+
+    await expect(
+      capabilities.readFile(path.join(canonicalRoot, 'deleted.txt'), { rootId: 'root-1' })
+    ).rejects.toThrow('ENOENT: File not found');
+  });
+
   it('omits symlink-like entries and stamps child handles with durable root identity', async () => {
     const secureRoot = createFakeSecureRoot();
     const capabilities = createWorkspaceFileCapabilities({

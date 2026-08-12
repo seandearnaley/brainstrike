@@ -95,7 +95,7 @@ export function createSecureSkillsFs(candidateRoots: readonly string[]): SkillCo
         return { ok: false, reason: 'unreadable' };
       }
       if (read.status !== 'ok') {
-        return { ok: false, reason: read.status };
+        return { ok: false, reason: read.status === 'oversized' ? 'oversized' : 'unreadable' };
       }
       return { content: new Uint8Array(read.content), ok: true };
     },
@@ -111,7 +111,7 @@ export function createSecureSkillsFs(candidateRoots: readonly string[]): SkillCo
         return { ok: false, reason: 'unreadable' };
       }
       if (read.status !== 'ok') {
-        return { ok: false, reason: read.status };
+        return { ok: false, reason: read.status === 'oversized' ? 'oversized' : 'unreadable' };
       }
       return { content: read.content.toString('utf8'), ok: true };
     },

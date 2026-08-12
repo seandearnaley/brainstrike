@@ -14,7 +14,7 @@ export interface SecureListResult {
 
 export type SecureReadResult =
   | { readonly status: 'ok'; readonly content: Buffer }
-  | { readonly status: 'oversized' | 'unreadable' };
+  | { readonly status: 'not-found' | 'oversized' | 'unreadable' };
 
 export class SecureRoot {
   constructor(canonicalAbsoluteRoot: string);

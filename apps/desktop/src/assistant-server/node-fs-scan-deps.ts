@@ -70,7 +70,10 @@ export function createNodeFsScanDeps(): UserSlashCommandScanDeps & { dispose: ()
           MAX_USER_COMMAND_FILE_BYTES
         );
         if (result.status !== 'ok') {
-          return { ok: false, reason: result.status };
+          return {
+            ok: false,
+            reason: result.status === 'oversized' ? 'oversized' : 'unreadable',
+          };
         }
         return { content: result.content.toString('utf8'), ok: true };
       } catch {
