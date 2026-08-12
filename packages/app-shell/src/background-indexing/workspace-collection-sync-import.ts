@@ -1203,7 +1203,6 @@ export async function runRootFolderCacheImport(args: {
         rootId: rootId ?? null,
         totalFiles: changes.length,
       });
-      onChunkingBatchStart?.(batch.filter((change) => selectedFilePaths.has(change.compositeKey)));
       const batchResults = await runEnhancedImport<IFileNode>({
         abortSignal,
         baseImportRunner: async ({
@@ -1236,6 +1235,13 @@ export async function runRootFolderCacheImport(args: {
               waitForBackgroundPermit,
             });
             errors.push(...batchOutcome.errors);
+            const importedIds = new Set(
+              batchOutcome.results.filter((result) => result.imported).map((result) => result.id)
+            );
+            const importedBatch = selectedBatch.filter((change) => importedIds.has(change.id));
+            if (importedBatch.length > 0) {
+              onChunkingBatchStart?.(importedBatch);
+            }
             for (const result of batchOutcome.results) {
               results.push(result);
               completed += 1;

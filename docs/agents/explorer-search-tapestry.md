@@ -322,10 +322,11 @@ there rather than hiding entries after the adapter has already read them.
   only mounted roots without resolved database ids, the provider replaces any
   retired root's terminal error with the explicit unresolved-root waiting status;
   a zero-syncable-target loop must not leave stale status visible. Never replace
-  this with an unbounded retry. A redispatch attempt is recorded only when its concrete
-  import batch reaches the chunking handoff and the second content read selected
-  that file for chunking; unreadable files and cancellation or failure in an
-  earlier batch must not spend untouched retry budgets. Never use a
+  this with an unbounded retry. A redispatch attempt is recorded only when its
+  concrete import batch reaches the chunking handoff, the second content read
+  selected that file, and its managed-cache apply succeeded; unreadable files,
+  failed applies, and cancellation or failure in an earlier batch must not spend
+  untouched retry budgets. Never use a
   quiet skip. This is intentionally not persistent sync state: restarting the
   renderer grants a fresh bounded budget.
 

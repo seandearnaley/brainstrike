@@ -953,7 +953,15 @@ describe('runRootFolderCacheImport — rootId threading', () => {
       },
     };
     const onChunkingBatchStart = vi.fn();
-    vi.mocked(runEnhancedImport).mockRejectedValueOnce(new Error('first batch failed'));
+    vi.mocked(runEnhancedImport).mockImplementationOnce(async ({ baseImportRunner, request }) => {
+      await baseImportRunner({
+        fileContents: request.fileContents,
+        fileTree: request.fileTree,
+        onProgress: () => {},
+        selectedFilePaths: request.selectedFilePaths,
+      });
+      throw new Error('first chunking batch failed');
+    });
 
     await expect(
       runRootFolderCacheImport({
@@ -1005,10 +1013,53 @@ describe('runRootFolderCacheImport — rootId threading', () => {
         setImporting: () => {},
         waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
       })
-    ).rejects.toThrow('first batch failed');
+    ).rejects.toThrow('first chunking batch failed');
 
     expect(onChunkingBatchStart).toHaveBeenCalledOnce();
     expect(onChunkingBatchStart).toHaveBeenCalledWith([firstChange]);
+  });
+
+  it('does not record redispatch handoff when managed-cache apply fails', async () => {
+    const change = makeMinimalChange();
+    const onChunkingBatchStart = vi.fn();
+
+    await runRootFolderCacheImport({
+      abortSignal: new AbortController().signal,
+      applyManagedCacheBatch: vi.fn().mockRejectedValue(new Error('database host timed out')),
+      changes: [change],
+      chunkingWorkerPort: {
+        chunkBatch: vi.fn().mockResolvedValue([]),
+        chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+        isReady: vi.fn().mockReturnValue(true),
+        transportKind: 'local',
+      } as never,
+      chunkRepository: {
+        deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+        findByFileRecordId: vi.fn().mockResolvedValue([]),
+        insertChunks: vi.fn().mockResolvedValue(undefined),
+      } as never,
+      collection: makeMinimalCollection(),
+      db: makeMinimalDb() as never,
+      fileContentProcessor: makeMinimalFileContentProcessor(change),
+      fileRecordRepository: {
+        findByCollectionId: vi.fn().mockResolvedValue([]),
+        upsertFileRecord: vi.fn().mockResolvedValue({ id: change.id }),
+      } as never,
+      onChunkingBatchStart,
+      onProgress: () => {},
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 1,
+      },
+      rootId: 'root-db-1',
+      setImporting: () => {},
+      waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(onChunkingBatchStart).not.toHaveBeenCalled();
   });
 
   it('rejects missing collection model keys before file import starts', async () => {
