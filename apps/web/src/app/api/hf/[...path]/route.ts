@@ -1,12 +1,12 @@
 import { createLogger } from '@brainstrike/logging';
 import {
   ALLOWED_MODEL_ID,
+  ALLOWED_MODEL_REVISION,
   FORWARDED_REQUEST_HEADERS,
   HUGGING_FACE_BASE_URL,
   PASSTHROUGH_RESPONSE_HEADERS,
 } from '../../../../hf-proxy-contract';
 
-const ALLOWED_MODEL_REVISION = '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9';
 const logger = createLogger('HuggingFaceProxyRoute');
 
 export const runtime = 'nodejs';

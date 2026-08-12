@@ -763,6 +763,9 @@ importers:
       '@brainstrike/app-state':
         specifier: workspace:*
         version: link:../../packages/app-state
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../../packages/assistant-contract
       '@brainstrike/assistant-data':
         specifier: workspace:*
         version: link:../../packages/assistant-data
@@ -875,9 +878,6 @@ importers:
       '@biomejs/biome':
         specifier: 2.5.2
         version: 2.5.2
-      '@brainstrike/assistant-contract':
-        specifier: workspace:*
-        version: link:../../packages/assistant-contract
       '@brainstrike/build-utils':
         specifier: workspace:*
         version: link:../../packages/build-utils

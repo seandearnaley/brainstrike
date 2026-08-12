@@ -1,8 +1,12 @@
+import {
+  GEMMA4_E2B_MODEL_ID,
+  GEMMA4_E2B_REVISION,
+} from '@brainstrike/assistant-contract/local-llm-model-specs';
+
 export const HUGGING_FACE_BASE_URL = 'https://huggingface.co';
 
-// Keep this pinned to the same built-in local model contract as
-// packages/agent/src/providers/local/local-model-specs.ts.
-export const ALLOWED_MODEL_ID = 'onnx-community/gemma-4-E2B-it-ONNX';
+export const ALLOWED_MODEL_ID = GEMMA4_E2B_MODEL_ID;
+export const ALLOWED_MODEL_REVISION = GEMMA4_E2B_REVISION;
 
 export const FORWARDED_REQUEST_HEADERS = [
   'accept',
