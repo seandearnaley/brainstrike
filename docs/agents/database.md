@@ -50,6 +50,46 @@ up to one coarse bucket after its individual event crosses the strict duration-
 sample cutoff. A nonzero count with zero retained percentile inputs at that
 boundary is therefore expected.
 
+## DATABASE WORK SCHEDULER FAIRNESS
+
+`DatabaseWorkScheduler` is the single-process admission boundary around each
+PGlite host. Foreground work receives a 75 ms quiet window after its latest
+arrival, but that preference is bounded: once the background lane has been
+deferred for 250 ms, the scheduler admits exactly one background task before
+returning to foreground-first ordering. When foreground or normal work remains
+queued, at least one such task must be admitted before another background task
+can bypass it through the starvation rule. The wait clock restarts after each
+background admission, so the guarantee is one admission per bound, not a
+250 ms per-task latency ceiling. The clock restarts at admission even while the
+admitted task is running; the next forced background admission occurs only after
+both the bound has elapsed and the required foreground/normal turn has started.
+The wait clock and pending foreground-turn requirement both reset when every
+queue drains, so an idle scheduler never carries bypass debt into an unrelated
+workload. `forcedBackgroundAdmissionCount` records only starvation-rule
+admissions and is the authoritative diagnostic that the bound actually fired.
+Queueing behind multiple background tasks compounds those intervals; background
+consumers must be sized for bounded progress rather than a fixed completion
+deadline. This keeps embedding claims, completion writes, and background
+indexing live under continuous foreground polling without turning the
+background lane into an equal-priority queue.
+
+The windows are configurable through `backgroundStarvationMs` and
+`foregroundQuietMs` for deterministic tests and specialized hosts. The
+starvation bound must be positive and finite; the quiet window must be
+non-negative and finite. Invalid values throw rather than silently disabling or
+degrading either fairness rule. Fairness elapsed time uses a monotonic clock.
+Scheduler snapshots carry elapsed timestamps from that same clock origin so
+`DatabasePressureController` can age quiet and latency windows safely even over
+IPC, while wall-clock timestamps remain diagnostic only. Embedding-claim
+starvation bypass uses its renderer-local monotonic clock as well, so clock
+corrections cannot extend either admission layer. Scheduler wait and service
+metrics also use monotonic elapsed time; diagnostic wall-clock corrections must
+not distort pressure percentiles. Work admitted through the
+background lane must therefore be short and bounded. Long maintenance statements such as
+`VACUUM (ANALYZE)` may run only after the maintenance scheduler has established
+an idle database/queue state; do not use background priority as authority to run
+an unbounded maintenance statement.
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.

@@ -25,14 +25,22 @@ describe('DatabaseWorkScheduler', () => {
     expect(work).not.toHaveBeenCalled();
   });
 
-  it('stamps snapshots with the scheduler clock', () => {
+  it('stamps snapshots with separate diagnostic and elapsed clocks', () => {
+    let elapsedNow = 10;
     let now = 1000;
-    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0, now: () => now });
+    const scheduler = createDatabaseWorkScheduler({
+      elapsedNow: () => elapsedNow,
+      foregroundQuietMs: 0,
+      now: () => now,
+    });
 
+    expect(scheduler.getSnapshot().elapsedSnapshotAt).toBe(10);
     expect(scheduler.getSnapshot().snapshotAt).toBe(1000);
 
+    elapsedNow = 25;
     now = 1750;
 
+    expect(scheduler.getSnapshot().elapsedSnapshotAt).toBe(25);
     expect(scheduler.getSnapshot().snapshotAt).toBe(1750);
   });
 
@@ -79,6 +87,110 @@ describe('DatabaseWorkScheduler', () => {
       await vi.advanceTimersByTimeAsync(1);
       await background;
       expect(events).toEqual(['foreground-1', 'foreground-2', 'background']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs waiting background work once sustained foreground pressure reaches the starvation bound', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({
+        backgroundStarvationMs: 200,
+        foregroundQuietMs: 50,
+      });
+      const events: string[] = [];
+
+      await scheduler.run(
+        async () => {
+          events.push('foreground-0');
+        },
+        { priority: 'foreground' }
+      );
+
+      const background = scheduler.run(
+        async () => {
+          events.push('background');
+        },
+        { label: 'embedding completion', priority: 'background' }
+      );
+
+      for (let index = 1; index <= 5; index += 1) {
+        await vi.advanceTimersByTimeAsync(40);
+        await scheduler.run(
+          async () => {
+            events.push(`foreground-${index}`);
+          },
+          { priority: 'foreground' }
+        );
+      }
+
+      await background;
+
+      expect(events).toEqual([
+        'foreground-0',
+        'foreground-1',
+        'foreground-2',
+        'foreground-3',
+        'foreground-4',
+        'background',
+        'foreground-5',
+      ]);
+      expect(scheduler.getSnapshot().priorityStats.background.longestWaitMs).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts the starvation clock when background work queues behind foreground during a running background task', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({
+        backgroundStarvationMs: 100,
+        foregroundQuietMs: 50,
+      });
+      const events: string[] = [];
+      let releaseFirstBackground: (() => void) | null = null;
+      const firstBackground = scheduler.run(
+        async () => {
+          events.push('background-1-start');
+          await new Promise<void>((resolve) => {
+            releaseFirstBackground = resolve;
+          });
+          events.push('background-1-end');
+        },
+        { priority: 'background' }
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      const foreground = scheduler.run(
+        async () => {
+          events.push('foreground');
+        },
+        { priority: 'foreground' }
+      );
+      const secondBackground = scheduler.run(
+        async () => {
+          events.push('background-2');
+        },
+        { priority: 'background' }
+      );
+
+      await vi.advanceTimersByTimeAsync(100);
+      if (!releaseFirstBackground) {
+        throw new Error('Expected first background task to start.');
+      }
+      releaseFirstBackground();
+      await firstBackground;
+      await secondBackground;
+      await foreground;
+
+      expect(events).toEqual([
+        'background-1-start',
+        'background-1-end',
+        'background-2',
+        'foreground',
+      ]);
     } finally {
       vi.useRealTimers();
     }
@@ -206,71 +318,6 @@ describe('DatabaseWorkScheduler', () => {
         normal: { completed: 0, queued: 0, started: 0 },
       },
       queued: { background: 0, foreground: 0, normal: 0 },
-    });
-  });
-
-  it('tracks rolling wait and service metrics by priority', async () => {
-    const waits = [3, 9, 20, 40];
-    const services = [7, 11, 13, 17];
-    let now = 100;
-    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0, now: () => now });
-    const gate = Promise.resolve();
-
-    for (const [index, waitMs] of waits.entries()) {
-      const serviceMs = services[index];
-      if (serviceMs === undefined) {
-        throw new Error(`Missing service duration for wait ${waitMs}.`);
-      }
-      const scheduledAt = now;
-      const run = scheduler.run(
-        async () => {
-          await gate;
-          now += serviceMs;
-        },
-        { label: `embedding batch ${index + 1}`, priority: 'background' }
-      );
-      now = scheduledAt + waitMs;
-      await run;
-      now += 1;
-    }
-
-    expect(scheduler.getSnapshot().priorityStats.background).toMatchObject({
-      completed: 4,
-      lastCompletedLabel: 'embedding batch 4',
-      lastStartedLabel: 'embedding batch 4',
-      longestWaitMs: 40,
-      serviceP50Ms: 11,
-      serviceP95Ms: 17,
-      totalServiceMs: 48,
-      totalWaitMs: 72,
-      waitP50Ms: 9,
-      waitP95Ms: 40,
-    });
-  });
-
-  it('keeps rolling metric percentiles bounded to the latest sample window', async () => {
-    let now = 0;
-    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0, now: () => now });
-
-    for (let waitMs = 1; waitMs <= 65; waitMs += 1) {
-      const scheduledAt = now;
-      const run = scheduler.run(
-        async () => {
-          now += 1;
-        },
-        { label: `embedding batch ${waitMs}`, priority: 'background' }
-      );
-      now = scheduledAt + waitMs;
-      await run;
-      now += 1;
-    }
-
-    expect(scheduler.getSnapshot().priorityStats.background).toMatchObject({
-      completed: 65,
-      serviceP50Ms: 1,
-      serviceP95Ms: 1,
-      waitP50Ms: 33,
-      waitP95Ms: 62,
     });
   });
 

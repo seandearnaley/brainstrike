@@ -122,39 +122,125 @@ async function seedLargeImportFixture(
  * pause indefinitely, leaving the backfill waiting on capacity only that worker
  * could free.
  */
-async function startForegroundDatabasePressure(page: Page): Promise<void> {
-  await page.evaluate(() => {
+async function startForegroundDatabasePressure(page: Page): Promise<number> {
+  return page.evaluate(async () => {
     const targetWindow = window as Window & {
-      __capacityReproPressure?: { stop: () => void };
+      __capacityReproPressure?: {
+        failure: string | null;
+        inFlight: number;
+        stop: () => void;
+      };
       electronAPI?: {
-        db?: { query?: (sql: string) => Promise<{ rows: unknown[] }> };
+        db?: {
+          query?: (sql: string) => Promise<{ rows: unknown[] }>;
+          schedulerSnapshot?: () => Promise<{ forcedBackgroundAdmissionCount: number }>;
+        };
       };
     };
     const query = targetWindow.electronAPI?.db?.query;
-    if (!query) {
-      throw new Error('Database API not available');
+    const schedulerSnapshot = targetWindow.electronAPI?.db?.schedulerSnapshot;
+    if (!(query && schedulerSnapshot)) {
+      throw new Error('Database query and scheduler snapshot APIs are required');
     }
+    const forcedAdmissionBaseline = (await schedulerSnapshot()).forcedBackgroundAdmissionCount;
+    // A successful query is the pressure-loop handshake. Without it, a broken
+    // IPC bridge could make the detached loop swallow every rejection and let
+    // the starvation regression pass while applying no foreground pressure.
+    await query('SELECT COUNT(*)::int AS count FROM file_chunks');
     let running = true;
-    void (async () => {
-      while (running) {
-        try {
-          await query('SELECT COUNT(*)::int AS count FROM file_chunks');
-        } catch {
-          // A transient failure must not end the pressure loop.
-        }
-        // Paced, not saturating: one foreground query every 40ms keeps
-        // `lastForegroundAt` inside the scheduler's 75ms quiet window — the same
-        // signal a live-query-driven panel produces — without monopolising the
-        // DB host, which would starve host startup instead of claim admission.
-        await new Promise((resolve) => setTimeout(resolve, 40));
-      }
-    })();
-    targetWindow.__capacityReproPressure = {
+    let consecutiveFailures = 0;
+    let pressureTimer: number | null = null;
+    const maxInFlight = 3;
+    const pressure = {
+      failure: null as string | null,
+      inFlight: 0,
       stop: () => {
         running = false;
+        if (pressureTimer !== null) {
+          window.clearInterval(pressureTimer);
+          pressureTimer = null;
+        }
       },
     };
+    targetWindow.__capacityReproPressure = pressure;
+    const enqueuePressureQuery = (): void => {
+      if (pressure.inFlight >= maxInFlight) {
+        return;
+      }
+      pressure.inFlight += 1;
+      void query('SELECT COUNT(*)::int AS count FROM file_chunks')
+        .then(
+          () => {
+            if (!running) {
+              return;
+            }
+            consecutiveFailures = 0;
+          },
+          (error: unknown) => {
+            if (!running) {
+              return;
+            }
+            consecutiveFailures += 1;
+            if (consecutiveFailures >= 3) {
+              pressure.failure = `Foreground database pressure failed 3 consecutive times: ${
+                error instanceof Error ? error.message : String(error)
+              }`;
+              pressure.stop();
+            }
+          }
+        )
+        .finally(() => {
+          pressure.inFlight -= 1;
+        });
+    };
+    // Enqueue on a fixed cadence rather than sleeping after each response. A
+    // slow query must not stretch foreground arrivals beyond the scheduler's
+    // 75ms quiet window and let the regression pass without exercising the
+    // starvation bound.
+    pressureTimer = window.setInterval(enqueuePressureQuery, 40);
+    enqueuePressureQuery();
+    return forcedAdmissionBaseline;
   });
+}
+
+async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const pressure = (
+      window as Window & {
+        __capacityReproPressure?: {
+          failure: string | null;
+        };
+      }
+    ).__capacityReproPressure;
+    if (!pressure) {
+      throw new Error('Foreground database pressure was not started.');
+    }
+    if (pressure.failure) {
+      throw new Error(pressure.failure);
+    }
+  });
+}
+
+async function assertForcedBackgroundAdmissionObserved(
+  page: Page,
+  baseline: number
+): Promise<void> {
+  const forcedBackgroundAdmissionCount = await page.evaluate(async () => {
+    const schedulerSnapshot = (
+      window as Window & {
+        electronAPI?: {
+          db?: {
+            schedulerSnapshot?: () => Promise<{ forcedBackgroundAdmissionCount: number }>;
+          };
+        };
+      }
+    ).electronAPI?.db?.schedulerSnapshot;
+    if (!schedulerSnapshot) {
+      throw new Error('Database scheduler snapshot API is not available');
+    }
+    return (await schedulerSnapshot()).forcedBackgroundAdmissionCount;
+  });
+  expect(forcedBackgroundAdmissionCount).toBeGreaterThan(baseline);
 }
 
 async function stopForegroundDatabasePressure(page: Page): Promise<void> {
@@ -165,36 +251,63 @@ async function stopForegroundDatabasePressure(page: Page): Promise<void> {
   });
 }
 
-test.describe('Embedding backfill - queue capacity wait', () => {
-  test('@desktop-embedding-backfill-capacity drains a collection larger than the queue-depth bound', async ({
-    window,
-  }) => {
-    test.setTimeout(300_000);
-    let activeWindow = await showDatabaseDemoPanel(window);
-    if (await isDatabaseError(activeWindow)) {
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+async function runCapacityBackfill(
+  page: Page,
+  options: { readonly foregroundPressure: boolean }
+): Promise<void> {
+  let activeWindow = await showDatabaseDemoPanel(page);
+  if (await isDatabaseError(activeWindow)) {
+    await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+    return;
+  }
+  await clearEmbeddingQueue(activeWindow);
+
+  const collectionName = `Capacity Backfill ${Date.now()}`;
+  const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
+  const fixture = await seedLargeImportFixture(activeWindow, embeddingSetId);
+  expect(fixture.totalChunks).toBe(TOTAL_CHUNKS);
+  await setVectorDevicePreference(activeWindow, 'wasm');
+  await reloadRendererInTest(activeWindow, 'embedding-backfill-capacity');
+  activeWindow = await showDatabaseDemoPanel(activeWindow);
+
+  const collectionOption = activeWindow.locator(`#collection-option-${embeddingSetId}`);
+  await expect(collectionOption).toBeVisible({ timeout: 15_000 });
+  await collectionOption.click({ timeout: 5000 });
+
+  const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
+  const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
+  await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+  await waitForBackfillButtonEnabled(activeWindow, backfillButton);
+
+  const forcedAdmissionBaseline = options.foregroundPressure
+    ? await startForegroundDatabasePressure(activeWindow)
+    : null;
+  try {
+    await backfillButton.click({ timeout: 5000 });
+
+    if (options.foregroundPressure) {
+      // The regression is starvation, not bulk-throughput policy: keep the
+      // foreground lane continuously active until the background worker has
+      // both claimed and completed real work. Before BST-1231 this remains at
+      // zero forever because the claim query itself cannot enter the DB host.
+      await expect
+        .poll(
+          async () => {
+            await assertForegroundDatabasePressureHealthy(activeWindow);
+            return (await getEmbeddingSetCounts(activeWindow, embeddingSetId)).embeddedChunks;
+          },
+          {
+            intervals: [1000],
+            timeout: 45_000,
+          }
+        )
+        .toBeGreaterThan(0);
+      if (forcedAdmissionBaseline === null) {
+        throw new Error('Foreground pressure scheduler baseline was not captured');
+      }
+      await assertForcedBackgroundAdmissionObserved(activeWindow, forcedAdmissionBaseline);
       return;
     }
-    await clearEmbeddingQueue(activeWindow);
-
-    const collectionName = `Capacity Backfill ${Date.now()}`;
-    const { embeddingSetId } = await createImportTargetCollection(activeWindow, collectionName);
-    const fixture = await seedLargeImportFixture(activeWindow, embeddingSetId);
-    expect(fixture.totalChunks).toBe(TOTAL_CHUNKS);
-    await setVectorDevicePreference(activeWindow, 'wasm');
-    await reloadRendererInTest(activeWindow, 'embedding-backfill-capacity');
-    activeWindow = await showDatabaseDemoPanel(activeWindow);
-
-    const collectionOption = activeWindow.locator(`#collection-option-${embeddingSetId}`);
-    await expect(collectionOption).toBeVisible({ timeout: 15_000 });
-    await collectionOption.click({ timeout: 5000 });
-
-    const databasePanel = activeWindow.locator('[data-testid="database-demo-panel"]');
-    const backfillButton = databasePanel.getByRole('button', { name: /^Backfill(?:\s|$)/ });
-    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
-    await waitForBackfillButtonEnabled(activeWindow, backfillButton);
-
-    await backfillButton.click({ timeout: 5000 });
 
     await expect
       .poll(
@@ -208,34 +321,25 @@ test.describe('Embedding backfill - queue capacity wait', () => {
 
     // A terminal backfill must not leave the control stuck in its in-flight label.
     await expect(backfillButton).toContainText('Backfill', { timeout: 15_000 });
-  });
+  } finally {
+    if (options.foregroundPressure) {
+      await stopForegroundDatabasePressure(activeWindow);
+    }
+  }
+}
 
-  // Documented gap, deliberately not asserted as a passing test.
-  //
-  // With the main window issuing a foreground query faster than the DB
-  // scheduler's 75ms foreground quiet window, the embedding worker still cannot
-  // make progress: the claim-admission starvation bound (this change) lets the
-  // worker DECIDE to claim, but the claim query itself is background-priority DB
-  // work and `DatabaseWorkScheduler.#nextDelayMs` keeps deferring the background
-  // lane for as long as `lastForegroundAt` stays inside the quiet window. The
-  // scheduler tracks `backgroundWaitingSince`/`backgroundWaitingMs` but never
-  // uses them to force a background task through, so the background lane has no
-  // starvation guarantee at all.
-  //
-  // Closing this means giving `DatabaseWorkScheduler` a background-lane
-  // starvation bound — shared fairness policy for every background consumer
-  // (embedding host, chunking host, scheduled maintenance), which is a larger,
-  // separately reviewable change than the claim-admission bound.
-  //
-  // Live evidence (this spec, with startForegroundDatabasePressure active at a
-  // 40ms cadence): pre-fix the run reproduced the report byte-for-byte —
-  // "Backfill timed out while waiting for queue capacity below 64 jobs
-  // (queued=64, running=0, failed=0, succeeded=0)."; post-fix the starvation
-  // warning fires and `running` reaches 1, but completions still stall.
-  test.fixme('@desktop-embedding-backfill-capacity claims and completes while the foreground database lane stays saturated', async ({
+test.describe('Embedding backfill - queue capacity wait', () => {
+  test('@desktop-embedding-backfill-capacity drains a collection larger than the queue-depth bound', async ({
     window,
   }) => {
-    await startForegroundDatabasePressure(window);
-    await stopForegroundDatabasePressure(window);
+    test.setTimeout(300_000);
+    await runCapacityBackfill(window, { foregroundPressure: false });
+  });
+
+  test('@desktop-embedding-backfill-capacity makes bounded claim and completion progress while the foreground database lane stays saturated', async ({
+    window,
+  }) => {
+    test.setTimeout(300_000);
+    await runCapacityBackfill(window, { foregroundPressure: true });
   });
 });

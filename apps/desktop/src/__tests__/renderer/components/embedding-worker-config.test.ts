@@ -620,6 +620,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('pauses desktop claims after recent high-latency foreground database work', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
+      elapsedNow: () => now,
       foregroundQuietMs: 0,
       now: () => now,
     });
@@ -684,6 +685,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('shrinks desktop claims after recent high-latency normal database work', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
+      elapsedNow: () => now,
       foregroundQuietMs: 0,
       now: () => now,
     });
@@ -709,6 +711,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('pauses desktop claims at the foreground quiet-window boundary', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
+      elapsedNow: () => now,
       foregroundQuietMs: 50,
       now: () => now,
     });
@@ -731,6 +734,7 @@ describe('createEmbeddingWorkerConfig', () => {
   it('keeps the configured idle desktop claim batch after low-latency foreground work', async () => {
     let now = 1000;
     const { scheduledDb } = createScheduledTestDb({
+      elapsedNow: () => now,
       foregroundQuietMs: 0,
       now: () => now,
     });

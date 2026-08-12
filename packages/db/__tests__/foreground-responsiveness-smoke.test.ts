@@ -11,6 +11,7 @@ describe('foreground database responsiveness smoke', () => {
     try {
       let now = 1000;
       const scheduler = createDatabaseWorkScheduler({
+        elapsedNow: () => now,
         foregroundQuietMs: 50,
         now: () => now,
       });

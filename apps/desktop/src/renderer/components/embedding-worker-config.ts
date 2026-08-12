@@ -166,7 +166,7 @@ function getDesktopDatabasePressureReason(snapshot: DatabaseWorkSchedulerSnapsho
   // window: recent foreground work always wins, even if latency samples are low.
   // If the scheduler quiet window is tuned longer than this desktop stats
   // window, the quiet-window branch deliberately owns that full period.
-  return getDatabasePressureWaitingReason(snapshot, snapshot.snapshotAt, {
+  return getDatabasePressureWaitingReason(snapshot, {
     foregroundPressureWindowMs: DESKTOP_FOREGROUND_PRESSURE_WINDOW_MS,
     foregroundServiceP95ThresholdMs: DESKTOP_FOREGROUND_SERVICE_P95_THRESHOLD_MS,
     foregroundWaitP95ThresholdMs: DESKTOP_FOREGROUND_WAIT_P95_THRESHOLD_MS,
@@ -371,24 +371,25 @@ export interface ForegroundDbPressureStarvationTracker {
  * size 1 — instead of sitting at zero indefinitely.
  */
 export function createForegroundDbPressureStarvationTracker(options?: {
+  readonly elapsedNow?: () => number;
   readonly log?: (message: string, meta?: unknown) => void;
-  readonly now?: () => number;
   readonly starvationMs?: number;
 }): ForegroundDbPressureStarvationTracker {
-  const now = options?.now ?? (() => Date.now());
+  const elapsedNow = options?.elapsedNow ?? (() => globalThis.performance.now());
   const starvationMs = options?.starvationMs ?? DESKTOP_EMBED_FOREGROUND_DB_PRESSURE_STARVATION_MS;
   const log = options?.log ?? ((message, meta) => logger.warn(message, meta));
   let blockedSince: number | null = null;
   let warned = false;
 
   const noteBlocked = (): void => {
-    blockedSince ??= now();
+    blockedSince ??= elapsedNow();
   };
   const noteAdmitted = (): void => {
     blockedSince = null;
     warned = false;
   };
-  const isBypassing = (): boolean => blockedSince !== null && now() - blockedSince >= starvationMs;
+  const isBypassing = (): boolean =>
+    blockedSince !== null && elapsedNow() - blockedSince >= starvationMs;
 
   return {
     isBypassing,

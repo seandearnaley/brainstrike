@@ -125,11 +125,15 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaitingSince: number | null;
   readonly backgroundYieldCount: number;
   readonly currentBackgroundWaitMs: number;
+  readonly elapsedSnapshotAt: number;
+  readonly forcedBackgroundAdmissionCount: number;
   readonly foregroundQuietMs: number;
   readonly lastBackgroundYieldAt: number | null;
   readonly lastCompletedAt: number | null;
   readonly lastForegroundAt: number | null;
+  readonly lastForegroundElapsedAt: number | null;
   readonly lastNormalAt: number | null;
+  readonly lastNormalElapsedAt: number | null;
   readonly lastStartedAt: number | null;
   readonly priorityStats: Record<DatabaseWorkPriority, DatabaseWorkPriorityStats>;
   readonly queued: Record<DatabaseWorkPriority, number>;
