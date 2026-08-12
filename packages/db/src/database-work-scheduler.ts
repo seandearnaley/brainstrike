@@ -347,8 +347,10 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   constructor(options: DatabaseWorkSchedulerOptions = {}) {
     const backgroundStarvationMs =
       options.backgroundStarvationMs ?? DEFAULT_BACKGROUND_STARVATION_MS;
-    if (!Number.isFinite(backgroundStarvationMs) || backgroundStarvationMs < 0) {
-      throw new Error('DatabaseWorkScheduler backgroundStarvationMs must be non-negative.');
+    if (!Number.isFinite(backgroundStarvationMs) || backgroundStarvationMs <= 0) {
+      throw new Error(
+        'DatabaseWorkScheduler backgroundStarvationMs must be a positive finite number.'
+      );
     }
     this.#backgroundStarvationMs = backgroundStarvationMs;
     this.#foregroundQuietMs = Math.max(0, options.foregroundQuietMs ?? DEFAULT_FOREGROUND_QUIET_MS);
@@ -395,7 +397,9 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     });
     if (
       priority === 'background' &&
-      (this.#runningPriority === 'foreground' || this.#runningPriority === 'normal')
+      (this.#runningPriority === 'foreground' ||
+        this.#runningPriority === 'normal' ||
+        hasForegroundOrNormalWork(this.#queues))
     ) {
       this.#markBackgroundWaiting(enqueuedAt);
     }

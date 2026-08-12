@@ -134,13 +134,68 @@ describe('DatabaseWorkScheduler', () => {
     }
   });
 
+  it('starts the starvation clock when background work queues behind foreground during a running background task', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({
+        backgroundStarvationMs: 100,
+        foregroundQuietMs: 50,
+      });
+      const events: string[] = [];
+      let releaseFirstBackground: (() => void) | null = null;
+      const firstBackground = scheduler.run(
+        async () => {
+          events.push('background-1-start');
+          await new Promise<void>((resolve) => {
+            releaseFirstBackground = resolve;
+          });
+          events.push('background-1-end');
+        },
+        { priority: 'background' }
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      const foreground = scheduler.run(
+        async () => {
+          events.push('foreground');
+        },
+        { priority: 'foreground' }
+      );
+      const secondBackground = scheduler.run(
+        async () => {
+          events.push('background-2');
+        },
+        { priority: 'background' }
+      );
+
+      await vi.advanceTimersByTimeAsync(100);
+      if (!releaseFirstBackground) {
+        throw new Error('Expected first background task to start.');
+      }
+      releaseFirstBackground();
+      await firstBackground;
+      await secondBackground;
+      await foreground;
+
+      expect(events).toEqual([
+        'background-1-start',
+        'background-1-end',
+        'background-2',
+        'foreground',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
+    0,
     -1,
     Number.POSITIVE_INFINITY,
     Number.NaN,
   ])('rejects an invalid background starvation bound (%s)', (backgroundStarvationMs) => {
     expect(() => createDatabaseWorkScheduler({ backgroundStarvationMs })).toThrow(
-      'DatabaseWorkScheduler backgroundStarvationMs must be non-negative.'
+      'DatabaseWorkScheduler backgroundStarvationMs must be a positive finite number.'
     );
   });
 

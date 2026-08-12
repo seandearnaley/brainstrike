@@ -62,7 +62,9 @@ background indexing live under continuous foreground polling without turning
 the background lane into an equal-priority queue.
 
 The bound is configurable through `backgroundStarvationMs` for deterministic
-tests and specialized hosts; invalid negative or non-finite values throw. Work
+tests and specialized hosts; it must be positive and finite, so zero, negative,
+NaN, and infinite values throw rather than silently disabling foreground-first
+fairness or the starvation guarantee. Work
 admitted through the background lane must therefore be short and bounded. Long
 maintenance statements such as `VACUUM (ANALYZE)` may run only after the
 maintenance scheduler has established an idle database/queue state; do not use
