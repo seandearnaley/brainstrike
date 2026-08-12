@@ -63,12 +63,45 @@ function isStreamEvent(value: unknown): value is EmbedWorkerStreamEvent {
   );
 }
 
+function assertStreamBatchSequence(
+  batch: EmbedWorkerBatch,
+  expectedBatchIndex: number,
+  expectedStartIndex: number,
+  requestTextCount: number
+): void {
+  if (batch.batchIndex !== expectedBatchIndex) {
+    throw new Error(
+      `Embedding worker batch.batchIndex ${batch.batchIndex} does not match expected batchIndex ${expectedBatchIndex}.`
+    );
+  }
+  if (batch.startIndex !== expectedStartIndex) {
+    throw new Error(
+      `Embedding worker batch.startIndex ${batch.startIndex} does not match expected startIndex ${expectedStartIndex}.`
+    );
+  }
+  if (batch.endIndex > requestTextCount) {
+    throw new Error(
+      `Embedding worker batch.endIndex ${batch.endIndex} exceeds request text count ${requestTextCount}.`
+    );
+  }
+}
+
 function validateStreamBatch(
   value: unknown,
+  sequence: { expectedBatchIndex: number; expectedStartIndex: number },
+  requestTextCount: number,
   onFailure: (error: unknown) => void
 ): value is EmbedWorkerBatch {
   try {
     assertEmbedWorkerBatch(value);
+    assertStreamBatchSequence(
+      value,
+      sequence.expectedBatchIndex,
+      sequence.expectedStartIndex,
+      requestTextCount
+    );
+    sequence.expectedBatchIndex += 1;
+    sequence.expectedStartIndex = value.endIndex;
     return true;
   } catch (error) {
     onFailure(error);
@@ -171,14 +204,9 @@ export class StreamingEmbeddingWorkerClient {
       // execution time so a queued request never posts to the worker after onFailure terminates it.
       this.runtime.throwIfFailed();
       return await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
+        const batchSequence = { expectedBatchIndex: 0, expectedStartIndex: 0 };
         const cleanup = this.transport.onMessage((message) => {
           if (!isStreamEvent(message)) {
-            return;
-          }
-          if (
-            message.type === 'batch' &&
-            !validateStreamBatch(message, (error) => this.runtime.markFailed(error))
-          ) {
             return;
           }
           // Stream payloads are request-scoped unless they are diagnostics. Cache/device
@@ -189,6 +217,14 @@ export class StreamingEmbeddingWorkerClient {
           // Guard the id-less path explicitly so malformed progress/batch/complete
           // messages cannot be delivered to the active stream by accident.
           if (message.id === undefined && message.type !== 'diagnostic') {
+            return;
+          }
+          if (
+            message.type === 'batch' &&
+            !validateStreamBatch(message, batchSequence, request.texts.length, (error) =>
+              this.runtime.markFailed(error)
+            )
+          ) {
             return;
           }
 
