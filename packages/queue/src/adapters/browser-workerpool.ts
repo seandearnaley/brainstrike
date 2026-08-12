@@ -211,6 +211,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   const workerScript = options.workerUrl;
   const minWorkers = options.minWorkers ?? 1;
   const embeddingTelemetrySourceIds = new Set<string>();
+  const managedWorkerInstanceIds = new Set<string>();
   const telemetryChannelName = `${WORKER_LIFETIME_TELEMETRY_CHANNEL_PREFIX}${globalThis.crypto.randomUUID()}`;
   const telemetryChannel = new BroadcastChannel(telemetryChannelName);
   let telemetryChannelClosed = false;
@@ -226,6 +227,12 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       embeddingTelemetry.removeSource(sourceId);
     }
     embeddingTelemetrySourceIds.clear();
+    managedWorkerInstanceIds.clear();
+  };
+  const assertManagedWorkerInstanceId = (workerInstanceId: string): void => {
+    if (!managedWorkerInstanceIds.has(workerInstanceId)) {
+      throw new Error('Embedding worker telemetry identity is not assigned to this workerpool.');
+    }
   };
   const removeWorkerTelemetrySource = (workerInstanceId: string): void => {
     const sourceId = `workerpool-embedding-${workerInstanceId}`;
@@ -236,11 +243,15 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   };
   const removeTerminatedWorkerTelemetrySource = (workerScriptUrl: string | undefined): void => {
     const workerInstanceId = readManagedWorkerInstanceId(workerScriptUrl);
+    if (!managedWorkerInstanceIds.delete(workerInstanceId)) {
+      throw new Error('Terminated embedding worker identity is not assigned to this workerpool.');
+    }
     removeWorkerTelemetrySource(workerInstanceId);
   };
   const recordPipelineCacheDiagnostic = (
     diagnostic: EmbedWorkerPipelineCacheDiagnostic
   ): string => {
+    assertManagedWorkerInstanceId(diagnostic.workerInstanceId);
     const sourceId = `workerpool-embedding-${diagnostic.workerInstanceId}`;
     embeddingTelemetrySourceIds.add(sourceId);
     embeddingTelemetry.recordPipelineCache(sourceId, diagnostic);
@@ -252,8 +263,14 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     minWorkers,
     onCreateWorker: ({ script, workerOpts }) => {
       const workerInstanceId = globalThis.crypto.randomUUID();
+      const taggedWorkerScript = tagManagedWorkerScript(
+        script,
+        workerInstanceId,
+        telemetryChannelName
+      );
+      managedWorkerInstanceIds.add(workerInstanceId);
       return {
-        script: tagManagedWorkerScript(script, workerInstanceId, telemetryChannelName),
+        script: taggedWorkerScript,
         workerOpts: {
           ...workerOpts,
           name: `${EMBED_WORKER_INSTANCE_NAME_PREFIX}${workerInstanceId}`,
@@ -314,6 +331,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         (event.data as Record<string, unknown>)['type'] === 'telemetry-source-closed'
       ) {
         assertEmbedWorkerTelemetrySourceClosed(event.data);
+        assertManagedWorkerInstanceId(event.data.workerInstanceId);
         removeWorkerTelemetrySource(event.data.workerInstanceId);
         return;
       }
@@ -420,9 +438,11 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
           emitter.emit(event);
           return;
         }
-        let diagnostic: EmbedWorkerPipelineCacheDiagnostic | null = null;
         try {
-          diagnostic = readPipelineCacheDiagnostic(event);
+          const diagnostic = readPipelineCacheDiagnostic(event);
+          if (diagnostic) {
+            telemetrySource.current = recordPipelineCacheDiagnostic(diagnostic);
+          }
         } catch (error) {
           telemetryError.current =
             error instanceof Error
@@ -431,9 +451,6 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
           rejectTelemetryError(telemetryError.current);
           cancelable?.cancel();
           return;
-        }
-        if (diagnostic) {
-          telemetrySource.current = recordPipelineCacheDiagnostic(diagnostic);
         }
       },
     }) as WorkerPoolPromise<QueueResult>;
