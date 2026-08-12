@@ -68,7 +68,6 @@ export interface CreateToolsSettingsCategoryOptions {
  *     resetTools: async () => window.tools.reset(),
  *     enableBySource: async (source) => window.tools.enableBySource(source),
  *     disableBySource: async (source) => window.tools.disableBySource(source),
- *     executeToolTest: async (id, input) => window.tools.execute(id, input),
  *     getMcpServerStatus: async () => window.mcp.getServerStatus(),
  *   },
  *   mcpAvailable: true,

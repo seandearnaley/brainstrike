@@ -613,22 +613,6 @@ declare global {
       onExit: (callback: (event: TerminalExitEvent) => void) => () => void;
     };
     tools: {
-      execute: (
-        toolId: string,
-        input: unknown,
-        runtimeData?: Record<string, unknown>
-      ) => Promise<
-        | {
-            success: true;
-            result: unknown;
-            durationMs: number;
-          }
-        | {
-            success: false;
-            error: string;
-            durationMs: number;
-          }
-      >;
       onRootTreeSelectionUpdate: (
         callback: (payload: AssistantSelectionUpdatePayload) => void
       ) => (() => void) | undefined;

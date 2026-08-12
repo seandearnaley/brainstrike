@@ -78,6 +78,7 @@ describe('ipc-tools', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.resetModules();
   });
 
@@ -619,6 +620,20 @@ describe('ipc-tools', () => {
   });
 
   describe('handler registration', () => {
+    it('refuses production registration before any execution sink becomes reachable', async () => {
+      vi.mocked(ipcMain.handle).mockClear();
+      vi.stubEnv('NODE_ENV', 'production');
+      const { registerToolsIpcHandlers } = await import('../../ipc-tools');
+
+      expect(() => registerToolsIpcHandlers()).toThrow(
+        'Renderer tool execution IPC is disabled in production.'
+      );
+      expect(ipcMain.handle).not.toHaveBeenCalled();
+      expect(buildDesktopAssistantTools).not.toHaveBeenCalled();
+      expect(executeNativeTool).not.toHaveBeenCalled();
+      expect(callTool).not.toHaveBeenCalled();
+    });
+
     it('registers channels through the typed desktop IPC registry', () => {
       const source = readFileSync(path.resolve(process.cwd(), 'src/ipc-tools.ts'), 'utf8');
 

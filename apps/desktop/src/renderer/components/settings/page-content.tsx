@@ -22,7 +22,6 @@ import { createWorkspaceInstructionsSettingsCategory } from '@brainstrike/settin
 import {
   createToolsSettingsCategory,
   type ToolDisplayMetadata,
-  type ToolExecutionResult,
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
@@ -137,7 +136,7 @@ export default function SettingsPageContent() {
       ? assistantAvailability.providerKeySources
       : undefined;
 
-  // Create tool operations that integrate with window.mcp and window.tools APIs
+  // Create non-executing tool catalog and MCP configuration operations.
   const toolOperations = useMemo(
     () => ({
       disableTools: async (ids: string[]) => {
@@ -302,30 +301,6 @@ export default function SettingsPageContent() {
           return { error: 'MCP API not available', path: '', success: false };
         }
         return result;
-      },
-      executeToolTest: async (toolId: string, input: unknown): Promise<ToolExecutionResult> => {
-        // Execute tool via IPC bridge to main process
-        if (window.tools?.execute) {
-          const result = await window.tools.execute(toolId, input);
-          if (result.success) {
-            return {
-              durationMs: result.durationMs,
-              result: result.result,
-              success: true as const,
-            };
-          }
-          return {
-            durationMs: result.durationMs,
-            error: result.error ?? 'Tool execution failed',
-            success: false as const,
-          };
-        }
-        // Fallback if tools API not available
-        return {
-          durationMs: 0,
-          error: 'Tool execution API not available',
-          success: false as const,
-        };
       },
       getMcpConfigInfo: async () => {
         // Get current MCP config info
