@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { analyzeModelCatalogMigrationContract } from '../model-catalog-migration-contract.mjs';
 
@@ -31,6 +32,17 @@ export const ${exportName}: Migration = {
 }
 
 describe('model catalog migration contract', () => {
+  it('documents the provider registry static-literal requirement in the database contract', () => {
+    const databaseContract = readFileSync(
+      new URL('../../docs/agents/database.md', import.meta.url),
+      'utf8'
+    );
+
+    assert.match(databaseContract, /PROVIDER_DEFINITIONS/);
+    assert.match(databaseContract, /static array literal/i);
+    assert.match(databaseContract, /packages\/assistant-contract\/src\/provider-registry\.ts/);
+  });
+
   it('requires catalog-mutating migrations to be registered in the app custom ledger', () => {
     const result = analyzeModelCatalogMigrationContract({
       drizzleMigrateSource: `
