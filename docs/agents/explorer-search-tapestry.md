@@ -306,7 +306,10 @@ rejects only a literal parent segment (`..` or `../...`), not valid descendants
 such as `..config` or `..archive/file`; traversal tokenization treats backslash
 as a separator only on Windows, preserving literal POSIX filenames. Boot
 restore and add-root mutations share a queue, so restore finalization cannot
-retain or rewrite a stale snapshot after a newly added root is mounted.
+retain or rewrite a stale snapshot after a newly added root is mounted. Restore
+mounts entries concurrently, waits for every result, and rolls back only roots
+newly mounted by that invocation if any mount aborts; a capability that existed
+before restore is reused and preserved.
 E2E in-memory fixture paths are the sole explicit exception: their handlers
 serve registered fixture data directly and never touch the host filesystem or
 native capability. A rejected content read becomes the worker's explicit

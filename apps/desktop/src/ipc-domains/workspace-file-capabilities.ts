@@ -136,6 +136,7 @@ function buildDirectoryNode(
 
 export interface WorkspaceFileCapabilities {
   dispose(): void;
+  getMountedRoot?(rootId: string): WorkspaceRootIdentity | undefined;
   mountRoot(identity: WorkspaceRootIdentity): Promise<string>;
   readDirectory(handle: DirectoryHandle): Promise<IFileNode[]>;
   readFile(request: FileHandle | string, options?: WorkspaceFileReadOptions): Promise<string>;
@@ -239,6 +240,10 @@ export function createWorkspaceFileCapabilities(
         mounted.root.close();
       }
       mountedRoots.clear();
+    },
+    getMountedRoot: (rootId) => {
+      const mounted = mountedRoots.get(rootId);
+      return mounted ? { path: mounted.canonicalPath, rootId: mounted.rootId } : undefined;
     },
     mountRoot,
     readDirectory: async (handle) => {

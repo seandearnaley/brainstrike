@@ -691,9 +691,13 @@ export function registerFileSystemIpcHandlers({
   };
 
   const restoreStoredRootEntry = async (
-    entry: StoredRootEntry,
-    canonicalPaths: Set<string>
-  ): Promise<{ descriptor: RootDescriptor; storedEntry: StoredRootEntry } | null> => {
+    entry: StoredRootEntry
+  ): Promise<{
+    canonicalPath: string;
+    descriptor: RootDescriptor;
+    newlyMounted: boolean;
+    storedEntry: StoredRootEntry;
+  } | null> => {
     let exists: boolean;
     try {
       const resolvedPath = await resolveFileSystemIpcPath(entry.path, 'stored root');
@@ -711,18 +715,11 @@ export function registerFileSystemIpcHandlers({
 
     // Capability construction failures are not proof that the saved root is
     // stale. Surface them so transient failure cannot delete user state.
-    const canonicalPath = await mountWorkspaceRoot(entry);
-    if (canonicalPaths.has(canonicalPath)) {
-      workspaceFileCapabilities.unmountRoot(entry.rootId);
-      logger.warn('restoreRoots: discarded duplicate canonical workspace root', {
-        path: canonicalPath,
-        rootId: entry.rootId,
-      });
-      return null;
-    }
-    canonicalPaths.add(canonicalPath);
+    const existingMount = workspaceFileCapabilities.getMountedRoot?.(entry.rootId);
+    const canonicalPath = existingMount?.path ?? (await mountWorkspaceRoot(entry));
     const basename = path.basename(canonicalPath);
     return {
+      canonicalPath,
       descriptor: {
         displayName: basename,
         handle: {
@@ -737,48 +734,94 @@ export function registerFileSystemIpcHandlers({
         persisted: true,
         rootId: entry.rootId,
       },
+      newlyMounted: existingMount === undefined,
       storedEntry: { ...entry, path: canonicalPath },
     };
   };
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () =>
-    runSerializedRootMutation(async () => {
-      const entries = await readRootsList(storage);
-      if (entries.length === 0) {
-        workspaceFileCapabilities.retainRoots(new Set());
-        // Not an early return: zero mounted folders is exactly the state in which
-        // every remaining 'live' row is stale and must be demoted.
-        await convergeRootStatuses([]);
-        return [];
+  type RestoredRootEntry = Awaited<ReturnType<typeof restoreStoredRootEntry>>;
+
+  const rollbackRestoredRoots = (
+    restoreResults: readonly PromiseSettledResult<RestoredRootEntry>[]
+  ): void => {
+    for (const result of restoreResults) {
+      if (result.status === 'fulfilled' && result.value?.newlyMounted) {
+        workspaceFileCapabilities.unmountRoot(result.value.storedEntry.rootId);
       }
+    }
+  };
 
-      const survivors: StoredRootEntry[] = [];
-      const descriptors: RootDescriptor[] = [];
-      const canonicalPaths = new Set<string>();
-
-      for (const entry of entries) {
-        const restored = await restoreStoredRootEntry(entry, canonicalPaths);
-        if (!restored) {
-          continue;
-        }
-        survivors.push(restored.storedEntry);
-        descriptors.push(restored.descriptor);
+  const collectRestoredRoots = (
+    restoreResults: readonly PromiseSettledResult<RestoredRootEntry>[]
+  ): {
+    descriptors: RootDescriptor[];
+    newlyMountedRootIds: Set<string>;
+    survivors: StoredRootEntry[];
+  } => {
+    const survivors: StoredRootEntry[] = [];
+    const descriptors: RootDescriptor[] = [];
+    const canonicalPaths = new Set<string>();
+    const newlyMountedRootIds = new Set<string>();
+    for (const result of restoreResults) {
+      const restored = result.status === 'fulfilled' ? result.value : null;
+      if (!restored) {
+        continue;
       }
+      if (canonicalPaths.has(restored.canonicalPath)) {
+        workspaceFileCapabilities.unmountRoot(restored.storedEntry.rootId);
+        logger.warn('restoreRoots: discarded duplicate canonical workspace root', {
+          path: restored.canonicalPath,
+          rootId: restored.storedEntry.rootId,
+        });
+        continue;
+      }
+      canonicalPaths.add(restored.canonicalPath);
+      if (restored.newlyMounted) {
+        newlyMountedRootIds.add(restored.storedEntry.rootId);
+      }
+      survivors.push(restored.storedEntry);
+      descriptors.push(restored.descriptor);
+    }
+    return { descriptors, newlyMountedRootIds, survivors };
+  };
 
-      const rootsChanged =
-        survivors.length !== entries.length ||
-        survivors.some((entry, index) => entry.path !== entries[index]?.path);
-      workspaceFileCapabilities.retainRoots(new Set(survivors.map((entry) => entry.rootId)));
+  const performRestoreRoots = async (): Promise<RootDescriptor[]> => {
+    const entries = await readRootsList(storage);
+    if (entries.length === 0) {
+      workspaceFileCapabilities.retainRoots(new Set());
+      await convergeRootStatuses([]);
+      return [];
+    }
+
+    const restoreResults = await Promise.allSettled(entries.map(restoreStoredRootEntry));
+    const rejected = restoreResults.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected'
+    );
+    if (rejected) {
+      rollbackRestoredRoots(restoreResults);
+      throw rejected.reason;
+    }
+    const { descriptors, newlyMountedRootIds, survivors } = collectRestoredRoots(restoreResults);
+    const rootsChanged =
+      survivors.length !== entries.length ||
+      survivors.some((entry, index) => entry.path !== entries[index]?.path);
+    try {
       if (rootsChanged) {
         await writeRootsList(storage, survivors);
       }
+    } catch (error) {
+      for (const rootId of newlyMountedRootIds) {
+        workspaceFileCapabilities.unmountRoot(rootId);
+      }
+      throw error;
+    }
+    workspaceFileCapabilities.retainRoots(new Set(survivors.map((entry) => entry.rootId)));
+    await convergeRootStatuses(descriptors.map((descriptor) => descriptor.handle.path));
+    return descriptors;
+  };
 
-      // Compare on the RESOLVED path: that is what addRoot/reconcileRoots store on
-      // the DB row, whereas a rootsList entry may hold the unresolved form.
-      await convergeRootStatuses(descriptors.map((descriptor) => descriptor.handle.path));
-
-      return descriptors;
-    })
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () =>
+    runSerializedRootMutation(performRestoreRoots)
   );
 
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () =>

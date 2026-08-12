@@ -116,4 +116,54 @@ describe('fs:restoreRoots canonical identity', () => {
       expect.objectContaining({ path: '/mock/test/directory' }),
     ]);
   });
+
+  it('rolls back only newly mounted capabilities when a batched restore aborts', async () => {
+    const preexisting = {
+      addedAt: 1,
+      path: path.resolve('/users/test/preexisting'),
+      rootId: 'root-preexisting',
+    };
+    const newlyMounted = {
+      addedAt: 2,
+      path: path.resolve('/users/test/new'),
+      rootId: 'root-new',
+    };
+    const failing = {
+      addedAt: 3,
+      path: path.resolve('/users/test/failing'),
+      rootId: 'root-failing',
+    };
+    const originalRoots = [preexisting, newlyMounted, failing];
+    const fileSystem = createFileSystem();
+    const storage = createStorage({ rootsList: JSON.stringify(originalRoots) });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    if (!capabilities.getMountedRoot) {
+      throw new Error('Test capability must expose mounted-root inspection.');
+    }
+    vi.mocked(capabilities.getMountedRoot).mockImplementation((rootId) =>
+      rootId === preexisting.rootId
+        ? { path: preexisting.path, rootId: preexisting.rootId }
+        : undefined
+    );
+    vi.mocked(capabilities.mountRoot).mockImplementation(async (identity) => {
+      if (identity.rootId === failing.rootId) {
+        throw new Error('descriptor unavailable');
+      }
+      return path.resolve(identity.path);
+    });
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).rejects.toThrow(
+      'descriptor unavailable'
+    );
+    expect(capabilities.unmountRoot).toHaveBeenCalledWith(newlyMounted.rootId);
+    expect(capabilities.unmountRoot).not.toHaveBeenCalledWith(preexisting.rootId);
+    expect(capabilities.retainRoots).not.toHaveBeenCalled();
+    await expect(storage.getItem('rootsList')).resolves.toBe(JSON.stringify(originalRoots));
+  });
 });

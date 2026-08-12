@@ -76,6 +76,7 @@ export function createAdapterBackedCapabilities(
 ): WorkspaceFileCapabilities {
   return {
     dispose: vi.fn(),
+    getMountedRoot: vi.fn(() => undefined),
     mountRoot: vi.fn(async ({ path: rootPath }) => path.resolve(rootPath)),
     readDirectory: (handle) => fileSystem.readDirectory(handle),
     readFile: (request) =>
