@@ -123,9 +123,9 @@ async function seedLargeImportFixture(
  * could free.
  */
 async function startForegroundDatabasePressure(page: Page): Promise<void> {
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const targetWindow = window as Window & {
-      __capacityReproPressure?: { stop: () => void };
+      __capacityReproPressure?: { failure: string | null; stop: () => void };
       electronAPI?: {
         db?: { query?: (sql: string) => Promise<{ rows: unknown[] }> };
       };
@@ -134,13 +134,33 @@ async function startForegroundDatabasePressure(page: Page): Promise<void> {
     if (!query) {
       throw new Error('Database API not available');
     }
+    // A successful query is the pressure-loop handshake. Without it, a broken
+    // IPC bridge could make the detached loop swallow every rejection and let
+    // the starvation regression pass while applying no foreground pressure.
+    await query('SELECT COUNT(*)::int AS count FROM file_chunks');
     let running = true;
+    let consecutiveFailures = 0;
+    const pressure = {
+      failure: null as string | null,
+      stop: () => {
+        running = false;
+      },
+    };
+    targetWindow.__capacityReproPressure = pressure;
     void (async () => {
       while (running) {
         try {
           await query('SELECT COUNT(*)::int AS count FROM file_chunks');
-        } catch {
-          // A transient failure must not end the pressure loop.
+          consecutiveFailures = 0;
+        } catch (error) {
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= 3) {
+            pressure.failure = `Foreground database pressure failed 3 consecutive times: ${
+              error instanceof Error ? error.message : String(error)
+            }`;
+            running = false;
+            return;
+          }
         }
         // Paced, not saturating: one foreground query every 40ms keeps
         // `lastForegroundAt` inside the scheduler's 75ms quiet window — the same
@@ -149,11 +169,22 @@ async function startForegroundDatabasePressure(page: Page): Promise<void> {
         await new Promise((resolve) => setTimeout(resolve, 40));
       }
     })();
-    targetWindow.__capacityReproPressure = {
-      stop: () => {
-        running = false;
-      },
-    };
+  });
+}
+
+async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const pressure = (
+      window as Window & {
+        __capacityReproPressure?: { failure: string | null };
+      }
+    ).__capacityReproPressure;
+    if (!pressure) {
+      throw new Error('Foreground database pressure was not started.');
+    }
+    if (pressure.failure) {
+      throw new Error(pressure.failure);
+    }
   });
 }
 
@@ -206,7 +237,10 @@ async function runCapacityBackfill(
       // zero forever because the claim query itself cannot enter the DB host.
       await expect
         .poll(
-          async () => (await getEmbeddingSetCounts(activeWindow, embeddingSetId)).embeddedChunks,
+          async () => {
+            await assertForegroundDatabasePressureHealthy(activeWindow);
+            return (await getEmbeddingSetCounts(activeWindow, embeddingSetId)).embeddedChunks;
+          },
           {
             intervals: [1000],
             timeout: 45_000,
