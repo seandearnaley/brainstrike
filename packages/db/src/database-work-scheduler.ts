@@ -117,7 +117,7 @@ export interface ScheduledDbHandle {
 }
 
 interface ScheduledTask<T> {
-  readonly enqueuedAt: number;
+  readonly elapsedEnqueuedAt: number;
   readonly label: string | null;
   readonly priority: DatabaseWorkPriority;
   readonly reject: (reason: unknown) => void;
@@ -355,7 +355,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   #lastStartedAt: number | null = null;
   #forcedBackgroundAdmissionCount = 0;
   #running = false;
-  #runningStartedAt: number | null = null;
+  #runningElapsedStartedAt: number | null = null;
   #runningLabel: string | null = null;
   #runningPriority: DatabaseWorkPriority | null = null;
 
@@ -436,7 +436,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
 
     return new Promise<T>((resolve, reject) => {
       this.#queues[priority].push({
-        enqueuedAt,
+        elapsedEnqueuedAt,
         label: options?.label ?? null,
         priority,
         reject,
@@ -567,8 +567,8 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     forcedBackground = false
   ): QueuedTask {
     this.#lastStartedAt = startedAt;
-    this.#runningStartedAt = startedAt;
-    this.#recordTaskStarted(task, startedAt);
+    this.#runningElapsedStartedAt = elapsedStartedAt;
+    this.#recordTaskStarted(task, elapsedStartedAt);
     if (task.priority === 'background') {
       this.#clearBackgroundWaiting();
       if (forcedBackground) {
@@ -626,11 +626,16 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     } catch (error) {
       task.reject(error);
     } finally {
+      const elapsedCompletedAt = this.#elapsedNow();
       const completedAt = this.#now();
       this.#lastCompletedAt = completedAt;
-      this.#recordTaskCompleted(task, this.#runningStartedAt ?? completedAt, completedAt);
+      this.#recordTaskCompleted(
+        task,
+        this.#runningElapsedStartedAt ?? elapsedCompletedAt,
+        elapsedCompletedAt
+      );
       this.#running = false;
-      this.#runningStartedAt = null;
+      this.#runningElapsedStartedAt = null;
       this.#runningPriority = null;
       this.#runningLabel = null;
       this.#emit();
@@ -643,8 +648,8 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     this.#scheduleDrain(this.#nextDelayMs());
   }
 
-  #recordTaskStarted(task: QueuedTask, startedAt: number): void {
-    const waitMs = Math.max(0, startedAt - task.enqueuedAt);
+  #recordTaskStarted(task: QueuedTask, elapsedStartedAt: number): void {
+    const waitMs = Math.max(0, elapsedStartedAt - task.elapsedEnqueuedAt);
     const waitSamples = this.#waitSamples[task.priority];
     addMetricSample(waitSamples, waitMs);
     const current = this.#priorityStats[task.priority];
@@ -658,8 +663,12 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     });
   }
 
-  #recordTaskCompleted(task: QueuedTask, startedAt: number, completedAt: number): void {
-    const serviceMs = Math.max(0, completedAt - startedAt);
+  #recordTaskCompleted(
+    task: QueuedTask,
+    elapsedStartedAt: number,
+    elapsedCompletedAt: number
+  ): void {
+    const serviceMs = Math.max(0, elapsedCompletedAt - elapsedStartedAt);
     const serviceSamples = this.#serviceSamples[task.priority];
     addMetricSample(serviceSamples, serviceMs);
     const current = this.#priorityStats[task.priority];

@@ -82,7 +82,9 @@ Scheduler snapshots carry elapsed timestamps from that same clock origin so
 `DatabasePressureController` can age quiet and latency windows safely even over
 IPC, while wall-clock timestamps remain diagnostic only. Embedding-claim
 starvation bypass uses its renderer-local monotonic clock as well, so clock
-corrections cannot extend either admission layer. Work admitted through the
+corrections cannot extend either admission layer. Scheduler wait and service
+metrics also use monotonic elapsed time; diagnostic wall-clock corrections must
+not distort pressure percentiles. Work admitted through the
 background lane must therefore be short and bounded. Long maintenance statements such as
 `VACUUM (ANALYZE)` may run only after the maintenance scheduler has established
 an idle database/queue state; do not use background priority as authority to run
