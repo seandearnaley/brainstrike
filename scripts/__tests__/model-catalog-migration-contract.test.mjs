@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { analyzeModelCatalogMigrationContract } from '../model-catalog-migration-contract.mjs';
 
@@ -31,6 +32,20 @@ export const ${exportName}: Migration = {
 }
 
 describe('model catalog migration contract', () => {
+  it('documents the provider registry static-literal requirement in the database contract', () => {
+    const databaseContract = readFileSync(
+      new URL('../../docs/agents/database.md', import.meta.url),
+      'utf8'
+    );
+
+    assert.match(
+      databaseContract,
+      /^\s+- packages\/assistant-contract\/src\/provider-registry\.ts\n\s+- Keep `PROVIDER_DEFINITIONS` as an array literal, each provider entry as an object literal, each provider's `models` property as an array literal, and each model entry as an object literal\. `scripts\/model-catalog-migration-contract\.mjs` AST-parses those structural nodes; scalar provider\/model fields may reference resolvable string constants\.$/m,
+      'docs/agents/database.md must keep the complete provider-registry literal-shape rule next ' +
+        'to its source path and name the enforcing script. Update the doc and assertion together.'
+    );
+  });
+
   it('requires catalog-mutating migrations to be registered in the app custom ledger', () => {
     const result = analyzeModelCatalogMigrationContract({
       drizzleMigrateSource: `
