@@ -247,7 +247,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
     const onDiagnostic = vi.fn();
 
-    const streamPromise = client.stream(createRequest(), { onDiagnostic });
+    const streamPromise = client.stream({ ...createRequest(), texts: [] }, { onDiagnostic });
     await flushMicrotasks();
 
     const diagnostic = {
@@ -357,7 +357,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
   it('records id-less cache eviction diagnostics after a stream completes', async () => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
-    const streamPromise = client.stream(createRequest());
+    const streamPromise = client.stream({ ...createRequest(), texts: [] });
     await flushMicrotasks();
 
     const entry = {
@@ -618,6 +618,49 @@ describe('StreamingEmbeddingWorkerClient', () => {
       batchTransfer: { batchCount: 0, totalBytes: 0 },
       peakVectorsInFlight: 0,
     });
+  });
+
+  it('terminally rejects completion before every requested text has a vector', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const onBatch = vi.fn();
+    const streamPromise = client.stream(
+      { ...createRequest(), texts: ['hello', 'world'] },
+      { onBatch }
+    );
+    await flushMicrotasks();
+
+    worker.emitMessage({
+      batchIndex: 0,
+      endIndex: 1,
+      id: 'embed-1',
+      peakVectorsInFlight: 1,
+      startIndex: 0,
+      transferBytes: 12,
+      type: 'batch',
+      vectors: [new Float32Array([1, 2, 3])],
+      vectorsInFlight: 1,
+    } satisfies EmbedWorkerBatch);
+    await flushMicrotasks();
+    worker.emitMessage({
+      id: 'embed-1',
+      metadata: {
+        batchSize: 1,
+        device: 'wasm',
+        dimensions: 3,
+        dtype: 'fp32',
+        elapsedMs: 12,
+        fallbackApplied: false,
+        model: 'local:test-model',
+      },
+      type: 'complete',
+    });
+
+    await expect(streamPromise).rejects.toThrow(
+      'Embedding worker completed after 1 of 2 requested texts.'
+    );
+    expect(onBatch).toHaveBeenCalledTimes(1);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a queued stream before posting when the active stream terminally fails', async () => {

@@ -37,6 +37,11 @@ type StreamCleanup = () => void;
 type StreamResolve = (metadata: EmbedWorkerComplete['metadata']) => void;
 type StreamReject = (error: Error) => void;
 
+interface StreamBatchSequence {
+  expectedBatchIndex: number;
+  expectedStartIndex: number;
+}
+
 export interface StreamingEmbedOptions {
   readonly onBatch?: (event: EmbedWorkerBatch) => Promise<void> | void;
   readonly onDiagnostic?: (event: EmbedWorkerPipelineCacheDiagnostic) => void;
@@ -88,7 +93,7 @@ function assertStreamBatchSequence(
 
 function validateStreamBatch(
   value: unknown,
-  sequence: { expectedBatchIndex: number; expectedStartIndex: number },
+  sequence: StreamBatchSequence,
   requestTextCount: number,
   onFailure: (error: unknown) => void
 ): value is EmbedWorkerBatch {
@@ -107,6 +112,56 @@ function validateStreamBatch(
     onFailure(error);
     return false;
   }
+}
+
+function validateStreamCompletionCoverage(
+  event: EmbedWorkerStreamEvent,
+  embeddedTextCount: number,
+  requestTextCount: number,
+  onFailure: (error: Error) => void
+): boolean {
+  if (event.type !== 'complete' || embeddedTextCount === requestTextCount) {
+    return true;
+  }
+  onFailure(
+    new Error(
+      `Embedding worker completed after ${embeddedTextCount} of ${requestTextCount} requested texts.`
+    )
+  );
+  return false;
+}
+
+function validateStreamMessage(
+  value: unknown,
+  request: EmbedWorkerRequest,
+  sequence: StreamBatchSequence,
+  onFailure: (error: unknown) => void
+): value is EmbedWorkerStreamEvent {
+  if (!isStreamEvent(value)) {
+    return false;
+  }
+  // Stream payloads are request-scoped unless they are diagnostics. Cache/device
+  // diagnostics describe worker-global state and may intentionally omit an id.
+  if (value.id !== undefined && value.id !== request.id) {
+    return false;
+  }
+  // Guard the id-less path explicitly so malformed progress/batch/complete
+  // messages cannot be delivered to the active stream by accident.
+  if (value.id === undefined && value.type !== 'diagnostic') {
+    return false;
+  }
+  if (
+    value.type === 'batch' &&
+    !validateStreamBatch(value, sequence, request.texts.length, onFailure)
+  ) {
+    return false;
+  }
+  return validateStreamCompletionCoverage(
+    value,
+    sequence.expectedStartIndex,
+    request.texts.length,
+    onFailure
+  );
 }
 
 export class StreamingEmbeddingWorkerClient {
@@ -206,22 +261,8 @@ export class StreamingEmbeddingWorkerClient {
       return await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
         const batchSequence = { expectedBatchIndex: 0, expectedStartIndex: 0 };
         const cleanup = this.transport.onMessage((message) => {
-          if (!isStreamEvent(message)) {
-            return;
-          }
-          // Stream payloads are request-scoped unless they are diagnostics. Cache/device
-          // diagnostics describe worker-global state and may intentionally omit an id.
-          if (message.id !== undefined && message.id !== request.id) {
-            return;
-          }
-          // Guard the id-less path explicitly so malformed progress/batch/complete
-          // messages cannot be delivered to the active stream by accident.
-          if (message.id === undefined && message.type !== 'diagnostic') {
-            return;
-          }
           if (
-            message.type === 'batch' &&
-            !validateStreamBatch(message, batchSequence, request.texts.length, (error) =>
+            !validateStreamMessage(message, request, batchSequence, (error) =>
               this.runtime.markFailed(error)
             )
           ) {
