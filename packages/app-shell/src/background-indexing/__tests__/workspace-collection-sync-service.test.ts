@@ -879,6 +879,18 @@ describe('WorkspaceCollectionSyncService', () => {
     );
     expect(deps.enqueueBackfill).toHaveBeenCalledOnce();
 
+    await service.sync({
+      ...request,
+      scope: { changes: [], mode: 'paths' },
+    });
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
+        state: 'error',
+      })
+    );
+
     readFullTreeWithOptionsMock.mockResolvedValueOnce([]);
     vi.mocked(deps.resolveDbRootId).mockResolvedValueOnce(DB_ROOT_B_ID);
     await service.sync({
@@ -894,6 +906,26 @@ describe('WorkspaceCollectionSyncService', () => {
         activeRootPath: ROOT_PATH,
         lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
         state: 'error',
+      })
+    );
+
+    vi.mocked(deps.embeddingSetsRepository.getById).mockResolvedValueOnce(
+      createCollection({ id: 'set-2', name: 'Replacement collection' })
+    );
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([]);
+    await service.sync({
+      backfillMode: 'defer',
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-2',
+      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        lastError: null,
+        managedCollectionId: 'set-2',
+        state: 'idle',
       })
     );
   });

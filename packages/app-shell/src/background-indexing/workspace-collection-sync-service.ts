@@ -35,6 +35,7 @@ import {
 } from '@brainstrike/pipeline';
 import type { FileSystemChange } from '@brainstrike/types';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
+import { normalizeSelectionPathForFolder } from '@brainstrike/utils/relative-file-path';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {
   type ChunkingRedispatchTerminalError,
@@ -597,17 +598,51 @@ export class WorkspaceCollectionSyncService {
 
   private updateTerminalChunkingRedispatchErrors(
     context: ResolvedSyncContext,
-    prepared: PreparedChangesSummary
+    prepared: PreparedChangesSummary,
+    request: WorkspaceCollectionSyncRequest
   ): void {
     const scopeKey = JSON.stringify([context.collection.id, context.dbRootId, context.rootPath]);
-    if (prepared.terminalChunkingErrors.length === 0) {
+    const previous = this.terminalChunkingErrorsByScope.get(scopeKey);
+    const partialChanges = request.scope?.mode === 'paths' ? request.scope.changes : null;
+    const retainedErrors = partialChanges
+      ? (previous?.errors ?? []).filter(
+          (error) =>
+            !partialChanges.some((change) => {
+              const relativePath = normalizeSelectionPathForFolder(
+                change.path.replace(/\\/g, '/'),
+                context.rootPath,
+                { label: 'Workspace Index watcher path' }
+              );
+              return change.kind === 'directory'
+                ? error.relativePath === relativePath ||
+                    error.relativePath.startsWith(`${relativePath}/`)
+                : error.relativePath === relativePath;
+            })
+        )
+      : [];
+    const errorsByPath = new Map(
+      [...retainedErrors, ...prepared.terminalChunkingErrors].map((error) => [
+        error.relativePath,
+        error,
+      ])
+    );
+    const errors = [...errorsByPath.values()];
+    if (errors.length === 0) {
       this.terminalChunkingErrorsByScope.delete(scopeKey);
       return;
     }
     this.terminalChunkingErrorsByScope.set(scopeKey, {
       context,
-      errors: prepared.terminalChunkingErrors,
+      errors,
     });
+  }
+
+  private retainTerminalChunkingErrorsForCollection(collectionId: string | null): void {
+    for (const [scopeKey, scope] of this.terminalChunkingErrorsByScope) {
+      if (scope.context.collection.id !== collectionId) {
+        this.terminalChunkingErrorsByScope.delete(scopeKey);
+      }
+    }
   }
 
   private surfaceTerminalChunkingRedispatchError(): boolean {
@@ -1010,7 +1045,7 @@ export class WorkspaceCollectionSyncService {
     });
     throwIfAborted(args.abortSignal);
     const { invalidationTargets, prepared } = syncChanges;
-    this.updateTerminalChunkingRedispatchErrors(args.context, prepared);
+    this.updateTerminalChunkingRedispatchErrors(args.context, prepared, args.request);
     this.setScanSummary(args.context, prepared);
     if (invalidationTargets.length > 0) {
       // The desktop DB host executes ONE IPC request at a time, so a single
@@ -1140,6 +1175,9 @@ export class WorkspaceCollectionSyncService {
 
   async sync(request: WorkspaceCollectionSyncRequest): Promise<void> {
     const currentRunId = ++this.runId;
+    this.retainTerminalChunkingErrorsForCollection(
+      request.enabled ? request.managedCollectionId : null
+    );
     this.deps.onDebugStage?.('sync:start', { runId: currentRunId });
     const previousTrackedBackfill = this.activeBackfill;
     this.currentAbortController?.abort();

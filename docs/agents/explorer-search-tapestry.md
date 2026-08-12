@@ -306,8 +306,11 @@ there rather than hiding entries after the adapter has already read them.
   revision, and puts Workspace Index in its visible `error` state with the file
   paths and recovery instruction. It does not block unrelated embedding
   backfill, and a healthy scan of another root cannot clear the terminal state.
-  Full scans prune retry state for paths no longer present. Never replace this
-  with an unbounded retry or a
+  Partial watcher scans preserve errors for paths they did not examine and
+  clear only errors covered by that scoped scan; switching or disabling the
+  managed collection discards errors owned by the retired collection. Full
+  scans prune retry state for paths no longer present. Never replace this with
+  an unbounded retry or a
   quiet skip. This is intentionally not persistent sync state: restarting the
   renderer grants a fresh bounded budget.
 
