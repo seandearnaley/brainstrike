@@ -800,6 +800,71 @@ describe('createWorkerpoolAdapter', () => {
     expect(poolTerminateMock).not.toHaveBeenCalled();
   });
 
+  it('accepts a managed worker close notice that arrives after its termination callback', async () => {
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    createWorkerpoolAdapter(createWorkerOptions());
+    const { script, workerInstanceId } = createManagedWorker();
+    const poolOptions = poolFactoryMock.mock.calls[0]?.[1] as
+      | { onTerminateWorker?: (args: { script?: string }) => void }
+      | undefined;
+    const telemetryChannel = broadcastChannelInstances[0];
+    if (!telemetryChannel) {
+      throw new Error('Expected a worker-lifetime telemetry channel.');
+    }
+
+    telemetryChannel.emit({
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 100,
+      entry: createPipelineCacheEntry(),
+      event: 'hit',
+      type: 'diagnostic',
+      workerInstanceId,
+    });
+    poolOptions?.onTerminateWorker?.({ script });
+    telemetryChannel.emit({
+      reason: 'device-lost',
+      type: 'telemetry-source-closed',
+      workerInstanceId,
+    });
+
+    expect(removeEmbeddingTelemetrySourceMock).toHaveBeenCalledTimes(1);
+    expect(recordEmbeddingTelemetryFailureMock).not.toHaveBeenCalled();
+    expect(poolTerminateMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a cache diagnostic that arrives after its managed worker terminates', async () => {
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const { script, workerInstanceId } = createManagedWorker();
+    const poolOptions = poolFactoryMock.mock.calls[0]?.[1] as
+      | { onTerminateWorker?: (args: { script?: string }) => void }
+      | undefined;
+    const telemetryChannel = broadcastChannelInstances[0];
+    if (!telemetryChannel) {
+      throw new Error('Expected a worker-lifetime telemetry channel.');
+    }
+
+    poolOptions?.onTerminateWorker?.({ script });
+    telemetryChannel.emit({
+      cacheSize: 0,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 100,
+      entries: [],
+      event: 'invalidated',
+      reason: 'device-lost',
+      type: 'diagnostic',
+      workerInstanceId,
+    });
+
+    await expect(adapter.add(createTask('task-after-terminated-diagnostic'))).rejects.toThrow(
+      'Embedding worker telemetry identity is not active in this workerpool.'
+    );
+    expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
+    expect(poolTerminateMock).toHaveBeenCalledWith(true);
+    expect(poolExecMock).not.toHaveBeenCalled();
+  });
+
   it('cancels pre-aborted tasks immediately', async () => {
     const controller = new AbortController();
     controller.abort();

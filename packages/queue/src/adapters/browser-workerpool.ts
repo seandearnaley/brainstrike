@@ -211,7 +211,8 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   const workerScript = options.workerUrl;
   const minWorkers = options.minWorkers ?? 1;
   const embeddingTelemetrySourceIds = new Set<string>();
-  const managedWorkerInstanceIds = new Set<string>();
+  const assignedWorkerInstanceIds = new Set<string>();
+  const activeWorkerInstanceIds = new Set<string>();
   const telemetryChannelName = `${WORKER_LIFETIME_TELEMETRY_CHANNEL_PREFIX}${globalThis.crypto.randomUUID()}`;
   const telemetryChannel = new BroadcastChannel(telemetryChannelName);
   let telemetryChannelClosed = false;
@@ -227,11 +228,18 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       embeddingTelemetry.removeSource(sourceId);
     }
     embeddingTelemetrySourceIds.clear();
-    managedWorkerInstanceIds.clear();
+    assignedWorkerInstanceIds.clear();
+    activeWorkerInstanceIds.clear();
   };
   const assertManagedWorkerInstanceId = (workerInstanceId: string): void => {
-    if (!managedWorkerInstanceIds.has(workerInstanceId)) {
+    if (!assignedWorkerInstanceIds.has(workerInstanceId)) {
       throw new Error('Embedding worker telemetry identity is not assigned to this workerpool.');
+    }
+  };
+  const assertActiveWorkerInstanceId = (workerInstanceId: string): void => {
+    assertManagedWorkerInstanceId(workerInstanceId);
+    if (!activeWorkerInstanceIds.has(workerInstanceId)) {
+      throw new Error('Embedding worker telemetry identity is not active in this workerpool.');
     }
   };
   const removeWorkerTelemetrySource = (workerInstanceId: string): void => {
@@ -243,7 +251,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   };
   const removeTerminatedWorkerTelemetrySource = (workerScriptUrl: string | undefined): void => {
     const workerInstanceId = readManagedWorkerInstanceId(workerScriptUrl);
-    if (!managedWorkerInstanceIds.delete(workerInstanceId)) {
+    if (!activeWorkerInstanceIds.delete(workerInstanceId)) {
       throw new Error('Terminated embedding worker identity is not assigned to this workerpool.');
     }
     removeWorkerTelemetrySource(workerInstanceId);
@@ -251,7 +259,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   const recordPipelineCacheDiagnostic = (
     diagnostic: EmbedWorkerPipelineCacheDiagnostic
   ): string => {
-    assertManagedWorkerInstanceId(diagnostic.workerInstanceId);
+    assertActiveWorkerInstanceId(diagnostic.workerInstanceId);
     const sourceId = `workerpool-embedding-${diagnostic.workerInstanceId}`;
     embeddingTelemetrySourceIds.add(sourceId);
     embeddingTelemetry.recordPipelineCache(sourceId, diagnostic);
@@ -268,7 +276,8 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         workerInstanceId,
         telemetryChannelName
       );
-      managedWorkerInstanceIds.add(workerInstanceId);
+      assignedWorkerInstanceIds.add(workerInstanceId);
+      activeWorkerInstanceIds.add(workerInstanceId);
       return {
         script: taggedWorkerScript,
         workerOpts: {
