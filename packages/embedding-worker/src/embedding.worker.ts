@@ -105,6 +105,9 @@ function errorLog(message: string, data?: Record<string, unknown>): void {
   console.error('[EmbeddingWorker]', message, data ?? '');
 }
 
+/** Request currently executing through workerpool; worker failures use this correlation id. */
+let activeWorkerpoolRequestId: string | null = null;
+
 // Global error handlers - only set up in actual worker environment.
 // This code only runs in browser Web Worker context where `self` exists.
 // It cannot be tested in Node.js. Coverage is excluded via c8 ignore.
@@ -118,7 +121,7 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     errorLog('Uncaught worker error', { event, filename, lineno, message });
     workerEmit({
       cause: filename ? `${filename}:${lineno}` : undefined,
-      id: 'global',
+      id: activeWorkerpoolRequestId ?? 'global',
       message: `Worker uncaught error: ${message}`,
       type: 'error',
     });
@@ -132,7 +135,7 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     errorLog('Unhandled worker promise rejection', { message, reason, stack });
     workerEmit({
       cause: stack,
-      id: 'global',
+      id: activeWorkerpoolRequestId ?? 'global',
       message: `Worker unhandled rejection: ${message}`,
       type: 'error',
     });
@@ -363,9 +366,6 @@ let keepAlivePaused = false;
  *  The keep-alive skips its tick to avoid concurrent GPUQueue submissions
  *  that can race on the Metal command queue and trigger a Dawn CHECK(). */
 let isInferenceActive = false;
-
-/** Request currently executing through workerpool; device-loss errors use this correlation id. */
-let activeWorkerpoolRequestId: string | null = null;
 
 /** Whether we have already attached the device-loss watcher for the current device. */
 let deviceLossWatcherAttached = false;

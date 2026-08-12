@@ -140,9 +140,11 @@ Embedding runtime telemetry (BST-402):
   `BroadcastChannel`; its name is carried in the managed worker script fragment. The
   device-loss path announces its source identity on that channel before self-closing, so
   the adapter removes the source immediately; the termination callback remains an
-  idempotent cleanup seam. Active workerpool device-loss errors carry the affected request
-  ID (never a global sentinel), while active direct streams each receive their own request
-  ID, preserving both strict task correlation and the recoverable device-loss message.
+  idempotent cleanup seam. Active workerpool device-loss, uncaught-error, and
+  unhandled-rejection events carry the affected request ID (never a global sentinel),
+  preserving strict task correlation and the recoverable failure message. Active direct
+  streams each receive their own request-scoped device-loss message. Idle global failures
+  retain the explicit `global` sentinel.
   Controlled host restarts publish a metadata-free `starting`
   transition and retain the latest valid snapshot, while terminal `stopped` and `error`
   states clear it. The

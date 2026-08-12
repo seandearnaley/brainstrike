@@ -231,6 +231,52 @@ describe('embedding worker runtime', () => {
         type: 'error',
       });
     });
+
+    it('scopes global failures to the active workerpool request', async () => {
+      const mockSelf = {
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      let resolveInference!: (value: Float32Array) => void;
+      pipelineMock.mockResolvedValue(
+        () =>
+          new Promise<Float32Array>((resolve) => {
+            resolveInference = resolve;
+          })
+      );
+      const runEmbedding = await loadWorker();
+      const embeddingPromise = runEmbedding({
+        deviceHint: 'wasm',
+        id: 'active-global-failure',
+        model: 'bge-m3',
+        texts: ['hello'],
+        type: 'embed',
+      });
+      await flushMicrotasks();
+      await waitForAssertion(() => expect(resolveInference).toBeTypeOf('function'));
+
+      mockSelf.onerror?.('active request failed globally');
+
+      expect(workerEmitMock).toHaveBeenCalledWith({
+        cause: undefined,
+        id: 'active-global-failure',
+        message: 'Worker uncaught error: active request failed globally',
+        type: 'error',
+      });
+      mockSelf.onunhandledrejection?.({
+        reason: new Error('active request rejected globally'),
+      } as PromiseRejectionEvent);
+      expect(workerEmitMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'active-global-failure',
+          message: 'Worker unhandled rejection: active request rejected globally',
+          type: 'error',
+        })
+      );
+      resolveInference(new Float32Array([1, 0, 0]));
+      await embeddingPromise;
+    });
   });
 
   it('streams embedding batches through the worker message channel', async () => {
