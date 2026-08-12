@@ -567,15 +567,23 @@ export function registerFileSystemIpcHandlers({
       }
 
       const entries = await readRootsList(storage);
-      const existing = entries.find((entry) => entry.path === resolvedPath);
-      const entry =
+      let existing = entries.find((entry) => entry.path === resolvedPath);
+      let entry =
         existing ??
         ({
           addedAt: Date.now(),
           path: resolvedPath,
           rootId: crypto.randomUUID(),
         } satisfies StoredRootEntry);
-      const canonicalPath = await mountWorkspaceRoot(entry);
+      let canonicalPath = await mountWorkspaceRoot(entry);
+      const canonicalExisting =
+        entries.find((candidate) => candidate.path === canonicalPath) ?? existing;
+      if (canonicalExisting && canonicalExisting.rootId !== entry.rootId) {
+        workspaceFileCapabilities.unmountRoot(entry.rootId);
+        entry = canonicalExisting;
+        canonicalPath = await mountWorkspaceRoot(entry);
+      }
+      existing = canonicalExisting;
       await storage.setItem(LAST_FOLDER_STORAGE_KEY, canonicalPath);
       if (!existing) {
         const newEntry: StoredRootEntry = { ...entry, path: canonicalPath };

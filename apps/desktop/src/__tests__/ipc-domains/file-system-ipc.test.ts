@@ -761,6 +761,32 @@ describe('fs:saveLastFolder (legacy shim)', () => {
     );
   });
 
+  it('reuses a canonical rootsList entry when the saved path is an alias', async () => {
+    const aliasPath = path.resolve('/users/test/project-link');
+    const canonicalPath = path.resolve('/users/test/project');
+    const canonicalEntry = {
+      addedAt: 1,
+      path: canonicalPath,
+      rootId: 'root-id-1',
+    };
+    fileSystem = createFileSystem();
+    storage = createStorage({ rootsList: JSON.stringify([canonicalEntry]) });
+    const workspaceFileCapabilities = createAdapterBackedCapabilities(fileSystem);
+    vi.mocked(workspaceFileCapabilities.mountRoot).mockResolvedValue(canonicalPath);
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities,
+    });
+
+    await handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, aliasPath);
+
+    expect(workspaceFileCapabilities.mountRoot).toHaveBeenLastCalledWith(canonicalEntry);
+    await expect(storage.getItem('rootsList')).resolves.toBe(JSON.stringify([canonicalEntry]));
+    await expect(storage.getItem('lastFolderPath')).resolves.toBe(canonicalPath);
+  });
+
   it('propagates rootsList upsert failures after writing lastFolderPath', async () => {
     const folderPath = '/users/test/my-project';
     const resolvedPath = path.resolve(folderPath);
