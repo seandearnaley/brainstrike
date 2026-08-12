@@ -49,6 +49,30 @@ describe('fs:restoreRoots canonical identity', () => {
     );
   });
 
+  it('keeps the retained capability mounted when duplicate entries share a root ID', async () => {
+    const canonicalPath = path.resolve('/users/test/project');
+    const firstEntry = { addedAt: 1, path: canonicalPath, rootId: 'root-shared' };
+    const duplicateEntry = { addedAt: 2, path: canonicalPath, rootId: 'root-shared' };
+    const fileSystem = createFileSystem();
+    const storage = createStorage({
+      rootsList: JSON.stringify([firstEntry, duplicateEntry]),
+    });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).resolves.toEqual([
+      expect.objectContaining({ rootId: firstEntry.rootId }),
+    ]);
+    expect(capabilities.unmountRoot).not.toHaveBeenCalledWith(firstEntry.rootId);
+    expect(capabilities.retainRoots).toHaveBeenLastCalledWith(new Set([firstEntry.rootId]));
+    await expect(storage.getItem('rootsList')).resolves.toBe(JSON.stringify([firstEntry]));
+  });
+
   it('surfaces capability mount failures without pruning the saved root', async () => {
     const rootPath = path.resolve('/users/test/temporarily-unmountable');
     const entry = { addedAt: 1000, path: rootPath, rootId: 'root-id-1' };

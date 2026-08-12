@@ -802,7 +802,7 @@ export function registerFileSystemIpcHandlers({
   } => {
     const survivors: StoredRootEntry[] = [];
     const descriptors: RootDescriptor[] = [];
-    const canonicalPaths = new Set<string>();
+    const canonicalRootIds = new Map<string, string>();
     const newlyMountedRootIds = new Set<string>();
     for (const result of restoreResults) {
       const restored = result.status === 'fulfilled' ? result.value : null;
@@ -810,15 +810,15 @@ export function registerFileSystemIpcHandlers({
         continue;
       }
       const restoredRootId = restored.storedEntry.rootId;
-      if (canonicalPaths.has(restored.canonicalPath)) {
-        workspaceFileCapabilities.unmountRoot(restoredRootId);
-        logger.warn('restoreRoots: discarded duplicate canonical workspace root', {
-          path: restored.canonicalPath,
-          rootId: restoredRootId,
-        });
+      const retainedRootId = canonicalRootIds.get(restored.canonicalPath);
+      if (retainedRootId) {
+        if (retainedRootId !== restoredRootId) {
+          workspaceFileCapabilities.unmountRoot(restoredRootId);
+        }
+        logger.warn('restoreRoots: discarded duplicate canonical root', { rootId: restoredRootId });
         continue;
       }
-      canonicalPaths.add(restored.canonicalPath);
+      canonicalRootIds.set(restored.canonicalPath, restoredRootId);
       if (restored.newlyMounted) {
         newlyMountedRootIds.add(restoredRootId);
       }
