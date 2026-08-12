@@ -1153,7 +1153,6 @@ export class WorkspaceCollectionSyncService {
     });
     try {
       throwIfAborted(args.abortSignal);
-      this.chunkingRedispatchTracker.recordDispatches(prepared.changes);
       await runRootFolderCacheImport({
         abortSignal: args.abortSignal,
         applyManagedCacheBatch: this.deps.applyManagedCacheBatch,
@@ -1167,6 +1166,9 @@ export class WorkspaceCollectionSyncService {
           ? { fileContentProcessor: this.deps.fileContentProcessor }
           : {}),
         fileRecordRepository: this.deps.fileRecordRepository,
+        onChunkingBatchStart: (batch) => {
+          this.chunkingRedispatchTracker.recordDispatches(batch);
+        },
         onProgress: (progress) => {
           latestImportProgress = progress;
           importStatusReporter.report(progress);

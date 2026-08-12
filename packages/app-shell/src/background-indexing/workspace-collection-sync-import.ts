@@ -1011,6 +1011,7 @@ export async function runRootFolderCacheImport(args: {
   db: DbHandle;
   fileContentProcessor?: FileContentProcessor;
   fileRecordRepository: FileImportFileRecordRepository;
+  onChunkingBatchStart?: (batch: readonly PreparedCacheChange[]) => void;
   onProgress: (progress: EnhancedImportProgress) => void;
   qosPolicy: WorkspaceIndexingImportQosPolicy;
   rootId?: string | null;
@@ -1028,6 +1029,7 @@ export async function runRootFolderCacheImport(args: {
     db,
     fileContentProcessor,
     fileRecordRepository,
+    onChunkingBatchStart,
     onProgress,
     qosPolicy,
     rootId,
@@ -1201,6 +1203,7 @@ export async function runRootFolderCacheImport(args: {
         rootId: rootId ?? null,
         totalFiles: changes.length,
       });
+      onChunkingBatchStart?.(batch);
       const batchResults = await runEnhancedImport<IFileNode>({
         abortSignal,
         baseImportRunner: async ({

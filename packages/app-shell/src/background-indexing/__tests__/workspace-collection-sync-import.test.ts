@@ -926,6 +926,65 @@ function makeMinimalFileContentProcessor(change: PreparedCacheChange): FileConte
 }
 
 describe('runRootFolderCacheImport — rootId threading', () => {
+  it('records redispatch handoff only for the batch that reaches chunking', async () => {
+    const firstChange = makeMinimalChange();
+    const secondChange: PreparedCacheChange = {
+      ...makeMinimalChange(),
+      compositeKey: `${ROOT}::b.ts`,
+      id: 'file-id-b',
+      name: 'b.ts',
+      relativePath: 'b.ts',
+      request: {
+        compositeKey: `${ROOT}::b.ts`,
+        fileNode: makeFileNode('b.ts', 42, 1000),
+        fileSystemAdapter: {} as FileSystemAdapter,
+      },
+    };
+    const onChunkingBatchStart = vi.fn();
+    vi.mocked(runEnhancedImport).mockRejectedValueOnce(new Error('first batch failed'));
+
+    await expect(
+      runRootFolderCacheImport({
+        abortSignal: new AbortController().signal,
+        applyManagedCacheBatch: vi.fn(async () => {}),
+        changes: [firstChange, secondChange],
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+        } as never,
+        collection: makeMinimalCollection(),
+        db: makeMinimalDb() as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(firstChange),
+        fileRecordRepository: {
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: 'file-id-a' }),
+        } as never,
+        onChunkingBatchStart,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 1,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      })
+    ).rejects.toThrow('first batch failed');
+
+    expect(onChunkingBatchStart).toHaveBeenCalledOnce();
+    expect(onChunkingBatchStart).toHaveBeenCalledWith([firstChange]);
+  });
+
   it('rejects missing collection model keys before file import starts', async () => {
     vi.mocked(runEnhancedImport).mockClear();
     const applyManagedCacheBatch = vi.fn<(args: ApplyManagedCacheBatchArgs) => Promise<void>>(
