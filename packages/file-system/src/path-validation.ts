@@ -77,13 +77,7 @@ function containsNullByte(value: string): boolean {
 }
 
 function countTraversalSegments(value: string): number {
-  let count = 0;
-  let idx = value.indexOf('..');
-  while (idx !== -1) {
-    count++;
-    idx = value.indexOf('..', idx + 2);
-  }
-  return count;
+  return value.split(/[\\/]+/).filter((segment) => segment === '..').length;
 }
 
 function isSensitiveUnixPath(candidate: string): boolean {

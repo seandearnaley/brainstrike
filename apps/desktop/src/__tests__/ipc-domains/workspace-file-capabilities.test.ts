@@ -15,16 +15,25 @@ async function resolveTestPath(requestedPath: string, rootPath?: string): Promis
 function createFakeSecureRoot(): SecureWorkspaceRoot {
   return {
     close: vi.fn(),
-    listDir: vi.fn(() => ({
+    listDir: vi.fn(async () => ({
       entries: [
         { isDirectory: true, isFile: false, name: 'src' },
-        { isDirectory: false, isFile: true, name: 'README.md' },
+        {
+          isDirectory: false,
+          isFile: true,
+          lastModified: 1234,
+          name: 'README.md',
+          size: 42,
+        },
         { isDirectory: false, isFile: false, name: 'outside-link' },
       ],
       inspected: 3,
       truncated: false,
     })),
-    readFile: vi.fn(() => ({ content: Buffer.from('inside workspace'), status: 'ok' as const })),
+    readFile: vi.fn(async () => ({
+      content: Buffer.from('inside workspace'),
+      status: 'ok' as const,
+    })),
   };
 }
 
@@ -87,7 +96,9 @@ describe('workspace file capabilities', () => {
       }),
       expect.objectContaining({
         handle: expect.objectContaining({ rootId: 'root-1' }),
+        lastModified: 1234,
         name: 'README.md',
+        size: 42,
         type: 'file',
       }),
     ]);

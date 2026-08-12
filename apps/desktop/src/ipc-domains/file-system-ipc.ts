@@ -153,6 +153,35 @@ async function writeRootsList(
   await storage.setItem(ROOTS_LIST_STORAGE_KEY, JSON.stringify(entries));
 }
 
+function rewriteCanonicalRootEntry(
+  entries: readonly StoredRootEntry[],
+  resolvedPath: string,
+  canonicalEntry: StoredRootEntry
+): StoredRootEntry[] | null {
+  const updatedEntries: StoredRootEntry[] = [];
+  let inserted = false;
+  for (const candidate of entries) {
+    if (candidate.rootId === canonicalEntry.rootId) {
+      if (!inserted) {
+        updatedEntries.push(canonicalEntry);
+        inserted = true;
+      }
+    } else if (candidate.path !== resolvedPath && candidate.path !== canonicalEntry.path) {
+      updatedEntries.push(candidate);
+    }
+  }
+  if (!inserted) {
+    updatedEntries.push(canonicalEntry);
+  }
+  const changed =
+    updatedEntries.length !== entries.length ||
+    updatedEntries.some(
+      (candidate, index) =>
+        candidate.path !== entries[index]?.path || candidate.rootId !== entries[index]?.rootId
+    );
+  return changed ? updatedEntries : null;
+}
+
 function isWindowsAbsolutePath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
 }
@@ -377,6 +406,7 @@ export function registerFileSystemIpcHandlers({
 }: RegisterFileSystemIpcHandlersOptions): () => void {
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const sessionOnlyRootIds = new Set<string>();
   const mountWorkspaceRoot = async (entry: StoredRootEntry): Promise<string> => {
     if (isMockFileSystemIpcPath(entry.path)) {
       return path.normalize(entry.path);
@@ -567,7 +597,7 @@ export function registerFileSystemIpcHandlers({
       }
 
       const entries = await readRootsList(storage);
-      let existing = entries.find((entry) => entry.path === resolvedPath);
+      const existing = entries.find((entry) => entry.path === resolvedPath);
       let entry =
         existing ??
         ({
@@ -583,11 +613,11 @@ export function registerFileSystemIpcHandlers({
         entry = canonicalExisting;
         canonicalPath = await mountWorkspaceRoot(entry);
       }
-      existing = canonicalExisting;
       await storage.setItem(LAST_FOLDER_STORAGE_KEY, canonicalPath);
-      if (!existing) {
-        const newEntry: StoredRootEntry = { ...entry, path: canonicalPath };
-        await writeRootsList(storage, [...entries, newEntry]);
+      const canonicalEntry: StoredRootEntry = { ...entry, path: canonicalPath };
+      const updatedEntries = rewriteCanonicalRootEntry(entries, resolvedPath, canonicalEntry);
+      if (updatedEntries) {
+        await writeRootsList(storage, updatedEntries);
       }
     }
   );
@@ -663,6 +693,7 @@ export function registerFileSystemIpcHandlers({
 
     const survivors: StoredRootEntry[] = [];
     const descriptors: RootDescriptor[] = [];
+    const canonicalPaths = new Set<string>();
 
     for (const entry of entries) {
       try {
@@ -675,6 +706,15 @@ export function registerFileSystemIpcHandlers({
           continue;
         }
         const canonicalPath = await mountWorkspaceRoot(entry);
+        if (canonicalPaths.has(canonicalPath)) {
+          workspaceFileCapabilities.unmountRoot(entry.rootId);
+          logger.warn('restoreRoots: discarded duplicate canonical workspace root', {
+            path: canonicalPath,
+            rootId: entry.rootId,
+          });
+          continue;
+        }
+        canonicalPaths.add(canonicalPath);
         const basename = path.basename(canonicalPath);
         const canonicalEntry = { ...entry, path: canonicalPath };
         survivors.push(canonicalEntry);
@@ -715,13 +755,15 @@ export function registerFileSystemIpcHandlers({
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () => {
     // Test-mode aware (same contract as fs:requestDirectoryAccess): the real
     // adapter stats the picked path, which ENOENTs on e2e mock paths.
-    const handle = await resolveRequestedDirectoryHandle(fileSystem);
+    const [handle, entries] = await Promise.all([
+      resolveRequestedDirectoryHandle(fileSystem),
+      readRootsList(storage),
+    ]);
     const resolvedPath = await resolveFileSystemIpcPath(handle.path, 'added root');
     // Upsert into rootsList keyed by resolved path.
     // No mutex: these handlers are user-gesture-driven (single dialog at a time).
     // Concurrent RMW is only possible across multiple renderer windows, which is
     // not yet a use case. Revisit if programmatic addRoot calls are introduced.
-    const entries = await readRootsList(storage);
     let existing = entries.find((entry) => entry.path === resolvedPath);
     let rootId = existing?.rootId ?? crypto.randomUUID();
     let persisted = true;
@@ -750,6 +792,7 @@ export function registerFileSystemIpcHandlers({
       );
       try {
         await writeRootsList(storage, updated);
+        sessionOnlyRootIds.delete(rootId);
       } catch (error) {
         // The root is ALREADY durably stored — a failed addedAt bump does not
         // change that. Per the RootDescriptor.persisted contract, persisted
@@ -761,9 +804,11 @@ export function registerFileSystemIpcHandlers({
       const newEntry: StoredRootEntry = { addedAt: Date.now(), path: canonicalPath, rootId };
       try {
         await writeRootsList(storage, [...entries, newEntry]);
+        sessionOnlyRootIds.delete(rootId);
       } catch (error) {
         logger.warn('addRoot: failed to write rootsList', { error });
         persisted = false;
+        sessionOnlyRootIds.add(rootId);
       }
     }
 
@@ -804,6 +849,10 @@ export function registerFileSystemIpcHandlers({
       const entries = await readRootsList(storage);
       const removed = entries.find((entry) => entry.rootId === rootId);
       if (!removed) {
+        if (sessionOnlyRootIds.delete(rootId)) {
+          workspaceFileCapabilities.unmountRoot(rootId);
+          return;
+        }
         logger.debug('removeRoot: rootId not found in rootsList — nothing to remove', { rootId });
         return;
       }
@@ -830,6 +879,7 @@ export function registerFileSystemIpcHandlers({
 
       const remaining = entries.filter((entry) => entry.rootId !== rootId);
       await writeRootsList(storage, remaining);
+      sessionOnlyRootIds.delete(rootId);
       workspaceFileCapabilities.unmountRoot(rootId);
 
       // Tear down any pooled LSP language server for this root (report R2): the

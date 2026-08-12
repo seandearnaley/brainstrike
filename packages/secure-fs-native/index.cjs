@@ -23,8 +23,16 @@ class SecureRoot {
     return this.#native.listDir(relativePath, maxEntries);
   }
 
+  listDirAsync(relativePath, maxEntries) {
+    return this.#native.listDirAsync(relativePath, maxEntries);
+  }
+
   readFile(relativePath, maxBytes) {
     return this.#native.readFile(relativePath, maxBytes);
+  }
+
+  readFileAsync(relativePath, maxBytes) {
+    return this.#native.readFileAsync(relativePath, maxBytes);
   }
 }
 

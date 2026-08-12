@@ -5,6 +5,7 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { vi } from 'vitest';
 import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
+import type { WorkspaceFileCapabilities } from '../../ipc-domains/workspace-file-capabilities';
 
 /**
  * Shared seams for the file-system IPC domain suites. Each Vitest file gets its
@@ -68,6 +69,22 @@ export function createFileSystem(pickedPath = '/real-dir'): ElectronFileSystemAd
     requestDirectoryAccess: vi.fn(async () => makeDirHandle(pickedPath)),
     watchDirectory: vi.fn(),
   } as unknown as ElectronFileSystemAdapter;
+}
+
+export function createAdapterBackedCapabilities(
+  fileSystem: ElectronFileSystemAdapter
+): WorkspaceFileCapabilities {
+  return {
+    dispose: vi.fn(),
+    mountRoot: vi.fn(async ({ path: rootPath }) => path.resolve(rootPath)),
+    readDirectory: (handle) => fileSystem.readDirectory(handle),
+    readFile: (request) =>
+      typeof request === 'string'
+        ? fileSystem.readFileByPath(request)
+        : fileSystem.readFile(request),
+    retainRoots: vi.fn(),
+    unmountRoot: vi.fn(),
+  };
 }
 
 export function createStorage(storedItems: Record<string, string> = {}): ElectronStorageAdapter {

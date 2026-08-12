@@ -16,6 +16,7 @@ vi.mock('electron', () => ({
   },
 }));
 
+import type { WorkspaceFileCapabilities } from '../../ipc-domains/workspace-file-capabilities';
 import { registerIpcHandlers } from '../../ipc-handlers';
 
 describe('ipc-handlers error branches', () => {
@@ -47,7 +48,15 @@ describe('ipc-handlers error branches', () => {
 
     store = {};
 
-    registerIpcHandlers(fsAdapter, storage, store as never);
+    const workspaceFileCapabilities: WorkspaceFileCapabilities = {
+      dispose: vi.fn(),
+      mountRoot: vi.fn(async ({ path }) => path),
+      readDirectory: vi.fn(),
+      readFile: vi.fn(),
+      retainRoots: vi.fn(),
+      unmountRoot: vi.fn(),
+    };
+    registerIpcHandlers(fsAdapter, storage, store as never, { workspaceFileCapabilities });
   });
 
   it('fs:restoreLastFolder propagates storage errors', async () => {

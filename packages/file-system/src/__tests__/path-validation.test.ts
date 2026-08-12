@@ -89,6 +89,22 @@ describe('resolveValidatedPath', () => {
     }
   });
 
+  it('does not count consecutive dots inside ordinary path segments as traversal', async () => {
+    const dottedDirectory = path.join(tempDir, 'project..archive');
+    const dottedFile = path.join(dottedDirectory, 'release..notes.md');
+    await fsPromises.mkdir(dottedDirectory);
+    await fsPromises.writeFile(dottedFile, 'valid');
+
+    const result = await resolveValidatedPath({
+      allowMissing: false,
+      maxTraversal: 0,
+      requestedPath: dottedFile,
+      rootDir: tempDir,
+    });
+
+    expect(result).toEqual({ ok: true, path: await fsPromises.realpath(dottedFile) });
+  });
+
   it('rejects paths outside the root when missing', async () => {
     const result = await resolveValidatedPath({
       requestedPath: '../outside-root',

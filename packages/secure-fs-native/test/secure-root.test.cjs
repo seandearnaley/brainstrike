@@ -6,6 +6,7 @@ const {
   mkdtempSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } = require('node:fs');
@@ -31,16 +32,31 @@ function fixture() {
   return { commands, workspace };
 }
 
-test('lists and reads regular files beneath a pinned root', () => {
+test('lists metadata and reads regular files asynchronously beneath a pinned root', async () => {
   const { workspace } = fixture();
+  const filePath = path.join(workspace, '.brainstrike', 'commands', 'review.md');
+  const expected = statSync(filePath);
   const root = new SecureRoot(workspace);
   try {
-    assert.deepEqual(root.listDir('.brainstrike/commands', 10), {
-      entries: [{ isDirectory: false, isFile: true, name: 'review.md' }],
+    const pendingList = root.listDirAsync('.brainstrike/commands', 10);
+    assert.equal(typeof pendingList.then, 'function');
+    const listing = await pendingList;
+    assert.deepEqual(listing, {
+      entries: [
+        {
+          isDirectory: false,
+          isFile: true,
+          lastModified: expected.mtimeMs,
+          name: 'review.md',
+          size: expected.size,
+        },
+      ],
       inspected: 1,
       truncated: false,
     });
-    const result = root.readFile('.brainstrike/commands/review.md', 1024);
+    const pendingRead = root.readFileAsync('.brainstrike/commands/review.md', 1024);
+    assert.equal(typeof pendingRead.then, 'function');
+    const result = await pendingRead;
     assert.equal(result.status, 'ok');
     assert.equal(result.content.toString('utf8'), 'Inside workspace');
   } finally {

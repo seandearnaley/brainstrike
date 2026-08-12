@@ -8,7 +8,6 @@ import {
   type IFileNode,
 } from '@brainstrike/file-system';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
-import { SecureRoot } from '@brainstrike/secure-fs-native';
 import { fileNodeCollator } from '@brainstrike/utils';
 
 const MAX_DIRECTORY_ENTRIES = 10_000;
@@ -18,21 +17,24 @@ export interface SecureWorkspaceRoot {
   listDir(
     relativePath: string,
     maxEntries: number
-  ): {
+  ): Promise<{
     readonly entries: readonly {
       readonly isDirectory: boolean;
       readonly isFile: boolean;
+      readonly lastModified?: number;
       readonly name: string;
+      readonly size?: number;
     }[];
     readonly inspected: number;
     readonly truncated: boolean;
-  } | null;
+  } | null>;
   readFile(
     relativePath: string,
     maxBytes: number
-  ):
+  ): Promise<
     | { readonly content: Buffer; readonly status: 'ok' }
-    | { readonly status: 'oversized' | 'unreadable' };
+    | { readonly status: 'oversized' | 'unreadable' }
+  >;
 }
 
 interface MountedRoot {
@@ -47,7 +49,9 @@ export interface WorkspaceRootIdentity {
 }
 
 export interface WorkspaceFileCapabilityOptions {
-  readonly createSecureRoot?: (canonicalRoot: string) => SecureWorkspaceRoot;
+  readonly createSecureRoot?: (
+    canonicalRoot: string
+  ) => Promise<SecureWorkspaceRoot> | SecureWorkspaceRoot;
   readonly resolveCanonicalPath?: (requestedPath: string, rootPath?: string) => Promise<string>;
 }
 
@@ -61,13 +65,6 @@ function isContained(rootPath: string, candidatePath: string): boolean {
     relative === '' ||
     !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
   );
-}
-
-function pathsEqual(left: string, right: string): boolean {
-  if (process.platform === 'win32') {
-    return left.toLowerCase() === right.toLowerCase();
-  }
-  return left === right;
 }
 
 async function defaultResolveCanonicalPath(
@@ -90,7 +87,12 @@ async function defaultResolveCanonicalPath(
 function buildDirectoryNode(
   mounted: MountedRoot,
   parentPath: string,
-  entry: { readonly isDirectory: boolean; readonly name: string }
+  entry: {
+    readonly isDirectory: boolean;
+    readonly lastModified?: number;
+    readonly name: string;
+    readonly size?: number;
+  }
 ): IFileNode {
   const entryPath = path.join(parentPath, entry.name);
   if (entry.isDirectory) {
@@ -122,10 +124,12 @@ function buildDirectoryNode(
       rootId: mounted.rootId,
     } as unknown as FileSystemFileHandle,
     isVisible: true,
+    ...(entry.lastModified === undefined ? {} : { lastModified: entry.lastModified }),
     name: entry.name,
     path: entryPath,
     rootFolderId: mounted.rootId,
     selectionState: 'unchecked',
+    ...(entry.size === undefined ? {} : { size: entry.size }),
     type: 'file',
   };
 }
@@ -142,7 +146,17 @@ export interface WorkspaceFileCapabilities {
 export function createWorkspaceFileCapabilities(
   options: WorkspaceFileCapabilityOptions = {}
 ): WorkspaceFileCapabilities {
-  const createSecureRoot = options.createSecureRoot ?? ((rootPath) => new SecureRoot(rootPath));
+  const createSecureRoot =
+    options.createSecureRoot ??
+    (async (rootPath: string): Promise<SecureWorkspaceRoot> => {
+      const { SecureRoot } = await import('@brainstrike/secure-fs-native');
+      const root = new SecureRoot(rootPath);
+      return {
+        close: () => root.close(),
+        listDir: (relativePath, maxEntries) => root.listDirAsync(relativePath, maxEntries),
+        readFile: (relativePath, maxBytes) => root.readFileAsync(relativePath, maxBytes),
+      };
+    });
   const resolveCanonicalPath = options.resolveCanonicalPath ?? defaultResolveCanonicalPath;
   const mountedRoots = new Map<string, MountedRoot>();
 
@@ -160,7 +174,7 @@ export function createWorkspaceFileCapabilities(
       throw new AccessError('Workspace rootId must be a non-empty string.', identity.path, 'read');
     }
     const canonicalPath = await resolveCanonicalPath(identity.path);
-    const root = createSecureRoot(canonicalPath);
+    const root = await createSecureRoot(canonicalPath);
     unmountRoot(identity.rootId);
     mountedRoots.set(identity.rootId, { canonicalPath, root, rootId: identity.rootId });
     return canonicalPath;
@@ -208,17 +222,10 @@ export function createWorkspaceFileCapabilities(
         'read'
       );
     }
-    const canonicalTarget = await resolveCanonicalPath(
-      requestedAbsolutePath,
-      mounted.canonicalPath
-    );
-    if (!pathsEqual(canonicalTarget, requestedAbsolutePath)) {
-      throw new AccessError(
-        'Symbolic links and reparse points are not supported inside workspace roots.',
-        requestedAbsolutePath,
-        'read'
-      );
-    }
+    // Canonicalization enforces containment and sensitive-path policy. The
+    // descriptor-relative native operation remains the authority for rejecting
+    // every symlink/reparse component without a check-then-open race.
+    await resolveCanonicalPath(requestedAbsolutePath, mounted.canonicalPath);
     return {
       mounted,
       relativePath: path.relative(mounted.canonicalPath, requestedAbsolutePath) || '.',
@@ -239,7 +246,7 @@ export function createWorkspaceFileCapabilities(
         handle.path,
         handle.rootId
       );
-      const listing = mounted.root.listDir(relativePath, MAX_DIRECTORY_ENTRIES);
+      const listing = await mounted.root.listDir(relativePath, MAX_DIRECTORY_ENTRIES);
       if (!listing) {
         throw new AccessError('Directory is not accessible.', requestedAbsolutePath, 'read');
       }
@@ -250,15 +257,18 @@ export function createWorkspaceFileCapabilities(
           'read'
         );
       }
-      return listing.entries
-        .filter((entry) => entry.isDirectory || entry.isFile)
-        .map((entry) => buildDirectoryNode(mounted, requestedAbsolutePath, entry))
-        .sort((left, right) => {
-          if (left.type !== right.type) {
-            return left.type === 'directory' ? -1 : 1;
-          }
-          return fileNodeCollator.compare(left.name, right.name);
-        });
+      const nodes: IFileNode[] = [];
+      for (const entry of listing.entries) {
+        if (entry.isDirectory || entry.isFile) {
+          nodes.push(buildDirectoryNode(mounted, requestedAbsolutePath, entry));
+        }
+      }
+      return nodes.sort((left, right) => {
+        if (left.type !== right.type) {
+          return left.type === 'directory' ? -1 : 1;
+        }
+        return fileNodeCollator.compare(left.name, right.name);
+      });
     },
     readFile: async (request, readOptions = {}) => {
       const requestedPath = typeof request === 'string' ? request : request.path;
@@ -268,7 +278,7 @@ export function createWorkspaceFileCapabilities(
         requestedPath,
         rootId
       );
-      const result = mounted.root.readFile(relativePath, maxFileSize);
+      const result = await mounted.root.readFile(relativePath, maxFileSize);
       if (result.status !== 'ok') {
         if (result.status === 'oversized') {
           throw new AccessError(

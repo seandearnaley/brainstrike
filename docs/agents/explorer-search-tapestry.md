@@ -282,9 +282,19 @@ root-relative `NtCreateFile` on Windows), so swapping a parent or leaf after
 validation cannot escape. Directory enumeration includes only entries the
 native layer identifies as regular files or directories; link-like entries are
 omitted before nodes reach indexing. Child handles carry the durable rootId.
+Regular-file entries preserve native `size` and `lastModified` metadata for
+index exclusion, change detection, tree indexing, and row display. Directory
+enumeration and file content reads use the native addon's async-worker methods;
+blocking descriptor traversal never runs on Electron's main event loop. The
+addon import is dynamic at first real-root mount so importing the IPC registrar
+does not eagerly load the native binary in unit/boot paths.
 
 The registry closes a prior handle when a root is remounted, closes it on
-disconnect, and closes every remaining handle when the IPC domain unregisters.
+disconnect (including session-only roots whose persistence write failed), and
+closes every remaining handle when the IPC domain unregisters. Restore and the
+legacy last-folder shim rewrite aliases to canonical paths and deduplicate
+canonical collisions before returning descriptors, so one canonical root never
+retains multiple independently disconnectable rootIds.
 E2E in-memory fixture paths are the sole explicit exception: their handlers
 serve registered fixture data directly and never touch the host filesystem or
 native capability. A rejected content read becomes the worker's explicit

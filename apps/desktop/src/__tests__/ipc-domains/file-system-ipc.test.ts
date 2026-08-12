@@ -9,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 
 import { registerFileSystemIpcHandlers as registerProductionFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
-import type { WorkspaceFileCapabilities } from '../../ipc-domains/workspace-file-capabilities';
 import {
+  createAdapterBackedCapabilities,
   createFileSystem,
   createStorage,
   E2E_FILE_SYSTEM_FIXTURE_KEY,
@@ -21,25 +21,9 @@ import {
   rootsDbQuery,
 } from './file-system-ipc-test-harness';
 
-type RegisterOptions = Parameters<typeof registerProductionFileSystemIpcHandlers>[0];
-
-function createAdapterBackedCapabilities(
-  fileSystem: ElectronFileSystemAdapter
-): WorkspaceFileCapabilities {
-  return {
-    dispose: vi.fn(),
-    mountRoot: vi.fn(async ({ path: rootPath }) => path.resolve(rootPath)),
-    readDirectory: (handle) => fileSystem.readDirectory(handle),
-    readFile: (request) =>
-      typeof request === 'string'
-        ? fileSystem.readFileByPath(request)
-        : fileSystem.readFile(request),
-    retainRoots: vi.fn(),
-    unmountRoot: vi.fn(),
-  };
-}
-
-function registerFileSystemIpcHandlers(options: RegisterOptions): () => void {
+function registerFileSystemIpcHandlers(
+  options: Parameters<typeof registerProductionFileSystemIpcHandlers>[0]
+): () => void {
   return registerProductionFileSystemIpcHandlers({
     ...options,
     workspaceFileCapabilities:
@@ -564,7 +548,13 @@ describe('fs:addRoot', () => {
         throw new Error('disk full');
       }
     });
-    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+    const workspaceFileCapabilities = createAdapterBackedCapabilities(fileSystem);
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities,
+    });
 
     const result = await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent);
 
@@ -583,7 +573,13 @@ describe('fs:addRoot', () => {
         throw new Error('disk full');
       }
     });
-    registerFileSystemIpcHandlers({ fileSystem, getRootsDatabase, storage });
+    const workspaceFileCapabilities = createAdapterBackedCapabilities(fileSystem);
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities,
+    });
 
     setLogLevel(LogLevel.WARN);
     const captured: LogRecord[] = [];
@@ -614,6 +610,10 @@ describe('fs:addRoot', () => {
           record.level === LogLevel.WARN && record.message === 'addRoot: failed to write rootsList'
       )
     ).toBe(true);
+
+    const rootId = (result as { rootId: string }).rootId;
+    await handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, rootId);
+    expect(workspaceFileCapabilities.unmountRoot).toHaveBeenCalledWith(rootId);
   });
 
   // Regression: phase-5 routed the FIRST pick through fs:addRoot, which called
@@ -784,6 +784,33 @@ describe('fs:saveLastFolder (legacy shim)', () => {
 
     expect(workspaceFileCapabilities.mountRoot).toHaveBeenLastCalledWith(canonicalEntry);
     await expect(storage.getItem('rootsList')).resolves.toBe(JSON.stringify([canonicalEntry]));
+    await expect(storage.getItem('lastFolderPath')).resolves.toBe(canonicalPath);
+  });
+
+  it('rewrites an existing alias entry to its canonical path', async () => {
+    const aliasPath = path.resolve('/users/test/project-link');
+    const canonicalPath = path.resolve('/users/test/project');
+    const aliasEntry = {
+      addedAt: 1,
+      path: aliasPath,
+      rootId: 'root-id-1',
+    };
+    fileSystem = createFileSystem();
+    storage = createStorage({ rootsList: JSON.stringify([aliasEntry]) });
+    const workspaceFileCapabilities = createAdapterBackedCapabilities(fileSystem);
+    vi.mocked(workspaceFileCapabilities.mountRoot).mockResolvedValue(canonicalPath);
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities,
+    });
+
+    await handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, aliasPath);
+
+    await expect(storage.getItem('rootsList')).resolves.toBe(
+      JSON.stringify([{ ...aliasEntry, path: canonicalPath }])
+    );
     await expect(storage.getItem('lastFolderPath')).resolves.toBe(canonicalPath);
   });
 

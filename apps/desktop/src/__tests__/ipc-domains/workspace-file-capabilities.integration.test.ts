@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rename, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { AccessError } from '@brainstrike/file-system';
@@ -51,6 +51,22 @@ describe('workspace file capabilities on a real filesystem', () => {
       rootId: 'root-1',
     });
     expect(nodes.map((node) => node.name)).toEqual(['src']);
+
+    const sourceNodes = await capabilities.readDirectory({
+      kind: 'directory',
+      name: 'src',
+      path: path.join(canonicalRoot, 'src'),
+      platform: 'electron',
+      rootId: 'root-1',
+    });
+    const insideStats = await stat(path.join(root, 'src', 'inside.txt'));
+    expect(sourceNodes).toEqual([
+      expect.objectContaining({
+        lastModified: insideStats.mtimeMs,
+        name: 'inside.txt',
+        size: insideStats.size,
+      }),
+    ]);
 
     await expect(capabilities.readFile('src/inside.txt', { rootId: 'root-1' })).resolves.toBe(
       'inside workspace'
