@@ -1,4 +1,7 @@
-import { assertEmbedWorkerPipelineCacheDiagnostic } from '@brainstrike/indexing-contract';
+import {
+  assertEmbedWorkerBatch,
+  assertEmbedWorkerPipelineCacheDiagnostic,
+} from '@brainstrike/indexing-contract';
 import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import {
   recordEmbeddingBatchTelemetry,
@@ -58,6 +61,19 @@ function isStreamEvent(value: unknown): value is EmbedWorkerStreamEvent {
     candidate.type === 'error' ||
     candidate.type === 'progress'
   );
+}
+
+function validateStreamBatch(
+  value: unknown,
+  onFailure: (error: unknown) => void
+): value is EmbedWorkerBatch {
+  try {
+    assertEmbedWorkerBatch(value);
+    return true;
+  } catch (error) {
+    onFailure(error);
+    return false;
+  }
 }
 
 export class StreamingEmbeddingWorkerClient {
@@ -157,6 +173,12 @@ export class StreamingEmbeddingWorkerClient {
       return await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
         const cleanup = this.transport.onMessage((message) => {
           if (!isStreamEvent(message)) {
+            return;
+          }
+          if (
+            message.type === 'batch' &&
+            !validateStreamBatch(message, (error) => this.runtime.markFailed(error))
+          ) {
             return;
           }
           // Stream payloads are request-scoped unless they are diagnostics. Cache/device

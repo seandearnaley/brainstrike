@@ -476,6 +476,54 @@ describe('StreamingEmbeddingWorkerClient', () => {
     await expect(client.stream(createRequest())).rejects.toThrow('batch ack failed');
   });
 
+  it.each([
+    ['transfer byte count', { transferBytes: 11 }],
+    ['vector count', { endIndex: 2 }],
+    ['vectors in flight', { vectorsInFlight: 2 }],
+    ['peak vectors in flight', { peakVectorsInFlight: 0 }],
+    ['safe integer fields', { batchIndex: Number.MAX_SAFE_INTEGER + 1 }],
+    [
+      'vector shape',
+      {
+        endIndex: 2,
+        peakVectorsInFlight: 2,
+        transferBytes: 20,
+        vectors: [new Float32Array([1, 2]), new Float32Array([1, 2, 3])],
+        vectorsInFlight: 2,
+      },
+    ],
+  ])('terminally rejects a malformed batch with invalid %s', async (_field, override) => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const onBatch = vi.fn();
+    const streamPromise = client.stream(createRequest(), { onBatch });
+    await flushMicrotasks();
+
+    worker.emitMessage({
+      batchIndex: 0,
+      endIndex: 1,
+      id: 'embed-1',
+      peakVectorsInFlight: 1,
+      startIndex: 0,
+      transferBytes: 12,
+      type: 'batch',
+      vectors: [new Float32Array([1, 2, 3])],
+      vectorsInFlight: 1,
+      ...override,
+    });
+
+    await expect(streamPromise).rejects.toThrow('Embedding worker batch');
+    expect(onBatch).not.toHaveBeenCalled();
+    expect(worker.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'stream-ack' })
+    );
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(getEmbeddingTelemetrySnapshot()).toMatchObject({
+      batchTransfer: { batchCount: 0, totalBytes: 0 },
+      peakVectorsInFlight: 0,
+    });
+  });
+
   it('rejects a queued stream before posting when the active stream terminally fails', async () => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);

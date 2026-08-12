@@ -121,6 +121,10 @@ Do not move or reintroduce workers in Electron main. Desktop local embeddings mu
 Embedding runtime telemetry (BST-402):
 - The streaming worker reports exact bytes for the unique `ArrayBuffer`s transferred in
   each batch, current/peak vectors in flight, and pipeline-cache residency diagnostics.
+  The client validates the complete batch before telemetry, callbacks, or acknowledgement:
+  index/count fields are safe integers, vector counts and shapes agree, current vectors do
+  not exceed the peak, and transfer bytes equal the unique received buffers. A malformed
+  batch is a terminal worker failure.
 - Cache memory is an estimate from the model registry's declared `size`, parsed strictly
   into binary bytes. WebGPU entries attribute that estimate to GPU memory and WASM
   entries to heap memory. Missing registry metadata remains explicitly unavailable; it

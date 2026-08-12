@@ -128,6 +128,20 @@ describe('embedding telemetry store', () => {
     );
   });
 
+  it.each([
+    ['batch count', { batchCount: 1.5, lastBytes: 0, peakBytes: 0, totalBytes: 0 }],
+    ['last bytes', { batchCount: 1, lastBytes: 13, peakBytes: 12, totalBytes: 13 }],
+    ['peak bytes', { batchCount: 1, lastBytes: 12, peakBytes: 14, totalBytes: 13 }],
+    ['empty aggregate', { batchCount: 0, lastBytes: 0, peakBytes: 1, totalBytes: 1 }],
+  ])('rejects inconsistent %s telemetry aggregates', (_field, batchTransfer) => {
+    expect(() =>
+      assertEmbeddingTelemetrySnapshot({
+        ...createEmptyEmbeddingTelemetrySnapshot(),
+        batchTransfer,
+      })
+    ).toThrow('Embedding telemetry batchTransfer');
+  });
+
   it('rejects inconsistent cache aggregates at the process boundary', () => {
     const empty = createEmptyEmbeddingTelemetrySnapshot();
     const snapshot = {

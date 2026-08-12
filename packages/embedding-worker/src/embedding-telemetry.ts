@@ -91,6 +91,14 @@ function assertNonNegativeNumber(value: unknown, path: string): number {
   return value;
 }
 
+function assertNonNegativeSafeInteger(value: unknown, path: string): number {
+  const validated = assertNonNegativeNumber(value, path);
+  if (!Number.isSafeInteger(validated)) {
+    throw new Error(`${path} must be a safe integer.`);
+  }
+  return validated;
+}
+
 function assertCacheEntry(
   value: unknown,
   index: number
@@ -202,6 +210,36 @@ function assertMatchingCacheAggregate(
   return actual;
 }
 
+function readBatchTransferTelemetry(
+  candidate: Record<string, unknown>
+): EmbeddingBatchTransferTelemetry {
+  const batchCount = assertNonNegativeSafeInteger(
+    candidate['batchCount'],
+    'Embedding telemetry batchTransfer.batchCount'
+  );
+  const lastBytes = assertNonNegativeSafeInteger(
+    candidate['lastBytes'],
+    'Embedding telemetry batchTransfer.lastBytes'
+  );
+  const peakBytes = assertNonNegativeSafeInteger(
+    candidate['peakBytes'],
+    'Embedding telemetry batchTransfer.peakBytes'
+  );
+  const totalBytes = assertNonNegativeSafeInteger(
+    candidate['totalBytes'],
+    'Embedding telemetry batchTransfer.totalBytes'
+  );
+  if (lastBytes > peakBytes || peakBytes > totalBytes) {
+    throw new Error(
+      'Embedding telemetry batchTransfer requires lastBytes <= peakBytes <= totalBytes.'
+    );
+  }
+  if (batchCount === 0 && (lastBytes !== 0 || peakBytes !== 0 || totalBytes !== 0)) {
+    throw new Error('Embedding telemetry batchTransfer must be empty when batchCount is zero.');
+  }
+  return { batchCount, lastBytes, peakBytes, totalBytes };
+}
+
 export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelemetrySnapshot {
   if (!(value && typeof value === 'object' && !Array.isArray(value))) {
     throw new Error('Embedding telemetry snapshot must be an object.');
@@ -258,24 +296,7 @@ export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelem
     );
   }
   return {
-    batchTransfer: {
-      batchCount: assertNonNegativeNumber(
-        batchCandidate['batchCount'],
-        'Embedding telemetry batchTransfer.batchCount'
-      ),
-      lastBytes: assertNonNegativeNumber(
-        batchCandidate['lastBytes'],
-        'Embedding telemetry batchTransfer.lastBytes'
-      ),
-      peakBytes: assertNonNegativeNumber(
-        batchCandidate['peakBytes'],
-        'Embedding telemetry batchTransfer.peakBytes'
-      ),
-      totalBytes: assertNonNegativeNumber(
-        batchCandidate['totalBytes'],
-        'Embedding telemetry batchTransfer.totalBytes'
-      ),
-    },
+    batchTransfer: readBatchTransferTelemetry(batchCandidate),
     cache: {
       entries: validatedEntries,
       estimatedGpuBytes: assertMatchingCacheAggregate(
@@ -307,7 +328,7 @@ export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelem
       lastUpdatedAt === null
         ? null
         : assertNonNegativeNumber(lastUpdatedAt, 'Embedding telemetry lastUpdatedAt'),
-    peakVectorsInFlight: assertNonNegativeNumber(
+    peakVectorsInFlight: assertNonNegativeSafeInteger(
       candidate['peakVectorsInFlight'],
       'Embedding telemetry peakVectorsInFlight'
     ),

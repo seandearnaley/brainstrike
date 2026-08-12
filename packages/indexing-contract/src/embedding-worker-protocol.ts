@@ -405,6 +405,85 @@ export interface EmbedWorkerBatch {
   readonly vectorsInFlight: number;
 }
 
+function assertNonNegativeEmbedWorkerBatchInteger(value: unknown, field: string): number {
+  if (!(typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) {
+    throw new Error(`Embedding worker batch.${field} must be a non-negative safe integer.`);
+  }
+  return value;
+}
+
+export function assertEmbedWorkerBatch(value: unknown): asserts value is EmbedWorkerBatch {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding worker batch must be an object.');
+  }
+  const batch = value as Record<string, unknown>;
+  if (batch['type'] !== 'batch') {
+    throw new Error('Embedding worker batch.type must be "batch".');
+  }
+  if (!(typeof batch['id'] === 'string' && batch['id'].length > 0)) {
+    throw new Error('Embedding worker batch.id must be a non-empty string.');
+  }
+  assertNonNegativeEmbedWorkerBatchInteger(batch['batchIndex'], 'batchIndex');
+  const endIndex = assertNonNegativeEmbedWorkerBatchInteger(batch['endIndex'], 'endIndex');
+  const peakVectorsInFlight = assertNonNegativeEmbedWorkerBatchInteger(
+    batch['peakVectorsInFlight'],
+    'peakVectorsInFlight'
+  );
+  const startIndex = assertNonNegativeEmbedWorkerBatchInteger(batch['startIndex'], 'startIndex');
+  const transferBytes = assertNonNegativeEmbedWorkerBatchInteger(
+    batch['transferBytes'],
+    'transferBytes'
+  );
+  const vectorsInFlight = assertNonNegativeEmbedWorkerBatchInteger(
+    batch['vectorsInFlight'],
+    'vectorsInFlight'
+  );
+  if (endIndex <= startIndex) {
+    throw new Error('Embedding worker batch.endIndex must be greater than startIndex.');
+  }
+  const vectors = batch['vectors'];
+  if (!Array.isArray(vectors)) {
+    throw new Error('Embedding worker batch.vectors must be an array.');
+  }
+  const expectedVectorCount = endIndex - startIndex;
+  if (vectors.length !== expectedVectorCount) {
+    throw new Error('Embedding worker batch vector count must match its index range.');
+  }
+
+  let dimensions: number | null = null;
+  const buffers = new Set<ArrayBufferLike>();
+  vectors.forEach((vector: unknown, index: number) => {
+    if (!(vector instanceof Float32Array)) {
+      throw new Error(`Embedding worker batch.vectors[${index}] must be a Float32Array.`);
+    }
+    if (vector.length === 0) {
+      throw new Error(`Embedding worker batch.vectors[${index}] must not be empty.`);
+    }
+    if (dimensions === null) {
+      dimensions = vector.length;
+    } else if (vector.length !== dimensions) {
+      throw new Error('Embedding worker batch vectors must have a consistent shape.');
+    }
+    buffers.add(vector.buffer);
+  });
+
+  if (vectorsInFlight !== vectors.length) {
+    throw new Error('Embedding worker batch.vectorsInFlight must match its vector count.');
+  }
+  if (peakVectorsInFlight < vectorsInFlight) {
+    throw new Error('Embedding worker batch.peakVectorsInFlight must be at least vectorsInFlight.');
+  }
+  let transferredBytes = 0;
+  for (const buffer of buffers) {
+    transferredBytes += buffer.byteLength;
+  }
+  if (transferBytes !== transferredBytes) {
+    throw new Error(
+      'Embedding worker batch.transferBytes must match its unique transferred buffers.'
+    );
+  }
+}
+
 export interface EmbedWorkerSuccess {
   readonly id: string;
   readonly metadata: {
