@@ -88,6 +88,7 @@ function createEmptyPreparedSyncChanges(): PreparedSyncChanges {
     prepared: {
       changes: [],
       excludedEntries: 0,
+      inaccessiblePaths: [],
       statRefreshes: [],
       terminalChunkingErrors: [],
       totalFiles: 0,

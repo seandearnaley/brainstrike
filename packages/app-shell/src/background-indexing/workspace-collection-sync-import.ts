@@ -257,6 +257,7 @@ export interface StatMetadataRefresh {
 export interface PreparedChangesSummary {
   changes: PreparedCacheChange[];
   excludedEntries: number;
+  inaccessiblePaths: string[];
   /**
    * Hash-confirmed-unchanged rows whose stored (size, mtimeMs) are missing or
    * stale. Unchanged files never take a write path, so without this stamp a
@@ -395,9 +396,11 @@ async function collectDiscoveredPreparedFiles(args: {
 }): Promise<{
   excludedEntries: number;
   files: Array<DiscoveredPreparedFile | null>;
+  inaccessiblePaths: string[];
 }> {
   const discoveredFiles: Array<DiscoveredPreparedFile | null> = [];
   let excludedEntries = 0;
+  const inaccessiblePaths: string[] = [];
   for (const [compositeKey, metadata] of args.metadataByKey) {
     if (!Object.hasOwn(args.fileContents, compositeKey)) {
       throw new Error(`File content processor omitted scan result for ${compositeKey}.`);
@@ -407,6 +410,9 @@ async function collectDiscoveredPreparedFiles(args: {
     const indexingError = getContentIndexingError(result);
     if (indexingError !== null) {
       excludedEntries += 1;
+      if (result.status === 'inaccessible') {
+        inaccessiblePaths.push(metadata.relativePath);
+      }
       logger.debug('Workspace Index skipped file content that cannot be indexed', {
         reason: indexingError,
         relativePath: metadata.relativePath,
@@ -434,7 +440,7 @@ async function collectDiscoveredPreparedFiles(args: {
       size: metadata.size > 0 ? metadata.size : content.length,
     });
   }
-  return { excludedEntries, files: discoveredFiles };
+  return { excludedEntries, files: discoveredFiles, inaccessiblePaths };
 }
 
 function applyHashUnchangedPreparedFile(args: {
@@ -940,6 +946,7 @@ export async function collectPreparedChangesInBatches(args: {
     });
   }
   const changes: PreparedCacheChange[] = [];
+  const inaccessiblePaths: string[] = [];
   const statRefreshes: StatMetadataRefresh[] = [];
   const terminalChunkingErrors: ChunkingRedispatchTerminalError[] = [];
   let excludedEntries = 0;
@@ -966,6 +973,7 @@ export async function collectPreparedChangesInBatches(args: {
       rootId,
     });
     excludedEntries += discovered.excludedEntries;
+    inaccessiblePaths.push(...discovered.inaccessiblePaths);
     throwIfAborted(abortSignal);
     unchangedCount = applyDiscoveredPreparedFiles({
       changes,
@@ -981,6 +989,7 @@ export async function collectPreparedChangesInBatches(args: {
   return {
     changes,
     excludedEntries,
+    inaccessiblePaths,
     statRefreshes,
     terminalChunkingErrors,
     totalFiles: fileNodes.length,

@@ -604,9 +604,11 @@ export class WorkspaceCollectionSyncService {
     const scopeKey = JSON.stringify([context.collection.id, context.dbRootId, context.rootPath]);
     const previous = this.terminalChunkingErrorsByScope.get(scopeKey);
     const partialChanges = request.scope?.mode === 'paths' ? request.scope.changes : null;
+    const inaccessiblePaths = new Set(prepared.inaccessiblePaths);
     const retainedErrors = partialChanges
       ? (previous?.errors ?? []).filter(
           (error) =>
+            inaccessiblePaths.has(error.relativePath) ||
             !partialChanges.some((change) => {
               const normalizedChangePath = change.path.replace(/\\/g, '/').replace(/\/+$/u, '');
               const normalizedRootPath = context.rootPath.replace(/\\/g, '/').replace(/\/+$/u, '');
