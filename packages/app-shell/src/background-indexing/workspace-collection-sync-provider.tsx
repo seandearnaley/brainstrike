@@ -412,6 +412,10 @@ function createCoverageStatusPatch(args: {
   };
 }
 
+function createUnresolvedRootCoverageMessage(rootPath: string): string {
+  return `Workspace Index coverage cannot be verified because root ${rootPath} has no resolved database root id.`;
+}
+
 async function buildCoverageAuditTargets(args: {
   fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
   handles: readonly DirectoryHandle[];
@@ -426,7 +430,7 @@ async function buildCoverageAuditTargets(args: {
       if (!dbRootId) {
         return {
           kind: 'unresolved-root',
-          message: `Workspace Index coverage cannot be verified because root ${handle.path} has no resolved database root id.`,
+          message: createUnresolvedRootCoverageMessage(handle.path),
           rootPath: handle.path,
         };
       }
@@ -855,6 +859,29 @@ function orderTargetsByIndexedCoverage(
     .map((target, index) => ({ count: indexedCounts.get(target.dbRootId) ?? 0, index, target }))
     .sort((a, b) => a.count - b.count || a.index - b.index)
     .map((entry) => entry.target);
+}
+
+function publishNoSyncableTargetStatus(args: {
+  collectionId: string;
+  orderedTargets: readonly ResolvedSyncLoopTarget[];
+  resolvedTargets: readonly (SyncLoopTarget & { dbRootId: string | null })[];
+  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
+}): void {
+  if (args.orderedTargets.length > 0) {
+    return;
+  }
+  const unresolvedTarget = args.resolvedTargets.find((target) => target.dbRootId === null);
+  if (!unresolvedTarget) {
+    return;
+  }
+  args.setStatus(
+    createCoverageStatusPatch({
+      activeRootPath: unresolvedTarget.handle.path,
+      collectionId: args.collectionId,
+      lastError: createUnresolvedRootCoverageMessage(unresolvedTarget.handle.path),
+      state: 'waiting',
+    })
+  );
 }
 
 // Read each root's actual indexed file count, then order least-covered-first.
@@ -2062,6 +2089,13 @@ export function WorkspaceCollectionSyncProvider({
           syncableTargetPaths: orderedTargets.map((target) => target.handle.path),
           updatedAt: new Date().toISOString(),
         };
+
+        publishNoSyncableTargetStatus({
+          collectionId: managedCollectionId,
+          orderedTargets,
+          resolvedTargets,
+          setStatus: setSyncStatus,
+        });
 
         for (const [targetIndex, target] of orderedTargets.entries()) {
           const targetPath = target.handle.path;

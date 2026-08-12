@@ -2999,6 +2999,49 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('replaces a pruned terminal error when every remaining root is unresolved', async () => {
+    const unresolvedRoot = {
+      kind: 'directory',
+      name: 'unresolved',
+      path: '/workspace/unresolved',
+      platform: 'electron',
+      rootId: 'unresolved-root-id',
+    };
+    fileSystemState.rootDirectoryHandle = unresolvedRoot;
+    fileSystemState.rootDirectoryHandles = [unresolvedRoot];
+    fileSystemState.rootIdByPath = new Map([[unresolvedRoot.path, unresolvedRoot.rootId]]);
+    resolveDbRootIdMock.mockResolvedValue(null);
+    useWorkspaceCollectionSyncStatusStore.setState({
+      activeRootPath: '/workspace/removed',
+      lastError: 'Workspace Index stopped re-dispatching "src/stuck.ts" after 3 attempts.',
+      managedCollectionId: '00000000-0000-0000-0000-000000000101',
+      state: 'error',
+    });
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync');
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(resolveDbRootIdMock).toHaveBeenCalled());
+      expect(syncSpy).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            activeRootPath: unresolvedRoot.path,
+            lastError: `Workspace Index coverage cannot be verified because root ${unresolvedRoot.path} has no resolved database root id.`,
+            state: 'waiting',
+          })
+        )
+      );
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('stops the stale loop when a new triggerSync fires mid-loop', async () => {
     const root1 = {
       kind: 'directory',
