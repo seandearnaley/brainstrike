@@ -546,8 +546,12 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
         rootPath: ROOT,
       });
 
-    expect((await collect(null)).changes).toHaveLength(1);
-    expect((await collect(null)).changes).toHaveLength(1);
+    const firstDispatch = await collect(null);
+    expect(firstDispatch.changes).toHaveLength(1);
+    tracker.recordDispatches(firstDispatch.changes);
+    const secondDispatch = await collect(null);
+    expect(secondDispatch.changes).toHaveLength(1);
+    tracker.recordDispatches(secondDispatch.changes);
 
     const exhausted = await collect(null);
     expect(exhausted.changes).toEqual([]);

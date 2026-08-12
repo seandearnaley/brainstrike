@@ -63,6 +63,13 @@ type ChunkingRedispatchDecision =
   | { attempt: number; kind: 'retry' }
   | { attempts: number; kind: 'exhausted' };
 
+export interface ChunkingRedispatchAttemptKey {
+  contentHash: string;
+  fileRecordId: string;
+  relativePath: string;
+  rootId: string;
+}
+
 /**
  * Per-service, in-memory retry state for hash-unchanged rows that still have no
  * completed chunking stamp. A new content revision or file record resets the
@@ -82,12 +89,7 @@ export class ChunkingRedispatchTracker {
     this.stateByIdentity.delete(buildRootFolderCacheIdentityKey(rootId, relativePath));
   }
 
-  register(args: {
-    contentHash: string;
-    fileRecordId: string;
-    relativePath: string;
-    rootId: string;
-  }): ChunkingRedispatchDecision {
+  inspect(args: ChunkingRedispatchAttemptKey): ChunkingRedispatchDecision {
     const identity = buildRootFolderCacheIdentityKey(args.rootId, args.relativePath);
     const current = this.stateByIdentity.get(identity);
     const matchingRevision =
@@ -98,12 +100,29 @@ export class ChunkingRedispatchTracker {
       return { attempts: matchingRevision.attempts, kind: 'exhausted' };
     }
     const attempt = (matchingRevision?.attempts ?? 0) + 1;
+    return { attempt, kind: 'retry' };
+  }
+
+  recordDispatches(changes: readonly PreparedCacheChange[]): void {
+    for (const change of changes) {
+      if (change.chunkingRedispatch) {
+        this.register(change.chunkingRedispatch);
+      }
+    }
+  }
+
+  private register(args: ChunkingRedispatchAttemptKey): ChunkingRedispatchDecision {
+    const decision = this.inspect(args);
+    if (decision.kind === 'exhausted') {
+      return decision;
+    }
+    const identity = buildRootFolderCacheIdentityKey(args.rootId, args.relativePath);
     this.stateByIdentity.set(identity, {
-      attempts: attempt,
+      attempts: decision.attempt,
       contentHash: args.contentHash,
       fileRecordId: args.fileRecordId,
     });
-    return { attempt, kind: 'retry' };
+    return decision;
   }
 }
 
@@ -165,6 +184,7 @@ type BackgroundManagedCacheBatchMutation =
     };
 
 export interface PreparedCacheChange {
+  chunkingRedispatch?: ChunkingRedispatchAttemptKey;
   compositeKey: string;
   contentHash: string;
   id: string;
@@ -400,12 +420,13 @@ function applyDiscoveredPreparedFiles(args: {
     }
     if (existing.contentHash === discovered.contentHash) {
       if (!hasCompletedChunking(existing)) {
-        const decision = args.chunkingRedispatchTracker.register({
+        const redispatchKey = {
           contentHash: discovered.contentHash,
           fileRecordId: existing.fileRecordId,
           relativePath: discovered.relativePath,
           rootId: discovered.rootId,
-        });
+        };
+        const decision = args.chunkingRedispatchTracker.inspect(redispatchKey);
         if (decision.kind === 'exhausted') {
           const message = `Workspace Index stopped re-dispatching "${discovered.relativePath}" after ${decision.attempts} unsuccessful chunking attempts because its file record still has no completed chunking stamp. Edit the file or recreate the managed collection to retry.`;
           args.terminalChunkingErrors.push({
@@ -424,6 +445,7 @@ function applyDiscoveredPreparedFiles(args: {
         }
         args.changes.push({
           ...discovered,
+          chunkingRedispatch: redispatchKey,
           id: existing.fileRecordId,
           mode: 'replace',
         });

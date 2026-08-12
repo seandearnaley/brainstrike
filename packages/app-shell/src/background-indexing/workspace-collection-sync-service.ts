@@ -1053,6 +1053,8 @@ export class WorkspaceCollectionSyncService {
       throttleMs: IMPORT_STATUS_THROTTLE_MS,
     });
     try {
+      throwIfAborted(args.abortSignal);
+      this.chunkingRedispatchTracker.recordDispatches(prepared.changes);
       await runRootFolderCacheImport({
         abortSignal: args.abortSignal,
         applyManagedCacheBatch: this.deps.applyManagedCacheBatch,

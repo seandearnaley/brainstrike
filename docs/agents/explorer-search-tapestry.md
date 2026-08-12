@@ -298,7 +298,10 @@ there rather than hiding entries after the adapter has already read them.
   hash-unchanged managed-cache row with no `chunks_processed_at` stamp may be
   re-dispatched at most three times. The service-owned in-memory tracker keys
   that budget by durable root/path plus file-record id and content hash; a
-  completed stamp, new record, or changed content resets it. Exhaustion removes
+  completed stamp, new record, or changed content resets it. Attempts are
+  consumed only at importer handoff, after access, worker startup, and import
+  QoS succeed; cancelled or failed pre-import scans do not spend the budget.
+  Exhaustion removes
   that row from later import batches, logs one explicit terminal diagnostic per
   scan, and puts Workspace Index in its visible `error` state with the file path
   and recovery instruction. Never replace this with an unbounded retry or a
