@@ -38,12 +38,12 @@ describe('model catalog migration contract', () => {
       'utf8'
     );
 
-    assert.match(databaseContract, /PROVIDER_DEFINITIONS/);
-    assert.match(databaseContract, /each provider entry as an object literal/i);
-    assert.match(databaseContract, /models.*array literal/i);
-    assert.match(databaseContract, /each model entry as an object literal/i);
-    assert.match(databaseContract, /may reference resolvable string constants/i);
-    assert.match(databaseContract, /packages\/assistant-contract\/src\/provider-registry\.ts/);
+    assert.match(
+      databaseContract,
+      /^\s+- packages\/assistant-contract\/src\/provider-registry\.ts\n\s+- Keep `PROVIDER_DEFINITIONS` as an array literal, each provider entry as an object literal, each provider's `models` property as an array literal, and each model entry as an object literal\. `scripts\/model-catalog-migration-contract\.mjs` AST-parses those structural nodes; scalar provider\/model fields may reference resolvable string constants\.$/m,
+      'docs/agents/database.md must keep the complete provider-registry literal-shape rule next ' +
+        'to its source path and name the enforcing script. Update the doc and assertion together.'
+    );
   });
 
   it('requires catalog-mutating migrations to be registered in the app custom ledger', () => {
