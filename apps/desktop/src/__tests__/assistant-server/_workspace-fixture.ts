@@ -39,5 +39,12 @@ export function workspaceRuntime(
   return {
     memory: { resourceId: 'assistant-tools-workspace', threadId },
     workspaceRootPath,
+    workspaceRoots: [
+      {
+        displayName: path.basename(workspaceRootPath),
+        path: workspaceRootPath,
+        rootId: workspaceRootPath,
+      },
+    ],
   } as RuntimeData;
 }

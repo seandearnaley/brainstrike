@@ -238,7 +238,6 @@ const MCP_TOOLS_ENABLE_SERVER_CHANNEL = 'mcp:tools:enableServer' as const;
 const MCP_TOOLS_DISABLE_SERVER_CHANNEL = 'mcp:tools:disableServer' as const;
 const MCP_TOOLS_RESET_CHANNEL = 'mcp:tools:reset' as const;
 const MCP_TOOLS_GET_STATS_CHANNEL = 'mcp:tools:getStats' as const;
-const TOOLS_EXECUTE_CHANNEL = 'tools:execute' as const;
 const LLM_HOST_STATUS_EVENT = 'llm-host:status' as const;
 const LLM_HOST_REQUEST_EVENT = 'llm-host:request' as const;
 const LLM_HOST_PROGRESS_EVENT = 'llm-host:progress' as const;
@@ -838,10 +837,9 @@ contextBridge.exposeInMainWorld('mcp', {
   writeConfigText: (content: string) => ipcRenderer.invoke(MCP_CONFIG_WRITE_TEXT_CHANNEL, content),
 });
 
-// Tool execution API (for playground testing)
+// Assistant selection events. Tool execution deliberately stays behind the
+// server-owned assistant permission engine and is not exposed to renderers.
 contextBridge.exposeInMainWorld('tools', {
-  execute: (toolId: string, input: unknown, runtimeData?: Record<string, unknown>) =>
-    ipcRenderer.invoke(TOOLS_EXECUTE_CHANNEL, toolId, input, runtimeData),
   onPreviewContextSelectionUpdate: (
     callback: (payload: AssistantSelectionUpdatePayload) => void
   ) => {

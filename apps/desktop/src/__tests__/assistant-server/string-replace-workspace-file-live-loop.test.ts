@@ -30,7 +30,7 @@ import {
   EDIT_FAILURE_HINT_MESSAGE,
   resetToolCallLoopGuards,
 } from '../../assistant-server/tool-call-loop-guards';
-import { requireTool, requireToolExecute } from './_tool-test-helpers';
+import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -117,7 +117,7 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
     await fsPromises.writeFile(path.join(workspaceRootPath, 'src', 'config.ts'), original, 'utf8');
 
     try {
-      const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
       const editTool = requireTool(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
       const hostClient = createScriptedHostClient({
@@ -189,8 +189,8 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
 
     try {
       const tools = buildDesktopAssistantTools({
+        ...singleRootRuntime(workspaceRootPath),
         memory: { resourceId: 'edit-failure-resource', threadId: 'edit-failure-thread' },
-        workspaceRootPath,
       } as RuntimeData);
       const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
       const missingInput = {
@@ -268,11 +268,11 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
 
     try {
       const tools = buildDesktopAssistantTools({
+        ...singleRootRuntime(workspaceRootPath),
         memory: {
           resourceId: 'edit-failure-write-resource',
           threadId: 'edit-failure-write-thread',
         },
-        workspaceRootPath,
       } as RuntimeData);
       const executeReplace = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
       const executeWrite = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');

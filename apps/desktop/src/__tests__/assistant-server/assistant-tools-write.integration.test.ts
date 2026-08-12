@@ -9,7 +9,7 @@ import {
   EDIT_FAILURE_HINT_MESSAGE,
   resetToolCallLoopGuards,
 } from '../../assistant-server/tool-call-loop-guards';
-import { requireToolExecute } from './_tool-test-helpers';
+import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -86,7 +86,7 @@ describe('assistant-tools write tools', () => {
     it('creates a new file (created: true) with the right content and byte count', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         const result = await executeTool({
@@ -109,7 +109,7 @@ describe('assistant-tools write tools', () => {
     it('creates missing parent directories', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         const result = await executeTool({
@@ -130,7 +130,7 @@ describe('assistant-tools write tools', () => {
     it('overwrites an existing file (created: false)', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         const result = await executeTool({
@@ -149,7 +149,7 @@ describe('assistant-tools write tools', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-wwf-out-'));
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         // "../" is clamped at the root by normalizeWorkspacePath, so this normalizes
@@ -187,7 +187,7 @@ describe('assistant-tools write tools', () => {
           throw error;
         }
 
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
@@ -220,7 +220,7 @@ describe('assistant-tools write tools', () => {
           throw error;
         }
 
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
@@ -253,7 +253,7 @@ describe('assistant-tools write tools', () => {
           throw error;
         }
 
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
@@ -285,7 +285,7 @@ describe('assistant-tools write tools', () => {
           throw error;
         }
 
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
@@ -302,7 +302,7 @@ describe('assistant-tools write tools', () => {
     it('rejects content exceeding the write byte cap with a typed error', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
         // 2 MB + 1 byte exceeds MAX_WRITE_WORKSPACE_FILE_BYTES.
         const oversized = 'a'.repeat(2_000_001);
@@ -320,7 +320,7 @@ describe('assistant-tools write tools', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       const filePath = path.join(workspaceRootPath, 'guttered.ts');
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
@@ -343,7 +343,7 @@ describe('assistant-tools write tools', () => {
     it('rejects writing to the workspace root itself', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
         await expect(executeTool({ context: { content: 'x', path: '/' } })).rejects.toThrow(
           /workspace root/i
@@ -356,7 +356,7 @@ describe('assistant-tools write tools', () => {
     it('rejects overwriting a directory with file content', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
         await expect(executeTool({ context: { content: 'x', path: '/src' } })).rejects.toThrow(
           /is a directory/i
@@ -408,7 +408,7 @@ describe('assistant-tools write tools', () => {
     it('surfaces a typed create-file recovery when the target does not exist', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await expect(
@@ -431,7 +431,7 @@ describe('assistant-tools write tools', () => {
     it('applies an exact match and leaves the rest of the file intact', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         const result = await executeTool({
@@ -461,7 +461,7 @@ describe('assistant-tools write tools', () => {
       // Tab indentation + extra inner spaces in the file.
       await fsPromises.writeFile(filePath, 'function f() {\n\treturn   1 ;\n}\n', 'utf8');
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         const result = await executeTool({
@@ -491,7 +491,7 @@ describe('assistant-tools write tools', () => {
         'utf8'
       );
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await executeTool({
@@ -517,7 +517,7 @@ describe('assistant-tools write tools', () => {
       const original = 'count++;\ndoThing();\ncount++;\ndoOther();\ncount++;\n';
       await fsPromises.writeFile(filePath, original, 'utf8');
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await expect(
@@ -542,7 +542,7 @@ describe('assistant-tools write tools', () => {
       const original = `${block}\nmiddle();\n${block}\ntail();\n`;
       await fsPromises.writeFile(filePath, original, 'utf8');
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await expect(
@@ -562,7 +562,7 @@ describe('assistant-tools write tools', () => {
       const filePath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
       const original = await fsPromises.readFile(filePath, 'utf8');
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await expect(
@@ -583,7 +583,7 @@ describe('assistant-tools write tools', () => {
     it('rejects gutter-prefixed newStr without advancing the edit-failure streak', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
         const path = '/src/lib/math.ts';
 
@@ -627,7 +627,7 @@ describe('assistant-tools write tools', () => {
       // Two distinct, non-overlapping lines so both edits target different blocks.
       await fsPromises.writeFile(filePath, 'const a = 1;\nconst b = 2;\n', 'utf8');
       try {
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         // Fire both at once; the per-file lock must serialize their
@@ -672,7 +672,7 @@ describe('assistant-tools write tools', () => {
           throw error;
         }
 
-        const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         // The read side resolves the symlink and reads the outside file's content;

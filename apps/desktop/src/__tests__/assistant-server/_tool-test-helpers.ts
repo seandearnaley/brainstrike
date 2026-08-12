@@ -3,6 +3,23 @@ import type { RuntimeData } from '@brainstrike/agent';
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 type MastraTool = MastraTools[string];
 
+/**
+ * Models the authoritative server-side root enrichment for direct tool tests.
+ * Product requests obtain the same inventory from the desktop roots table.
+ */
+export function singleRootRuntime(rootPath: string): RuntimeData {
+  return {
+    workspaceRootPath: rootPath,
+    workspaceRoots: [
+      {
+        displayName: rootPath.split(/[\\/]/).filter(Boolean).at(-1) ?? rootPath,
+        path: rootPath,
+        rootId: rootPath,
+      },
+    ],
+  } as RuntimeData;
+}
+
 // Mastra's ToolsInput erases each tool's concrete signature to a union whose
 // execute is optional and takes (params, options). The comment mirrors the
 // erased upstream signature — every value flowing through it is already `any`

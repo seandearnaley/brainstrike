@@ -1417,6 +1417,24 @@ a reason to abort the whole check, so it cannot be used to defeat the guard.
 
 ## PERMISSION ENGINE (TOOL APPROVAL)
 
+Renderer execution boundary (BST-1233): production desktop main does not import
+or register `ipc-tools.ts`, the visible preload exposes no `tools.execute`, and
+desktop Settings supplies no playground execution callback. The `window.tools`
+bridge is selection-event-only. Consequently renderer code — including the
+renderer-hosted local LLM adapter — receives no desktop executor and cannot
+invoke native, assistant, shell, or MCP tools directly. The shared local-runtime
+adapter remains executor-agnostic for explicit non-desktop embeddings/tests,
+but local tool definitions are omitted when no executor is present. Tool
+execution stays on the assistant server path below, where the
+permission engine owns policy and per-call approvals; there is no compatibility
+fallback that reconstructs approval state or accepts a renderer-supplied
+workspace path. `ipc-tools.ts` is retained only as an unregistered legacy unit
+harness: it preserves coverage of the former exploit path while production has
+no import edge to it, and it throws before handler registration unless
+`NODE_ENV === 'test'`. `tools-ipc-main-wiring.test.ts` pins the production seams
+(main registration, preload/channel exposure, shared Window declaration, and
+Settings callback) closed.
+
 Mutation tools PROMPT for per-call approval by default. The permission policy
 store (`packages/app-state/src/stores/permission-policy-store.ts`) defaults to
 `enforce: true` with policies `{read:allow, mcp:allow, edit:ask, execute:ask}`,
@@ -1883,6 +1901,19 @@ capability omission, debug-logged separately, and are not mislabeled unknown.
 Other initialization failures return only a safe stage
 (`provider_model_bootstrap` or `stream_construction`) plus a correlation id;
 the structured main-process log retains the same pair and the redacted error.
+
+---
+
+## WORKSPACE-ROOT AUTHORIZATION
+
+Desktop workspace tools authorize filesystem access only from
+`RuntimeData.workspaceRoots`, populated server-side from live path-backed rows in
+the `roots` table. `workspaceRootPath`, `mainRootPath`, and related renderer
+fields are selection or ordering hints; they never synthesize an authorized
+root. A successful empty DB query records `workspaceRoots: []`. A failed query
+leaves the inventory absent, and root resolution fails closed and visibly rather
+than falling back to a renderer-provided absolute path. Focused selection and
+Tapestry reads must match exactly one entry in the same authoritative inventory.
 
 ---
 

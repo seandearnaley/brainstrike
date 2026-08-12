@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
-import { requireTool, requireToolExecute } from './_tool-test-helpers';
+import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -595,6 +595,13 @@ describe('assistant-tools multi-root read tools', () => {
       return realpathSync(root);
     }
 
+    function lspRuntime(workspaceRootPath: string, threadId: string): RuntimeData {
+      return {
+        ...singleRootRuntime(workspaceRootPath),
+        memory: { resourceId: 'r', runId: 'run', threadId },
+      } as RuntimeData;
+    }
+
     it('attaches diagnostics to a stringReplace that introduces a type error', async () => {
       const workspaceRootPath = await createLspWorkspace();
       try {
@@ -604,10 +611,7 @@ describe('assistant-tools multi-root read tools', () => {
           'utf8'
         );
 
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-thread' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-thread'));
         const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
         const executeReplaceTool = requireToolExecute(
           tools,
@@ -639,10 +643,7 @@ describe('assistant-tools multi-root read tools', () => {
     it('omits the lsp field entirely for a non-code (markdown) write', async () => {
       const workspaceRootPath = await createLspWorkspace();
       try {
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-thread-2' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-thread-2'));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         const result = await executeTool({
@@ -664,10 +665,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greeting: string = "hi";\nexport const echo = greeting;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-inspect' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-inspect'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const result = await executeTool({
@@ -695,10 +693,9 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greeting: string = "hi";\nexport const pair = { a: greeting, b: greeting };\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-inspect-fragment' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(
+          lspRuntime(workspaceRootPath, 'lsp-inspect-fragment')
+        );
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         // A fragment of line 2 (not the full line): the cursor column must be
@@ -730,10 +727,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greeting: string = "hi";\nexport const echo = greeting;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-markerless'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const result = await executeTool({
@@ -756,10 +750,9 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greeting = greeting;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless-repeated' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(
+          lspRuntime(workspaceRootPath, 'lsp-markerless-repeated')
+        );
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
@@ -780,10 +773,9 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greetingSuffix = 1;\nexport const greeting: string = "hi";\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless-boundary' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(
+          lspRuntime(workspaceRootPath, 'lsp-markerless-boundary')
+        );
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
@@ -804,10 +796,9 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greeting = 1;\nexport function inspectTarget() {}\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-markerless-line' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(
+          lspRuntime(workspaceRootPath, 'lsp-markerless-line')
+        );
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
@@ -834,10 +825,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const x = 1;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-stale-match' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-stale-match'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const inspection = executeTool({
@@ -861,10 +849,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const pair = { a: value, b: value };\nexport const value = 1;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-ambiguous' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-ambiguous'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
@@ -895,10 +880,7 @@ describe('assistant-tools multi-root read tools', () => {
           "import { bigSym } from './big';\nexport const use = bigSym;\n",
           'utf8'
         );
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-big-target' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-big-target'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const result = await executeTool({
@@ -926,10 +908,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const x = 1;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools({
-          memory: { resourceId: 'r', runId: 'run', threadId: 'lsp-bad-cursor' },
-          workspaceRootPath,
-        } as RuntimeData);
+        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-bad-cursor'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(

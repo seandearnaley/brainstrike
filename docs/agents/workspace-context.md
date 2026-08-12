@@ -864,9 +864,9 @@ The one intentional omission exception is
 Tapestry ranges are relative to the FOCUSED `workspaceRootPath`, so that
 selection-default read resolves the focused path against the authoritative
 inventory instead of the thread binding. If the inventory is unavailable, the
-legacy focused-path fallback remains independent of the durable binding rather
-than attempting to validate or adopt it. Supplying `filePaths` restores the
-normal omitted-root binding rule. Disconnect transitions also revoke
+selection-default read fails visibly; focused renderer state never authorizes a
+path-backed root. Supplying `filePaths` restores the normal omitted-root binding
+rule. Disconnect transitions also revoke
 already-enriched in-flight runtime snapshots, while a later authoritative live
 root load clears that revocation after reconciliation/reconnect.
 
@@ -902,14 +902,16 @@ diverged from DB ids; web enrichment never runs, FSA roots have null paths).
 An unmatched binding stays unmatched so tool execution can fail visibly;
 unmatched/absent Main keeps `created_at` order (the legacy tiebreak) with a
 debug log. `roots[0]` is therefore GENUINELY the thread-bound/Main root — no
-`buildHookManager` change was needed. Degraded mode is unchanged: a DB
-load/query failure leaves RuntimeData untouched, so tools fall back to the
-single FOCUSED `workspaceRootPath` synthesis (the main declaration cannot
-apply there).
-When a successful DB query returns zero roots and there is no legacy focused
-path, enrichment records an explicit `workspaceRoots: []`. This is distinct
-from an unresolved/query-failed root inventory and lets `listWorkspaceContext`
-report the valid empty-workspace state without disguising a bridge failure.
+`buildHookManager` change was needed. On a DB load/query failure, RuntimeData
+remains unenriched and workspace-tool authorization fails closed; the renderer's
+FOCUSED `workspaceRootPath` is selection state only and never becomes a
+synthesized root. A successful zero-root query records an explicit
+`workspaceRoots: []`. This is distinct from an unresolved/query-failed root
+inventory and lets `listWorkspaceContext` report the valid empty-workspace state
+without disguising a bridge failure. Enrichment also clears any stale FOCUSED
+`workspaceRootPath` in that zero-root state; otherwise the trusted empty
+inventory and renderer focus would be inconsistent and stream initialization
+would fail before the empty-workspace result could be reported.
 The desktop HTTP boundary strips any client-supplied `workspaceRoots` before
 enrichment. Only the DB result may populate the trusted manifest/tool inventory;
 renderer fields can order or focus roots but can never substitute adapter ids

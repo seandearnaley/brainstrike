@@ -329,7 +329,6 @@ describe('preload runtime contract', () => {
       STORAGE_GET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.getItem,
       STORAGE_REMOVE_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.removeItem,
       STORAGE_SET_ITEM_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.storage.setItem,
-      TOOLS_EXECUTE_CHANNEL: DESKTOP_PRELOAD_IPC_CHANNELS.tools.execute,
     } as const;
 
     for (const [constantName, channel] of Object.entries(expectedConstants)) {
@@ -372,6 +371,13 @@ describe('preload runtime contract', () => {
 
   it('does not call ipcRenderer with raw channel string literals', () => {
     expect(findRawIpcRendererChannels(readPreloadSource())).toEqual([]);
+  });
+
+  it('keeps renderer tool execution out of the preload bridge', () => {
+    const preloadSource = readPreloadSource();
+
+    expect(extractExposedBridgeMethodNames(preloadSource, 'tools')).not.toContain('execute');
+    expect(preloadSource).not.toContain('TOOLS_EXECUTE_CHANNEL');
   });
 
   it('exposes file explorer test instrumentation before renderer app mount in E2E mode', () => {

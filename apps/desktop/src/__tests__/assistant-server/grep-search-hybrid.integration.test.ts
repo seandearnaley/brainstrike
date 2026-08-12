@@ -19,6 +19,7 @@ import {
   setMaxLiveCandidateFilesForTests,
 } from '../../assistant-server/live-grep';
 import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
+import { singleRootRuntime } from './_tool-test-helpers';
 
 const queryMock = vi.fn();
 
@@ -53,7 +54,7 @@ async function makeWorkspace(files: Record<string, string>): Promise<string> {
 }
 
 function singleRoot(rootPath: string): RuntimeData {
-  return { workspaceRootPath: rootPath } as RuntimeData;
+  return singleRootRuntime(rootPath);
 }
 
 /** No indexed rows — the index pass returns zero matches. */

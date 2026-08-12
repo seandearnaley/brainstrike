@@ -23,7 +23,7 @@ import {
   runExecuteCommand,
   type ShellOutputStreamPart,
 } from '../../assistant-server/execute-command-tool';
-import { requireTool, requireToolExecute } from './_tool-test-helpers';
+import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 const { loggerInfoMock, loggerWarnMock } = vi.hoisted(() => ({
   loggerInfoMock: vi.fn(),
@@ -56,7 +56,7 @@ async function makeWorkspace(prefix = 'brainstrike-exec-unit-'): Promise<string>
 }
 
 function singleRoot(rootPath: string): RuntimeData {
-  return { workspaceRootPath: rootPath } as RuntimeData;
+  return singleRootRuntime(rootPath);
 }
 
 function requireExecuteCommandModelOutput(

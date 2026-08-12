@@ -170,6 +170,11 @@ export interface TokenBudgetSummaryProps {
  */
 export interface ToolCardProps {
   expanded?: boolean | undefined;
+  /**
+   * Optional host-owned execution seam for reusable/internal tool UIs. Product
+   * settings surfaces omit it unless they have an explicitly authorized host
+   * capability; the renderer Window bridge does not provide tool execution.
+   */
   onExecuteTest?: ((toolId: string, input: unknown) => Promise<ToolExecutionResult>) | undefined;
   onExpandChange?: ((expanded: boolean) => void) | undefined;
   onToggle: (toolId: string, enabled: boolean) => Promise<void>;

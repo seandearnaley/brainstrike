@@ -214,9 +214,6 @@ export const DESKTOP_IPC_CHANNELS = {
     resize: 'terminal:resize',
     write: 'terminal:write',
   },
-  tools: {
-    execute: 'tools:execute',
-  },
   userCommands: {
     list: 'user-commands:list',
   },

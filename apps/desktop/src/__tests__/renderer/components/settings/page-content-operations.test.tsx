@@ -45,10 +45,6 @@ interface CapturedToolsOperations {
   createSampleConfig: () => Promise<{ error?: string; path: string; success: boolean }>;
   disableTools: (ids: string[]) => Promise<void>;
   enableTools: (ids: string[]) => Promise<void>;
-  executeToolTest: (
-    toolId: string,
-    input: unknown
-  ) => Promise<{ durationMs: number; error?: string; result?: unknown; success: boolean }>;
   getMcpConfigInfo: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
   getMcpConfigPath?: () => Promise<string>;
   getMcpServerStatus: () => Promise<Array<{ name: string; status: string; toolCount: number }>>;
@@ -256,12 +252,6 @@ interface DesktopTestWindow {
       content: string
     ) => Promise<{ error?: string; path: string; success: boolean } | null>;
   };
-  tools?: {
-    execute?: (
-      toolId: string,
-      input: unknown
-    ) => Promise<{ durationMs: number; error?: string; result?: unknown; success: boolean }>;
-  };
 }
 
 const getDesktopWindow = (): DesktopTestWindow => window as unknown as DesktopTestWindow;
@@ -302,13 +292,6 @@ describe('desktop SettingsPageContent tool operations', () => {
       selectPath: vi.fn(async () => '/tmp/selected.json'),
       setPath: vi.fn(async (path) => ({ path: path ?? '/tmp/default.json', success: true })),
       writeConfigText: vi.fn(async () => ({ path: '/tmp/mcp.json', success: true })),
-    };
-    desktopWindow.tools = {
-      execute: vi.fn(async (toolId) =>
-        toolId === 'ok-tool'
-          ? { durationMs: 7, result: { ok: true }, success: true }
-          : { durationMs: 3, error: 'failed', success: false }
-      ),
     };
   });
 
@@ -388,16 +371,7 @@ describe('desktop SettingsPageContent tool operations', () => {
       success: true,
     });
 
-    await expect(capturedOperations.executeToolTest('ok-tool', { input: true })).resolves.toEqual({
-      durationMs: 7,
-      result: { ok: true },
-      success: true,
-    });
-    await expect(capturedOperations.executeToolTest('bad-tool', {})).resolves.toEqual({
-      durationMs: 3,
-      error: 'failed',
-      success: false,
-    });
+    expect(capturedOperations).not.toHaveProperty('executeToolTest');
 
     const setPath = getDesktopWindow().mcp?.setPath;
     if (!setPath) {

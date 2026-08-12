@@ -9,6 +9,7 @@ import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runGlobWorkspace } from '../../assistant-server/glob-workspace-tool';
+import { singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
@@ -40,7 +41,7 @@ async function makeWorkspace(
 }
 
 function singleRoot(rootPath: string): RuntimeData {
-  return { workspaceRootPath: rootPath } as RuntimeData;
+  return singleRootRuntime(rootPath);
 }
 
 function paths(result: { matches: ReadonlyArray<{ path: string }> }): string[] {

@@ -26,7 +26,7 @@ interface MockToolDisplayMetadata {
 interface MockToolsOperations {
   disableTools: (ids: string[]) => Promise<void>;
   enableTools: (ids: string[]) => Promise<void>;
-  executeToolTest: (
+  executeToolTest?: (
     toolId: string,
     input: unknown
   ) => Promise<{ success: false; error: string; durationMs: number }>;
@@ -320,7 +320,7 @@ describe('SettingsPageContent tool operations', () => {
     expect(mockState.setToolsEnabledMock).toHaveBeenCalledTimes(2);
   });
 
-  test('resets tools and reports unsupported tool execution in web mode', async () => {
+  test('resets tools without exposing a permanently unsupported web playground', async () => {
     renderPage();
     const operations = mockState.capturedToolsOptions?.operations;
     expect(operations).toBeDefined();
@@ -328,20 +328,7 @@ describe('SettingsPageContent tool operations', () => {
     await operations?.resetTools();
     expect(mockState.resetToolsMock).toHaveBeenCalledTimes(1);
 
-    const performanceNowSpy = vi
-      .spyOn(performance, 'now')
-      .mockReturnValueOnce(100.1)
-      .mockReturnValueOnce(108.7);
-
-    const toolId = getNativeToolIdAt(0);
-    const result = await operations?.executeToolTest(toolId, { query: 'abc' });
-    expect(result).toEqual({
-      durationMs: 9,
-      error: `Tool execution not yet implemented for ${toolId}. Web app requires API integration for tool execution.`,
-      success: false,
-    });
-
-    performanceNowSpy.mockRestore();
+    expect(operations?.executeToolTest).toBeUndefined();
   });
 
   test('wires logging source and factory reset callbacks from browser stores', async () => {

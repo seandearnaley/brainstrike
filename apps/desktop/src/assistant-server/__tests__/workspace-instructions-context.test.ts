@@ -283,18 +283,16 @@ describe('buildWorkspaceInstructionsContextMessage', () => {
     expect(text).toContain('Truncated');
   });
 
-  it('does NOT inject an oversized file at a DB-less legacy root (opt-in undefined, fail-closed)', async () => {
-    // A legacy single-root request (workspaceRootPath only, no DB `workspaceRoots`)
-    // synthesizes rootId = the raw absolute path. Settings can never list such a
-    // root, so its oversized file is un-opt-in-able and MUST stay un-injected.
+  it('rejects a DB-less renderer path instead of reading workspace instructions', async () => {
     const oversized = 'x'.repeat(MAX_CONTEXT_FILE_CHARS + 5000);
     const reader = makeReader({ '/abs/legacy': { 'AGENTS.md': oversized } });
 
-    const message = await buildWorkspaceInstructionsContextMessage(
-      runtime({ workspaceRootPath: '/abs/legacy', workspaceRoots: undefined }),
-      reader
-    );
-    expect(message).toBeNull();
+    await expect(
+      buildWorkspaceInstructionsContextMessage(
+        runtime({ workspaceRootPath: '/abs/legacy', workspaceRoots: undefined }),
+        reader
+      )
+    ).rejects.toThrow(/authoritative workspace root inventory is unavailable/i);
   });
 
   it('omits roots beyond the aggregate budget with an honest note', async () => {

@@ -27,7 +27,6 @@ import { createNotificationSettingsCategory } from '@brainstrike/settings-ui/set
 import {
   createToolsSettingsCategory,
   type ToolDisplayMetadata,
-  type ToolExecutionResult,
 } from '@brainstrike/settings-ui/settings/tools/index';
 import {
   createAppearanceSettingsCategory,
@@ -143,17 +142,6 @@ export default function SettingsPageContent() {
         if (nativeToolIds.length > 0) {
           useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, true);
         }
-      },
-      executeToolTest: async (toolId: string, _input: unknown): Promise<ToolExecutionResult> => {
-        // Tool execution for playground testing
-        // Web app native tools require service worker or API integration
-        const startTime = performance.now();
-
-        return {
-          durationMs: Math.round(performance.now() - startTime),
-          error: `Tool execution not yet implemented for ${toolId}. Web app requires API integration for tool execution.`,
-          success: false as const,
-        };
       },
       getStats: async () => {
         const { isToolEnabled } = useNativeToolPreferencesStore.getState();

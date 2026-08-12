@@ -13,10 +13,10 @@ import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { callTool } from './mcp';
 import { executeNativeTool, isExecutableNativeTool } from './native-tool-executor';
-import { DESKTOP_PRELOAD_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 const logger = createLogger('IpcTools');
+const LEGACY_TOOLS_EXECUTE_CHANNEL = 'tools:execute';
 
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type RuntimeWorkspaceContext = NonNullable<RuntimeData['workspaceContext']>;
@@ -516,15 +516,24 @@ async function executeMcpTool(
 }
 
 /**
- * Register IPC handlers for tool execution.
+ * Legacy tool-execution harness retained for focused unit coverage only.
+ *
+ * Production main must not import or register this function. Renderer tool
+ * execution bypasses the assistant permission engine; the production wiring
+ * invariant is pinned by tools-ipc-main-wiring.test.ts.
  */
 export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}): () => void {
+  if (process.env['NODE_ENV'] !== 'test') {
+    throw new Error(
+      'Renderer tool execution IPC is disabled outside tests (NODE_ENV=test); tool execution belongs to the assistant permission engine.'
+    );
+  }
   logger.debug('Registering tools IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });
 
   registry.registerInvoke(
     'tools',
-    DESKTOP_PRELOAD_IPC_CHANNELS.tools.execute,
+    LEGACY_TOOLS_EXECUTE_CHANNEL,
     async (
       _event,
       toolId: unknown,
