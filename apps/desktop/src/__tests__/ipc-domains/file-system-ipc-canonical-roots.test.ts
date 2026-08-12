@@ -73,6 +73,51 @@ describe('fs:restoreRoots canonical identity', () => {
     await expect(storage.getItem('rootsList')).resolves.toBe(JSON.stringify([firstEntry]));
   });
 
+  it('rejects one root ID mapped to different stored paths before mounting', async () => {
+    const entries = [
+      { addedAt: 1, path: path.resolve('/users/test/first'), rootId: 'root-shared' },
+      { addedAt: 2, path: path.resolve('/users/test/second'), rootId: 'root-shared' },
+    ];
+    const fileSystem = createFileSystem();
+    const storage = createStorage({ rootsList: JSON.stringify(entries) });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).rejects.toThrow(
+      'rootsList maps one root ID to multiple paths.'
+    );
+    expect(capabilities.mountRoot).not.toHaveBeenCalled();
+    await expect(storage.getItem('rootsList')).resolves.toBe(JSON.stringify(entries));
+  });
+
+  it('preserves malformed rootsList data when canonicalizing a valid survivor', async () => {
+    const aliasPath = path.resolve('/users/test/project-link');
+    const canonicalPath = path.resolve('/users/test/project');
+    const validEntry = { addedAt: 1, path: aliasPath, rootId: 'root-valid' };
+    const storedValue = JSON.stringify([validEntry, { unknown: true }]);
+    const fileSystem = createFileSystem();
+    const storage = createStorage({ rootsList: storedValue });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    vi.mocked(capabilities.mountRoot).mockResolvedValue(canonicalPath);
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).resolves.toEqual([
+      expect.objectContaining({ rootId: validEntry.rootId }),
+    ]);
+    expect(storage.setItem).not.toHaveBeenCalledWith('rootsList', expect.anything());
+    await expect(storage.getItem('rootsList')).resolves.toBe(storedValue);
+  });
+
   it('surfaces capability mount failures without pruning the saved root', async () => {
     const rootPath = path.resolve('/users/test/temporarily-unmountable');
     const entry = { addedAt: 1000, path: rootPath, rootId: 'root-id-1' };

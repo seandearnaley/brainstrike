@@ -97,16 +97,7 @@ function isStoredRootEntry(value: unknown): value is StoredRootEntry {
 
 interface RootsListReadResult {
   readonly entries: StoredRootEntry[];
-  /**
-   * True when a stored value EXISTED but could not be fully understood
-   * (unparseable, wrong shape, or individual entries dropped) — i.e. `entries`
-   * is a degraded guess, not the user's real mount list.
-   *
-   * An ABSENT or legitimately empty list is NOT malformed: that is an
-   * authoritative "no folders open". The distinction matters because callers
-   * that treat the list as authoritative (root-status convergence) would
-   * otherwise turn a corrupt storage value into a destructive write.
-   */
+  /** True when a stored value existed but could not be fully understood. */
   readonly malformed: boolean;
 }
 
@@ -125,19 +116,15 @@ async function readRootsListResult(storage: ElectronStorageAdapter): Promise<Roo
   }
 
   if (!Array.isArray(parsed)) {
-    logger.warn('rootsList storage value is not an array — treating as empty', {
-      key: ROOTS_LIST_STORAGE_KEY,
-    });
+    logger.warn('rootsList storage value is not an array', { key: ROOTS_LIST_STORAGE_KEY });
     return { entries: [], malformed: true };
   }
   const valid = parsed.filter(isStoredRootEntry);
   if (valid.length !== parsed.length) {
-    logger.warn('rootsList contained malformed entries — discarding invalid items', {
+    logger.warn('rootsList contained malformed entries', {
       total: parsed.length,
       valid: valid.length,
     });
-    // A dropped entry means the surviving list is a SUBSET of the real mount
-    // set, which is just as unsafe to converge against as a total parse failure.
     return { entries: valid, malformed: true };
   }
   return { entries: valid, malformed: false };
@@ -828,11 +815,17 @@ export function registerFileSystemIpcHandlers({
   };
 
   const performRestoreRoots = async (): Promise<RootDescriptor[]> => {
-    const entries = await readRootsList(storage);
+    const { entries, malformed } = await readRootsListResult(storage);
     if (entries.length === 0) {
       workspaceFileCapabilities.retainRoots(new Set(sessionOnlyRootIds));
       await convergeRootStatuses([]);
       return [];
+    }
+    const rootIdentities = new Set(
+      entries.map(({ path: rootPath, rootId }) => `${rootId}\0${rootPath}`)
+    );
+    if (rootIdentities.size !== new Set(entries.map(({ rootId }) => rootId)).size) {
+      throw new Error('rootsList maps one root ID to multiple paths.');
     }
 
     const restoreResults = await Promise.allSettled(entries.map(restoreStoredRootEntry));
@@ -848,7 +841,7 @@ export function registerFileSystemIpcHandlers({
       survivors.length !== entries.length ||
       survivors.some((entry, index) => entry.path !== entries[index]?.path);
     try {
-      if (rootsChanged) {
+      if (rootsChanged && !malformed) {
         await writeRootsList(storage, survivors);
       }
     } catch (error) {
