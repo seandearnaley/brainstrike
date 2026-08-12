@@ -24,7 +24,7 @@ Flow:
    - Main creates a hidden BrowserWindow with `?mode=embedding-host`.
    - The window loads `hidden-preload.js` with the server-owned
      `embedding-host` role argument. That manifest exposes only the embedding
-     report/request bridge, power events, logging ingest, and the database
+     report/request bridge, power snapshot/events, logging ingest, and the database
      capabilities the current renderer-owned queue needs. It never exposes
      provider secrets or assistant-server credentials.
    - The host renderer mounts `DbProvider` with `useElectronIPC=true`.

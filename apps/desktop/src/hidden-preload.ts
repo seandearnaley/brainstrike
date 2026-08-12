@@ -35,6 +35,7 @@ const DESKTOP_PRELOAD_IPC_CHANNELS = {
     parserHostParse: 'parser-host:parse',
   },
   runtime: {
+    powerSnapshot: 'app:power-snapshot',
     powerState: 'app:power-state',
   },
 } as const;
@@ -177,6 +178,7 @@ function exposeEmbeddingHostBridge(): void {
     },
   });
   contextBridge.exposeInMainWorld('power', {
+    getSnapshot: () => ipcRenderer.invoke(DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot),
     onPowerState: (callback: (state: 'resume' | 'suspend') => void) =>
       subscribe(DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerState, callback),
   });

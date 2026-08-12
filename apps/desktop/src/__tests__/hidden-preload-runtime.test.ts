@@ -67,6 +67,18 @@ describe('hidden preload runtime capability manifest', () => {
     expect(exposed.has('assistant')).toBe(false);
   });
 
+  it('preserves the embedding host power snapshot capability', async () => {
+    invokeMock.mockResolvedValueOnce({ onBattery: true, thermalState: 'serious' });
+    const exposed = await loadHiddenPreload([`${ROLE_ARGUMENT_PREFIX}embedding-host`]);
+    const power = exposed.get('power') as { getSnapshot?: () => Promise<unknown> } | undefined;
+
+    await expect(power?.getSnapshot?.()).resolves.toEqual({
+      onBattery: true,
+      thermalState: 'serious',
+    });
+    expect(invokeMock).toHaveBeenCalledWith('app:power-snapshot');
+  });
+
   it.each([
     ['a missing role', []],
     ['an unsupported role', [`${ROLE_ARGUMENT_PREFIX}visible-ui`]],

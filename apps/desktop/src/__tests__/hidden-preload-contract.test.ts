@@ -40,6 +40,7 @@ describe('hidden renderer preload contract', () => {
       DESKTOP_PRELOAD_IPC_CHANNELS.db.test,
       DESKTOP_PRELOAD_IPC_CHANNELS.db.transaction,
       DESKTOP_PRELOAD_IPC_CHANNELS.files.parserHostParse,
+      DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerSnapshot,
       DESKTOP_PRELOAD_IPC_CHANNELS.runtime.powerState,
     ];
 
