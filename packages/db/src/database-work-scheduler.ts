@@ -330,6 +330,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   readonly #queues = createEmptyQueues();
   readonly #serviceSamples = createEmptyMetricSamples();
   readonly #waitSamples = createEmptyMetricSamples();
+  #backgroundYieldRequiresForegroundTurn = false;
   #backgroundWaitingSince: number | null = null;
   #backgroundYieldCount = 0;
   #drainMicrotaskScheduled = false;
@@ -353,7 +354,13 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       );
     }
     this.#backgroundStarvationMs = backgroundStarvationMs;
-    this.#foregroundQuietMs = Math.max(0, options.foregroundQuietMs ?? DEFAULT_FOREGROUND_QUIET_MS);
+    const foregroundQuietMs = options.foregroundQuietMs ?? DEFAULT_FOREGROUND_QUIET_MS;
+    if (!Number.isFinite(foregroundQuietMs) || foregroundQuietMs < 0) {
+      throw new Error(
+        'DatabaseWorkScheduler foregroundQuietMs must be a non-negative finite number.'
+      );
+    }
+    this.#foregroundQuietMs = foregroundQuietMs;
     this.#now = options.now ?? (() => Date.now());
   }
 
@@ -450,6 +457,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
 
   #isBackgroundStarved(now: number): boolean {
     return (
+      !this.#backgroundYieldRequiresForegroundTurn &&
       this.#queues.background.length > 0 &&
       this.#backgroundWaitingSince !== null &&
       now - this.#backgroundWaitingSince >= this.#backgroundStarvationMs
@@ -490,7 +498,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     if (this.#isBackgroundStarved(now)) {
       const starvedTask = this.#queues.background.shift();
       if (starvedTask) {
-        return this.#startTask(starvedTask, now);
+        return this.#startTask(starvedTask, now, true);
       }
     }
 
@@ -525,15 +533,20 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     return null;
   }
 
-  #startTask(task: QueuedTask, startedAt: number): QueuedTask {
+  #startTask(task: QueuedTask, startedAt: number, forcedBackground = false): QueuedTask {
     this.#lastStartedAt = startedAt;
     this.#runningStartedAt = startedAt;
     this.#recordTaskStarted(task, startedAt);
     if (task.priority === 'background') {
       this.#clearBackgroundWaiting();
+      if (forcedBackground && hasForegroundOrNormalWork(this.#queues)) {
+        this.#backgroundYieldRequiresForegroundTurn = true;
+      }
       if (this.#queues.background.length > 0 && hasForegroundOrNormalWork(this.#queues)) {
         this.#markBackgroundWaiting(startedAt);
       }
+    } else {
+      this.#backgroundYieldRequiresForegroundTurn = false;
     }
     return task;
   }

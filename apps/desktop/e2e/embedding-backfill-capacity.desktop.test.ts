@@ -125,7 +125,13 @@ async function seedLargeImportFixture(
 async function startForegroundDatabasePressure(page: Page): Promise<number> {
   return page.evaluate(async () => {
     const targetWindow = window as Window & {
-      __capacityReproPressure?: { failure: string | null; stop: () => void };
+      __capacityReproPressure?: {
+        failure: string | null;
+        inFlight: number;
+        maxInFlight: number;
+        maxObservedInFlight: number;
+        stop: () => void;
+      };
       electronAPI?: {
         db?: {
           query?: (sql: string) => Promise<{ rows: unknown[] }>;
@@ -146,8 +152,12 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     let running = true;
     let consecutiveFailures = 0;
     let pressureTimer: number | null = null;
+    const maxInFlight = 3;
     const pressure = {
       failure: null as string | null,
+      inFlight: 0,
+      maxInFlight,
+      maxObservedInFlight: 0,
       stop: () => {
         running = false;
         if (pressureTimer !== null) {
@@ -158,26 +168,35 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     };
     targetWindow.__capacityReproPressure = pressure;
     const enqueuePressureQuery = (): void => {
-      void query('SELECT COUNT(*)::int AS count FROM file_chunks').then(
-        () => {
-          if (!running) {
-            return;
+      if (pressure.inFlight >= maxInFlight) {
+        return;
+      }
+      pressure.inFlight += 1;
+      pressure.maxObservedInFlight = Math.max(pressure.maxObservedInFlight, pressure.inFlight);
+      void query('SELECT COUNT(*)::int AS count FROM file_chunks')
+        .then(
+          () => {
+            if (!running) {
+              return;
+            }
+            consecutiveFailures = 0;
+          },
+          (error: unknown) => {
+            if (!running) {
+              return;
+            }
+            consecutiveFailures += 1;
+            if (consecutiveFailures >= 3) {
+              pressure.failure = `Foreground database pressure failed 3 consecutive times: ${
+                error instanceof Error ? error.message : String(error)
+              }`;
+              pressure.stop();
+            }
           }
-          consecutiveFailures = 0;
-        },
-        (error: unknown) => {
-          if (!running) {
-            return;
-          }
-          consecutiveFailures += 1;
-          if (consecutiveFailures >= 3) {
-            pressure.failure = `Foreground database pressure failed 3 consecutive times: ${
-              error instanceof Error ? error.message : String(error)
-            }`;
-            pressure.stop();
-          }
-        }
-      );
+        )
+        .finally(() => {
+          pressure.inFlight -= 1;
+        });
     };
     // Enqueue on a fixed cadence rather than sleeping after each response. A
     // slow query must not stretch foreground arrivals beyond the scheduler's
@@ -193,7 +212,11 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
   await page.evaluate(() => {
     const pressure = (
       window as Window & {
-        __capacityReproPressure?: { failure: string | null };
+        __capacityReproPressure?: {
+          failure: string | null;
+          maxInFlight: number;
+          maxObservedInFlight: number;
+        };
       }
     ).__capacityReproPressure;
     if (!pressure) {
@@ -201,6 +224,11 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
     }
     if (pressure.failure) {
       throw new Error(pressure.failure);
+    }
+    if (pressure.maxObservedInFlight > pressure.maxInFlight) {
+      throw new Error(
+        `Foreground database pressure exceeded its in-flight cap: ${pressure.maxObservedInFlight} > ${pressure.maxInFlight}`
+      );
     }
   });
 }

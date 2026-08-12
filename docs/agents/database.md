@@ -56,11 +56,13 @@ boundary is therefore expected.
 PGlite host. Foreground work receives a 75 ms quiet window after its latest
 arrival, but that preference is bounded: once the background lane has been
 deferred for 250 ms, the scheduler admits exactly one background task before
-returning to foreground-first ordering. The wait clock restarts after each
+returning to foreground-first ordering. When foreground or normal work remains
+queued, at least one such task must be admitted before another background task
+can bypass it through the starvation rule. The wait clock restarts after each
 background admission, so the guarantee is one admission per bound, not a
 250 ms per-task latency ceiling. The clock restarts at admission even while the
-admitted task is running, so the interval between contended background
-admissions is the greater of 250 ms and the admitted task's service time.
+admitted task is running; the next forced background admission occurs only after
+both the bound has elapsed and the required foreground/normal turn has started.
 Queueing behind multiple background tasks compounds those intervals; background
 consumers must be sized for bounded progress rather than a fixed completion
 deadline. This

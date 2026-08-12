@@ -2,7 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { createDatabaseWorkScheduler } from '../src/database-work-scheduler';
 
 describe('DatabaseWorkScheduler background fairness', () => {
-  it('restarts the starvation clock at each contended background admission', async () => {
+  it.each([
+    -1,
+    Number.POSITIVE_INFINITY,
+    Number.NaN,
+  ])('rejects an invalid foreground quiet window (%s)', (foregroundQuietMs) => {
+    expect(() => createDatabaseWorkScheduler({ foregroundQuietMs })).toThrow(
+      'DatabaseWorkScheduler foregroundQuietMs must be a non-negative finite number.'
+    );
+  });
+
+  it('returns to foreground-first ordering after each forced background admission', async () => {
     vi.useFakeTimers();
     try {
       const scheduler = createDatabaseWorkScheduler({
@@ -67,8 +77,8 @@ describe('DatabaseWorkScheduler background fairness', () => {
         'background-1-end',
         'background-2-start',
         'background-2-end',
-        'background-3',
         'foreground',
+        'background-3',
       ]);
     } finally {
       vi.useRealTimers();
