@@ -1904,6 +1904,19 @@ the structured main-process log retains the same pair and the redacted error.
 
 ---
 
+## WORKSPACE-ROOT AUTHORIZATION
+
+Desktop workspace tools authorize filesystem access only from
+`RuntimeData.workspaceRoots`, populated server-side from live path-backed rows in
+the `roots` table. `workspaceRootPath`, `mainRootPath`, and related renderer
+fields are selection or ordering hints; they never synthesize an authorized
+root. A successful empty DB query records `workspaceRoots: []`. A failed query
+leaves the inventory absent, and root resolution fails closed and visibly rather
+than falling back to a renderer-provided absolute path. Focused selection and
+Tapestry reads must match exactly one entry in the same authoritative inventory.
+
+---
+
 ## TOOL-LIFECYCLE HOOKS (Claude-Code-style)
 
 User-authored shell commands that run at lifecycle events and (for blocking

@@ -342,6 +342,15 @@ describe('buildInventorySnapshot', () => {
     await execFileAsync('git', ['commit', '-q', '-m', 'add inside-link symlink'], { cwd: repo });
 
     await writeFabricatedWorktreeAdmin(repo, 'evil', path.join(insideLinkPath, '.git'));
+    // Keep Git itself from pruning/omitting the synthetic admin entry before
+    // the inventory service can exercise the canonical-path trust boundary.
+    // A locked malicious entry is still attacker-constructible; it simply
+    // makes this security fixture hermetic across the full test-file lifecycle.
+    await fsPromises.writeFile(
+      path.join(repo, '.git', 'worktrees', 'evil', 'locked'),
+      'security fixture\n',
+      'utf8'
+    );
 
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
@@ -352,7 +361,10 @@ describe('buildInventorySnapshot', () => {
     const repository = findRepoByCommonDir(snapshot.repositories, '.git');
     const outsideTargetReal = await fsPromises.realpath(outsideTarget);
     const evilDescriptor = findWorktreeByPath(repository?.worktrees ?? [], outsideTargetReal);
-    expect(evilDescriptor).toBeDefined();
+    expect(
+      evilDescriptor,
+      `expected canonical outside target ${outsideTargetReal}; inventory reported ${JSON.stringify(repository?.worktrees ?? [])}`
+    ).toBeDefined();
     // Canonicalized BEFORE containment: the symlink's true target is outside
     // every root, so this must NOT be lexically classified as in-root
     // (which would skip the trust check entirely and auto-`validated`).

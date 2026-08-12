@@ -61,7 +61,6 @@ export function createToolsSettingsCategory(
       'hybrid',
       'embedding',
       'queue',
-      'playground',
     ],
     title: 'AI Tools',
   };

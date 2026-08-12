@@ -5,7 +5,7 @@ import { type RuntimeData, resetFileReadState, withFileLock } from '@brainstrike
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
-import { requireToolExecute } from './_tool-test-helpers';
+import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -82,8 +82,8 @@ describe('read-before-write staleness guard', () => {
 
   const guardRuntime = (workspaceRootPath: string): RuntimeData =>
     ({
+      ...singleRootRuntime(workspaceRootPath),
       memory: { resourceId: 'guard-resource', runId: 'guard-run', threadId: 'guard-thread' },
-      workspaceRootPath,
     }) as RuntimeData;
 
   /** Simulate a USER edit outside the assistant tools: new bytes + a forced

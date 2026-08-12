@@ -11,7 +11,7 @@ import {
   clearWindowRoleByWebContentsId,
   type DesktopWindowRole,
 } from '../../window-role';
-import { requireToolExecute } from './_tool-test-helpers';
+import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -279,7 +279,7 @@ describe('assistant-tools edit lifecycle', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.deleteWorkspaceFile'
         );
 
@@ -309,8 +309,8 @@ describe('assistant-tools edit lifecycle', () => {
       try {
         const executeTool = requireToolExecute(
           buildDesktopAssistantTools({
+            ...singleRootRuntime(workspaceRootPath),
             workspaceIndexEmbeddingSetId: 'set-1',
-            workspaceRootPath,
           } as RuntimeData),
           'brainstrike.deleteWorkspaceFile'
         );
@@ -334,7 +334,7 @@ describe('assistant-tools edit lifecycle', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.deleteWorkspaceFile'
         );
         await expect(executeTool({ context: { path: '/src/does-not-exist.ts' } })).rejects.toThrow(
@@ -349,7 +349,7 @@ describe('assistant-tools edit lifecycle', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.deleteWorkspaceFile'
         );
         await expect(executeTool({ context: { path: '/src' } })).rejects.toThrow(
@@ -375,7 +375,7 @@ describe('assistant-tools edit lifecycle', () => {
       await fsPromises.writeFile(path.join(workspaceRootPath, 'escaped.txt'), 'in root', 'utf8');
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.deleteWorkspaceFile'
         );
         const result = await executeTool({ context: { path: '../escaped.txt' } });
@@ -412,7 +412,7 @@ describe('assistant-tools edit lifecycle', () => {
           throw error;
         }
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.deleteWorkspaceFile'
         );
         await expect(executeTool({ context: { path: '/src/linked/secret.txt' } })).rejects.toThrow(
@@ -441,7 +441,7 @@ describe('assistant-tools edit lifecycle', () => {
           throw error;
         }
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.deleteWorkspaceFile'
         );
 
@@ -471,7 +471,7 @@ describe('assistant-tools edit lifecycle', () => {
           throw error;
         }
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.deleteWorkspaceFile'
         );
 
@@ -501,7 +501,7 @@ describe('assistant-tools edit lifecycle', () => {
           throw error;
         }
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.deleteWorkspaceFile'
         );
         await expect(executeTool({ context: { path: '/src/out-alias.ts' } })).rejects.toThrow(
@@ -532,7 +532,7 @@ describe('assistant-tools edit lifecycle', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.renameWorkspaceFile'
         );
 
@@ -564,7 +564,7 @@ describe('assistant-tools edit lifecycle', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.renameWorkspaceFile'
         );
         await executeTool({
@@ -594,8 +594,8 @@ describe('assistant-tools edit lifecycle', () => {
       try {
         const executeTool = requireToolExecute(
           buildDesktopAssistantTools({
+            ...singleRootRuntime(workspaceRootPath),
             workspaceIndexEmbeddingSetId: 'set-1',
-            workspaceRootPath,
           } as RuntimeData),
           'brainstrike.renameWorkspaceFile'
         );
@@ -620,7 +620,7 @@ describe('assistant-tools edit lifecycle', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.renameWorkspaceFile'
         );
         await expect(
@@ -642,7 +642,7 @@ describe('assistant-tools edit lifecycle', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.renameWorkspaceFile'
         );
         await expect(
@@ -657,7 +657,7 @@ describe('assistant-tools edit lifecycle', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.renameWorkspaceFile'
         );
         await expect(
@@ -672,7 +672,7 @@ describe('assistant-tools edit lifecycle', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.renameWorkspaceFile'
         );
         const result = await executeTool({
@@ -707,7 +707,7 @@ describe('assistant-tools edit lifecycle', () => {
           throw error;
         }
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.renameWorkspaceFile'
         );
         await expect(
@@ -771,7 +771,7 @@ describe('assistant-tools edit lifecycle', () => {
           'utf8'
         );
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.renameWorkspaceFile'
         );
         // Guard: if this ever hangs (e.g. a regression to naive from-then-to lock
@@ -820,7 +820,7 @@ describe('assistant-tools edit lifecycle', () => {
           throw error;
         }
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.renameWorkspaceFile'
         );
 
@@ -862,7 +862,7 @@ describe('assistant-tools edit lifecycle', () => {
           throw error;
         }
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData),
+          buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath)),
           'brainstrike.renameWorkspaceFile'
         );
         await expect(

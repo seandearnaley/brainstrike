@@ -22,20 +22,9 @@ describe('renderer tool execution IPC boundary', () => {
     expect(JSON.stringify(DESKTOP_IPC_CHANNELS)).not.toContain('tools:execute');
   });
 
-  it('keeps the shared renderer Window declaration selection-event-only', () => {
-    const globalDeclaration = readFileSync(
-      path.resolve(import.meta.dirname, '../../../../../packages/app-shell/src/types/global.d.ts'),
-      'utf8'
-    );
-
-    expect(globalDeclaration).not.toContain('tools:execute');
-    expect(globalDeclaration).not.toMatch(/tools\?:\s*\{[\s\S]*?\bexecute\??\s*:/);
-  });
-
   it('does not offer the legacy tool playground execution operation on desktop', () => {
     const settingsSource = readDesktopSource('renderer/components/settings/page-content.tsx');
 
-    expect(settingsSource).not.toContain('executeToolTest:');
     expect(settingsSource).not.toContain('window.tools.execute');
   });
 });

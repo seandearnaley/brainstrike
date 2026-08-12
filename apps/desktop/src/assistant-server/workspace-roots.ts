@@ -41,11 +41,10 @@ function normalizeRoot(root: RuntimeWorkspaceRoot): RuntimeWorkspaceRoot | null 
 }
 
 /**
- * The active workspace roots available to the tools. Prefers the explicit
- * `workspaceRoots` list (resolved server-side from the DB roots table, so the
- * root ids match `file_records.root_id`); otherwise synthesizes a single root
- * from `workspaceRootPath` (single-root / legacy). Roots without an absolute
- * path are dropped.
+ * The active workspace roots available to the tools. `workspaceRoots` is
+ * resolved server-side from the DB roots table, so the root ids match
+ * `file_records.root_id`. `workspaceRootPath` is renderer-selected focus state,
+ * never an authorization source. Roots without an absolute path are dropped.
  */
 export function getWorkspaceRoots(runtimeData: RuntimeData | undefined): RuntimeWorkspaceRoot[] {
   const explicit = runtimeData?.workspaceRoots;
@@ -59,10 +58,10 @@ export function getWorkspaceRoots(runtimeData: RuntimeData | undefined): Runtime
       .map((root) => normalizeRoot(root))
       .filter((root): root is RuntimeWorkspaceRoot => root !== null);
   }
-  const single = runtimeData?.workspaceRootPath?.trim();
-  if (single && path.isAbsolute(single)) {
-    const resolved = path.resolve(single);
-    return [{ displayName: path.basename(resolved) || resolved, path: resolved, rootId: resolved }];
+  if (runtimeData?.workspaceRootPath?.trim()) {
+    throw new TypeError(
+      'The authoritative workspace root inventory is unavailable; a focused workspace path cannot authorize tool access.'
+    );
   }
   return [];
 }
@@ -248,16 +247,6 @@ export function resolveFocusedWorkspaceRoot(
     throw new ToolInputError(
       'The focused workspace root is unavailable. Focus an open folder before reading selected workspace context.'
     );
-  }
-
-  if (runtimeData?.workspaceRoots === undefined) {
-    const [focusedRoot] = getWorkspaceRoots(runtimeData);
-    if (!focusedRoot) {
-      throw new ToolInputError(
-        'The focused workspace root is unavailable. Focus an open folder before reading selected workspace context.'
-      );
-    }
-    return assertRootStillConnected(focusedRoot);
   }
 
   const resolvedFocusedPath = path.resolve(focusedPath);
@@ -517,12 +506,13 @@ function orderWorkspaceRootsForRuntime(
  * boundary strips client-supplied `workspaceRoots` before calling this helper;
  * pre-supplied roots are reserved for trusted in-process callers.
  *
- * On an empty result with a legacy `workspaceRootPath`, RuntimeData remains
- * unchanged so the resolver can use that single FOCUSED root. Without a legacy
- * path, an empty successful query is recorded as `workspaceRoots: []`; this is
- * the authoritative zero-root state consumed by `listWorkspaceContext`. Query
- * failures remain absent/unchanged so they cannot be mistaken for that valid
- * empty state. The main-root declaration cannot apply in degraded mode.
+ * An empty successful query is recorded as `workspaceRoots: []`; this is the
+ * authoritative zero-root state consumed by `listWorkspaceContext`. The
+ * renderer-selected `workspaceRootPath` remains focus state only and cannot
+ * authorize a root absent from the DB inventory. Query failures remain
+ * absent/unchanged so they cannot be mistaken for a valid empty state; tool
+ * resolution then fails closed. The main-root declaration cannot apply in
+ * degraded mode.
  */
 export async function enrichRuntimeDataWithWorkspaceRoots(
   runtimeData: RuntimeData | undefined,
@@ -546,12 +536,10 @@ export async function enrichRuntimeDataWithWorkspaceRoots(
   }
   const orderedRoots = orderWorkspaceRootsForRuntime(roots, runtimeData);
   if (orderedRoots.length === 0) {
-    return runtimeData.workspaceRootPath
-      ? runtimeData
-      : {
-          ...runtimeData,
-          workspaceRoots: [],
-        };
+    return {
+      ...runtimeData,
+      workspaceRoots: [],
+    };
   }
   return {
     ...runtimeData,
