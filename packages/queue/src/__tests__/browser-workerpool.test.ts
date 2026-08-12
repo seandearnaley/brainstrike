@@ -537,6 +537,42 @@ describe('createWorkerpoolAdapter', () => {
 
   it.each([
     ['missing', undefined],
+    ['mismatched', 'another-task'],
+  ])('rejects request telemetry with a %s task id', async (_case, diagnosticId) => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    let workerInstanceId: string | null = null;
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (event: unknown) => void }) => {
+        if (workerInstanceId === null) {
+          throw new Error('Expected a managed worker identity.');
+        }
+        const diagnostic = createPipelineCacheDiagnostic(
+          diagnosticId ?? 'placeholder',
+          workerInstanceId
+        );
+        options?.on?.(
+          diagnosticId === undefined
+            ? Object.fromEntries(Object.entries(diagnostic).filter(([key]) => key !== 'id'))
+            : diagnostic
+        );
+        return promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    workerInstanceId = createManagedWorker().workerInstanceId;
+    const addPromise = adapter.add(createTask('current-task'));
+    resolve(createResult('current-task'));
+    await expect(addPromise).rejects.toThrow(
+      'Embedding worker request telemetry id must match the current task id.'
+    );
+    expect(promise.cancel).toHaveBeenCalledTimes(1);
+    expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['missing', undefined],
     ['empty', ''],
   ])('rejects a pipeline-cache diagnostic with a %s worker identity', async (_case, workerId) => {
     const { promise, resolve } = createCancelablePromise<QueueResult>();
@@ -684,6 +720,7 @@ describe('createWorkerpoolAdapter', () => {
       createCancelablePromise<QueueResult>(),
       createCancelablePromise<QueueResult>(),
     ];
+    const taskIds = ['task-worker-a', 'task-worker-b'] as const;
     const workerInstanceIds: string[] = [];
     let executionIndex = 0;
     poolExecMock.mockImplementation(
@@ -700,7 +737,7 @@ describe('createWorkerpoolAdapter', () => {
           emittedAt: 100,
           entry: createPipelineCacheEntry(),
           event: 'hit',
-          id: `task-${workerInstanceId}`,
+          id: taskIds[executionIndex - 1],
           type: 'diagnostic',
           workerInstanceId,
         });
@@ -833,9 +870,9 @@ describe('createWorkerpoolAdapter', () => {
     expect(poolTerminateMock).not.toHaveBeenCalled();
   });
 
-  it('rejects a cache diagnostic that arrives after its managed worker terminates', async () => {
+  it('ignores a queued cleanup diagnostic that arrives after its managed worker terminates', async () => {
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
-    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    createWorkerpoolAdapter(createWorkerOptions());
     const { script, workerInstanceId } = createManagedWorker();
     const poolOptions = poolFactoryMock.mock.calls[0]?.[1] as
       | { onTerminateWorker?: (args: { script?: string }) => void }
@@ -856,13 +893,9 @@ describe('createWorkerpoolAdapter', () => {
       type: 'diagnostic',
       workerInstanceId,
     });
-
-    await expect(adapter.add(createTask('task-after-terminated-diagnostic'))).rejects.toThrow(
-      'Embedding worker telemetry identity is not active in this workerpool.'
-    );
     expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
-    expect(poolTerminateMock).toHaveBeenCalledWith(true);
-    expect(poolExecMock).not.toHaveBeenCalled();
+    expect(recordEmbeddingTelemetryFailureMock).not.toHaveBeenCalled();
+    expect(poolTerminateMock).not.toHaveBeenCalled();
   });
 
   it('cancels pre-aborted tasks immediately', async () => {

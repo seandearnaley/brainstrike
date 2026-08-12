@@ -350,6 +350,10 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
           'Embedding worker-lifetime telemetry requires an id-less pipeline-cache diagnostic.'
         );
       }
+      assertManagedWorkerInstanceId(diagnostic.workerInstanceId);
+      if (!activeWorkerInstanceIds.has(diagnostic.workerInstanceId)) {
+        return;
+      }
       recordPipelineCacheDiagnostic(diagnostic);
     } catch (error) {
       failWorkerLifetimeTelemetry(error);
@@ -450,6 +454,11 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         try {
           const diagnostic = readPipelineCacheDiagnostic(event);
           if (diagnostic) {
+            if (diagnostic.id !== task.id) {
+              throw new Error(
+                'Embedding worker request telemetry id must match the current task id.'
+              );
+            }
             telemetrySource.current = recordPipelineCacheDiagnostic(diagnostic);
           }
         } catch (error) {
