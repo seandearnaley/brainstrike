@@ -24,8 +24,5 @@ export { ConcurrentLoadingError, FileContentError, PartialRefreshError };
 // Local type definition
 export type FileContents = Record<string, string>;
 
-// Dummy value export to force .d.ts emission
-export const TYPES_DUMMY_EXPORT = 0;
-
 // Global module augmentation moved to lucide-react.d.ts
 // declare module 'lucide-react';
