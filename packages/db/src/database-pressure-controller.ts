@@ -81,7 +81,6 @@ function resolveSource(options: DatabasePressureControllerOptions): DatabasePres
 
 function getLatencyPressureReason(
   snapshot: DatabaseWorkSchedulerSnapshot,
-  now: number,
   pressureWindowMs: number,
   waitP95ThresholdMs: number,
   serviceP95ThresholdMs: number
@@ -89,16 +88,16 @@ function getLatencyPressureReason(
   const foregroundStats = snapshot.priorityStats.foreground;
   const normalStats = snapshot.priorityStats.normal;
   if (
-    snapshot.lastForegroundAt !== null &&
-    now - snapshot.lastForegroundAt <= pressureWindowMs &&
+    snapshot.lastForegroundElapsedAt !== null &&
+    snapshot.elapsedSnapshotAt - snapshot.lastForegroundElapsedAt <= pressureWindowMs &&
     (foregroundStats.waitP95Ms > waitP95ThresholdMs ||
       foregroundStats.serviceP95Ms > serviceP95ThresholdMs)
   ) {
     return 'foreground-latency';
   }
   if (
-    snapshot.lastNormalAt !== null &&
-    now - snapshot.lastNormalAt <= pressureWindowMs &&
+    snapshot.lastNormalElapsedAt !== null &&
+    snapshot.elapsedSnapshotAt - snapshot.lastNormalElapsedAt <= pressureWindowMs &&
     (normalStats.waitP95Ms > waitP95ThresholdMs || normalStats.serviceP95Ms > serviceP95ThresholdMs)
   ) {
     return 'normal-latency';
@@ -121,7 +120,6 @@ function resolvePolicyOptions(
 
 export function getDatabasePressureWaitingReason(
   snapshot: DatabaseWorkSchedulerSnapshot,
-  now: number,
   options: DatabasePressurePolicyOptions = {}
 ): DatabasePressureWaitingReason | null {
   const policy = resolvePolicyOptions(options);
@@ -132,19 +130,21 @@ export function getDatabasePressureWaitingReason(
     return 'foreground-queued';
   }
   if (
-    snapshot.lastForegroundAt !== null &&
-    now - snapshot.lastForegroundAt <= snapshot.foregroundQuietMs
+    snapshot.lastForegroundElapsedAt !== null &&
+    snapshot.elapsedSnapshotAt - snapshot.lastForegroundElapsedAt <= snapshot.foregroundQuietMs
   ) {
     return 'foreground-quiet-window';
   }
   // Normal priority is foreground-visible DB work, so it uses the same
   // post-activity quiet window while keeping a distinct diagnostic reason.
-  if (snapshot.lastNormalAt !== null && now - snapshot.lastNormalAt <= snapshot.foregroundQuietMs) {
+  if (
+    snapshot.lastNormalElapsedAt !== null &&
+    snapshot.elapsedSnapshotAt - snapshot.lastNormalElapsedAt <= snapshot.foregroundQuietMs
+  ) {
     return 'normal-quiet-window';
   }
   return getLatencyPressureReason(
     snapshot,
-    now,
     policy.foregroundPressureWindowMs,
     policy.foregroundWaitP95ThresholdMs,
     policy.foregroundServiceP95ThresholdMs
@@ -162,7 +162,7 @@ export function createDatabasePressureController(
 
   const getSnapshot = (): DatabasePressureControllerSnapshot => ({ ...snapshot });
   const readWaitingReason = async (): Promise<DatabasePressureWaitingReason | null> =>
-    getDatabasePressureWaitingReason(await source.getSnapshot(), now(), policy);
+    getDatabasePressureWaitingReason(await source.getSnapshot(), policy);
 
   const waitForBackgroundPermit = async (
     permitOptions: DatabasePressurePermitOptions = {}

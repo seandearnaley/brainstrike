@@ -73,12 +73,32 @@ describe('composeClaimPermit', () => {
 });
 
 describe('createForegroundDbPressureStarvationTracker', () => {
+  it('reaches the bypass bound when the wall clock moves backward', () => {
+    const wallClock = vi.spyOn(Date, 'now').mockReturnValue(1000);
+    try {
+      let elapsedNow = 0;
+      const tracker = createForegroundDbPressureStarvationTracker({
+        elapsedNow: () => elapsedNow,
+        log: vi.fn(),
+        starvationMs: 100,
+      });
+
+      tracker.observePolicy({ reason: 'foreground-db-pressure' } as never);
+      elapsedNow = 100;
+      wallClock.mockReturnValue(0);
+
+      expect(tracker.isBypassing()).toBe(true);
+    } finally {
+      wallClock.mockRestore();
+    }
+  });
+
   it('only bypasses after the bound and resets on any non-pressure policy', () => {
     let now = 0;
     const log = vi.fn();
     const tracker = createForegroundDbPressureStarvationTracker({
+      elapsedNow: () => now,
       log,
-      now: () => now,
       starvationMs: 100,
     });
 

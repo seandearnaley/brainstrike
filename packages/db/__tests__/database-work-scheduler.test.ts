@@ -25,14 +25,22 @@ describe('DatabaseWorkScheduler', () => {
     expect(work).not.toHaveBeenCalled();
   });
 
-  it('stamps snapshots with the scheduler clock', () => {
+  it('stamps snapshots with separate diagnostic and elapsed clocks', () => {
+    let elapsedNow = 10;
     let now = 1000;
-    const scheduler = createDatabaseWorkScheduler({ foregroundQuietMs: 0, now: () => now });
+    const scheduler = createDatabaseWorkScheduler({
+      elapsedNow: () => elapsedNow,
+      foregroundQuietMs: 0,
+      now: () => now,
+    });
 
+    expect(scheduler.getSnapshot().elapsedSnapshotAt).toBe(10);
     expect(scheduler.getSnapshot().snapshotAt).toBe(1000);
 
+    elapsedNow = 25;
     now = 1750;
 
+    expect(scheduler.getSnapshot().elapsedSnapshotAt).toBe(25);
     expect(scheduler.getSnapshot().snapshotAt).toBe(1750);
   });
 

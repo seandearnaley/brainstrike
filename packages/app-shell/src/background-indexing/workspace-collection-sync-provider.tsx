@@ -1126,7 +1126,7 @@ function createWaitForBackgroundPermit(
 function toWorkspaceIndexingDatabasePressure(
   snapshot: DatabaseWorkSchedulerSnapshot
 ): WorkspaceIndexingDatabasePressure {
-  const waitingReason = getDatabasePressureWaitingReason(snapshot, snapshot.snapshotAt);
+  const waitingReason = getDatabasePressureWaitingReason(snapshot);
   const normalPressure = waitingReason?.startsWith('normal-') === true;
   return {
     available: true,

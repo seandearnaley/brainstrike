@@ -80,6 +80,11 @@ Foreground query coordination (desktop):
 - Wiring: `embedding-worker-config.ts` (`composeClaimPermit`) +
   `embedding-host-runtime.tsx` (gate per runtime, threaded to the worker config + query
   handler). Constants: FOREGROUND_GATE_REOPEN_MS (250), QUERY_DRAIN_TIMEOUT_MS (5000).
+- Foreground DB-pressure permits age scheduler quiet/latency windows from the
+  scheduler's monotonic snapshot timestamps (the timestamp pair shares one
+  clock origin even when snapshots cross IPC). The embedding claim path's
+  bounded starvation bypass uses `performance.now()` in the hidden renderer.
+  Wall-clock corrections must not extend either wait.
 
 Workspace indexing QoS ownership:
 - `@brainstrike/indexing-contract/workspace-indexing-qos` is the canonical,

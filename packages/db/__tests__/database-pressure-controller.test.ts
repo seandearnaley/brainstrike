@@ -78,9 +78,61 @@ describe('DatabasePressureController', () => {
     }
   });
 
+  it('ages the quiet window out when the diagnostic wall clock moves backward', async () => {
+    vi.useFakeTimers();
+    const abortController = new AbortController();
+    let permit: Promise<void> | null = null;
+    try {
+      let elapsedNow = 0;
+      let wallNow = 1000;
+      const scheduler = createDatabaseWorkScheduler({
+        elapsedNow: () => elapsedNow,
+        foregroundQuietMs: 50,
+        now: () => wallNow,
+      });
+      await scheduler.run(async () => undefined, {
+        label: 'foreground before clock correction',
+        priority: 'foreground',
+      });
+      const controller = createDatabasePressureController({
+        now: () => wallNow,
+        pollMs: 5,
+        scheduler,
+      });
+
+      let resolved = false;
+      permit = controller.waitForBackgroundPermit({
+        label: 'embedding claim',
+        signal: abortController.signal,
+      });
+      void permit.then(
+        () => {
+          resolved = true;
+        },
+        () => undefined
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(controller.getSnapshot().waitingReason).toBe('foreground-quiet-window');
+
+      elapsedNow = 51;
+      wallNow = 0;
+      await vi.advanceTimersByTimeAsync(5);
+
+      expect(resolved).toBe(true);
+      await permit;
+    } finally {
+      abortController.abort();
+      await permit?.catch(() => undefined);
+      vi.useRealTimers();
+    }
+  });
+
   it('yields during recent foreground latency pressure and resumes when pressure ages out', async () => {
+    let elapsedNow = 1;
     let now = 10_001;
     const baseScheduler = createDatabaseWorkScheduler({
+      elapsedNow: () => elapsedNow,
       foregroundQuietMs: 0,
       now: () => now,
     });
@@ -88,8 +140,10 @@ describe('DatabasePressureController', () => {
     const listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
     const snapshot = (): DatabaseWorkSchedulerSnapshot => ({
       ...baseSnapshot,
+      elapsedSnapshotAt: elapsedNow,
       lastCompletedAt: 10_000,
       lastForegroundAt: 10_000,
+      lastForegroundElapsedAt: 0,
       priorityStats: {
         ...baseSnapshot.priorityStats,
         foreground: {
@@ -126,6 +180,7 @@ describe('DatabasePressureController', () => {
       waitingReason: 'foreground-latency',
     });
 
+    elapsedNow += 499;
     now += 499;
     for (const listener of listeners) {
       listener(snapshot());
@@ -133,6 +188,7 @@ describe('DatabasePressureController', () => {
     await Promise.resolve();
     expect(controller.getSnapshot().permitWaiting).toBe(true);
 
+    elapsedNow += 2;
     now += 2;
     for (const listener of listeners) {
       listener(snapshot());
@@ -140,9 +196,50 @@ describe('DatabasePressureController', () => {
     await expect(permit).resolves.toBeUndefined();
   });
 
+  it('ages foreground latency pressure out when the diagnostic wall clock moves backward', () => {
+    let elapsedNow = 500;
+    let wallNow = 1000;
+    const scheduler = createDatabaseWorkScheduler({
+      elapsedNow: () => elapsedNow,
+      foregroundQuietMs: 0,
+      now: () => wallNow,
+    });
+    const baseSnapshot = scheduler.getSnapshot();
+    const waitingReason = (): ReturnType<typeof getDatabasePressureWaitingReason> =>
+      getDatabasePressureWaitingReason(
+        {
+          ...baseSnapshot,
+          elapsedSnapshotAt: elapsedNow,
+          lastForegroundAt: 1000,
+          lastForegroundElapsedAt: 0,
+          priorityStats: {
+            ...baseSnapshot.priorityStats,
+            foreground: {
+              ...baseSnapshot.priorityStats.foreground,
+              serviceP95Ms: 120,
+            },
+          },
+          snapshotAt: wallNow,
+        },
+        {
+          foregroundPressureWindowMs: 500,
+          foregroundServiceP95ThresholdMs: 50,
+        }
+      );
+
+    expect(waitingReason()).toBe('foreground-latency');
+
+    elapsedNow = 501;
+    wallNow = 0;
+
+    expect(waitingReason()).toBeNull();
+  });
+
   it('yields during recent normal-priority latency pressure and resumes when pressure ages out', async () => {
+    let elapsedNow = 1;
     let now = 10_001;
     const baseScheduler = createDatabaseWorkScheduler({
+      elapsedNow: () => elapsedNow,
       foregroundQuietMs: 0,
       now: () => now,
     });
@@ -150,8 +247,10 @@ describe('DatabasePressureController', () => {
     const listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
     const snapshot = (): DatabaseWorkSchedulerSnapshot => ({
       ...baseSnapshot,
+      elapsedSnapshotAt: elapsedNow,
       lastCompletedAt: 10_000,
       lastNormalAt: 10_000,
+      lastNormalElapsedAt: 0,
       priorityStats: {
         ...baseSnapshot.priorityStats,
         normal: {
@@ -188,6 +287,7 @@ describe('DatabasePressureController', () => {
       waitingReason: 'normal-latency',
     });
 
+    elapsedNow += 501;
     now += 501;
     for (const listener of listeners) {
       listener(snapshot());
@@ -204,14 +304,13 @@ describe('DatabasePressureController', () => {
     const baseSnapshot = baseScheduler.getSnapshot();
 
     expect(
-      getDatabasePressureWaitingReason(
-        {
-          ...baseSnapshot,
-          lastForegroundAt: 1000,
-          snapshotAt: now,
-        },
-        now
-      )
+      getDatabasePressureWaitingReason({
+        ...baseSnapshot,
+        elapsedSnapshotAt: 50,
+        lastForegroundAt: 1000,
+        lastForegroundElapsedAt: 0,
+        snapshotAt: now,
+      })
     ).toBe('foreground-quiet-window');
   });
 
@@ -224,20 +323,21 @@ describe('DatabasePressureController', () => {
     const baseSnapshot = baseScheduler.getSnapshot();
 
     expect(
-      getDatabasePressureWaitingReason(
-        {
-          ...baseSnapshot,
-          lastNormalAt: 1000,
-          snapshotAt: now,
-        },
-        now
-      )
+      getDatabasePressureWaitingReason({
+        ...baseSnapshot,
+        elapsedSnapshotAt: 50,
+        lastNormalAt: 1000,
+        lastNormalElapsedAt: 0,
+        snapshotAt: now,
+      })
     ).toBe('normal-quiet-window');
   });
 
   it('does not let background completions extend stale foreground latency pressure', async () => {
+    let elapsedNow = 1000;
     let now = 10_000;
     const baseScheduler = createDatabaseWorkScheduler({
+      elapsedNow: () => elapsedNow,
       foregroundQuietMs: 0,
       now: () => now,
     });
@@ -245,8 +345,10 @@ describe('DatabasePressureController', () => {
     const listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
     const snapshot = (): DatabaseWorkSchedulerSnapshot => ({
       ...baseSnapshot,
+      elapsedSnapshotAt: elapsedNow,
       lastCompletedAt: now,
       lastForegroundAt: 9000,
+      lastForegroundElapsedAt: 0,
       priorityStats: {
         ...baseSnapshot.priorityStats,
         background: {
@@ -288,6 +390,7 @@ describe('DatabasePressureController', () => {
       permitYieldCount: 0,
     });
 
+    elapsedNow += 100;
     now += 100;
     for (const listener of listeners) {
       listener(snapshot());
