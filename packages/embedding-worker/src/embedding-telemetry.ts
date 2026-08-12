@@ -258,8 +258,14 @@ function readBatchTransferTelemetry(
   if (batchCount === 0 && (lastBytes !== 0 || peakBytes !== 0 || totalBytes !== 0)) {
     throw new Error('Embedding telemetry batchTransfer must be empty when batchCount is zero.');
   }
-  if (batchCount > 0 && lastBytes === 0) {
-    throw new Error('Embedding telemetry batchTransfer must report bytes when batches exist.');
+  const minimumBatchBytes = Float32Array.BYTES_PER_ELEMENT;
+  if (batchCount > 0 && lastBytes < minimumBatchBytes) {
+    throw new Error('Embedding telemetry batchTransfer.lastBytes is too small for a batch.');
+  }
+  if (totalBytes < batchCount * minimumBatchBytes) {
+    throw new Error(
+      'Embedding telemetry batchTransfer.totalBytes is too small for its batchCount.'
+    );
   }
   return { batchCount, lastBytes, peakBytes, totalBytes };
 }
@@ -484,6 +490,12 @@ export function recordEmbeddingPipelineCacheTelemetry(
       throw new Error(
         'Embedding telemetry cache hit must preserve immutable resident cache identity.'
       );
+    }
+    if (
+      event.entry.lastUsedAt < trackedEntry.lastUsedAt ||
+      event.entry.residencyMs < trackedEntry.residencyMs
+    ) {
+      throw new Error('Embedding telemetry cache hit timestamps must be monotonic.');
     }
     source.cacheEntries.set(event.entry.cacheKey, event.entry);
     markSnapshotDirty();

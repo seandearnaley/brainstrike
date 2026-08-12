@@ -131,6 +131,8 @@ describe('embedding telemetry store', () => {
   it.each([
     ['batch count', { batchCount: 1.5, lastBytes: 0, peakBytes: 0, totalBytes: 0 }],
     ['nonempty zero-byte aggregate', { batchCount: 1, lastBytes: 0, peakBytes: 0, totalBytes: 0 }],
+    ['undersized batch', { batchCount: 1, lastBytes: 1, peakBytes: 1, totalBytes: 1 }],
+    ['undersized total', { batchCount: 2, lastBytes: 4, peakBytes: 4, totalBytes: 4 }],
     ['last bytes', { batchCount: 1, lastBytes: 13, peakBytes: 12, totalBytes: 13 }],
     ['peak bytes', { batchCount: 1, lastBytes: 12, peakBytes: 14, totalBytes: 13 }],
     ['empty aggregate', { batchCount: 0, lastBytes: 0, peakBytes: 1, totalBytes: 1 }],
@@ -516,6 +518,36 @@ describe('embedding telemetry store', () => {
         workerInstanceId: 'worker-a',
       })
     ).toThrow('Embedding telemetry cache hit must preserve immutable resident cache identity.');
+    expect(() =>
+      recordEmbeddingPipelineCacheTelemetry('worker-a', {
+        cacheSize: 1,
+        diagnostic: 'pipeline-cache',
+        emittedAt: 300,
+        entry: {
+          ...residentEntry,
+          lastUsedAt: residentEntry.lastUsedAt - 1,
+        },
+        event: 'hit',
+        id: 'embed-2',
+        type: 'diagnostic',
+        workerInstanceId: 'worker-a',
+      })
+    ).toThrow('Embedding telemetry cache hit timestamps must be monotonic.');
+    expect(() =>
+      recordEmbeddingPipelineCacheTelemetry('worker-a', {
+        cacheSize: 1,
+        diagnostic: 'pipeline-cache',
+        emittedAt: 300,
+        entry: {
+          ...residentEntry,
+          residencyMs: residentEntry.residencyMs - 1,
+        },
+        event: 'hit',
+        id: 'embed-2',
+        type: 'diagnostic',
+        workerInstanceId: 'worker-a',
+      })
+    ).toThrow('Embedding telemetry cache hit timestamps must be monotonic.');
     expect(getEmbeddingTelemetrySnapshot().cache.entries).toEqual([
       expect.objectContaining({ cacheKey: residentEntry.cacheKey, sourceId: 'worker-a' }),
     ]);
