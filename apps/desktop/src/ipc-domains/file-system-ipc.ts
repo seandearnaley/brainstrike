@@ -26,6 +26,10 @@ import {
 } from '../file-read-errors';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import {
+  createWorkspaceFileCapabilities,
+  type WorkspaceFileCapabilities,
+} from './workspace-file-capabilities';
 
 interface RegisterFileSystemIpcHandlersOptions {
   readonly disposeCommandSessionsForRoot?: (rootId: string) => Promise<number>;
@@ -39,6 +43,7 @@ interface RegisterFileSystemIpcHandlersOptions {
    */
   readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
   readonly storage: ElectronStorageAdapter;
+  readonly workspaceFileCapabilities?: WorkspaceFileCapabilities;
 }
 
 interface ElectronE2eFileSystemFixture {
@@ -368,9 +373,16 @@ export function registerFileSystemIpcHandlers({
   fileSystem,
   getRootsDatabase,
   storage,
+  workspaceFileCapabilities = createWorkspaceFileCapabilities(),
 }: RegisterFileSystemIpcHandlersOptions): () => void {
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const mountWorkspaceRoot = async (entry: StoredRootEntry): Promise<string> => {
+    if (isMockFileSystemIpcPath(entry.path)) {
+      return path.normalize(entry.path);
+    }
+    return await workspaceFileCapabilities.mountRoot(entry);
+  };
 
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess, async () =>
     resolveRequestedDirectoryHandle(fileSystem)
@@ -404,7 +416,7 @@ export function registerFileSystemIpcHandlers({
         const rootPath = '/mock/test/directory';
         return getTestDirectoryStructure(rootPath);
       }
-      return fileSystem.readDirectory(await resolveDirectoryHandle(handle));
+      return workspaceFileCapabilities.readDirectory(await resolveDirectoryHandle(handle));
     }
   );
 
@@ -436,7 +448,7 @@ export function registerFileSystemIpcHandlers({
       }
       try {
         const resolvedHandle = await resolveFileHandle(handle);
-        return await fileSystem.readFile(resolvedHandle);
+        return await workspaceFileCapabilities.readFile(resolvedHandle);
       } catch (error) {
         const payload = toFileReadErrorPayload(error, handle?.path ?? '');
         if (payload) {
@@ -475,7 +487,7 @@ export function registerFileSystemIpcHandlers({
       }
 
       try {
-        return await fileSystem.readFileByPath(resolved.path);
+        return await workspaceFileCapabilities.readFile(resolved.path);
       } catch (error) {
         const payload = toFileReadErrorPayload(error, resolved.path);
         if (payload) {
@@ -524,11 +536,18 @@ export function registerFileSystemIpcHandlers({
       return null;
     }
 
+    const entries = await readRootsList(storage);
+    const entry = entries.find((candidate) => candidate.path === resolvedPath);
+    if (!entry) {
+      throw new Error('Stored last folder is not registered as a workspace root.');
+    }
+    const canonicalPath = await mountWorkspaceRoot(entry);
     const handle: DirectoryHandle = {
       kind: 'directory',
-      name: path.basename(resolvedPath),
-      path: resolvedPath,
+      name: path.basename(canonicalPath),
+      path: canonicalPath,
       platform: 'electron',
+      rootId: entry.rootId,
     };
     return handle;
   });
@@ -547,15 +566,19 @@ export function registerFileSystemIpcHandlers({
         return;
       }
 
-      await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
       const entries = await readRootsList(storage);
       const existing = entries.find((entry) => entry.path === resolvedPath);
-      if (!existing) {
-        const newEntry: StoredRootEntry = {
+      const entry =
+        existing ??
+        ({
           addedAt: Date.now(),
           path: resolvedPath,
           rootId: crypto.randomUUID(),
-        };
+        } satisfies StoredRootEntry);
+      const canonicalPath = await mountWorkspaceRoot(entry);
+      await storage.setItem(LAST_FOLDER_STORAGE_KEY, canonicalPath);
+      if (!existing) {
+        const newEntry: StoredRootEntry = { ...entry, path: canonicalPath };
         await writeRootsList(storage, [...entries, newEntry]);
       }
     }
@@ -623,6 +646,7 @@ export function registerFileSystemIpcHandlers({
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () => {
     const entries = await readRootsList(storage);
     if (entries.length === 0) {
+      workspaceFileCapabilities.retainRoots(new Set());
       // Not an early return: zero mounted folders is exactly the state in which
       // every remaining 'live' row is stale and must be demoted.
       await convergeRootStatuses([]);
@@ -642,15 +666,18 @@ export function registerFileSystemIpcHandlers({
           logger.debug('Pruning stale root from rootsList', { path: entry.path });
           continue;
         }
-        const basename = path.basename(resolvedPath);
-        survivors.push(entry);
+        const canonicalPath = await mountWorkspaceRoot(entry);
+        const basename = path.basename(canonicalPath);
+        const canonicalEntry = { ...entry, path: canonicalPath };
+        survivors.push(canonicalEntry);
         descriptors.push({
           displayName: basename,
           handle: {
             kind: 'directory',
             name: basename,
-            path: resolvedPath,
+            path: canonicalPath,
             platform: 'electron',
+            rootId: entry.rootId,
           },
           kind: 'path',
           permissionState: 'granted',
@@ -662,7 +689,11 @@ export function registerFileSystemIpcHandlers({
       }
     }
 
-    if (survivors.length !== entries.length) {
+    const rootsChanged =
+      survivors.length !== entries.length ||
+      survivors.some((entry, index) => entry.path !== entries[index]?.path);
+    workspaceFileCapabilities.retainRoots(new Set(survivors.map((entry) => entry.rootId)));
+    if (rootsChanged) {
       await writeRootsList(storage, survivors);
     }
 
@@ -678,22 +709,36 @@ export function registerFileSystemIpcHandlers({
     // adapter stats the picked path, which ENOENTs on e2e mock paths.
     const handle = await resolveRequestedDirectoryHandle(fileSystem);
     const resolvedPath = await resolveFileSystemIpcPath(handle.path, 'added root');
-    const basename = path.basename(resolvedPath);
-
     // Upsert into rootsList keyed by resolved path.
     // No mutex: these handlers are user-gesture-driven (single dialog at a time).
     // Concurrent RMW is only possible across multiple renderer windows, which is
     // not yet a use case. Revisit if programmatic addRoot calls are introduced.
     const entries = await readRootsList(storage);
-    const existing = entries.find((e) => e.path === resolvedPath);
-
-    let rootId: string;
+    let existing = entries.find((entry) => entry.path === resolvedPath);
+    let rootId = existing?.rootId ?? crypto.randomUUID();
     let persisted = true;
 
+    let canonicalPath = await mountWorkspaceRoot({
+      addedAt: Date.now(),
+      path: resolvedPath,
+      rootId,
+    });
+    const canonicalExisting = existing ?? entries.find((entry) => entry.path === canonicalPath);
+    if (canonicalExisting && canonicalExisting.rootId !== rootId) {
+      workspaceFileCapabilities.unmountRoot(rootId);
+      rootId = canonicalExisting.rootId;
+      canonicalPath = await mountWorkspaceRoot({
+        addedAt: Date.now(),
+        path: canonicalPath,
+        rootId,
+      });
+    }
+    existing = canonicalExisting;
+    const basename = path.basename(canonicalPath);
+
     if (existing) {
-      rootId = existing.rootId;
       const updated: StoredRootEntry[] = entries.map((e) =>
-        e.path === resolvedPath ? { ...e, addedAt: Date.now() } : e
+        e.rootId === rootId ? { ...e, addedAt: Date.now(), path: canonicalPath } : e
       );
       try {
         await writeRootsList(storage, updated);
@@ -705,8 +750,7 @@ export function registerFileSystemIpcHandlers({
         logger.warn('addRoot: failed to bump addedAt on existing rootsList entry', { error });
       }
     } else {
-      rootId = crypto.randomUUID();
-      const newEntry: StoredRootEntry = { addedAt: Date.now(), path: resolvedPath, rootId };
+      const newEntry: StoredRootEntry = { addedAt: Date.now(), path: canonicalPath, rootId };
       try {
         await writeRootsList(storage, [...entries, newEntry]);
       } catch (error) {
@@ -717,7 +761,7 @@ export function registerFileSystemIpcHandlers({
 
     // Shim parity: keep writing lastFolderPath
     try {
-      await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
+      await storage.setItem(LAST_FOLDER_STORAGE_KEY, canonicalPath);
     } catch (error) {
       logger.warn('addRoot: failed to write lastFolderPath', { error });
     }
@@ -727,8 +771,9 @@ export function registerFileSystemIpcHandlers({
       handle: {
         kind: 'directory',
         name: basename,
-        path: resolvedPath,
+        path: canonicalPath,
         platform: 'electron',
+        rootId,
       },
       kind: 'path',
       permissionState: 'granted',
@@ -777,6 +822,7 @@ export function registerFileSystemIpcHandlers({
 
       const remaining = entries.filter((entry) => entry.rootId !== rootId);
       await writeRootsList(storage, remaining);
+      workspaceFileCapabilities.unmountRoot(rootId);
 
       // Tear down any pooled LSP language server for this root (report R2): the
       // folder is leaving the workspace, so its server child process must not
@@ -816,5 +862,8 @@ export function registerFileSystemIpcHandlers({
     }
   );
 
-  return () => registry.unregisterAll();
+  return () => {
+    registry.unregisterAll();
+    workspaceFileCapabilities.dispose();
+  };
 }

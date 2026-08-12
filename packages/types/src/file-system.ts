@@ -170,6 +170,8 @@ export interface FileHandle {
   path: string;
   platform: 'web' | 'electron';
   rootFolderId?: string;
+  /** Durable identity of the trusted root that authorized this file handle. */
+  rootId?: RootId;
   size?: number;
 }
 

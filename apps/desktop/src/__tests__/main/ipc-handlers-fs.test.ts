@@ -20,12 +20,14 @@ vi.mock('electron', () => ({
   },
 }));
 
+import type { WorkspaceFileCapabilities } from '../../ipc-domains/workspace-file-capabilities';
 import { registerIpcHandlers } from '../../ipc-handlers';
 
 describe('ipc-handlers filesystem endpoints', () => {
   let fsAdapter: ElectronFileSystemAdapter;
   let storage: ElectronStorageAdapter;
   let store: Record<string, unknown>;
+  let workspaceFileCapabilities: WorkspaceFileCapabilities;
 
   beforeEach(() => {
     handlers.clear();
@@ -60,7 +62,19 @@ describe('ipc-handlers filesystem endpoints', () => {
 
     store = {};
 
-    registerIpcHandlers(fsAdapter, storage, store as never);
+    workspaceFileCapabilities = {
+      dispose: vi.fn(),
+      mountRoot: vi.fn(async ({ path: rootPath }) => path.resolve(rootPath)),
+      readDirectory: (handle) => fsAdapter.readDirectory(handle),
+      readFile: (request) =>
+        typeof request === 'string'
+          ? fsAdapter.readFileByPath(request)
+          : fsAdapter.readFile(request),
+      retainRoots: vi.fn(),
+      unmountRoot: vi.fn(),
+    };
+
+    registerIpcHandlers(fsAdapter, storage, store as never, { workspaceFileCapabilities });
   });
 
   it('fs:requestDirectoryAccess returns mock handle in test mode', async () => {

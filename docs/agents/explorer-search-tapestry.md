@@ -262,6 +262,42 @@ When changing this flow, update this section and the related tests.
 
 ---
 
+## DESKTOP WORKSPACE FILE-READ AUTHORITY
+
+Desktop Explorer reads are capabilities rooted in the main process, not
+renderer-authorized absolute paths (BST-1237). `fs:restoreRoots`, `fs:addRoot`,
+and the legacy last-folder shim mount each real root through
+`workspace-file-capabilities.ts`; that registry canonicalizes the root with
+`allowMissing: false`, pins a native `SecureRoot`, and keys it by durable
+`rootId`. `fs:readDirectory`, `fs:readFile`, and `fs:readFileByPath` then resolve
+only within those mounted roots. A relative read requires a rootId; an absolute
+read must fall inside one mounted root, choosing the longest match for nested
+roots. There is no rootless adapter fallback.
+
+Every target is canonicalized with `allowMissing: false` before the native
+operation. Descendant symlinks/reparse points are intentionally unsupported,
+including in-root, dangling, relative, absolute, and chained links. The native
+capability performs component-relative no-follow traversal (`openat` on POSIX,
+root-relative `NtCreateFile` on Windows), so swapping a parent or leaf after
+validation cannot escape. Directory enumeration includes only entries the
+native layer identifies as regular files or directories; link-like entries are
+omitted before nodes reach indexing. Child handles carry the durable rootId.
+
+The registry closes a prior handle when a root is remounted, closes it on
+disconnect, and closes every remaining handle when the IPC domain unregisters.
+E2E in-memory fixture paths are the sole explicit exception: their handlers
+serve registered fixture data directly and never touch the host filesystem or
+native capability. A rejected content read becomes the worker's explicit
+`inaccessible` result; Workspace Index excludes that entry before importer
+handoff, so no file record/chunk persistence is created for escaped content.
+
+Paired tests:
+`workspace-file-capabilities.test.ts`,
+`workspace-file-capabilities.integration.test.ts`, and
+`file-system-ipc.test.ts`.
+
+---
+
 ## WORKSPACE INDEX TRAVERSAL
 
 The visible Explorer loads directories lazily. Recursive Workspace Index scans

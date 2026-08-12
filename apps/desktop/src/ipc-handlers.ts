@@ -17,6 +17,7 @@ import { registerFileSystemIpcHandlers } from './ipc-domains/file-system-ipc';
 import { registerFileSystemWatchIpcHandlers } from './ipc-domains/file-system-watch-ipc';
 import type { RuntimeDatabaseCorruptionHandler } from './ipc-domains/runtime-database-corruption';
 import { registerStoragePreferencesIpcHandlers } from './ipc-domains/storage-preferences-ipc';
+import type { WorkspaceFileCapabilities } from './ipc-domains/workspace-file-capabilities';
 import { getDesktopDatabaseWorkScheduler } from './platform/desktop-database-work';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
@@ -37,6 +38,7 @@ interface RegisterIpcHandlerOptions {
   readonly getDimensionIndexMaintenanceStrategy?: () => DimensionIndexMaintenanceStrategy | null;
   readonly onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
   readonly onRuntimeCorruption?: RuntimeDatabaseCorruptionHandler;
+  readonly workspaceFileCapabilities?: WorkspaceFileCapabilities;
 }
 
 /**
@@ -64,6 +66,9 @@ export function registerIpcHandlers(
     // the native addon. Resolved lazily, only when fs:removeRoot actually runs.
     getRootsDatabase: async () => (await import('./db-main')).getDatabase(),
     storage,
+    ...(options?.workspaceFileCapabilities === undefined
+      ? {}
+      : { workspaceFileCapabilities: options.workspaceFileCapabilities }),
   });
   const unregisterFileSystemWatchIpcHandlers = registerFileSystemWatchIpcHandlers({
     // Recursive watcher (batched, ignoreInitial, path-filtered) — the same

@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 
-import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
+import { registerFileSystemIpcHandlers as registerProductionFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
+import type { WorkspaceFileCapabilities } from '../../ipc-domains/workspace-file-capabilities';
 import {
   createFileSystem,
   createStorage,
@@ -19,6 +20,32 @@ import {
   removeHandler,
   rootsDbQuery,
 } from './file-system-ipc-test-harness';
+
+type RegisterOptions = Parameters<typeof registerProductionFileSystemIpcHandlers>[0];
+
+function createAdapterBackedCapabilities(
+  fileSystem: ElectronFileSystemAdapter
+): WorkspaceFileCapabilities {
+  return {
+    dispose: vi.fn(),
+    mountRoot: vi.fn(async ({ path: rootPath }) => path.resolve(rootPath)),
+    readDirectory: (handle) => fileSystem.readDirectory(handle),
+    readFile: (request) =>
+      typeof request === 'string'
+        ? fileSystem.readFileByPath(request)
+        : fileSystem.readFile(request),
+    retainRoots: vi.fn(),
+    unmountRoot: vi.fn(),
+  };
+}
+
+function registerFileSystemIpcHandlers(options: RegisterOptions): () => void {
+  return registerProductionFileSystemIpcHandlers({
+    ...options,
+    workspaceFileCapabilities:
+      options.workspaceFileCapabilities ?? createAdapterBackedCapabilities(options.fileSystem),
+  });
+}
 
 describe('file system IPC domain', () => {
   let fileSystem: ElectronFileSystemAdapter;
@@ -141,7 +168,11 @@ describe('file system IPC domain', () => {
 
   it('restores last folder handles and unregisters file channels', async () => {
     const restoredPath = path.resolve('/users/test/project');
-    vi.mocked(storage.getItem).mockResolvedValue('/users/test/project');
+    vi.mocked(storage.getItem)
+      .mockResolvedValueOnce('/users/test/project')
+      .mockResolvedValueOnce(
+        JSON.stringify([{ addedAt: 1, path: restoredPath, rootId: 'root-id-1' }])
+      );
 
     await expect(handlers.get('fs:restoreLastFolder')?.({} as IpcMainInvokeEvent)).resolves.toEqual(
       {
@@ -149,6 +180,7 @@ describe('file system IPC domain', () => {
         name: 'project',
         path: restoredPath,
         platform: 'electron',
+        rootId: 'root-id-1',
       }
     );
     expect(fileSystem.exists).toHaveBeenCalledWith(restoredPath);
@@ -199,6 +231,7 @@ describe('fs:restoreRoots', () => {
           name: 'good-project',
           path: goodPath,
           platform: 'electron',
+          rootId: 'root-id-1',
         },
         kind: 'path',
         permissionState: 'granted',
@@ -268,6 +301,7 @@ describe('fs:restoreRoots', () => {
           name: 'directory',
           path: '/mock/test/directory',
           platform: 'electron',
+          rootId: 'mock-root-id',
         },
         kind: 'path',
         permissionState: 'granted',
