@@ -97,6 +97,9 @@ interface DesktopPlatformDiagnosticsSnapshot {
     readonly suppressedRendererReloadCount: number;
   };
   readonly embeddingHost: RuntimeHostPlatformStatus;
+  readonly errors?: {
+    readonly embeddingTelemetry?: string;
+  };
   readonly indexing?: {
     readonly activeBackfills: readonly unknown[];
     readonly databaseWork: unknown;
@@ -480,21 +483,36 @@ function formatBinaryBytes(bytes: number): string {
 }
 
 function EmbeddingRuntimeDiagnosticsCard({
+  providerError,
   telemetry,
 }: {
+  readonly providerError: string | null;
   readonly telemetry: EmbeddingTelemetrySnapshot;
 }): ReactElement {
   const hasSamples = telemetry.lastUpdatedAt !== null;
-  const hasFailures = telemetry.health.failureCount > 0;
+  const hasFailures = providerError !== null || telemetry.health.failureCount > 0;
   return (
     <DiagnosticCard
       description="Worker transfer and model residency"
       icon={<Activity className="h-4 w-4 text-primary" />}
       status={hasFailures ? 'error' : hasSamples ? 'success' : 'warning'}
-      statusLabel={hasFailures ? 'Telemetry degraded' : hasSamples ? 'Observed' : 'No samples'}
+      statusLabel={
+        providerError
+          ? 'Embedding telemetry unavailable'
+          : hasFailures
+            ? 'Telemetry degraded'
+            : hasSamples
+              ? 'Observed'
+              : 'No samples'
+      }
       title="Embedding Runtime"
     >
       <div className="space-y-2 text-xs">
+        {providerError ? (
+          <div className="text-destructive" role="alert">
+            {providerError}
+          </div>
+        ) : null}
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Pipeline Cache</span>
           <span className="font-medium">
@@ -829,6 +847,10 @@ export function SystemDiagnosticsPanel({
   );
   const embeddingTelemetry =
     desktopEmbeddingTelemetry ?? desktopSnapshot?.telemetry?.embedding ?? localEmbeddingTelemetry;
+  const embeddingTelemetryProviderError =
+    desktopEmbeddingTelemetry === null
+      ? (desktopSnapshot?.errors?.embeddingTelemetry ?? null)
+      : null;
   const databaseQuerySnapshot = useSyncExternalStore(
     databaseQueryTelemetry.subscribe,
     databaseQueryTelemetry.getSnapshot,
@@ -975,7 +997,10 @@ export function SystemDiagnosticsPanel({
         <DatabaseQueryTelemetrySection snapshot={databaseQuerySnapshot} />
         <RendererLongTaskStatusSection snapshot={longTaskSnapshot} />
         {desktopSnapshot && <DesktopPlatformStatusSection snapshot={desktopSnapshot} />}
-        <EmbeddingRuntimeDiagnosticsCard telemetry={embeddingTelemetry} />
+        <EmbeddingRuntimeDiagnosticsCard
+          providerError={embeddingTelemetryProviderError}
+          telemetry={embeddingTelemetry}
+        />
         {desktopDiagnosticsError && (
           <DiagnosticCard
             description="Hidden desktop runtime hosts"

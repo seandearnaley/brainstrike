@@ -474,6 +474,19 @@ export function recordEmbeddingPipelineCacheTelemetry(
   sourceId: string,
   event: EmbedWorkerPipelineCacheDiagnostic
 ): void {
+  if (event.event === 'hit') {
+    const source = sources.get(sourceId);
+    if (
+      !(event.entry && source?.cacheEntries.has(event.entry.cacheKey)) ||
+      event.cacheSize !== source.cacheEntries.size
+    ) {
+      throw new Error('Embedding telemetry cache hit must reference tracked resident cache state.');
+    }
+    source.cacheEntries.set(event.entry.cacheKey, event.entry);
+    markSnapshotDirty();
+    return;
+  }
+
   const source = getOrCreateSource(sourceId);
   if (event.entries) {
     source.cacheEntries = new Map(event.entries.map((entry) => [entry.cacheKey, entry]));

@@ -373,4 +373,63 @@ describe('embedding telemetry store', () => {
       residentCount: 0,
     });
   });
+
+  it('rejects cache hits that disagree with the tracked resident cache', () => {
+    const residentEntry = {
+      cacheKey: 'model-a|webgpu|fp16',
+      createdAt: 100,
+      device: 'webgpu',
+      dtype: 'fp16',
+      lastUsedAt: 200,
+      memory: {
+        gpuBytes: 1024,
+        heapBytes: 0,
+        reason: 'model-size-estimate',
+      },
+      model: 'model-a',
+      residencyMs: 100,
+    } as const;
+    recordEmbeddingPipelineCacheTelemetry('worker-a', {
+      cacheSize: 1,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 200,
+      entries: [residentEntry],
+      event: 'loaded',
+      id: 'embed-1',
+      type: 'diagnostic',
+      workerInstanceId: 'worker-a',
+    });
+
+    expect(() =>
+      recordEmbeddingPipelineCacheTelemetry('worker-a', {
+        cacheSize: 1,
+        diagnostic: 'pipeline-cache',
+        emittedAt: 300,
+        entry: {
+          ...residentEntry,
+          cacheKey: 'model-b|webgpu|fp16',
+          model: 'model-b',
+        },
+        event: 'hit',
+        id: 'embed-2',
+        type: 'diagnostic',
+        workerInstanceId: 'worker-a',
+      })
+    ).toThrow('Embedding telemetry cache hit must reference tracked resident cache state.');
+    expect(() =>
+      recordEmbeddingPipelineCacheTelemetry('worker-a', {
+        cacheSize: 2,
+        diagnostic: 'pipeline-cache',
+        emittedAt: 300,
+        entry: residentEntry,
+        event: 'hit',
+        id: 'embed-2',
+        type: 'diagnostic',
+        workerInstanceId: 'worker-a',
+      })
+    ).toThrow('Embedding telemetry cache hit must reference tracked resident cache state.');
+    expect(getEmbeddingTelemetrySnapshot().cache.entries).toEqual([
+      expect.objectContaining({ cacheKey: residentEntry.cacheKey, sourceId: 'worker-a' }),
+    ]);
+  });
 });
