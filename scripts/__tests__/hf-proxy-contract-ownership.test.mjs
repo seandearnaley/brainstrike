@@ -24,7 +24,7 @@ describe('Hugging Face proxy contract ownership', () => {
     ['production proxy', productionProxySource],
   ]) {
     it(`${name} imports the shared constants instead of redeclaring them`, () => {
-      assert.match(source, /from ['"].*hf-proxy-contract\.js['"]/);
+      assert.match(source, /from ['"].*hf-proxy-contract['"]/);
       for (const constantName of sharedConstantNames) {
         assert.doesNotMatch(source, new RegExp(`const\\s+${constantName}\\s*=`));
       }

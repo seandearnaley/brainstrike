@@ -1,7 +1,11 @@
 import type http from 'node:http';
+import {
+  ALLOWED_MODEL_ID,
+  FORWARDED_REQUEST_HEADERS,
+  HUGGING_FACE_BASE_URL,
+  PASSTHROUGH_RESPONSE_HEADERS,
+} from './hf-proxy-contract';
 
-const HUGGING_FACE_BASE_URL = 'https://huggingface.co';
-const ALLOWED_MODEL_ID = 'onnx-community/gemma-4-E2B-it-ONNX';
 const ALLOWED_RESOLVE_PREFIX = `/${ALLOWED_MODEL_ID}/resolve/`;
 // INACTIVITY window, never a wall-clock ceiling: model shards are multi-GB
 // and take minutes to stream — a whole-transfer deadline truncates them
@@ -9,23 +13,6 @@ const ALLOWED_RESOLVE_PREFIX = `/${ALLOWED_MODEL_ID}/resolve/`;
 // unhandled "network error"). The deadline refreshes on every chunk, so a
 // healthy slow download survives while a wedged upstream still aborts.
 const UPSTREAM_INACTIVITY_TIMEOUT_MS = 30_000;
-
-const FORWARDED_REQUEST_HEADERS = [
-  'accept',
-  'if-modified-since',
-  'if-none-match',
-  'range',
-] as const;
-
-const PASSTHROUGH_RESPONSE_HEADERS = [
-  'accept-ranges',
-  'cache-control',
-  'content-length',
-  'content-range',
-  'content-type',
-  'etag',
-  'last-modified',
-] as const;
 
 export function isAllowedHfDevPath(path: string): boolean {
   if (!path.startsWith(ALLOWED_RESOLVE_PREFIX)) {
