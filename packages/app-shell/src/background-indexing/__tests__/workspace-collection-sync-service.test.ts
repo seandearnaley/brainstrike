@@ -80,12 +80,13 @@ describe('WorkspaceCollectionSyncService', () => {
       },
     ]);
     runEnhancedImportMock.mockImplementation(async (params) => {
-      await params.baseImportRunner({
+      const baseResults = await params.baseImportRunner({
         fileContents: params.request.fileContents,
         fileTree: params.request.fileTree,
         onProgress: () => {},
         selectedFilePaths: params.request.selectedFilePaths,
       });
+      params.onChunkingStart?.(baseResults);
       return [];
     });
   });

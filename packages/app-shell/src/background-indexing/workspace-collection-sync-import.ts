@@ -1248,10 +1248,6 @@ export async function runRootFolderCacheImport(args: {
               waitForBackgroundPermit,
             });
             errors.push(...batchOutcome.errors);
-            const importedBatch = selectImportedBatchChanges(selectedBatch, batchOutcome.results);
-            if (importedBatch.length > 0) {
-              onChunkingBatchStart?.(importedBatch);
-            }
             for (const result of batchOutcome.results) {
               results.push(result);
               completed += 1;
@@ -1294,6 +1290,12 @@ export async function runRootFolderCacheImport(args: {
           enabled: true,
         },
         embedding: embeddingConfig,
+        onChunkingStart: (baseResults) => {
+          const importedBatch = selectImportedBatchChanges(batch, baseResults);
+          if (importedBatch.length > 0) {
+            onChunkingBatchStart?.(importedBatch);
+          }
+        },
         ports: {
           embeddingQueue,
           sql,

@@ -220,6 +220,7 @@ interface RunEnhancedImportParams<TFileNode = unknown> {
   baseImportRunner: BaseImportRunner<TFileNode>;
   chunking: ChunkingConfiguration;
   embedding?: EmbeddingConfiguration;
+  onChunkingStart?: (baseResults: readonly FileImportResult[]) => void;
   ports?: RunEnhancedImportPorts;
   processChunkingImpl?: typeof processChunking;
   processEmbeddingsImpl?: typeof processEmbeddings;
@@ -1010,6 +1011,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
   baseImportRunner,
   chunking,
   embedding,
+  onChunkingStart,
   ports,
   progressHandlers,
   processChunkingImpl = processChunking,
@@ -1131,6 +1133,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
     let enhancedResults: EnhancedImportResult[];
     try {
       throwIfAborted(abortSignal);
+      onChunkingStart?.(baseResults);
       enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
     } finally {
       // Always exit bulk mode, even on error

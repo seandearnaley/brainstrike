@@ -108,6 +108,37 @@ describe('runEnhancedImport', () => {
     );
   });
 
+  it('signals chunking start immediately before invoking the chunking implementation', async () => {
+    const callOrder: string[] = [];
+    const baseResults = [{ chunksCreated: 0, existed: false, id: '1', imported: true }];
+
+    await runEnhancedImport({
+      baseImportRunner: createBaseRunner(baseResults),
+      chunking: {
+        deps: { chunkRepository: {} as never, repository: {} as never },
+        enabled: true,
+      },
+      onChunkingStart: (results) => {
+        expect(results).toEqual([{ existed: false, id: '1', imported: true }]);
+        callOrder.push('hook');
+      },
+      processChunkingImpl: vi.fn(async () => {
+        callOrder.push('chunking');
+        return baseResults;
+      }),
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      request: {
+        fileContents: {},
+        fileTree: [],
+        selectedFilePaths: new Set(['1']),
+      },
+    });
+
+    expect(callOrder).toEqual(['hook', 'chunking']);
+  });
+
   it('does not throw error when embeddings disabled (chunks still get embedding_set_id)', async () => {
     const chunkingImpl = vi.fn().mockResolvedValue([
       {

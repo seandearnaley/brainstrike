@@ -31,6 +31,7 @@ vi.mock('@brainstrike/file-import', async (importOriginal) => {
     runEnhancedImport: vi.fn(
       async ({
         baseImportRunner,
+        onChunkingStart,
         request,
       }: {
         baseImportRunner: (args: {
@@ -39,6 +40,9 @@ vi.mock('@brainstrike/file-import', async (importOriginal) => {
           onProgress: (p: unknown) => void;
           selectedFilePaths: Set<string>;
         }) => Promise<Array<{ id: string; imported: boolean; existed: boolean }>>;
+        onChunkingStart?: (
+          baseResults: readonly { id: string; imported: boolean; existed: boolean }[]
+        ) => void;
         request: {
           fileContents: Record<string, string>;
           fileTree: IFileNode[];
@@ -51,6 +55,7 @@ vi.mock('@brainstrike/file-import', async (importOriginal) => {
           onProgress: () => {},
           selectedFilePaths: request.selectedFilePaths,
         });
+        onChunkingStart?.(results);
         return results.map((r) => ({ ...r, chunksCreated: 0 }));
       }
     ),
@@ -953,15 +958,18 @@ describe('runRootFolderCacheImport — rootId threading', () => {
       },
     };
     const onChunkingBatchStart = vi.fn();
-    vi.mocked(runEnhancedImport).mockImplementationOnce(async ({ baseImportRunner, request }) => {
-      await baseImportRunner({
-        fileContents: request.fileContents,
-        fileTree: request.fileTree,
-        onProgress: () => {},
-        selectedFilePaths: request.selectedFilePaths,
-      });
-      throw new Error('first chunking batch failed');
-    });
+    vi.mocked(runEnhancedImport).mockImplementationOnce(
+      async ({ baseImportRunner, onChunkingStart, request }) => {
+        const baseResults = await baseImportRunner({
+          fileContents: request.fileContents,
+          fileTree: request.fileTree,
+          onProgress: () => {},
+          selectedFilePaths: request.selectedFilePaths,
+        });
+        onChunkingStart?.(baseResults);
+        throw new Error('first chunking batch failed');
+      }
+    );
 
     await expect(
       runRootFolderCacheImport({
@@ -1058,6 +1066,60 @@ describe('runRootFolderCacheImport — rootId threading', () => {
       setImporting: () => {},
       waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
     });
+
+    expect(onChunkingBatchStart).not.toHaveBeenCalled();
+  });
+
+  it('does not record redispatch handoff when enhanced import fails before chunking', async () => {
+    const change = makeMinimalChange();
+    const onChunkingBatchStart = vi.fn();
+    vi.mocked(runEnhancedImport).mockImplementationOnce(async ({ baseImportRunner, request }) => {
+      await baseImportRunner({
+        fileContents: request.fileContents,
+        fileTree: request.fileTree,
+        onProgress: () => {},
+        selectedFilePaths: request.selectedFilePaths,
+      });
+      throw new Error('model resolution failed before chunking');
+    });
+
+    await expect(
+      runRootFolderCacheImport({
+        abortSignal: new AbortController().signal,
+        applyManagedCacheBatch: vi.fn().mockResolvedValue(undefined),
+        changes: [change],
+        chunkingWorkerPort: {
+          chunkBatch: vi.fn().mockResolvedValue([]),
+          chunkFile: vi.fn().mockResolvedValue({ chunks: [] }),
+          isReady: vi.fn().mockReturnValue(true),
+          transportKind: 'local',
+        } as never,
+        chunkRepository: {
+          deleteByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          deleteChunksByFileRecordId: vi.fn().mockResolvedValue(undefined),
+          findByFileRecordId: vi.fn().mockResolvedValue([]),
+          insertChunks: vi.fn().mockResolvedValue(undefined),
+        } as never,
+        collection: makeMinimalCollection(),
+        db: makeMinimalDb() as never,
+        fileContentProcessor: makeMinimalFileContentProcessor(change),
+        fileRecordRepository: {
+          findByCollectionId: vi.fn().mockResolvedValue([]),
+          upsertFileRecord: vi.fn().mockResolvedValue({ id: change.id }),
+        } as never,
+        onChunkingBatchStart,
+        onProgress: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 1,
+        },
+        rootId: 'root-db-1',
+        setImporting: () => {},
+        waitForBackgroundPermit: vi.fn().mockResolvedValue(undefined),
+      })
+    ).rejects.toThrow('model resolution failed before chunking');
 
     expect(onChunkingBatchStart).not.toHaveBeenCalled();
   });
