@@ -767,10 +767,11 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
   } = params;
   const deps: AgentStreamHelperDeps<K> = { capabilities, logger };
   // Multi-root: resolve the active workspace roots from the DB `roots` table so
-  // the assistant's file/search tools can disambiguate paths across roots. The
-  // helper falls back to the single focused root on an empty/failed lookup.
+  // the assistant's file/search tools can disambiguate paths across roots. A
+  // failed lookup leaves the authoritative inventory unavailable, so workspace
+  // tool authorization fails closed instead of synthesizing the focused path.
   const rootsDatabase = await getDatabase().catch((error: unknown) => {
-    logger.warn('Workspace roots DB unavailable; tools fall back to the focused root.', { error });
+    logger.warn('Workspace roots DB unavailable; workspace tools fail closed.', { error });
     return null;
   });
   let runtimeData: RuntimeData | undefined;
