@@ -17,7 +17,55 @@ import {
 describe('fs:saveLastFolder capability rollback', () => {
   beforeEach(() => {
     handlers.clear();
+    getRootsDatabase.mockClear();
     removeHandler.mockClear();
+  });
+
+  it('revokes an in-flight legacy restore when a concurrent disconnect finishes first', async () => {
+    const entry = {
+      addedAt: 1,
+      path: path.resolve('/users/test/my-project'),
+      rootId: 'root-existing',
+    };
+    const fileSystem = createFileSystem();
+    const storage = createStorage({
+      lastFolderPath: entry.path,
+      rootsList: JSON.stringify([entry]),
+    });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    let releaseMount: (() => void) | undefined;
+    let markMountStarted: (() => void) | undefined;
+    const mountPaused = new Promise<void>((resolve) => {
+      releaseMount = resolve;
+    });
+    const mountStarted = new Promise<void>((resolve) => {
+      markMountStarted = resolve;
+    });
+    vi.mocked(capabilities.mountRoot).mockImplementationOnce(async () => {
+      markMountStarted?.();
+      await mountPaused;
+      return entry.path;
+    });
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    const restorePromise = handlers.get('fs:restoreLastFolder')?.({} as IpcMainInvokeEvent);
+    await mountStarted;
+    const removePromise = handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, entry.rootId);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(getRootsDatabase).toHaveBeenCalledOnce();
+    expect(capabilities.unmountRoot).toHaveBeenCalledTimes(1);
+
+    releaseMount?.();
+    const [restored] = await Promise.all([restorePromise, removePromise]);
+    expect(restored).toBeNull();
+    expect(capabilities.unmountRoot).toHaveBeenCalledWith(entry.rootId);
+    expect(capabilities.unmountRoot).toHaveBeenCalledTimes(2);
+    await expect(storage.getItem('rootsList')).resolves.toBe('[]');
   });
 
   it.each([

@@ -636,7 +636,6 @@ export function registerFileSystemIpcHandlers({
 
     let exists: boolean;
     try {
-      // Mock-aware existence (same class as restoreRoots — see ipcPathExists).
       exists = await ipcPathExists(fileSystem, resolvedPath);
     } catch (error) {
       if (process.env['NODE_ENV'] === 'development') {
@@ -659,6 +658,10 @@ export function registerFileSystemIpcHandlers({
       return null;
     }
     const canonicalPath = await mountWorkspaceRoot(entry);
+    if (sessionRevokedRootIds.has(entry.rootId)) {
+      workspaceFileCapabilities.unmountRoot(entry.rootId);
+      return null;
+    }
     const handle: DirectoryHandle = {
       kind: 'directory',
       name: path.basename(canonicalPath),
@@ -744,8 +747,6 @@ export function registerFileSystemIpcHandlers({
     let exists: boolean;
     try {
       const resolvedPath = await resolveFileSystemIpcPath(entry.path, 'stored root');
-      // Mock-aware existence: a raw fileSystem.exists would stat the real disk
-      // and prune e2e-seeded mock roots (see ipcPathExists).
       exists = await ipcPathExists(fileSystem, resolvedPath);
     } catch (error) {
       logger.debug('Skipping invalid root entry during restore', { error, path: entry.path });
@@ -756,8 +757,6 @@ export function registerFileSystemIpcHandlers({
       return null;
     }
 
-    // Capability construction failures are not proof that the saved root is
-    // stale. Surface them so transient failure cannot delete user state.
     const { canonicalPath, newlyMounted } = await mountWorkspaceRootIfNeeded(entry);
     const basename = path.basename(canonicalPath);
     return {
