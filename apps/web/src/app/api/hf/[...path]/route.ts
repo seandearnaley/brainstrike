@@ -1,25 +1,12 @@
 import { createLogger } from '@brainstrike/logging';
+import {
+  ALLOWED_MODEL_ID,
+  ALLOWED_MODEL_REVISION,
+  FORWARDED_REQUEST_HEADERS,
+  HUGGING_FACE_BASE_URL,
+  PASSTHROUGH_RESPONSE_HEADERS,
+} from '../../../../hf-proxy-contract';
 
-const HUGGING_FACE_BASE_URL = 'https://huggingface.co';
-// Keep this pinned to the same built-in local model contract as
-// packages/agent/src/providers/local/local-model-specs.ts.
-const ALLOWED_MODEL_ID = 'onnx-community/gemma-4-E2B-it-ONNX';
-const ALLOWED_MODEL_REVISION = '30b3854c1ca3e0f08981e1a439de9fbd9245a3a9';
-const FORWARDED_REQUEST_HEADERS = [
-  'accept',
-  'if-modified-since',
-  'if-none-match',
-  'range',
-] as const;
-const PASSTHROUGH_RESPONSE_HEADERS = [
-  'accept-ranges',
-  'cache-control',
-  'content-length',
-  'content-range',
-  'content-type',
-  'etag',
-  'last-modified',
-] as const;
 const logger = createLogger('HuggingFaceProxyRoute');
 
 export const runtime = 'nodejs';
@@ -40,8 +27,7 @@ function isAllowedPath(pathSegments: string[]): boolean {
   }
 
   return (
-    pathSegments[0] === 'onnx-community' &&
-    pathSegments[1] === 'gemma-4-E2B-it-ONNX' &&
+    `${pathSegments[0]}/${pathSegments[1]}` === ALLOWED_MODEL_ID &&
     pathSegments[2] === 'resolve' &&
     pathSegments[3] === ALLOWED_MODEL_REVISION
   );
