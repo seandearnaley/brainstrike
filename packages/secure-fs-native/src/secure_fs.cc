@@ -303,11 +303,15 @@ NativeHandle OpenRelativeDirectory(NativeHandle root,
     *not_found = false;
   }
   bool component_not_found = false;
-  NativeHandle current = OpenRelativeComponent(root, L".", true, &component_not_found);
+  NativeHandle current = ReOpenFile(
+      root, FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+  if (current != kInvalidHandle && IsReparsePoint(current)) {
+    CloseNativeHandle(current);
+    current = kInvalidHandle;
+  }
   if (current == kInvalidHandle) {
-    if (not_found != nullptr) {
-      *not_found = component_not_found;
-    }
     return kInvalidHandle;
   }
   for (const auto& component : components) {

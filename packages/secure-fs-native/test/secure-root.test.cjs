@@ -32,6 +32,11 @@ function fixture() {
   return { commands, workspace };
 }
 
+test('exposes a constructible named export through dynamic import', async () => {
+  const imported = await import('../index.cjs');
+  assert.equal(imported.SecureRoot, SecureRoot);
+});
+
 test('lists metadata and reads regular files asynchronously beneath a pinned root', async () => {
   const { workspace } = fixture();
   const filePath = path.join(workspace, '.brainstrike', 'commands', 'review.md');

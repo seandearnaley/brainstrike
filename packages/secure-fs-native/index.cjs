@@ -36,4 +36,4 @@ class SecureRoot {
   }
 }
 
-module.exports = { ['SecureRoot']: SecureRoot };
+exports.SecureRoot = SecureRoot;
