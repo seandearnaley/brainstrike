@@ -7,6 +7,10 @@ const sharedContractSource = readFileSync(
   new URL('../../apps/web/src/hf-proxy-contract.ts', import.meta.url),
   'utf8'
 );
+const localInferenceContract = readFileSync(
+  new URL('../../docs/agents/local-inference.md', import.meta.url),
+  'utf8'
+);
 const devProxySource = readFileSync(
   new URL('../../apps/web/src/hf-dev-proxy.ts', import.meta.url),
   'utf8'
@@ -65,6 +69,24 @@ function stringLiteralsIn(sourceFile) {
 }
 
 describe('Hugging Face proxy contract ownership', () => {
+  it('documents the web proxy ownership and verification seam', () => {
+    const section = localInferenceContract.match(
+      /^6\. Web Hugging Face proxy contract\n(?<body>[\s\S]*?)(?=^Constraints:)/m
+    );
+    assert.ok(section?.groups?.body, 'local-inference.md must define the web proxy contract');
+    for (const requiredText of [
+      'packages/assistant-contract/src/local-llm.ts',
+      'apps/web/src/hf-proxy-contract.ts',
+      'apps/web/src/hf-dev-proxy.ts',
+      'apps/web/src/app/api/hf/[...path]/route.ts',
+      'ALLOWED_MODEL_ID',
+      'ALLOWED_MODEL_REVISION',
+      'node --test scripts/__tests__/hf-proxy-contract-ownership.test.mjs',
+    ]) {
+      assert.ok(section.groups.body.includes(requiredText), `proxy contract omits ${requiredText}`);
+    }
+  });
+
   it('derives the allowed model and revision from the canonical local model contract', () => {
     const sourceFile = parse(sharedContractSource, 'hf-proxy-contract.ts');
     const imports = namedImportsFrom(

@@ -354,6 +354,23 @@ Flow:
    - `LocalLlmBackend` is a thin orchestrator over the Gemma engine/spec/artifact layers.
    - On web, tool calls are executed through the UI/runtime tool bridge; on
      desktop they run through the Mastra agent loop like hosted providers.
+6. Web Hugging Face proxy contract
+   - Files:
+     - packages/assistant-contract/src/local-llm.ts
+     - packages/assistant-contract/src/local-llm-model-specs.ts
+     - apps/web/src/hf-proxy-contract.ts
+     - apps/web/src/hf-dev-proxy.ts
+     - apps/web/src/app/api/hf/[...path]/route.ts
+   - `GEMMA4_E2B_MODEL_ID` and `GEMMA4_E2B_REVISION` are the canonical built-in
+     model identity. `hf-proxy-contract.ts` derives `ALLOWED_MODEL_ID` and
+     `ALLOWED_MODEL_REVISION` from those exports and exclusively owns the web
+     proxies' Hugging Face base URL and header allowlists.
+   - Both proxy consumers import that shared contract. The production route
+     pins `ALLOWED_MODEL_REVISION`; the development proxy intentionally accepts
+     any revision below the allowed model's resolve path. Do not duplicate the
+     model, revision, URL, or header values in either consumer.
+   - Verification: `node --test scripts/__tests__/hf-proxy-contract-ownership.test.mjs`
+     plus the web proxy unit tests (`pnpm --filter @brainstrike/web test`).
 
 Constraints:
 - Built-in local model downloads are manifest-based, not single-file heuristics.
