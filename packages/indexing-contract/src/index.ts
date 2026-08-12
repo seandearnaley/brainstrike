@@ -1,4 +1,7 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
+import type { EmbeddingDimensionParameter } from './embedding-worker-protocol.js';
+
+export * from './embedding-worker-protocol.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 
@@ -478,17 +481,6 @@ export function getChunkingRoutePreview(
   }));
 }
 
-export type EmbeddingDevice = 'webgpu' | 'wasm';
-
-export type EmbeddingDeviceHint = EmbeddingDevice;
-
-export type EmbeddingDType = 'fp16' | 'q4' | 'fp32';
-
-export type EmbeddingDimensionParameter =
-  | 'dimensions'
-  | 'output_dimensionality'
-  | 'output_dimension';
-
 export type EmbeddingProviderType =
   | 'local'
   | 'transformers'
@@ -873,121 +865,3 @@ export function canonicalizeEmbeddingProviderModelKey(
     provider,
   };
 }
-
-export interface EmbedWorkerRequest {
-  readonly deviceHint: EmbeddingDeviceHint;
-  readonly dimensionParameter?: EmbeddingDimensionParameter;
-  readonly dtype?: EmbeddingDType;
-  readonly id: string;
-  readonly maxBatchSize?: number;
-  readonly model: string;
-  readonly provider?: string;
-  readonly targetDimension?: number;
-  readonly texts: readonly string[];
-  readonly truncateDim?: number;
-  readonly type: 'embed';
-}
-
-export interface EmbedWorkerProgress {
-  readonly id: string;
-  readonly phase: 'initializing' | 'embedding' | 'complete';
-  readonly progress: number;
-  readonly type: 'progress';
-}
-
-export interface EmbedWorkerPipelineCacheMemoryDiagnostic {
-  readonly gpuBytes: number | null;
-  readonly heapBytes: number | null;
-  readonly reason: 'browser-runtime-unavailable' | 'measured';
-}
-
-export interface EmbedWorkerPipelineCacheEntryDiagnostic {
-  readonly cacheKey: string;
-  readonly createdAt: number;
-  readonly device: EmbeddingDevice;
-  readonly dtype: EmbeddingDType;
-  readonly lastUsedAt: number;
-  readonly memory: EmbedWorkerPipelineCacheMemoryDiagnostic;
-  readonly model: string;
-  readonly residencyMs: number;
-}
-
-interface EmbedWorkerPipelineCacheDiagnosticBase {
-  readonly cacheSize: number;
-  readonly diagnostic: 'pipeline-cache';
-  readonly emittedAt: number;
-  /** Full cache snapshot for non-hot-path events. */
-  readonly entries?: readonly EmbedWorkerPipelineCacheEntryDiagnostic[];
-  /** Subject pipeline for this diagnostic event. */
-  readonly entry?: EmbedWorkerPipelineCacheEntryDiagnostic;
-  readonly id?: string;
-  readonly type: 'diagnostic';
-}
-
-export type EmbedWorkerPipelineCacheDiagnostic = EmbedWorkerPipelineCacheDiagnosticBase &
-  (
-    | {
-        readonly event: 'hit' | 'loaded';
-        readonly reason?: never;
-      }
-    | {
-        readonly event: 'disposed';
-        readonly reason: 'manual-dispose';
-      }
-    | {
-        readonly event: 'evicted';
-        readonly reason: 'device-lost' | 'idle-timeout' | 'resident-limit';
-      }
-    | {
-        readonly event: 'invalidated';
-        readonly reason: 'device-lost';
-      }
-    | {
-        readonly event: 'load-failed';
-        readonly reason: 'load-failure';
-      }
-  );
-
-export interface EmbedWorkerBatch {
-  readonly batchIndex: number;
-  readonly endIndex: number;
-  readonly id: string;
-  readonly startIndex: number;
-  readonly type: 'batch';
-  readonly vectors: readonly Float32Array[];
-}
-
-export interface EmbedWorkerSuccess {
-  readonly id: string;
-  readonly metadata: {
-    readonly model: string;
-    readonly device: EmbeddingDevice;
-    readonly dtype: EmbeddingDType;
-    readonly batchSize: number;
-    readonly elapsedMs: number;
-    readonly fallbackApplied: boolean;
-    readonly dimensions: number;
-  };
-  readonly type: 'result';
-  readonly vectors: readonly Float32Array[];
-}
-
-export interface EmbedWorkerError {
-  readonly cause?: string | undefined;
-  readonly id: string;
-  readonly message: string;
-  readonly type: 'error';
-}
-
-export interface EmbedWorkerComplete {
-  readonly id: string;
-  readonly metadata: EmbedWorkerSuccess['metadata'];
-  readonly type: 'complete';
-}
-
-export type EmbedWorkerStreamEvent =
-  | EmbedWorkerBatch
-  | EmbedWorkerComplete
-  | EmbedWorkerPipelineCacheDiagnostic
-  | EmbedWorkerError
-  | EmbedWorkerProgress;

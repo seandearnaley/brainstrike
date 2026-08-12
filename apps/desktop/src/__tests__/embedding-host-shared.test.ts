@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { assertEmbeddingHostCommand, createEmbeddingHostCommand } from '../embedding-host-shared';
+import {
+  assertEmbeddingHostCommand,
+  assertEmbeddingHostStatus,
+  createEmbeddingHostCommand,
+} from '../embedding-host-shared';
 
 describe('embedding host shared command helpers', () => {
   beforeEach(() => {
@@ -61,5 +65,59 @@ describe('embedding host shared command helpers', () => {
     expect(() => createEmbeddingHostCommand('reset', 'embedding-host:runtime-1', '   ')).toThrow(
       'Embedding host reset commands require a non-empty nextRuntimeId.'
     );
+  });
+
+  it('validates embedding telemetry crossing the host status boundary', () => {
+    expect(
+      assertEmbeddingHostStatus({
+        active: false,
+        embeddingRuntime: {
+          actualWorkerMetadata: null,
+          backendMismatch: false,
+          selectedDevicePreference: 'webgpu',
+          telemetry: {
+            batchTransfer: { batchCount: 1, lastBytes: 12, peakBytes: 12, totalBytes: 12 },
+            cache: {
+              entries: [],
+              estimatedGpuBytes: 0,
+              estimatedHeapBytes: 0,
+              memoryEstimateUnavailableCount: 0,
+              residentCount: 0,
+            },
+            health: { failureCount: 0, lastFailure: null },
+            lastUpdatedAt: 1000,
+            peakVectorsInFlight: 1,
+          },
+        },
+        lastError: null,
+        runtimeId: 'embedding-host:runtime-1',
+        runtimeKind: 'embedding-host',
+        state: 'running',
+      }).embeddingRuntime?.telemetry.batchTransfer.totalBytes
+    ).toBe(12);
+  });
+
+  it('rejects malformed embedding telemetry at the host status boundary', () => {
+    expect(() =>
+      assertEmbeddingHostStatus({
+        active: false,
+        embeddingRuntime: {
+          actualWorkerMetadata: null,
+          backendMismatch: false,
+          selectedDevicePreference: 'webgpu',
+          telemetry: {
+            batchTransfer: { batchCount: 0, lastBytes: -1, peakBytes: 0, totalBytes: 0 },
+            cache: { entries: [] },
+            health: { failureCount: 0, lastFailure: null },
+            lastUpdatedAt: null,
+            peakVectorsInFlight: 0,
+          },
+        },
+        lastError: null,
+        runtimeId: 'embedding-host:runtime-1',
+        runtimeKind: 'embedding-host',
+        state: 'running',
+      })
+    ).toThrow('Embedding telemetry batchTransfer.lastBytes must be a non-negative finite number.');
   });
 });

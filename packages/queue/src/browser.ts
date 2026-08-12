@@ -1,4 +1,7 @@
-import type { WorkerpoolAdapterOptions } from './browser-workerpool-options.js';
+import {
+  assertWorkerpoolEmbeddingTelemetrySink,
+  type WorkerpoolAdapterOptions,
+} from './browser-workerpool-options.js';
 import type { QueueAdapter } from './types.js';
 import { supportsWorkers } from './util.js';
 
@@ -28,6 +31,7 @@ export function createBrowserEmbeddingQueue(
   if (!(typeof options.worker?.workerUrl === 'string' && options.worker.workerUrl.length > 0)) {
     throw new Error('createBrowserEmbeddingQueue requires an explicit worker.workerUrl.');
   }
+  assertWorkerpoolEmbeddingTelemetrySink(options.worker.telemetry);
   return createLazyWorkerpoolAdapter(options.worker);
 }
 

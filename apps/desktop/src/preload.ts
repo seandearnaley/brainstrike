@@ -1,6 +1,8 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer } = require('electron');
 type GitDiffParams = import('@brainstrike/types').GitDiffParams;
+type EmbeddingTelemetrySnapshot =
+  import('@brainstrike/embedding-worker').EmbeddingTelemetrySnapshot;
 type StructuredFileDiffParams = import('@brainstrike/types').StructuredFileDiffParams;
 type Changeset = import('@brainstrike/types').Changeset;
 type AssistantRewindMode = import('@brainstrike/assistant-contract').AssistantRewindMode;
@@ -396,6 +398,7 @@ interface EmbeddingHostStatus {
     } | null;
     readonly backendMismatch: boolean;
     readonly selectedDevicePreference: 'webgpu' | 'wasm';
+    readonly telemetry: EmbeddingTelemetrySnapshot;
   };
   readonly lastError: string | null;
   readonly runtimeId: string;

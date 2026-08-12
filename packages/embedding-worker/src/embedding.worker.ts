@@ -1,5 +1,9 @@
 /// <reference lib="webworker" />
 
+import {
+  EMBED_WORKER_INSTANCE_NAME_PREFIX,
+  EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+} from '@brainstrike/indexing-contract';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type {
   FeatureExtractionPipeline,
@@ -13,11 +17,13 @@ import type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
   EmbedWorkerError,
+  EmbedWorkerLifetimeError,
   EmbedWorkerPipelineCacheDiagnostic,
   EmbedWorkerPipelineCacheEntryDiagnostic,
   EmbedWorkerProgress,
   EmbedWorkerRequest,
   EmbedWorkerSuccess,
+  EmbedWorkerTelemetrySourceClosed,
 } from './shared';
 import {
   cloneAsFloat32,
@@ -29,13 +35,69 @@ import {
   vectorsFromPipelineOutput,
 } from './shared';
 
+function resolveEmbeddingWorkerInstanceId(): string {
+  const workerName = (globalThis as typeof globalThis & { readonly name?: unknown }).name;
+  if (workerName === undefined || workerName === '') {
+    return globalThis.crypto.randomUUID();
+  }
+  if (
+    !(typeof workerName === 'string' && workerName.startsWith(EMBED_WORKER_INSTANCE_NAME_PREFIX))
+  ) {
+    throw new Error('Embedding worker name does not match the managed identity contract.');
+  }
+  const workerInstanceId = workerName.slice(EMBED_WORKER_INSTANCE_NAME_PREFIX.length);
+  if (workerInstanceId.length === 0) {
+    throw new Error('Embedding worker name is missing its required instance identity.');
+  }
+  return workerInstanceId;
+}
+
+const embeddingWorkerInstanceId = resolveEmbeddingWorkerInstanceId();
+
+function resolveWorkerpoolTelemetryChannelName(): string | null {
+  const workerLocation = (
+    globalThis as typeof globalThis & { readonly location?: { readonly hash?: unknown } }
+  ).location;
+  if (!(workerLocation && typeof workerLocation.hash === 'string')) {
+    return null;
+  }
+
+  const fragment = workerLocation.hash.startsWith('#')
+    ? workerLocation.hash.slice(1)
+    : workerLocation.hash;
+  const channelNames = new URLSearchParams(fragment).getAll(
+    EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY
+  );
+  if (channelNames.length === 0) {
+    return null;
+  }
+  const channelName = channelNames[0];
+  if (channelNames.length !== 1 || !channelName) {
+    throw new Error('Embedding worker has an invalid worker-lifetime telemetry channel.');
+  }
+  return channelName;
+}
+
+function createWorkerpoolTelemetryChannel(): BroadcastChannel | null {
+  const channelName = resolveWorkerpoolTelemetryChannelName();
+  if (channelName === null) {
+    return null;
+  }
+  if (typeof BroadcastChannel === 'undefined') {
+    throw new Error('Embedding workerpool telemetry requires BroadcastChannel support.');
+  }
+  return new BroadcastChannel(channelName);
+}
+
+const workerpoolTelemetryChannel = createWorkerpoolTelemetryChannel();
+
 function debugLog(message: string, data?: Record<string, unknown>): void {
   void message;
   void data;
 }
 
 function warnLog(message: string, data?: Record<string, unknown>): void {
-  // biome-ignore lint/suspicious/noConsole: Worker warnings are only surfaced for high-signal device-loss paths.
+  // biome-ignore lint/suspicious/noConsole: Worker warnings surface high-signal runtime and telemetry inconsistencies.
   console.warn('[EmbeddingWorker]', message, data ?? '');
 }
 
@@ -44,23 +106,59 @@ function errorLog(message: string, data?: Record<string, unknown>): void {
   console.error('[EmbeddingWorker]', message, data ?? '');
 }
 
+/** Request currently executing through workerpool; worker failures use this correlation id. */
+let activeWorkerpoolRequestId: string | null = null;
+/** Direct-stream requests currently executing; global failures notify each owning client. */
+const activeStreamRequestIds = new Set<string>();
+/** Idle workerpool failures quarantine this runtime synchronously until its owner replaces it. */
+let workerLifetimeFailure: Error | null = null;
+
 // Global error handlers - only set up in actual worker environment.
 // This code only runs in browser Web Worker context where `self` exists.
 // It cannot be tested in Node.js. Coverage is excluded via c8 ignore.
 /* c8 ignore next 36 -- Worker globals only exist in browser Web Worker context */
 if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
+  const emitGlobalFailure = (message: string, cause?: string): boolean => {
+    const workerpoolRequestId = activeWorkerpoolRequestId;
+    workerEmit({
+      cause,
+      id: workerpoolRequestId ?? 'global',
+      message,
+      type: 'error',
+    });
+    for (const id of activeStreamRequestIds) {
+      postStreamEvent({ cause, id, message, type: 'error' });
+    }
+    const activeOwnerWasNotified = workerpoolRequestId !== null || activeStreamRequestIds.size > 0;
+    if (!activeOwnerWasNotified && workerpoolTelemetryChannel) {
+      workerLifetimeFailure = new Error(
+        'Embedding worker cannot accept work after an idle global failure.',
+        { cause: cause ?? message }
+      );
+      workerpoolTelemetryChannel.postMessage({
+        ...(cause === undefined ? {} : { cause }),
+        message,
+        type: 'worker-lifetime-error',
+        workerInstanceId: embeddingWorkerInstanceId,
+      } satisfies EmbedWorkerLifetimeError);
+      return true;
+    }
+    if (activeOwnerWasNotified && typeof self.close === 'function') {
+      self.close();
+    }
+    return activeOwnerWasNotified;
+  };
+
   // Global error handler to catch any uncaught errors in the worker
   self.onerror = (event) => {
     const message = typeof event === 'string' ? event : (event as ErrorEvent).message;
     const filename = typeof event === 'object' ? (event as ErrorEvent).filename : undefined;
     const lineno = typeof event === 'object' ? (event as ErrorEvent).lineno : undefined;
     errorLog('Uncaught worker error', { event, filename, lineno, message });
-    workerEmit({
-      cause: filename ? `${filename}:${lineno}` : undefined,
-      id: 'global',
-      message: `Worker uncaught error: ${message}`,
-      type: 'error',
-    });
+    emitGlobalFailure(
+      `Worker uncaught error: ${message}`,
+      filename ? `${filename}:${lineno}` : undefined
+    );
   };
 
   // Catch unhandled promise rejections
@@ -69,12 +167,14 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     const message = reason instanceof Error ? reason.message : String(reason);
     const stack = reason instanceof Error ? reason.stack : undefined;
     errorLog('Unhandled worker promise rejection', { message, reason, stack });
-    workerEmit({
-      cause: stack,
-      id: 'global',
-      message: `Worker unhandled rejection: ${message}`,
-      type: 'error',
-    });
+    const ownerWasNotified = emitGlobalFailure(`Worker unhandled rejection: ${message}`, stack);
+    if (!ownerWasNotified) {
+      // Unlike an uncaught worker error, an unhandled rejection does not propagate to the
+      // owning Worker. Re-report it as an uncaught error so workerpool/direct-client error
+      // listeners visibly fail and retire this idle runtime before its next request.
+      self.onerror = null;
+      reportError(reason instanceof Error ? reason : new Error(message));
+    }
   };
 
   // Log worker initialization at debug level (removed - too verbose)
@@ -154,6 +254,7 @@ interface PipelineCacheEntry {
   readonly createdAt: number;
   readonly device: EmbeddingDevice;
   readonly dtype: EmbeddingDType;
+  estimatedModelBytes: number | null;
   lastUsedAt: number;
   readonly model: string;
   readonly pipeline: Promise<FeatureExtractor>;
@@ -311,7 +412,6 @@ let keepAliveTickCount = 0;
 /** Handle for the idle-sweep interval. */
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const batchAckWaiters = new Map<string, () => void>();
-const activeStreamRequestIds = new Set<string>();
 
 type PipelineCacheDiagnosticReason = NonNullable<EmbedWorkerPipelineCacheDiagnostic['reason']>;
 type PipelineCacheDisposedReason = Extract<PipelineCacheDiagnosticReason, 'manual-dispose'>;
@@ -364,11 +464,29 @@ type PipelineCacheDisposalDiagnosticOptions = PipelineCacheDiagnosticOptionsBase
       }
   );
 
-const UNAVAILABLE_PIPELINE_MEMORY = {
-  gpuBytes: null,
-  heapBytes: null,
-  reason: 'browser-runtime-unavailable',
-} as const;
+function resolvePipelineMemory(
+  entry: PipelineCacheEntry
+): EmbedWorkerPipelineCacheEntryDiagnostic['memory'] {
+  if (entry.estimatedModelBytes === null) {
+    return {
+      gpuBytes: null,
+      heapBytes: null,
+      reason: 'model-size-unknown',
+    };
+  }
+  if (entry.device === 'webgpu') {
+    return {
+      gpuBytes: entry.estimatedModelBytes,
+      heapBytes: 0,
+      reason: 'model-size-estimate',
+    };
+  }
+  return {
+    gpuBytes: 0,
+    heapBytes: entry.estimatedModelBytes,
+    reason: 'model-size-estimate',
+  };
+}
 
 function toPipelineCacheEntryDiagnostic(
   entry: PipelineCacheEntry,
@@ -380,7 +498,7 @@ function toPipelineCacheEntryDiagnostic(
     device: entry.device,
     dtype: entry.dtype,
     lastUsedAt: entry.lastUsedAt,
-    memory: UNAVAILABLE_PIPELINE_MEMORY,
+    memory: resolvePipelineMemory(entry),
     model: entry.model,
     residencyMs: Math.max(0, timestamp - entry.createdAt),
   };
@@ -409,6 +527,7 @@ function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): v
     diagnostic: 'pipeline-cache' as const,
     emittedAt: timestamp,
     type: 'diagnostic' as const,
+    workerInstanceId: embeddingWorkerInstanceId,
     ...(shouldIncludePipelineCacheEntries(options.event)
       ? { entries: buildPipelineCacheEntryDiagnostics(timestamp) }
       : {}),
@@ -443,6 +562,16 @@ function emitPipelineCacheDiagnostic(options: PipelineCacheDiagnosticOptions): v
 
   if (options.sink) {
     options.sink(event);
+    return;
+  }
+  if (event.id === undefined) {
+    if (workerpoolTelemetryChannel) {
+      workerpoolTelemetryChannel.postMessage(event);
+    } else {
+      // Streaming workers do not carry a workerpool channel. Their owning client listens
+      // directly for worker-global diagnostics after the request-scoped stream has settled.
+      postStreamEvent(event);
+    }
     return;
   }
   workerEmit(event);
@@ -726,7 +855,8 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
   deviceLossWatcherAttached = true;
 
   void device.lost.then((info: GpuDeviceLostInfo) => {
-    const hasActiveRequests = isInferenceActive || activeStreamRequestIds.size > 0;
+    const workerpoolRequestId = activeWorkerpoolRequestId;
+    const hasActiveRequests = workerpoolRequestId !== null || activeStreamRequestIds.size > 0;
     if (hasActiveRequests) {
       warnLog('WebGPU device lost', { message: info.message, reason: info.reason });
     } else {
@@ -737,13 +867,15 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
     invalidateWebGpuPipelines();
     deviceLossWatcherAttached = false;
 
-    if (hasActiveRequests) {
+    if (workerpoolRequestId !== null) {
       workerEmit({
         cause: `reason=${String(info.reason)}`,
-        id: 'device-lost',
+        id: workerpoolRequestId,
         message: `WebGPU device lost: ${info.message}`,
         type: 'error',
       });
+    }
+    if (activeStreamRequestIds.size > 0) {
       notifyActiveStreamsOfDeviceLoss(info);
     }
 
@@ -754,6 +886,11 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
     if (hasActiveRequests) {
       warnLog('Terminating worker after WebGPU device loss for clean recovery');
     }
+    workerpoolTelemetryChannel?.postMessage({
+      reason: 'device-lost',
+      type: 'telemetry-source-closed',
+      workerInstanceId: embeddingWorkerInstanceId,
+    } satisfies EmbedWorkerTelemetrySourceClosed);
     if (typeof self !== 'undefined' && typeof self.close === 'function') {
       self.close();
     }
@@ -854,6 +991,7 @@ async function loadPipeline(
   model: string,
   device: EmbeddingDevice,
   dtype: EmbeddingDType,
+  estimatedModelBytes: number | null,
   diagnostics: {
     readonly id?: string;
     readonly sink?: PipelineCacheDiagnosticSink;
@@ -862,6 +1000,20 @@ async function loadPipeline(
   const cacheKey = `${model}|${device}|${dtype}`;
   const existing = pipelines.get(cacheKey);
   if (existing !== undefined) {
+    if (
+      estimatedModelBytes !== null &&
+      existing.estimatedModelBytes !== null &&
+      existing.estimatedModelBytes !== estimatedModelBytes
+    ) {
+      warnLog(
+        'Embedding model size metadata changed for a cached pipeline; keeping the original estimate',
+        {
+          cachedBytes: existing.estimatedModelBytes,
+          cacheKey,
+          requestedBytes: estimatedModelBytes,
+        }
+      );
+    }
     existing.lastUsedAt = now();
     emitPipelineCacheDiagnostic({
       entry: existing,
@@ -885,6 +1037,7 @@ async function loadPipeline(
     createdAt: timestamp,
     device,
     dtype,
+    estimatedModelBytes,
     lastUsedAt: timestamp,
     model,
     pipeline: rawLoader.then(
@@ -983,6 +1136,7 @@ function isTransformersTensor(
 interface EmbeddingContext {
   readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
   readonly dtype: EmbeddingDType;
+  readonly estimatedModelBytes: number | null;
   readonly id: string;
   readonly model: string;
   readonly provider?: string;
@@ -1002,8 +1156,18 @@ interface EmbeddingState {
 
 function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
   const requestedDimension = payload.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
+  const estimatedModelBytes = payload.estimatedModelBytes ?? null;
+  if (
+    estimatedModelBytes !== null &&
+    !(Number.isSafeInteger(estimatedModelBytes) && estimatedModelBytes > 0)
+  ) {
+    throw new Error(
+      `estimatedModelBytes must be a positive safe integer, received ${String(payload.estimatedModelBytes)}.`
+    );
+  }
   const context: EmbeddingContext = {
     dtype: payload.dtype ?? 'fp16',
+    estimatedModelBytes,
     id: payload.id,
     model: payload.model,
     started: typeof performance === 'undefined' ? Date.now() : performance.now(),
@@ -1043,6 +1207,9 @@ function createInitialState(
 }
 
 async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
+  if (workerLifetimeFailure !== null) {
+    throw workerLifetimeFailure;
+  }
   const context = createContext(payload);
   const { id, model, texts } = context;
   const deviceHint = payload.deviceHint;
@@ -1075,6 +1242,7 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
 
   const state = createInitialState(context, deviceHint, payload.maxBatchSize);
   isInferenceActive = true;
+  activeWorkerpoolRequestId = context.id;
   try {
     const result = await processEmbeddings(context, state);
     return result;
@@ -1083,6 +1251,7 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
     // Always throw a proper Error object so workerpool can serialize it correctly
     throw normalizeError(error);
   } finally {
+    activeWorkerpoolRequestId = null;
     isInferenceActive = false;
   }
 }
@@ -1091,9 +1260,13 @@ async function processEmbeddings(
   context: EmbeddingContext,
   state: EmbeddingState
 ): Promise<EmbedWorkerSuccess> {
-  const extractor = await loadPipeline(context.model, state.device, context.dtype, {
-    id: context.id,
-  });
+  const extractor = await loadPipeline(
+    context.model,
+    state.device,
+    context.dtype,
+    context.estimatedModelBytes,
+    { id: context.id }
+  );
   const vectors = await runBatches(context, state, extractor);
   if (vectors.length === 0) {
     return buildSuccessResult(context, state, vectors);
@@ -1197,13 +1370,20 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     type: 'progress',
   });
 
-  const extractor = await loadPipeline(context.model, state.device, context.dtype, {
-    id: context.id,
-    sink: postStreamEvent,
-  });
+  const extractor = await loadPipeline(
+    context.model,
+    state.device,
+    context.dtype,
+    context.estimatedModelBytes,
+    {
+      id: context.id,
+      sink: postStreamEvent,
+    }
+  );
   const runtime = await getTransformersRuntime();
   let batchIndex = 0;
   let dimensions = context.truncateDim ?? 0;
+  let peakVectorsInFlight = 0;
   for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
     const endIndex = Math.min(total, startIndex + state.batchSize);
     const slice = texts.slice(startIndex, endIndex);
@@ -1223,16 +1403,26 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     }
     dimensions = vectorsFromBatch[0]?.length ?? dimensions;
 
+    const transferList = getTransferableBuffers(vectorsFromBatch);
+    const transferBytes = transferList.reduce(
+      (totalBytes, buffer) => totalBytes + buffer.byteLength,
+      0
+    );
+    const vectorsInFlight = vectorsFromBatch.length;
+    peakVectorsInFlight = Math.max(peakVectorsInFlight, vectorsInFlight);
     postStreamEvent(
       {
         batchIndex,
         endIndex,
         id,
+        peakVectorsInFlight,
         startIndex,
+        transferBytes,
         type: 'batch',
         vectors: vectorsFromBatch,
+        vectorsInFlight,
       },
-      vectorsFromBatch.map((vector) => vector.buffer)
+      transferList
     );
 
     postStreamEvent({
@@ -1424,24 +1614,29 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
     }
 
     const payload = request as EmbedWorkerRequest;
+    const requestId =
+      typeof payload.id === 'string' && payload.id.length > 0 ? payload.id : 'unknown';
     void (async () => {
-      const context = createContext(payload);
-      activeStreamRequestIds.add(context.id);
-      const requestedDimension = context.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
-      assertValidDimension(payload, requestedDimension);
-      const state = createInitialState(context, payload.deviceHint, payload.maxBatchSize);
-      isInferenceActive = true;
+      let context: EmbeddingContext | null = null;
       try {
+        context = createContext(payload);
+        activeStreamRequestIds.add(context.id);
+        const requestedDimension = context.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
+        assertValidDimension(payload, requestedDimension);
+        const state = createInitialState(context, payload.deviceHint, payload.maxBatchSize);
+        isInferenceActive = true;
         await streamEmbeddings(context, state);
       } catch (error) {
         postStreamEvent({
           cause: serializeErrorCause(error),
-          id: context.id,
+          id: context?.id ?? requestId,
           message: error instanceof Error ? error.message : String(error),
           type: 'error',
         });
       } finally {
-        activeStreamRequestIds.delete(context.id);
+        if (context !== null) {
+          activeStreamRequestIds.delete(context.id);
+        }
         isInferenceActive = false;
       }
     })();

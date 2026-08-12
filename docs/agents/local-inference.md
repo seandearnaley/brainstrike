@@ -118,6 +118,102 @@ Environment variables:
 
 Do not move or reintroduce workers in Electron main. Desktop local embeddings must stay in the hidden renderer host.
 
+Embedding runtime telemetry (BST-402):
+- The streaming worker reports exact bytes for the unique `ArrayBuffer`s transferred in
+  each batch, current/peak vectors in flight, and pipeline-cache residency diagnostics.
+  The client validates the complete batch before telemetry, callbacks, or acknowledgement:
+  index/count fields are safe integers, vector counts and shapes agree, current vectors do
+  not exceed the peak, and transfer bytes equal the unique received buffers. A malformed
+  batch is a terminal worker failure. Stream completion is equally strict: metadata must
+  match the request model, dtype, deterministic batch size, and a coherent direct-device or
+  WebGPU-to-WASM fallback pair; batch size and dimensions must also agree with observed
+  batches before the client resolves.
+- Cache memory is an estimate from the model registry's declared `size`, parsed strictly
+  into binary bytes. WebGPU entries attribute that estimate to GPU memory and WASM
+  entries to heap memory. Missing registry metadata remains explicitly unavailable; it
+  is never presented as a measured browser-memory value.
+- `StreamingEmbeddingWorkerClient` and every worker in the non-streaming browser
+  workerpool own source-scoped, in-memory telemetry records. The workerpool records the
+  unique buffers transferred with each completed result and forwards pipeline-cache
+  diagnostics emitted during `runEmbedding`. Worker-global diagnostics that occur after
+  an RPC settles (notably the five-minute idle-cache eviction) travel over a pool-unique
+  `BroadcastChannel`; its name is carried in the managed worker script fragment. The
+  device-loss path announces its source identity on that channel before self-closing, so
+  the adapter removes the source immediately; the termination callback remains an
+  idempotent cleanup seam. Active workerpool device-loss, uncaught-error, and
+  unhandled-rejection events carry the affected request ID (never a global sentinel),
+  preserving strict task correlation and the recoverable failure message. Active direct
+  streams receive the same request-scoped global-failure message before the worker closes.
+  A worker self-terminates after a global failure only when it has notified at least one
+  active owning transport, so workerpool cannot reuse an invocation still running inference
+  and a direct stream cannot remain pending. Idle global failures retain the explicit
+  `global` sentinel and do not silently self-close. An idle pool worker sends a validated
+  worker-lifetime error over its managed channel and synchronously quarantines itself before
+  publishing, so channel-delivery latency cannot admit another RPC. The adapter terminates
+  that pool, gates new executions on recovery, and creates the replacement before accepting
+  another task. It retains retired pool identities until adapter teardown so already-queued,
+  validated lifetime events from an old generation are ignored without weakening rejection
+  of identities that were never assigned to the adapter.
+  An idle direct worker instead re-reports an unhandled rejection through the browser's
+  uncaught-worker-error channel so the existing client listener visibly fails and retires
+  it. Active direct streams each also receive their own request-scoped device-loss message.
+  A validated request-scoped worker error is
+  terminal: the workerpool adapter emits it for diagnostics, cancels the RPC, and rejects
+  the task even if the worker later tries to return vectors.
+  Controlled host restarts publish a metadata-free `starting`
+  transition and retain the latest valid snapshot, while terminal `stopped` and `error`
+  states clear it. The
+  adapter requires that capability, validates the complete discriminated cache diagnostic
+  and every cache-entry/memory field, requires subject entries for hit/load/removal events,
+  and requires every non-hit event to carry a unique full snapshot whose entry count matches
+  `cacheSize`. The streaming client uses that same indexing-contract validator for both
+  request-scoped and id-less diagnostics and terminally tears down malformed workers. The
+  workerpool adapter requires worker-lifetime channel traffic to be id-less,
+  terminates the affected pool on malformed traffic, and closes the channel during pool
+  teardown. Streaming workers without that fragment deliver worker-global diagnostics over
+  their direct worker message transport. Each pool worker receives a unique
+  `WorkerOptions.name`; that identity is emitted with cache diagnostics. The same UUID is
+  carried in a fragment on that worker's script URL because workerpool 10.0.3 omits
+  `workerOpts` from its runtime termination callback despite declaring it in the public
+  type. The callback-preserved script identifies and clears only the terminated worker's
+  source. Full pool shutdown clears any remaining observed sources. Streaming workers
+  likewise clear their own source during explicit shutdown. The workerpool option type
+  requires its renderer-owned telemetry sink, matching the runtime guard; composition roots
+  pass `embeddingWorkerTelemetrySink` explicitly and there is no telemetry-free compatibility
+  mode. A missing workerpool cache
+  diagnostic latches a session-level telemetry-health failure and logs the task identifier,
+  but it never converts otherwise valid vectors into a failed embedding result. The bounded,
+  code-authored failure reason remains visible until the renderer session ends; it contains
+  no task payload or user data. Malformed diagnostics remain terminal because their identity
+  cannot be trusted. A rejected streaming batch
+  callback terminally fails and terminates its worker so the unacknowledged stream and its
+  telemetry source cannot remain alive. Every malformed streaming request receives a
+  request-scoped terminal error event, including failures detected while building or
+  validating its context. Cross-process telemetry snapshot validation derives the expected
+  cache residency, unavailable-memory count, and byte totals from the validated entries and
+  rejects mismatched aggregates rather than normalizing them. No model weights, vector
+  values, input text, paths, or content are retained by the telemetry store.
+- On desktop, the hidden embedding-host renderer remains the source of truth. It reports
+  a validated snapshot through the existing typed host-status bridge; Electron main
+  stores/relays that snapshot but never observes or runs inference. Stopped host reports
+  retain the current renderer-session snapshot so a latched telemetry-health failure
+  remains visible after an explicit worker stop. A terminal repeated-device-loss report
+  likewise awaits controller teardown and captures a fresh post-teardown snapshot, so it
+  cannot advertise stale worker residency. While desktop System Diagnostics is open, it
+  reads the full platform snapshot only on mount or explicit refresh; embedding-host status
+  events carry a complete telemetry snapshot that the panel validates and applies directly.
+  This avoids turning the host's frequent status cadence into overlapping full diagnostics
+  reads. An explicit refresh clears the prior status override before accepting the refreshed
+  platform snapshot, so stopped-host residency cannot remain stale. Invalid status telemetry
+  is surfaced visibly without clearing an independent platform-snapshot collection error.
+  A terminal `stopped` or `error` host status that lacks runtime metadata replaces the
+  displayed telemetry with an empty snapshot, preventing a crashed or closed renderer's
+  cache residency from remaining visible. Transitional metadata-free statuses retain the
+  latest snapshot. Web diagnostics read the same renderer-local store directly.
+- This telemetry is intentionally session-only and must not be persisted. A future
+  persistence or export path requires the diagnostics privacy and factory-reset contracts
+  to be revisited explicitly.
+
 ---
 
 

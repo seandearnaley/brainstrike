@@ -120,6 +120,29 @@ These tickets may add metrics covered by the default allowed list. If a ticket
 needs anything outside that list, it must document the consent and export path
 before implementation.
 
+### BST-402 embedding-runtime boundary
+
+Embedding telemetry is local and in-memory. Worker measurements are source-scoped to a
+live worker; the session-level health failure count and last reason remain latched after
+source cleanup so a dropped diagnostic cannot disappear from view. It may retain exact
+batch transfer byte counts, counts/peaks of vectors in flight, model and device labels
+already present in runtime diagnostics, cache-entry timestamps, and a model-memory
+estimate derived from catalog metadata. The estimate is not measured browser memory and
+must be labeled as estimated or unavailable. The snapshot may also retain a bounded,
+code-authored telemetry-health failure reason and count; failure text
+must never interpolate a task payload, model input, path, filename, or content-derived
+identifier.
+
+It must not retain vector values or buffers, input text, chunks, model weights, local
+paths, filenames, or content-derived identifiers. Terminating or faulting a worker
+removes that worker's telemetry source. The desktop hidden renderer owns the snapshot;
+Electron main may only validate and relay the typed aggregate. No background upload,
+durable storage, or diagnostic export is authorized by BST-402.
+
+Both streaming workers and non-streaming browser workerpools publish into this same
+source-scoped store. The workerpool derives transfer bytes from unique result buffers and
+forwards only cache diagnostics; it does not copy vector values or input text into telemetry.
+
 BST-400 is implemented by
 `packages/app-shell/src/diagnostics/renderer-long-task-telemetry.ts`. It keeps a
 bounded, one-minute in-memory window of durations, coarse app routes, and

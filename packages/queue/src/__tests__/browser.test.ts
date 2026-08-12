@@ -2,6 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QueueAdapter, QueueResult, TaskPayload } from '../types.js';
 
 const createWorkerpoolAdapterMock = vi.hoisted(() => vi.fn());
+const telemetrySink = {
+  recordBatch: vi.fn(),
+  recordFailure: vi.fn(),
+  recordPipelineCache: vi.fn(),
+  removeSource: vi.fn(),
+};
+
+function createWorkerOptions() {
+  return { telemetry: telemetrySink, workerUrl: '/embedding.worker.js' } as const;
+}
 
 vi.mock('../adapters/browser-workerpool', () => ({
   createWorkerpoolAdapter: createWorkerpoolAdapterMock,
@@ -73,7 +83,7 @@ describe('createBrowserEmbeddingQueue', () => {
 
     const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: '/embedding.worker.js' },
+      worker: createWorkerOptions(),
     });
 
     expect(createWorkerpoolAdapterMock).not.toHaveBeenCalled();
@@ -102,7 +112,7 @@ describe('createBrowserEmbeddingQueue', () => {
 
     const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: '/embedding.worker.js' },
+      worker: createWorkerOptions(),
     });
 
     await expect(
@@ -138,7 +148,7 @@ describe('createBrowserEmbeddingQueue', () => {
 
     const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: '/embedding.worker.js' },
+      worker: createWorkerOptions(),
     });
 
     const addPromise = expectPromiseToSettle(
@@ -164,7 +174,7 @@ describe('createBrowserEmbeddingQueue', () => {
 
     const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: '/embedding.worker.js' },
+      worker: createWorkerOptions(),
     });
 
     const addPromise = expectPromiseToSettle(
@@ -191,7 +201,7 @@ describe('createBrowserEmbeddingQueue', () => {
 
     const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: '/embedding.worker.js' },
+      worker: createWorkerOptions(),
     });
 
     await expect(
@@ -214,7 +224,7 @@ describe('createBrowserEmbeddingQueue', () => {
 
     const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: '/embedding.worker.js' },
+      worker: createWorkerOptions(),
     });
 
     await expect(
@@ -233,7 +243,7 @@ describe('createBrowserEmbeddingQueue', () => {
   it('rejects work after dispose even when the lazy adapter was never bootstrapped', async () => {
     const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: '/embedding.worker.js' },
+      worker: createWorkerOptions(),
     });
 
     await expect(queue.dispose?.()).resolves.toBeUndefined();
@@ -253,7 +263,7 @@ describe('createBrowserEmbeddingQueue', () => {
   it('rejects work after cancel even when the lazy adapter was never bootstrapped', async () => {
     const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: '/embedding.worker.js' },
+      worker: createWorkerOptions(),
     });
 
     await queue.cancel();
@@ -282,7 +292,7 @@ describe('createBrowserEmbeddingQueue', () => {
 
     const { createBrowserEmbeddingQueue } = await import('../browser.js');
     const queue = createBrowserEmbeddingQueue({
-      worker: { workerUrl: '/embedding.worker.js' },
+      worker: createWorkerOptions(),
     });
     const listener = vi.fn();
     queue.onProgress(listener);

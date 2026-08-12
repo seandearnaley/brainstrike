@@ -51,6 +51,18 @@ Testing:
   falling back to Pino's implicit stdout destination. Log listeners remain
   active so tests can assert records without emitting them to the test runner.
 
+## IN-MEMORY PERFORMANCE TELEMETRY
+
+Renderer long-task, embedding-runtime, and database-query performance snapshots are
+session-only diagnostics. They are deliberately not written to the diagnostic-event
+table, local storage, IndexedDB, or filesystem, so they require no factory-reset wiring.
+Embedding worker measurements are source-scoped and removed when their worker terminates.
+The bounded telemetry-health failure count and last reason are session-latched so a lost
+diagnostic remains visible after source cleanup; renderer restart clears them. Desktop main
+only relays the hidden renderer's validated snapshot. Persisting or exporting any
+of these snapshots is a contract change: update the diagnostics privacy contract and add
+the persistence to every applicable factory-reset path in the same change.
+
 ---
 
 ## FACTORY RESET CONTRACT

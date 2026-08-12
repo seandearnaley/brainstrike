@@ -1,4 +1,14 @@
+import {
+  assertEmbedWorkerBatch,
+  assertEmbedWorkerComplete,
+  assertEmbedWorkerPipelineCacheDiagnostic,
+} from '@brainstrike/indexing-contract';
 import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
+import {
+  recordEmbeddingBatchTelemetry,
+  recordEmbeddingPipelineCacheTelemetry,
+  removeEmbeddingTelemetrySource,
+} from './embedding-telemetry';
 import type {
   EmbedWorkerBatch,
   EmbedWorkerComplete,
@@ -9,6 +19,9 @@ import type {
   EmbedWorkerStreamEvent,
   EmbedWorkerSuccess,
 } from './shared';
+import { computeInitialBatchSize } from './shared';
+
+let nextTelemetrySourceId = 1;
 
 interface StartStreamMessage {
   readonly request: EmbedWorkerRequest;
@@ -25,6 +38,13 @@ type StreamWorkerMessage = AckBatchMessage | StartStreamMessage;
 type StreamCleanup = () => void;
 type StreamResolve = (metadata: EmbedWorkerComplete['metadata']) => void;
 type StreamReject = (error: Error) => void;
+
+interface StreamBatchSequence {
+  expectedBatchIndex: number;
+  expectedStartIndex: number;
+  expectedVectorDimensions: number | null;
+  maximumObservedBatchSize: number;
+}
 
 export interface StreamingEmbedOptions {
   readonly onBatch?: (event: EmbedWorkerBatch) => Promise<void> | void;
@@ -52,6 +72,189 @@ function isStreamEvent(value: unknown): value is EmbedWorkerStreamEvent {
   );
 }
 
+function isIdLessPipelineCacheCandidate(value: unknown): boolean {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate['id'] === undefined &&
+    (candidate['type'] === 'diagnostic' || candidate['diagnostic'] === 'pipeline-cache')
+  );
+}
+
+function assertStreamBatchSequence(
+  batch: EmbedWorkerBatch,
+  expectedBatchIndex: number,
+  expectedStartIndex: number,
+  requestTextCount: number
+): void {
+  if (batch.batchIndex !== expectedBatchIndex) {
+    throw new Error(
+      `Embedding worker batch.batchIndex ${batch.batchIndex} does not match expected batchIndex ${expectedBatchIndex}.`
+    );
+  }
+  if (batch.startIndex !== expectedStartIndex) {
+    throw new Error(
+      `Embedding worker batch.startIndex ${batch.startIndex} does not match expected startIndex ${expectedStartIndex}.`
+    );
+  }
+  if (batch.endIndex > requestTextCount) {
+    throw new Error(
+      `Embedding worker batch.endIndex ${batch.endIndex} exceeds request text count ${requestTextCount}.`
+    );
+  }
+}
+
+function validateStreamBatch(
+  value: unknown,
+  sequence: StreamBatchSequence,
+  requestTextCount: number,
+  onFailure: (error: unknown) => void
+): value is EmbedWorkerBatch {
+  try {
+    assertEmbedWorkerBatch(value);
+    assertStreamBatchSequence(
+      value,
+      sequence.expectedBatchIndex,
+      sequence.expectedStartIndex,
+      requestTextCount
+    );
+    const vectorDimensions = value.vectors[0]?.length;
+    if (vectorDimensions === undefined) {
+      throw new Error('Embedding worker batch must contain at least one vector.');
+    }
+    if (sequence.expectedVectorDimensions === null) {
+      sequence.expectedVectorDimensions = vectorDimensions;
+    } else if (vectorDimensions !== sequence.expectedVectorDimensions) {
+      throw new Error(
+        `Embedding worker batch vector dimensions changed from ${sequence.expectedVectorDimensions} to ${vectorDimensions}.`
+      );
+    }
+    sequence.expectedBatchIndex += 1;
+    sequence.expectedStartIndex = value.endIndex;
+    sequence.maximumObservedBatchSize = Math.max(
+      sequence.maximumObservedBatchSize,
+      value.endIndex - value.startIndex
+    );
+    return true;
+  } catch (error) {
+    onFailure(error);
+    return false;
+  }
+}
+
+function validateStreamCompletionCoverage(
+  event: EmbedWorkerStreamEvent,
+  embeddedTextCount: number,
+  requestTextCount: number,
+  onFailure: (error: Error) => void
+): boolean {
+  if (event.type !== 'complete' || embeddedTextCount === requestTextCount) {
+    return true;
+  }
+  onFailure(
+    new Error(
+      `Embedding worker completed after ${embeddedTextCount} of ${requestTextCount} requested texts.`
+    )
+  );
+  return false;
+}
+
+function assertStreamCompletionMatchesRequest(
+  complete: EmbedWorkerComplete,
+  request: EmbedWorkerRequest,
+  sequence: StreamBatchSequence
+): void {
+  if (complete.metadata.model !== request.model) {
+    throw new Error('Embedding worker complete.metadata.model does not match the request model.');
+  }
+  const expectedDtype = request.dtype ?? 'fp16';
+  if (complete.metadata.dtype !== expectedDtype) {
+    throw new Error('Embedding worker complete.metadata.dtype does not match the request dtype.');
+  }
+  const coherentFallback =
+    request.deviceHint === 'webgpu' &&
+    complete.metadata.device === 'wasm' &&
+    complete.metadata.fallbackApplied;
+  const coherentDirectDevice =
+    complete.metadata.device === request.deviceHint && !complete.metadata.fallbackApplied;
+  if (!(coherentFallback || coherentDirectDevice)) {
+    throw new Error(
+      'Embedding worker complete.metadata.device and metadata.fallbackApplied do not match the request device.'
+    );
+  }
+  const expectedBatchSize = computeInitialBatchSize(request.texts.length, request.maxBatchSize);
+  if (complete.metadata.batchSize !== expectedBatchSize) {
+    throw new Error(
+      'Embedding worker complete.metadata.batchSize does not match the request batch size.'
+    );
+  }
+  if (
+    request.texts.length > 0 &&
+    sequence.maximumObservedBatchSize !== complete.metadata.batchSize
+  ) {
+    throw new Error(
+      'Embedding worker complete.metadata.batchSize does not match the observed stream batches.'
+    );
+  }
+  if (
+    sequence.expectedVectorDimensions !== null &&
+    complete.metadata.dimensions !== sequence.expectedVectorDimensions
+  ) {
+    throw new Error(
+      `Embedding worker complete.metadata.dimensions ${complete.metadata.dimensions} does not match streamed vector dimensions ${sequence.expectedVectorDimensions}.`
+    );
+  }
+}
+
+function validateStreamMessage(
+  value: unknown,
+  request: EmbedWorkerRequest,
+  sequence: StreamBatchSequence,
+  onFailure: (error: unknown) => void
+): value is EmbedWorkerStreamEvent {
+  if (!isStreamEvent(value)) {
+    return false;
+  }
+  // Stream payloads are request-scoped unless they are diagnostics. Cache/device
+  // diagnostics describe worker-global state and may intentionally omit an id.
+  if (value.id !== undefined && value.id !== request.id) {
+    return false;
+  }
+  // Guard the id-less path explicitly so malformed progress/batch/complete
+  // messages cannot be delivered to the active stream by accident.
+  if (value.id === undefined && value.type !== 'diagnostic') {
+    return false;
+  }
+  if (
+    value.type === 'batch' &&
+    !validateStreamBatch(value, sequence, request.texts.length, onFailure)
+  ) {
+    return false;
+  }
+  if (
+    !validateStreamCompletionCoverage(
+      value,
+      sequence.expectedStartIndex,
+      request.texts.length,
+      onFailure
+    )
+  ) {
+    return false;
+  }
+  if (value.type === 'complete') {
+    try {
+      assertEmbedWorkerComplete(value);
+      assertStreamCompletionMatchesRequest(value, request, sequence);
+    } catch (error) {
+      onFailure(error);
+      return false;
+    }
+  }
+  return true;
+}
+
 export class StreamingEmbeddingWorkerClient {
   private activeStream: {
     readonly cleanup: () => void;
@@ -62,6 +265,8 @@ export class StreamingEmbeddingWorkerClient {
   private readonly runtime: ReturnType<typeof createWorkerRuntimeClient>;
   private readonly transport: ReturnType<typeof createWorkerRuntimeClient>['transport'];
   private executionChain: Promise<void> = Promise.resolve();
+  private telemetryCleanup: (() => void) | null = null;
+  private readonly telemetrySourceId = `streaming-embedding-worker-${nextTelemetrySourceId++}`;
 
   /**
    * The worker must be supplied explicitly by the owning runtime so URL resolution stays
@@ -92,10 +297,24 @@ export class StreamingEmbeddingWorkerClient {
           activeStream.cleanup();
           activeStream.reject(error);
         }
+        this.cleanupTelemetryListener();
         this.worker.terminate();
+        removeEmbeddingTelemetrySource(this.telemetrySourceId);
       },
     });
     this.transport = this.runtime.transport;
+    this.telemetryCleanup = this.transport.onMessage((message) => {
+      if (!isIdLessPipelineCacheCandidate(message)) {
+        return;
+      }
+      try {
+        assertEmbedWorkerPipelineCacheDiagnostic(message);
+        recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, message);
+      } catch (error) {
+        this.runtime.markFailed(error);
+        return;
+      }
+    });
   }
 
   async embed(
@@ -126,20 +345,23 @@ export class StreamingEmbeddingWorkerClient {
     options: StreamingEmbedOptions = {}
   ): Promise<EmbedWorkerComplete['metadata']> {
     this.runtime.throwIfFailed();
-    const run = async (): Promise<EmbedWorkerComplete['metadata']> =>
-      await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
+    const run = async (): Promise<EmbedWorkerComplete['metadata']> => {
+      // A prior stream can fail while this request is waiting on executionChain. Recheck at
+      // execution time so a queued request never posts to the worker after onFailure terminates it.
+      this.runtime.throwIfFailed();
+      return await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
+        const batchSequence = {
+          expectedBatchIndex: 0,
+          expectedStartIndex: 0,
+          expectedVectorDimensions: null,
+          maximumObservedBatchSize: 0,
+        };
         const cleanup = this.transport.onMessage((message) => {
-          if (!isStreamEvent(message)) {
-            return;
-          }
-          // Stream payloads are request-scoped unless they are diagnostics. Cache/device
-          // diagnostics describe worker-global state and may intentionally omit an id.
-          if (message.id !== undefined && message.id !== request.id) {
-            return;
-          }
-          // Guard the id-less path explicitly so malformed progress/batch/complete
-          // messages cannot be delivered to the active stream by accident.
-          if (message.id === undefined && message.type !== 'diagnostic') {
+          if (
+            !validateStreamMessage(message, request, batchSequence, (error) =>
+              this.runtime.markFailed(error)
+            )
+          ) {
             return;
           }
 
@@ -155,6 +377,7 @@ export class StreamingEmbeddingWorkerClient {
           type: 'stream-embed',
         });
       });
+    };
 
     const execution = this.executionChain.then(run, run);
     this.executionChain = execution.then(
@@ -172,8 +395,10 @@ export class StreamingEmbeddingWorkerClient {
       activeStream.reject(new Error('Embedding worker terminated during an active stream.'));
     }
     this.runtime.clearFailure();
+    this.cleanupTelemetryListener();
     this.runtime.dispose();
     this.worker.terminate();
+    removeEmbeddingTelemetrySource(this.telemetrySourceId);
   }
 
   private postMessage(message: StreamWorkerMessage): void {
@@ -194,6 +419,15 @@ export class StreamingEmbeddingWorkerClient {
     }
 
     if (payload.type === 'diagnostic') {
+      try {
+        assertEmbedWorkerPipelineCacheDiagnostic(payload);
+        if (payload.id !== undefined) {
+          recordEmbeddingPipelineCacheTelemetry(this.telemetrySourceId, payload);
+        }
+      } catch (error) {
+        this.runtime.markFailed(error);
+        return;
+      }
       options.onDiagnostic?.(payload);
       return;
     }
@@ -214,17 +448,26 @@ export class StreamingEmbeddingWorkerClient {
       return;
     }
 
-    this.handleStreamBatch(payload, request, options, cleanup, reject);
+    this.handleStreamBatch(payload, request, options);
+  }
+
+  private cleanupTelemetryListener(): void {
+    const cleanup = this.telemetryCleanup;
+    if (cleanup === null) {
+      return;
+    }
+    this.telemetryCleanup = null;
+    cleanup();
   }
 
   private handleStreamBatch(
     payload: EmbedWorkerBatch,
     request: EmbedWorkerRequest,
-    options: StreamingEmbedOptions,
-    cleanup: StreamCleanup,
-    reject: StreamReject
+    options: StreamingEmbedOptions
   ): void {
-    void Promise.resolve(options.onBatch?.(payload))
+    recordEmbeddingBatchTelemetry(this.telemetrySourceId, payload);
+    void Promise.resolve()
+      .then(() => options.onBatch?.(payload))
       .then(() => {
         this.postMessage({
           batchIndex: payload.batchIndex,
@@ -233,9 +476,7 @@ export class StreamingEmbeddingWorkerClient {
         });
       })
       .catch((error: unknown) => {
-        this.activeStream = null;
-        cleanup();
-        reject(error instanceof Error ? error : new Error(String(error)));
+        this.runtime.markFailed(error instanceof Error ? error : new Error(String(error)));
       });
   }
 }

@@ -80,6 +80,14 @@ describe('TransformersBackend queue integration', () => {
     backend.setTargetDimensions(2);
     await backend.initialize({
       device: 'webgpu',
+      modelConfig: {
+        description: 'Local embedding model',
+        dimensions: 2,
+        id: 'bge-m3',
+        name: 'BGE M3',
+        size: '~300MB',
+        tags: ['local'],
+      },
       modelId: 'bge-m3',
       quantized: false,
     });
@@ -93,6 +101,7 @@ describe('TransformersBackend queue integration', () => {
     expect(add).toHaveBeenCalledTimes(1);
     const enqueueCall = add.mock.calls[0]![0] as QueueAddCall;
     expect((enqueueCall as QueueAddCall).texts).toEqual(['queue-text']);
+    expect((enqueueCall as QueueAddCall).estimatedModelBytes).toBe(300 * 1024 * 1024);
     expect((enqueueCall as QueueAddCall).truncateDim).toBe(2);
     expect(pipelineMock).not.toHaveBeenCalled();
 

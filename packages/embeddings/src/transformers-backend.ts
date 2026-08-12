@@ -3,6 +3,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { generateUUID } from '@brainstrike/utils';
+import { parseModelSizeEstimateBytes } from './model-size-estimate.js';
 import { getRegisteredEmbeddingQueueFactory } from './runtime-config.js';
 import type {
   EmbeddingConfig,
@@ -231,6 +232,7 @@ export class TransformersBackend {
   private _streamBatchSize: number | null = null;
   private _targetDimensions: number | null = null;
   private _selectedDType: EmbeddingDType | null = null;
+  private _estimatedModelBytes: number | null = null;
 
   private resolveDTypeForDevice(device: 'webgpu' | 'wasm', quantized?: boolean): EmbeddingDType {
     if (device === 'webgpu') {
@@ -258,6 +260,7 @@ export class TransformersBackend {
     this._selectedDType = this.resolveDTypeForDevice(this._selectedDevice, this._quantized);
     this._streamingWorkerUrl = config.streamingWorkerUrl ?? null;
     this._streamBatchSize = this.resolveStreamBatchSize(config.streamBatchSize);
+    this._estimatedModelBytes = parseModelSizeEstimateBytes(config.modelConfig?.size);
 
     if (TransformersBackend._verboseOrtLogs) {
       logger.debug(
@@ -468,6 +471,9 @@ export class TransformersBackend {
       ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
       deviceHint: this.resolveDeviceHint(),
       dtype: this.resolveQueueDType(),
+      ...(this._estimatedModelBytes === null
+        ? {}
+        : { estimatedModelBytes: this._estimatedModelBytes }),
       maxBatchSize: this.resolveWorkerMaxBatchSize(texts.length, streamBatchSize),
       targetDimension,
     };

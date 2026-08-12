@@ -384,6 +384,12 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     };
     lifecycleState.ensureStarted.mockReturnValueOnce(
       new Promise((resolve) => {
+        lifecycleState.setStatus({
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:restarted-runtime',
+          state: 'starting',
+        });
         resolveRestart = () => {
           lifecycleState.setStatus(restartStatus);
           resolve(restartStatus);
@@ -396,9 +402,12 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
 
     expect(manager.getPlatformStatus()).toMatchObject({
       runtimeKind: 'embedding-host',
-      sourceState: 'stopped',
+      sourceState: 'starting',
       state: 'restarting',
     });
+    expect(lifecycleState.setStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'stopped' })
+    );
 
     resolveRestart();
     await expect(restartPromise).resolves.toMatchObject({
@@ -501,6 +510,19 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
         },
         backendMismatch: false,
         selectedDevicePreference: 'webgpu',
+        telemetry: {
+          batchTransfer: { batchCount: 1, lastBytes: 12, peakBytes: 12, totalBytes: 12 },
+          cache: {
+            entries: [],
+            estimatedGpuBytes: 0,
+            estimatedHeapBytes: 0,
+            memoryEstimateUnavailableCount: 0,
+            residentCount: 0,
+          },
+          health: { failureCount: 0, lastFailure: null },
+          lastUpdatedAt: 1000,
+          peakVectorsInFlight: 1,
+        },
       },
       lastError: null,
       runtimeId: 'embedding-host-runtime',
@@ -518,6 +540,9 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
           }),
           backendMismatch: false,
           selectedDevicePreference: 'webgpu',
+          telemetry: expect.objectContaining({
+            peakVectorsInFlight: 1,
+          }),
         }),
       })
     );

@@ -11,10 +11,8 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
-import {
-  createSystemDiagnosticsSettingsCategory,
-  SystemDiagnosticsPanel,
-} from '../diagnostics/system-diagnostics-panel';
+import { SystemDiagnosticsPanel } from '../diagnostics/system-diagnostics-panel';
+import { createSystemDiagnosticsSettingsCategory } from '../diagnostics/system-diagnostics-settings-category';
 
 // Mock QueueDiagnosticsPanel from vector-management
 vi.mock('@brainstrike/vector-management', () => ({
@@ -36,16 +34,284 @@ describe('SystemDiagnosticsPanel', () => {
     __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
+    (window as Window & { embeddingHost?: unknown }).embeddingHost = {
+      onStatus: vi.fn(() => () => undefined),
+    };
   });
 
   afterEach(() => {
     __resetDatabaseStatusStoreForTests();
     rendererLongTaskTelemetry.reset();
     (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = undefined;
+    (window as Window & { embeddingHost?: unknown }).embeddingHost = undefined;
     vi.unstubAllGlobals();
   });
 
   describe('rendering', () => {
+    it('surfaces embedding transfer, residency, and memory telemetry', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
+        getSnapshot: vi.fn(async () => ({
+          collectedAt: '2026-08-01T00:00:00.000Z',
+          embeddingHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'embedding-host:idle',
+            runtimeKind: 'embedding-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          indexing: { activeBackfills: [] },
+          llmHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'llm-host:idle',
+            runtimeKind: 'llm-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          reset: { userDataPath: '/tmp/brainstrike-user-data' },
+          telemetry: {
+            backgroundRuntimeMetrics: [],
+            embedding: {
+              batchTransfer: {
+                batchCount: 2,
+                lastBytes: 12 * 1024,
+                peakBytes: 16 * 1024,
+                totalBytes: 28 * 1024,
+              },
+              cache: {
+                entries: [
+                  {
+                    cacheKey: 'model-a|webgpu|fp16',
+                    createdAt: 0,
+                    device: 'webgpu',
+                    dtype: 'fp16',
+                    lastUsedAt: 60_000,
+                    memory: {
+                      gpuBytes: 300 * 1024 * 1024,
+                      heapBytes: 0,
+                      reason: 'model-size-estimate',
+                    },
+                    model: 'model-a',
+                    residencyMs: 60_000,
+                    sourceId: 'worker-a',
+                  },
+                  {
+                    cacheKey: 'model-a|webgpu|fp16',
+                    createdAt: 0,
+                    device: 'webgpu',
+                    dtype: 'fp16',
+                    lastUsedAt: 60_000,
+                    memory: {
+                      gpuBytes: 300 * 1024 * 1024,
+                      heapBytes: 0,
+                      reason: 'model-size-estimate',
+                    },
+                    model: 'model-a-copy',
+                    residencyMs: 60_000,
+                    sourceId: 'worker-b',
+                  },
+                ],
+                estimatedGpuBytes: 300 * 1024 * 1024,
+                estimatedHeapBytes: 0,
+                memoryEstimateUnavailableCount: 0,
+                residentCount: 2,
+              },
+              health: {
+                failureCount: 1,
+                lastFailure:
+                  'Workerpool result arrived without a pipeline-cache source diagnostic.',
+              },
+              lastUpdatedAt: 1000,
+              peakVectorsInFlight: 4,
+            },
+          },
+        })),
+      };
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(await screen.findByText('Embedding Runtime')).toBeInTheDocument();
+      expect(screen.getByText('2 resident')).toBeInTheDocument();
+      expect(screen.getByText('28 KiB')).toBeInTheDocument();
+      expect(screen.getByText('300 MiB')).toBeInTheDocument();
+      expect(screen.getByText('model-a')).toBeInTheDocument();
+      expect(screen.getByText('model-a-copy')).toBeInTheDocument();
+      expect(screen.getByText('4 vectors')).toBeInTheDocument();
+      expect(screen.getByText('Telemetry degraded')).toBeInTheDocument();
+      expect(
+        screen.getByText(/1 telemetry failure: Workerpool result arrived without/)
+      ).toBeInTheDocument();
+      expect(consoleError.mock.calls.flat().join(' ')).not.toContain(
+        'Encountered two children with the same key'
+      );
+    });
+
+    it('surfaces invalid embedding telemetry from a desktop snapshot', async () => {
+      (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = {
+        getSnapshot: vi.fn(async () => ({
+          collectedAt: '2026-08-01T00:00:00.000Z',
+          embeddingHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'embedding-host:idle',
+            runtimeKind: 'embedding-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          llmHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'llm-host:idle',
+            runtimeKind: 'llm-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          reset: { userDataPath: '/tmp/brainstrike-user-data' },
+          telemetry: { backgroundRuntimeMetrics: [], embedding: 'invalid-telemetry' },
+        })),
+      };
+
+      render(<SystemDiagnosticsPanel />);
+
+      expect(
+        await screen.findByText(
+          'Desktop embedding telemetry is invalid: Embedding telemetry snapshot must be an object.'
+        )
+      ).toBeInTheDocument();
+      expect(screen.queryByText('invalid-telemetry')).not.toBeInTheDocument();
+    });
+
+    it('refreshes desktop embedding telemetry when the hidden host reports status', async () => {
+      const createSnapshot = (totalBytes: number) => {
+        const telemetry = {
+          batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
+          cache: {
+            entries: [],
+            estimatedGpuBytes: 0,
+            estimatedHeapBytes: 0,
+            memoryEstimateUnavailableCount: 0,
+            residentCount: 0,
+          },
+          health: { failureCount: 0, lastFailure: null },
+          lastUpdatedAt: null,
+          peakVectorsInFlight: 0,
+        } as const;
+        return {
+          collectedAt: '2026-08-01T00:00:00.000Z',
+          embeddingHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'embedding-host:idle',
+            runtimeKind: 'embedding-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          indexing: { activeBackfills: [] },
+          llmHost: {
+            active: false,
+            lastError: null,
+            pendingRequestCount: 0,
+            runtimeId: 'llm-host:idle',
+            runtimeKind: 'llm-host',
+            sourceState: 'running',
+            state: 'idle',
+          },
+          reset: { userDataPath: '/tmp/brainstrike-user-data' },
+          telemetry: {
+            backgroundRuntimeMetrics: [],
+            embedding: {
+              ...telemetry,
+              batchTransfer: { ...telemetry.batchTransfer, totalBytes },
+              lastUpdatedAt: totalBytes === 0 ? null : 1000,
+            },
+          },
+        };
+      };
+      const getSnapshot = vi
+        .fn()
+        .mockResolvedValueOnce(createSnapshot(0))
+        .mockResolvedValueOnce(createSnapshot(0))
+        .mockRejectedValueOnce(new Error('desktop snapshot unavailable'));
+      const statusListenerRef: { current: ((status: unknown) => void) | null } = { current: null };
+      const unsubscribe = vi.fn();
+      (window as Window & { desktopDiagnostics?: unknown }).desktopDiagnostics = { getSnapshot };
+      (window as Window & { embeddingHost?: unknown }).embeddingHost = {
+        onStatus: vi.fn((listener: (status: unknown) => void) => {
+          statusListenerRef.current = listener;
+          return unsubscribe;
+        }),
+      };
+
+      const { unmount } = render(<SystemDiagnosticsPanel />);
+
+      await waitFor(() => expect(getSnapshot).toHaveBeenCalledTimes(1));
+      expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('0 B');
+      const statusListener = statusListenerRef.current;
+      if (!statusListener) {
+        throw new Error('Expected the diagnostics panel to subscribe to embedding host status.');
+      }
+      const updatedTelemetry = createSnapshot(8 * 1024).telemetry.embedding;
+      act(() => statusListener({ embeddingRuntime: { telemetry: updatedTelemetry } }));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByText(/Embedding host status telemetry is invalid:/)
+        ).not.toBeInTheDocument();
+        expect(getSnapshot).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('8 KiB');
+      });
+
+      act(() =>
+        statusListener({
+          active: false,
+          lastError: null,
+          runtimeId: 'embedding-host:restarting',
+          runtimeKind: 'embedding-host',
+          state: 'starting',
+        })
+      );
+      expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('8 KiB');
+
+      act(() =>
+        statusListener({
+          active: false,
+          lastError: 'Embedding host renderer crashed.',
+          runtimeId: 'embedding-host:crashed',
+          runtimeKind: 'embedding-host',
+          state: 'error',
+        })
+      );
+      expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('0 B');
+
+      await userEvent.click(screen.getByRole('button', { name: /refresh all diagnostics/i }));
+
+      await waitFor(() => {
+        expect(getSnapshot).toHaveBeenCalledTimes(2);
+        expect(screen.getByText('Batch Transfer').parentElement).toHaveTextContent('0 B');
+      });
+
+      const refreshButton = screen.getByRole('button', { name: /refresh all diagnostics/i });
+      await waitFor(() => expect(refreshButton).toBeEnabled());
+      await userEvent.click(refreshButton);
+      expect(await screen.findByText('desktop snapshot unavailable')).toBeInTheDocument();
+
+      const listenerAfterFailedRefresh = statusListenerRef.current;
+      if (!listenerAfterFailedRefresh) {
+        throw new Error('Expected the diagnostics panel to retain its host status subscription.');
+      }
+      act(() => listenerAfterFailedRefresh({ embeddingRuntime: { telemetry: updatedTelemetry } }));
+      expect(screen.getByText('desktop snapshot unavailable')).toBeInTheDocument();
+      unmount();
+      expect(unsubscribe).toHaveBeenCalledTimes(3);
+    });
+
     it('renders header with title and description', () => {
       render(<SystemDiagnosticsPanel />);
 

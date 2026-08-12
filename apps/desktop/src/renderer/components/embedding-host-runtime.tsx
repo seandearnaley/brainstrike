@@ -4,6 +4,7 @@ import {
 } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { createEmbeddingCacheRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
+import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import {
   type DeviceCapabilities,
@@ -35,6 +36,7 @@ import {
   type EmbeddingHostStatus,
   type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
+import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
@@ -179,6 +181,40 @@ function reportEmbeddingHostRuntimeStatusForRuntimeId(
   reportStatus(createEmbeddingHostStatus(runtimeId, state, options));
 }
 
+async function stopEmbeddingHostAfterRestartLimit(options: {
+  readonly controller: EmbeddingWorkerController | null;
+  readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
+  readonly isDisposed: () => boolean;
+  readonly runtimeIdRef: MutableRefObject<string>;
+  readonly terminalError: string;
+}): Promise<void> {
+  const { controller, embeddingRuntimeRef, isDisposed, runtimeIdRef, terminalError } = options;
+  if (controller) {
+    try {
+      await controller.stop();
+    } catch (error) {
+      logger.error('Embedding host worker stop after restart limit failed', {
+        error: error instanceof Error ? error.message : String(error),
+        runtimeId: runtimeIdRef.current,
+      });
+    }
+  }
+  const currentMetadata = embeddingRuntimeRef.current;
+  if (currentMetadata) {
+    embeddingRuntimeRef.current = {
+      ...currentMetadata,
+      telemetry: getEmbeddingTelemetrySnapshot(),
+    };
+  }
+  if (isDisposed()) {
+    return;
+  }
+  reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+    embeddingRuntime: embeddingRuntimeRef.current,
+    lastError: terminalError,
+  });
+}
+
 function createFatalErrorHandler(
   runtimeIdRef: MutableRefObject<string>,
   embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>,
@@ -205,8 +241,8 @@ function runEmbeddingHostCleanupStep(
   label:
     | 'Embedding host command cleanup failed'
     | 'Embedding host query embedding cleanup failed'
-    | 'Embedding host power channel cleanup failed'
-    | 'Embedding host power cleanup failed',
+    | 'Embedding host power cleanup failed'
+    | 'Embedding host telemetry cleanup failed',
   cleanup: () => void
 ): void {
   try {
@@ -244,6 +280,7 @@ function createEmbeddingRuntimeMetadata(
       (actualWorkerMetadata.device !== selectedDevicePreference ||
         actualWorkerMetadata.fallbackApplied),
     selectedDevicePreference,
+    telemetry: getEmbeddingTelemetrySnapshot(),
   };
 }
 
@@ -676,6 +713,21 @@ export function EmbeddingHostRuntime(): null {
       fatalErrorRef,
       activeRef
     );
+    const disposeEmbeddingTelemetryReporter = startEmbeddingTelemetryReporter({
+      controllerRef,
+      embeddingRuntimeRef,
+      isDisposed: () => disposed,
+      reportStatus: () => {
+        const fatalError = fatalErrorRef.current;
+        reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalError ? 'error' : 'running', {
+          active: fatalError
+            ? false
+            : activeRef.current || queryEmbeddingActiveCountRef.current > 0,
+          embeddingRuntime: embeddingRuntimeRef.current,
+          lastError: fatalError,
+        });
+      },
+    });
 
     const startWorker = async (): Promise<void> =>
       startEmbeddingHostWorkerRuntime({
@@ -724,7 +776,16 @@ export function EmbeddingHostRuntime(): null {
         if (disposed) {
           return;
         }
-        reportEmbeddingHostRuntimeStatusForRuntimeId(reportRuntimeId, 'stopped');
+        const embeddingRuntime = embeddingRuntimeRef.current;
+        if (embeddingRuntime) {
+          embeddingRuntimeRef.current = {
+            ...embeddingRuntime,
+            telemetry: getEmbeddingTelemetrySnapshot(),
+          };
+        }
+        reportEmbeddingHostRuntimeStatusForRuntimeId(reportRuntimeId, 'stopped', {
+          embeddingRuntime: embeddingRuntimeRef.current,
+        });
       })();
 
       const trackedStopPromise = stopPromise.finally(() => {
@@ -751,17 +812,14 @@ export function EmbeddingHostRuntime(): null {
         activeRef.current = false;
         const controller = controllerRef.current;
         controllerRef.current = null;
-        if (controller) {
-          void Promise.resolve(controller.stop()).catch((error: unknown) => {
-            logger.error('Embedding host worker stop after restart limit failed', {
-              error: error instanceof Error ? error.message : String(error),
-              runtimeId: runtimeIdRef.current,
-            });
-          });
-        }
-        reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-          embeddingRuntime: embeddingRuntimeRef.current,
-          lastError: terminalError,
+        restartAfterFatalErrorPromise = stopEmbeddingHostAfterRestartLimit({
+          controller,
+          embeddingRuntimeRef,
+          isDisposed: () => disposed,
+          runtimeIdRef,
+          terminalError,
+        }).finally(() => {
+          restartAfterFatalErrorPromise = null;
         });
         return;
       }
@@ -899,13 +957,17 @@ export function EmbeddingHostRuntime(): null {
           unsubscribeQueryEmbedding?.();
         }
       );
-      runEmbeddingHostCleanupStep(
-        runtimeIdRef,
-        'Embedding host power channel cleanup failed',
-        () => {
-          channel?.close();
-        }
-      );
+      runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host telemetry cleanup failed', () => {
+        disposeEmbeddingTelemetryReporter();
+      });
+      try {
+        channel?.close();
+      } catch (error) {
+        logger.error('Embedding host power channel cleanup failed', {
+          error: error instanceof Error ? error.message : String(error),
+          runtimeId: runtimeIdRef.current,
+        });
+      }
       void stopWorker('dispose');
     };
   }, [db]);
