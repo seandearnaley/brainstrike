@@ -1,6 +1,10 @@
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, type IpcMainInvokeEvent, ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMainPlatformIpcHandlers } from '../../main-platform-ipc';
+
+const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
+  getWindowRoleByWebContentsIdMock: vi.fn(),
+}));
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
 type NoteNextWindowReload = NonNullable<
@@ -26,6 +30,14 @@ vi.mock('electron', () => ({
   },
 }));
 
+vi.mock('../../window-role', () => ({
+  getWindowRoleByWebContentsId: getWindowRoleByWebContentsIdMock,
+}));
+
+function createInvokeEvent(senderId = 7201): IpcMainInvokeEvent {
+  return { sender: { id: senderId } } as IpcMainInvokeEvent;
+}
+
 describe('main platform IPC', () => {
   let handlers: Map<string, RegisteredHandler>;
   let noteNextWindowReload: ReturnType<typeof vi.fn<NoteNextWindowReload>>;
@@ -34,6 +46,7 @@ describe('main platform IPC', () => {
     vi.clearAllMocks();
     handlers = new Map();
     noteNextWindowReload = vi.fn<NoteNextWindowReload>();
+    getWindowRoleByWebContentsIdMock.mockReturnValue('visible-ui');
 
     vi.mocked(ipcMain.handle).mockImplementation((channel, handler) => {
       handlers.set(channel, handler as RegisteredHandler);
@@ -59,10 +72,12 @@ describe('main platform IPC', () => {
       noteNextWindowReload,
     });
 
-    expect(handlers.get('assistant:get-url')?.({})).toBe('http://127.0.0.1:4999');
+    await expect(handlers.get('assistant:get-url')?.(createInvokeEvent())).resolves.toBe(
+      'http://127.0.0.1:4999'
+    );
   });
 
-  it('registers the assistant auth channel and returns url+token from the injected getter', () => {
+  it('registers the assistant auth channel and returns url+token from the injected getter', async () => {
     registerPartialMainPlatformIpcHandlers({
       getAssistantAuth: () => ({ token: 'a'.repeat(64), url: 'http://127.0.0.1:4999' }),
       getAssistantUrl: () => 'http://127.0.0.1:4999',
@@ -70,32 +85,60 @@ describe('main platform IPC', () => {
     });
 
     expect(ipcMain.handle).toHaveBeenCalledWith('assistant:get-auth', expect.any(Function));
-    expect(handlers.get('assistant:get-auth')?.({})).toEqual({
+    await expect(handlers.get('assistant:get-auth')?.(createInvokeEvent())).resolves.toEqual({
       token: 'a'.repeat(64),
       url: 'http://127.0.0.1:4999',
     });
   });
 
-  it('passes the startupError variant through when the server failed to start', () => {
+  it('passes the startupError variant through when the server failed to start', async () => {
     registerPartialMainPlatformIpcHandlers({
       getAssistantAuth: () => ({ startupError: 'Assistant server failed to start: EADDRINUSE' }),
       getAssistantUrl: () => '',
       noteNextWindowReload,
     });
 
-    expect(handlers.get('assistant:get-auth')?.({})).toEqual({
+    await expect(handlers.get('assistant:get-auth')?.(createInvokeEvent())).resolves.toEqual({
       startupError: 'Assistant server failed to start: EADDRINUSE',
     });
   });
 
-  it('returns null assistant auth when the server is unavailable', () => {
+  it('returns null assistant auth when the server is unavailable', async () => {
     registerPartialMainPlatformIpcHandlers({
       getAssistantAuth: () => null,
       getAssistantUrl: () => '',
       noteNextWindowReload,
     });
 
-    expect(handlers.get('assistant:get-auth')?.({})).toBeNull();
+    await expect(handlers.get('assistant:get-auth')?.(createInvokeEvent())).resolves.toBeNull();
+  });
+
+  it.each([
+    'chunking-host',
+    'embedding-host',
+    'llm-host',
+    undefined,
+  ])('rejects assistant credentials before invoking getters for sender role %s', async (role) => {
+    getWindowRoleByWebContentsIdMock.mockReturnValue(role);
+    const getAssistantAuth = vi.fn(() => ({
+      token: 'a'.repeat(64),
+      url: 'http://127.0.0.1:4999',
+    }));
+    const getAssistantUrl = vi.fn(() => 'http://127.0.0.1:4999');
+    registerPartialMainPlatformIpcHandlers({
+      getAssistantAuth,
+      getAssistantUrl,
+      noteNextWindowReload,
+    });
+
+    await expect(handlers.get('assistant:get-auth')?.(createInvokeEvent())).rejects.toThrow(
+      'Desktop IPC assistant:get-auth requires sender role visible-ui.'
+    );
+    await expect(handlers.get('assistant:get-url')?.(createInvokeEvent())).rejects.toThrow(
+      'Desktop IPC assistant:get-url requires sender role visible-ui.'
+    );
+    expect(getAssistantAuth).not.toHaveBeenCalled();
+    expect(getAssistantUrl).not.toHaveBeenCalled();
   });
 
   it('records normalized renderer reload intent for the sender window', async () => {

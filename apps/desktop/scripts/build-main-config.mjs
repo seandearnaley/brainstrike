@@ -5,7 +5,8 @@
  *
  * Output layout is a runtime contract:
  * - dist/main.js            package.json "main"
- * - dist/preload.js         BrowserWindow preload (visible window + hidden hosts)
+ * - dist/preload.js         visible BrowserWindow preload
+ * - dist/hidden-preload.js  role-selected hidden renderer capability manifest
  * - dist/db-host-entry.js   utilityProcess.fork target, resolved as a SIBLING
  * - dist/parser-host-entry.js  of the bundled main.js via module.filename
  * - dist/main-log-transport.js  Pino worker target, unpacked beside app.asar
@@ -17,6 +18,7 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 export const MAIN_PROCESS_ENTRY_POINTS = {
   'db-host-entry': 'src/db-host-entry.ts',
+  'hidden-preload': 'src/hidden-preload.ts',
   main: 'src/main-bootstrap.ts',
   'main-log-transport': 'src/diagnostics/main-log-transport.ts',
   'parser-host-entry': 'src/parser-host-entry.ts',

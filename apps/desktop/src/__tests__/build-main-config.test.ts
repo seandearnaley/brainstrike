@@ -41,7 +41,8 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
  * recipe 7: "Bundle your code"). The runtime resolves these outputs by exact
  * path, so the entry list and output layout must stay pinned:
  * - package.json "main" → dist/main.js
- * - BrowserWindow preload → dist/preload.js (visible window AND hidden hosts)
+ * - visible BrowserWindow preload → dist/preload.js
+ * - hidden renderer host preload → dist/hidden-preload.js
  * - utilityProcess.fork sibling lookups → dist/db-host-entry.js,
  *   dist/parser-host-entry.js (resolved relative to module.filename of the
  *   bundled main.js, so outputs must stay FLAT in dist/)
@@ -50,6 +51,7 @@ describe('main-process bundle config', () => {
   it('bundles every runtime and logging transport entry point', () => {
     expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
       'db-host-entry': 'src/db-host-entry.ts',
+      'hidden-preload': 'src/hidden-preload.ts',
       main: 'src/main-bootstrap.ts',
       'main-log-transport': 'src/diagnostics/main-log-transport.ts',
       'parser-host-entry': 'src/parser-host-entry.ts',

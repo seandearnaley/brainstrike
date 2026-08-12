@@ -2,13 +2,26 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import { clearCachedAgentClient } from '../../agent-client-loader';
+import {
+  clearCachedAgentClient,
+  getAgentProviderEnvKeys,
+  listAgentProviders,
+} from '../../agent-client-loader';
 import type { DesktopEnvLoadFailure } from '../../desktop-env';
+import { TAVILY_ENV_KEYS } from '../../tavily-env-keys';
+
+const { getWindowRoleByWebContentsIdMock } = vi.hoisted(() => ({
+  getWindowRoleByWebContentsIdMock: vi.fn(),
+}));
 
 vi.mock('electron', () => ({
   ipcMain: {
     handle: vi.fn(),
   },
+}));
+
+vi.mock('../../window-role', () => ({
+  getWindowRoleByWebContentsId: getWindowRoleByWebContentsIdMock,
 }));
 
 interface SecretsServiceMock {
@@ -22,6 +35,15 @@ interface SecretsServiceMock {
 const ORIGINAL_NODE_ENV = process.env['NODE_ENV'];
 const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
+const PROVIDER_ENV_KEYS = [
+  ...new Set([
+    ...listAgentProviders().flatMap((provider) => getAgentProviderEnvKeys(provider)),
+    ...TAVILY_ENV_KEYS,
+  ]),
+];
+const ORIGINAL_PROVIDER_ENV = new Map(
+  PROVIDER_ENV_KEYS.map((key) => [key, process.env[key]] as const)
+);
 
 function restoreEnvVar(key: string, value: string | undefined): void {
   if (typeof value === 'string') {
@@ -35,23 +57,36 @@ function clearEnvVar(key: string): void {
   Reflect.deleteProperty(process.env, key);
 }
 
+function clearProviderEnv(): void {
+  for (const key of PROVIDER_ENV_KEYS) {
+    clearEnvVar(key);
+  }
+}
+
+function restoreProviderEnv(): void {
+  for (const key of PROVIDER_ENV_KEYS) {
+    restoreEnvVar(key, ORIGINAL_PROVIDER_ENV.get(key));
+  }
+}
+
+function createInvokeEvent(senderId = 7101): IpcMainInvokeEvent {
+  return { sender: { id: senderId } } as IpcMainInvokeEvent;
+}
+
 describe('registerSecretsIpcHandlers', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     clearCachedAgentClient();
+    getWindowRoleByWebContentsIdMock.mockReturnValue('visible-ui');
 
     restoreEnvVar('NODE_ENV', ORIGINAL_NODE_ENV);
     restoreEnvVar('ELECTRON_IS_E2E_TEST', ORIGINAL_ELECTRON_E2E);
-    clearEnvVar('BRAINSTRIKE_OPENAI_API_KEY');
-    clearEnvVar('BRAINSTRIKE_TAVILY_API_KEY');
-    clearEnvVar('GOOGLE_GENERATIVE_AI_API_KEY');
+    clearProviderEnv();
   });
 
   afterEach(async () => {
-    clearEnvVar('BRAINSTRIKE_OPENAI_API_KEY');
-    clearEnvVar('BRAINSTRIKE_TAVILY_API_KEY');
-    clearEnvVar('GOOGLE_GENERATIVE_AI_API_KEY');
+    restoreProviderEnv();
     clearCachedAgentClient();
 
     // Clear test mode secrets to prevent state leakage between tests
@@ -105,7 +140,7 @@ describe('registerSecretsIpcHandlers', () => {
     const listHandler = getHandler('secrets:list');
     expect(listHandler).toBeDefined();
 
-    const result = await listHandler!({} as IpcMainInvokeEvent);
+    const result = await listHandler!(createInvokeEvent());
 
     // Env + stored providers should be merged (with whitespace trimmed)
     expect(result).toEqual([
@@ -133,7 +168,7 @@ describe('registerSecretsIpcHandlers', () => {
     const { getHandler } = await bootstrap(secretsService);
     const listHandler = getHandler('secrets:list');
 
-    const result = (await listHandler!({} as IpcMainInvokeEvent)) as Array<{
+    const result = (await listHandler!(createInvokeEvent())) as Array<{
       envVar?: string;
       provider: string;
       source: 'env' | 'stored';
@@ -172,7 +207,7 @@ describe('registerSecretsIpcHandlers', () => {
     const listHandler = getHandler('secrets:listStored');
     expect(listHandler).toBeDefined();
 
-    const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
+    const result = (await listHandler!(createInvokeEvent())) as string[];
 
     expect(result).toEqual(['anthropic', 'custom']);
     expect(result).not.toContain('openai');
@@ -199,9 +234,9 @@ describe('registerSecretsIpcHandlers', () => {
     expect(listHandler).toBeDefined();
     expect(listStoredHandler).toBeDefined();
 
-    await saveHandler!({} as IpcMainInvokeEvent, 'anthropic', 'sk-test-anthropic');
-    const result = await listHandler!({} as IpcMainInvokeEvent);
-    const storedResult = (await listStoredHandler!({} as IpcMainInvokeEvent)) as string[];
+    await saveHandler!(createInvokeEvent(), 'anthropic', 'sk-test-anthropic');
+    const result = await listHandler!(createInvokeEvent());
+    const storedResult = (await listStoredHandler!(createInvokeEvent())) as string[];
 
     // Test mode should only include in-memory secrets, NOT env vars
     expect(result).toEqual([{ provider: 'anthropic', source: 'stored' }]);
@@ -227,7 +262,7 @@ describe('registerSecretsIpcHandlers', () => {
     const { getHandler } = await bootstrap(secretsService, [failure]);
     const listHandler = getHandler('secrets:list');
 
-    await expect(listHandler!({} as IpcMainInvokeEvent)).rejects.toThrow(
+    await expect(listHandler!(createInvokeEvent())).rejects.toThrow(
       'The development local environment file is malformed at line 3.'
     );
     expect(secretsService.listProviders).not.toHaveBeenCalled();
@@ -248,7 +283,7 @@ describe('registerSecretsIpcHandlers', () => {
     const clearHandler = getHandler('secrets:clearAll');
     expect(clearHandler).toBeDefined();
 
-    const unauthorized = (await clearHandler!({} as IpcMainInvokeEvent)) as {
+    const unauthorized = (await clearHandler!(createInvokeEvent())) as {
       success: false;
       message: string;
     };
@@ -260,11 +295,49 @@ describe('registerSecretsIpcHandlers', () => {
     expect(secretsService.clearAll).toHaveBeenCalledTimes(0);
 
     const success = (await clearHandler!(
-      {} as IpcMainInvokeEvent,
+      createInvokeEvent(),
       SECRETS_CLEAR_CONFIRMATION_TOKEN
     )) as { success: true };
 
     expect(success).toEqual({ success: true });
     expect(secretsService.clearAll).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    'chunking-host',
+    'embedding-host',
+    'llm-host',
+    undefined,
+  ])('rejects every secret operation before dispatch for sender role %s', async (role) => {
+    process.env['NODE_ENV'] = 'production';
+    getWindowRoleByWebContentsIdMock.mockReturnValue(role);
+    const secretsService: SecretsServiceMock = {
+      clearAll: vi.fn().mockResolvedValue(true),
+      deleteKey: vi.fn().mockResolvedValue(true),
+      getKey: vi.fn().mockResolvedValue('secret'),
+      listProviders: vi.fn().mockResolvedValue(['openai']),
+      saveKey: vi.fn().mockResolvedValue(true),
+    };
+    const { getHandler } = await bootstrap(secretsService);
+    const calls: ReadonlyArray<readonly [string, ...unknown[]]> = [
+      ['secrets:save', 'openai', 'secret'],
+      ['secrets:get', 'openai'],
+      ['secrets:delete', 'openai'],
+      ['secrets:list'],
+      ['secrets:listStored'],
+      ['secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN],
+    ];
+
+    for (const [channel, ...args] of calls) {
+      await expect(getHandler(channel)?.(createInvokeEvent(), ...args)).rejects.toThrow(
+        `Desktop IPC ${channel} requires sender role visible-ui.`
+      );
+    }
+
+    expect(secretsService.saveKey).not.toHaveBeenCalled();
+    expect(secretsService.getKey).not.toHaveBeenCalled();
+    expect(secretsService.deleteKey).not.toHaveBeenCalled();
+    expect(secretsService.listProviders).not.toHaveBeenCalled();
+    expect(secretsService.clearAll).not.toHaveBeenCalled();
   });
 });
