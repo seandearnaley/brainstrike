@@ -490,11 +490,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     if (this.#isBackgroundStarved(now)) {
       const starvedTask = this.#queues.background.shift();
       if (starvedTask) {
-        this.#lastStartedAt = now;
-        this.#runningStartedAt = now;
-        this.#recordTaskStarted(starvedTask, now);
-        this.#clearBackgroundWaiting();
-        return starvedTask;
+        return this.#startTask(starvedTask, 'background', now);
       }
     }
 
@@ -519,14 +515,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
 
       const task = this.#queues[priority].shift();
       if (task) {
-        const now = this.#now();
-        this.#lastStartedAt = now;
-        this.#runningStartedAt = now;
-        this.#recordTaskStarted(task, now);
-        if (priority === 'background') {
-          this.#clearBackgroundWaiting();
-        }
-        return task;
+        return this.#startTask(task, priority, this.#now());
       }
     }
 
@@ -534,6 +523,16 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       this.#clearBackgroundWaiting();
     }
     return null;
+  }
+
+  #startTask(task: QueuedTask, priority: DatabaseWorkPriority, startedAt: number): QueuedTask {
+    this.#lastStartedAt = startedAt;
+    this.#runningStartedAt = startedAt;
+    this.#recordTaskStarted(task, startedAt);
+    if (priority === 'background') {
+      this.#clearBackgroundWaiting();
+    }
+    return task;
   }
 
   #scheduleDrain(delayMs: number): void {
