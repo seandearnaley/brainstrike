@@ -1421,15 +1421,19 @@ Renderer execution boundary (BST-1233): production desktop main does not import
 or register `ipc-tools.ts`, the visible preload exposes no `tools.execute`, and
 desktop Settings supplies no playground execution callback. The `window.tools`
 bridge is selection-event-only. Consequently renderer code — including the
-renderer-hosted local LLM adapter — cannot invoke native, assistant, shell, or
-MCP tools directly. Local tool definitions are omitted when no executor is
-present. Tool execution stays on the assistant server path below, where the
+renderer-hosted local LLM adapter — receives no desktop executor and cannot
+invoke native, assistant, shell, or MCP tools directly. The shared local-runtime
+adapter remains executor-agnostic for explicit non-desktop embeddings/tests,
+but local tool definitions are omitted when no executor is present. Tool
+execution stays on the assistant server path below, where the
 permission engine owns policy and per-call approvals; there is no compatibility
 fallback that reconstructs approval state or accepts a renderer-supplied
 workspace path. `ipc-tools.ts` is retained only as an unregistered legacy unit
-harness and throws before handler registration unless `NODE_ENV === 'test'`.
-`tools-ipc-main-wiring.test.ts` pins all three production seams (main
-registration, preload exposure, and Settings callback) closed.
+harness: it preserves coverage of the former exploit path while production has
+no import edge to it, and it throws before handler registration unless
+`NODE_ENV === 'test'`. `tools-ipc-main-wiring.test.ts` pins the production seams
+(main registration, preload/channel exposure, shared Window declaration, and
+Settings callback) closed.
 
 Mutation tools PROMPT for per-call approval by default. The permission policy
 store (`packages/app-state/src/stores/permission-policy-store.ts`) defaults to

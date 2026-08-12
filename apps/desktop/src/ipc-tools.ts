@@ -524,7 +524,9 @@ async function executeMcpTool(
  */
 export function registerToolsIpcHandlers(dependencies: ToolsIpcDependencies = {}): () => void {
   if (process.env['NODE_ENV'] !== 'test') {
-    throw new Error('Renderer tool execution IPC is disabled in production.');
+    throw new Error(
+      'Renderer tool execution IPC is disabled outside tests (NODE_ENV=test); tool execution belongs to the assistant permission engine.'
+    );
   }
   logger.debug('Registering tools IPC handlers');
   const registry = createDesktopIpcRegistry({ ipcMain });

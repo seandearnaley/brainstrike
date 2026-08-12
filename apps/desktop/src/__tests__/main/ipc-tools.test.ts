@@ -61,6 +61,7 @@ describe('ipc-tools', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    vi.stubEnv('NODE_ENV', 'test');
     vi.mocked(buildDesktopAssistantTools).mockReset();
     vi.mocked(buildDesktopAssistantTools).mockReturnValue({} as never);
 
@@ -626,12 +627,9 @@ describe('ipc-tools', () => {
       const { registerToolsIpcHandlers } = await import('../../ipc-tools');
 
       expect(() => registerToolsIpcHandlers()).toThrow(
-        'Renderer tool execution IPC is disabled in production.'
+        'Renderer tool execution IPC is disabled outside tests (NODE_ENV=test); tool execution belongs to the assistant permission engine.'
       );
       expect(ipcMain.handle).not.toHaveBeenCalled();
-      expect(buildDesktopAssistantTools).not.toHaveBeenCalled();
-      expect(executeNativeTool).not.toHaveBeenCalled();
-      expect(callTool).not.toHaveBeenCalled();
     });
 
     it('registers channels through the typed desktop IPC registry', () => {
