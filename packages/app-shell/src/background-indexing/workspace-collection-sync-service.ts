@@ -605,8 +605,9 @@ export class WorkspaceCollectionSyncService {
     const previous = this.terminalChunkingErrorsByScope.get(scopeKey);
     const partialChanges = request.scope?.mode === 'paths' ? request.scope.changes : null;
     const inaccessiblePaths = new Set(prepared.inaccessiblePaths);
+    const previousErrors = previous?.errors ?? [];
     const retainedErrors = partialChanges
-      ? (previous?.errors ?? []).filter(
+      ? previousErrors.filter(
           (error) =>
             inaccessiblePaths.has(error.relativePath) ||
             !partialChanges.some((change) => {
@@ -626,7 +627,7 @@ export class WorkspaceCollectionSyncService {
                 : error.relativePath === relativePath;
             })
         )
-      : [];
+      : previousErrors.filter((error) => inaccessiblePaths.has(error.relativePath));
     const errorsByPath = new Map(
       [...retainedErrors, ...prepared.terminalChunkingErrors].map((error) => [
         error.relativePath,

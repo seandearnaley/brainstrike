@@ -934,23 +934,22 @@ describe('WorkspaceCollectionSyncService', () => {
     if (!processFiles) {
       throw new Error('Expected file content processor.');
     }
-    vi.mocked(deps.fileSystemAdapter.readDirectory).mockResolvedValueOnce([
-      {
-        depth: 1,
-        handle: createMockNodeHandle({
-          kind: 'file',
-          name: 'index.ts',
-          path: `${ROOT_PATH}/${FILE_PATH}`,
-        }),
-        lastModified: 1000,
+    const inaccessibleFileNode = {
+      depth: 1,
+      handle: createMockNodeHandle({
+        kind: 'file',
         name: 'index.ts',
         path: `${ROOT_PATH}/${FILE_PATH}`,
-        rootFolderId: ROOT_PATH,
-        selectionState: 'unchecked',
-        size: 42,
-        type: 'file',
-      },
-    ]);
+      }),
+      lastModified: 1000,
+      name: 'index.ts',
+      path: `${ROOT_PATH}/${FILE_PATH}`,
+      rootFolderId: ROOT_PATH,
+      selectionState: 'unchecked' as const,
+      size: 42,
+      type: 'file' as const,
+    };
+    vi.mocked(deps.fileSystemAdapter.readDirectory).mockResolvedValueOnce([inaccessibleFileNode]);
     vi.mocked(processFiles).mockResolvedValueOnce({
       [COMPOSITE_KEY]: {
         message: 'File was temporarily inaccessible during rename.',
@@ -964,6 +963,22 @@ describe('WorkspaceCollectionSyncService', () => {
         mode: 'paths',
       },
     });
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
+        state: 'error',
+      })
+    );
+
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([inaccessibleFileNode]);
+    vi.mocked(processFiles).mockResolvedValueOnce({
+      [COMPOSITE_KEY]: {
+        message: 'File remained inaccessible during full reconciliation.',
+        status: 'inaccessible',
+      },
+    });
+    await service.sync(request);
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
         activeRootPath: ROOT_PATH,
