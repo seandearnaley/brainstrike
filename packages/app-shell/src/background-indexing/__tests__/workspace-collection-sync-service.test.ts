@@ -859,11 +859,12 @@ describe('WorkspaceCollectionSyncService', () => {
     });
     const service = new WorkspaceCollectionSyncService(deps);
     const request = {
+      adapterRootId: 'root-a-id',
       backfillMode: 'defer' as const,
       enabled: true,
       indexingPolicyPreset: 'balanced' as const,
       managedCollectionId: 'set-1',
-      rootDirectoryHandle: { ...createRootHandle(ROOT_PATH), rootId: 'root-a-id' },
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
     };
 
     await service.sync(request);

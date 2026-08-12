@@ -314,8 +314,9 @@ there rather than hiding entries after the adapter has already read them.
   the managed collection discards errors owned by the retired collection. Each
   provider loop also reconciles the service against the complete mounted-root
   identity set. The durable adapter root ID is retained through both DB routing
-  and terminal-scope reconciliation (never project down to path plus nullable DB
-  ID), so removing one root cannot leave its error attached to healthy sibling
+  and terminal-scope reconciliation, including the `rootIdByPath` fallback for a
+  legacy mounted handle without a stamped `rootId` (never project down to path
+  plus nullable DB ID), so removing one root cannot leave its error attached to healthy sibling
   roots and same-path web roots cannot exchange identities. Full
   scans prune retry state for paths no longer present. If reconciliation leaves
   only mounted roots without resolved database ids, the provider replaces any

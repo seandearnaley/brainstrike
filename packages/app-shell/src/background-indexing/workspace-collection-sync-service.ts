@@ -194,6 +194,7 @@ export interface WorkspaceCollectionSyncServiceDependencies {
 }
 
 export interface WorkspaceCollectionSyncRequest {
+  adapterRootId?: string | null;
   backfillMode?: 'defer' | 'enqueue';
   dbRootId?: string | null;
   enabled: boolean;
@@ -444,15 +445,19 @@ export class WorkspaceCollectionSyncService {
 
     // Short-circuit: '' is never a valid lookup key, and passing it would
     // pollute the warn-once set with a misleading entry on path-less runs.
+    const adapterRootId =
+      request.adapterRootId === undefined
+        ? (request.rootDirectoryHandle?.rootId ?? null)
+        : request.adapterRootId;
     const dbRootId =
       request.dbRootId === undefined
         ? rootPath
-          ? await this.deps.resolveDbRootId(rootPath, request.rootDirectoryHandle?.rootId)
+          ? await this.deps.resolveDbRootId(rootPath, adapterRootId)
           : null
         : request.dbRootId;
     return {
       activeRootPath: rootPath ?? '',
-      adapterRootId: request.rootDirectoryHandle?.rootId ?? null,
+      adapterRootId,
       collection,
       dbRootId,
       provider,

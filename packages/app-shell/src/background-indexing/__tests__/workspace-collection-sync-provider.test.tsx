@@ -1282,6 +1282,39 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('passes a path-mapped adapter identity for a legacy unstamped handle', async () => {
+    const legacyRoot = {
+      kind: 'directory',
+      name: 'legacy-root',
+      path: '/workspace/legacy',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = legacyRoot;
+    fileSystemState.rootDirectoryHandles = [legacyRoot];
+    fileSystemState.rootIdByPath = new Map([[legacyRoot.path, 'legacy-adapter-id']]);
+    resolveDbRootIdMock.mockResolvedValue('legacy-db-root-id');
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledOnce());
+      expect(syncSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapterRootId: 'legacy-adapter-id',
+          dbRootId: 'legacy-db-root-id',
+          rootDirectoryHandle: legacyRoot,
+        })
+      );
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it("scopes a watcher overflow event (scope 'full' with named roots) to a full resync of ONLY the affected root", async () => {
     const rootA = {
       kind: 'directory',

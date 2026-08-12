@@ -829,7 +829,12 @@ interface SyncLoopTarget {
   };
 }
 
-type ResolvedSyncLoopTarget = SyncLoopTarget & { dbRootId: string };
+type ResolvedSyncLoopTargetCandidate = SyncLoopTarget & {
+  adapterRootId: string | null;
+  dbRootId: string | null;
+};
+
+type ResolvedSyncLoopTarget = ResolvedSyncLoopTargetCandidate & { dbRootId: string };
 
 function buildFullSyncTargets(handles: readonly DirectoryHandle[]): SyncLoopTarget[] {
   return handles.map((handle) => ({
@@ -839,7 +844,7 @@ function buildFullSyncTargets(handles: readonly DirectoryHandle[]): SyncLoopTarg
 }
 
 function hasResolvedDbRootId(
-  target: SyncLoopTarget & { dbRootId: string | null }
+  target: ResolvedSyncLoopTargetCandidate
 ): target is ResolvedSyncLoopTarget {
   return target.dbRootId !== null;
 }
@@ -864,7 +869,7 @@ function orderTargetsByIndexedCoverage(
 function publishNoSyncableTargetStatus(args: {
   collectionId: string;
   orderedTargets: readonly ResolvedSyncLoopTarget[];
-  resolvedTargets: readonly (SyncLoopTarget & { dbRootId: string | null })[];
+  resolvedTargets: readonly ResolvedSyncLoopTargetCandidate[];
   setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
 }): void {
   if (args.orderedTargets.length > 0) {
@@ -2029,8 +2034,9 @@ export function WorkspaceCollectionSyncProvider({
           resolvedMountedRoots.map((root) => [root.identityKey, root.dbRootId])
         );
         const resolvedTargets = targets.map(
-          (target): SyncLoopTarget & { dbRootId: string | null } => ({
+          (target): ResolvedSyncLoopTargetCandidate => ({
             ...target,
+            adapterRootId: target.handle.rootId ?? rootIdByPath.get(target.handle.path) ?? null,
             dbRootId:
               mountedDbRootIdByIdentity.get(
                 createMountedRootIdentityKey(target.handle, rootIdByPath)
@@ -2122,6 +2128,7 @@ export function WorkspaceCollectionSyncProvider({
           // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
           await service
             .sync({
+              adapterRootId: target.adapterRootId,
               backfillMode: targetIndex === orderedTargets.length - 1 ? 'enqueue' : 'defer',
               dbRootId: target.dbRootId,
               enabled,
