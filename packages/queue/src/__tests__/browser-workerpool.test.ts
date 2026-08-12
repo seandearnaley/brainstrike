@@ -481,7 +481,6 @@ describe('createWorkerpoolAdapter', () => {
     expect(promise.cancel).toHaveBeenCalledTimes(1);
     expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
   });
-
   it.each([
     ['missing', undefined],
     ['mismatched', 'another-task'],
@@ -518,6 +517,28 @@ describe('createWorkerpoolAdapter', () => {
     expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['progress', { id: 'another-task', phase: 'embedding', progress: 0.5, type: 'progress' }],
+    ['error', { id: 'another-task', message: 'wrong task failed', type: 'error' }],
+  ])('rejects a schema-valid %s event for another task', async (_case, event) => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (workerEvent: unknown) => void }) => {
+        options?.on?.(event);
+        return promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const addPromise = adapter.add(createTask('current-task'));
+    resolve(createResult('current-task'));
+
+    await expect(addPromise).rejects.toThrow(
+      'Embedding worker request event id must match the current task id.'
+    );
+    expect(promise.cancel).toHaveBeenCalledTimes(1);
+  });
   it.each([
     ['type', { diagnostic: 'pipeline-cache', type: 'unexpected' }],
     ['diagnostic', { diagnostic: 'unexpected', type: 'diagnostic' }],

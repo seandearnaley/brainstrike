@@ -568,6 +568,64 @@ export interface EmbedWorkerComplete {
   readonly type: 'complete';
 }
 
+export function assertEmbedWorkerComplete(value: unknown): asserts value is EmbedWorkerComplete {
+  const path = 'Embedding worker complete';
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error(`${path} must be an object.`);
+  }
+  const complete = value as Record<string, unknown>;
+  if (complete['type'] !== 'complete') {
+    throw new Error(`${path}.type must be "complete".`);
+  }
+  if (!(typeof complete['id'] === 'string' && complete['id'].length > 0)) {
+    throw new Error(`${path}.id must be a non-empty string.`);
+  }
+  const metadataValue = complete['metadata'];
+  if (!(metadataValue && typeof metadataValue === 'object' && !Array.isArray(metadataValue))) {
+    throw new Error(`${path}.metadata must be an object.`);
+  }
+  const metadata = metadataValue as Record<string, unknown>;
+  if (!(typeof metadata['model'] === 'string' && metadata['model'].length > 0)) {
+    throw new Error(`${path}.metadata.model must be a non-empty string.`);
+  }
+  if (metadata['device'] !== 'webgpu' && metadata['device'] !== 'wasm') {
+    throw new Error(`${path}.metadata.device is invalid.`);
+  }
+  if (metadata['dtype'] !== 'fp16' && metadata['dtype'] !== 'q4' && metadata['dtype'] !== 'fp32') {
+    throw new Error(`${path}.metadata.dtype is invalid.`);
+  }
+  if (
+    !(
+      typeof metadata['batchSize'] === 'number' &&
+      Number.isSafeInteger(metadata['batchSize']) &&
+      metadata['batchSize'] >= 0
+    )
+  ) {
+    throw new Error(`${path}.metadata.batchSize must be a non-negative safe integer.`);
+  }
+  if (
+    !(
+      typeof metadata['elapsedMs'] === 'number' &&
+      Number.isFinite(metadata['elapsedMs']) &&
+      metadata['elapsedMs'] >= 0
+    )
+  ) {
+    throw new Error(`${path}.metadata.elapsedMs must be a non-negative finite number.`);
+  }
+  if (typeof metadata['fallbackApplied'] !== 'boolean') {
+    throw new Error(`${path}.metadata.fallbackApplied must be a boolean.`);
+  }
+  if (
+    !(
+      typeof metadata['dimensions'] === 'number' &&
+      Number.isSafeInteger(metadata['dimensions']) &&
+      metadata['dimensions'] > 0
+    )
+  ) {
+    throw new Error(`${path}.metadata.dimensions must be a positive safe integer.`);
+  }
+}
+
 export type EmbedWorkerStreamEvent =
   | EmbedWorkerBatch
   | EmbedWorkerComplete

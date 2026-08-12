@@ -267,6 +267,11 @@ function readBatchTransferTelemetry(
       'Embedding telemetry batchTransfer.totalBytes is too small for its batchCount.'
     );
   }
+  if (batchCount > 0 && totalBytes > batchCount * peakBytes) {
+    throw new Error(
+      'Embedding telemetry batchTransfer.totalBytes exceeds batchCount times peakBytes.'
+    );
+  }
   return { batchCount, lastBytes, peakBytes, totalBytes };
 }
 

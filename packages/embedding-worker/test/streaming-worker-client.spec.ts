@@ -477,7 +477,24 @@ describe('StreamingEmbeddingWorkerClient', () => {
     expect(worker.terminate).toHaveBeenCalledTimes(1);
     expect(getEmbeddingTelemetrySnapshot().cache.residentCount).toBe(0);
   });
-
+  it.each([
+    ['missing type', { diagnostic: 'pipeline-cache' }],
+    ['incorrect type', { diagnostic: 'pipeline-cache', type: 'progress' }],
+  ])('terminally latches an id-less cache diagnostic with %s', (_case, diagnostic) => {
+    const worker = new MockWorker();
+    new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    worker.emitMessage(diagnostic);
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
+  it('terminally rejects malformed completion metadata', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const streamPromise = client.stream({ ...createRequest(), texts: [] });
+    await flushMicrotasks();
+    worker.emitMessage({ id: 'embed-1', metadata: undefined, type: 'complete' });
+    await expect(streamPromise).rejects.toThrow('Embedding worker complete.metadata');
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
   it('records id-less cache eviction diagnostics after a stream completes', async () => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);

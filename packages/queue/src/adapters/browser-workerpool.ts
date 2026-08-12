@@ -69,6 +69,12 @@ function readWorkerEvent(value: unknown): WorkerEvent | null {
   return null;
 }
 
+function assertCurrentTaskWorkerEvent(workerEvent: WorkerEvent, taskId: string): void {
+  if (workerEvent.id !== taskId) {
+    throw new Error('Embedding worker request event id must match the current task id.');
+  }
+}
+
 function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDiagnostic | null {
   if (typeof value !== 'object' || value === null) {
     return null;
@@ -496,6 +502,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
           }
           const workerEvent = readWorkerEvent(event);
           if (workerEvent) {
+            assertCurrentTaskWorkerEvent(workerEvent, task.id);
             emitter.emit(workerEvent);
             return;
           }

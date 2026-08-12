@@ -133,6 +133,7 @@ describe('embedding telemetry store', () => {
     ['nonempty zero-byte aggregate', { batchCount: 1, lastBytes: 0, peakBytes: 0, totalBytes: 0 }],
     ['undersized batch', { batchCount: 1, lastBytes: 1, peakBytes: 1, totalBytes: 1 }],
     ['undersized total', { batchCount: 2, lastBytes: 4, peakBytes: 4, totalBytes: 4 }],
+    ['oversized total', { batchCount: 2, lastBytes: 4, peakBytes: 4, totalBytes: 100 }],
     ['last bytes', { batchCount: 1, lastBytes: 13, peakBytes: 12, totalBytes: 13 }],
     ['peak bytes', { batchCount: 1, lastBytes: 12, peakBytes: 14, totalBytes: 13 }],
     ['empty aggregate', { batchCount: 0, lastBytes: 0, peakBytes: 1, totalBytes: 1 }],

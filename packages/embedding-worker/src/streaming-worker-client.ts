@@ -1,5 +1,6 @@
 import {
   assertEmbedWorkerBatch,
+  assertEmbedWorkerComplete,
   assertEmbedWorkerPipelineCacheDiagnostic,
 } from '@brainstrike/indexing-contract';
 import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
@@ -66,6 +67,17 @@ function isStreamEvent(value: unknown): value is EmbedWorkerStreamEvent {
     candidate.type === 'diagnostic' ||
     candidate.type === 'error' ||
     candidate.type === 'progress'
+  );
+}
+
+function isIdLessPipelineCacheCandidate(value: unknown): boolean {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate['id'] === undefined &&
+    (candidate['type'] === 'diagnostic' || candidate['diagnostic'] === 'pipeline-cache')
   );
 }
 
@@ -168,6 +180,22 @@ function validateStreamMessage(
   ) {
     return false;
   }
+  if (value.type === 'complete') {
+    try {
+      assertEmbedWorkerComplete(value);
+      if (
+        sequence.expectedVectorDimensions !== null &&
+        value.metadata.dimensions !== sequence.expectedVectorDimensions
+      ) {
+        throw new Error(
+          `Embedding worker complete.metadata.dimensions ${value.metadata.dimensions} does not match streamed vector dimensions ${sequence.expectedVectorDimensions}.`
+        );
+      }
+    } catch (error) {
+      onFailure(error);
+      return false;
+    }
+  }
   return validateStreamCompletionCoverage(
     value,
     sequence.expectedStartIndex,
@@ -225,7 +253,7 @@ export class StreamingEmbeddingWorkerClient {
     });
     this.transport = this.runtime.transport;
     this.telemetryCleanup = this.transport.onMessage((message) => {
-      if (!(isStreamEvent(message) && message.type === 'diagnostic' && message.id === undefined)) {
+      if (!isIdLessPipelineCacheCandidate(message)) {
         return;
       }
       try {
