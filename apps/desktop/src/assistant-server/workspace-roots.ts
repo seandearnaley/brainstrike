@@ -508,8 +508,9 @@ function orderWorkspaceRootsForRuntime(
  *
  * An empty successful query is recorded as `workspaceRoots: []`; this is the
  * authoritative zero-root state consumed by `listWorkspaceContext`. The
- * renderer-selected `workspaceRootPath` remains focus state only and cannot
- * authorize a root absent from the DB inventory. Query failures remain
+ * renderer-selected `workspaceRootPath` is cleared in that state so stale
+ * focus cannot conflict with the authoritative inventory or authorize a root
+ * absent from the DB inventory. Query failures remain
  * absent/unchanged so they cannot be mistaken for a valid empty state; tool
  * resolution then fails closed. The main-root declaration cannot apply in
  * degraded mode.
@@ -536,8 +537,9 @@ export async function enrichRuntimeDataWithWorkspaceRoots(
   }
   const orderedRoots = orderWorkspaceRootsForRuntime(roots, runtimeData);
   if (orderedRoots.length === 0) {
+    const { workspaceRootPath: _staleFocusedPath, ...runtimeWithoutFocusedPath } = runtimeData;
     return {
-      ...runtimeData,
+      ...runtimeWithoutFocusedPath,
       workspaceRoots: [],
     };
   }

@@ -908,7 +908,10 @@ FOCUSED `workspaceRootPath` is selection state only and never becomes a
 synthesized root. A successful zero-root query records an explicit
 `workspaceRoots: []`. This is distinct from an unresolved/query-failed root
 inventory and lets `listWorkspaceContext` report the valid empty-workspace state
-without disguising a bridge failure.
+without disguising a bridge failure. Enrichment also clears any stale FOCUSED
+`workspaceRootPath` in that zero-root state; otherwise the trusted empty
+inventory and renderer focus would be inconsistent and stream initialization
+would fail before the empty-workspace result could be reported.
 The desktop HTTP boundary strips any client-supplied `workspaceRoots` before
 enrichment. Only the DB result may populate the trusted manifest/tool inventory;
 renderer fields can order or focus roots but can never substitute adapter ids

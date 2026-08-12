@@ -512,6 +512,8 @@ describe('enrichRuntimeDataWithWorkspaceRoots', () => {
     const input = runtime({ workspaceRootPath: '/Users/me/Solo' });
     const enriched = await enrichRuntimeDataWithWorkspaceRoots(input, mockDb([]));
     expect(enriched?.workspaceRoots).toEqual([]);
+    expect(enriched?.workspaceRootPath).toBeUndefined();
+    expect(getWorkspaceRoots(enriched)).toEqual([]);
   });
 
   it('records an authoritative empty root list when the DB has no roots or legacy path', async () => {
