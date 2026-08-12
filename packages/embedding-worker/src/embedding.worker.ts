@@ -110,6 +110,8 @@ function errorLog(message: string, data?: Record<string, unknown>): void {
 let activeWorkerpoolRequestId: string | null = null;
 /** Direct-stream requests currently executing; global failures notify each owning client. */
 const activeStreamRequestIds = new Set<string>();
+/** Idle workerpool failures quarantine this runtime synchronously until its owner replaces it. */
+let workerLifetimeFailure: Error | null = null;
 
 // Global error handlers - only set up in actual worker environment.
 // This code only runs in browser Web Worker context where `self` exists.
@@ -129,6 +131,10 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     }
     const activeOwnerWasNotified = workerpoolRequestId !== null || activeStreamRequestIds.size > 0;
     if (!activeOwnerWasNotified && workerpoolTelemetryChannel) {
+      workerLifetimeFailure = new Error(
+        'Embedding worker cannot accept work after an idle global failure.',
+        { cause: cause ?? message }
+      );
       workerpoolTelemetryChannel.postMessage({
         ...(cause === undefined ? {} : { cause }),
         message,
@@ -1201,6 +1207,9 @@ function createInitialState(
 }
 
 async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
+  if (workerLifetimeFailure !== null) {
+    throw workerLifetimeFailure;
+  }
   const context = createContext(payload);
   const { id, model, texts } = context;
   const deviceHint = payload.deviceHint;

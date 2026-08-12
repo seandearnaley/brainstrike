@@ -148,8 +148,12 @@ Embedding runtime telemetry (BST-402):
   active owning transport, so workerpool cannot reuse an invocation still running inference
   and a direct stream cannot remain pending. Idle global failures retain the explicit
   `global` sentinel and do not silently self-close. An idle pool worker sends a validated
-  worker-lifetime error over its managed channel; the adapter terminates that pool, gates
-  new executions on recovery, and creates the replacement before accepting another task.
+  worker-lifetime error over its managed channel and synchronously quarantines itself before
+  publishing, so channel-delivery latency cannot admit another RPC. The adapter terminates
+  that pool, gates new executions on recovery, and creates the replacement before accepting
+  another task. It retains retired pool identities until adapter teardown so already-queued,
+  validated lifetime events from an old generation are ignored without weakening rejection
+  of identities that were never assigned to the adapter.
   An idle direct worker instead re-reports an unhandled rejection through the browser's
   uncaught-worker-error channel so the existing client listener visibly fails and retires
   it. Active direct streams each also receive their own request-scoped device-loss message.

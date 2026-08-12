@@ -296,6 +296,42 @@ describe('embedding worker runtime', () => {
       expect(close).not.toHaveBeenCalled();
     });
 
+    it('quarantines an idle failed worker before adapter recovery is delivered', async () => {
+      vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}quarantined-worker`);
+      vi.stubGlobal('location', {
+        hash: `#${EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY}=quarantine-channel`,
+      });
+      vi.stubGlobal(
+        'BroadcastChannel',
+        class {
+          readonly close = vi.fn();
+          readonly postMessage = vi.fn();
+        } as unknown as typeof BroadcastChannel
+      );
+      const mockSelf = {
+        close: vi.fn(),
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      const runEmbedding = await loadWorker();
+
+      mockSelf.onunhandledrejection?.({
+        reason: new Error('idle pool rejection'),
+      } as PromiseRejectionEvent);
+
+      await expect(
+        runEmbedding({
+          deviceHint: 'wasm',
+          id: 'task-before-recovery-delivery',
+          model: 'bge-m3',
+          texts: ['must not run'],
+          type: 'embed',
+        })
+      ).rejects.toThrow('cannot accept work after an idle global failure');
+      expect(pipelineMock).not.toHaveBeenCalled();
+    });
+
     it('scopes global failures to the active workerpool request', async () => {
       const close = vi.fn();
       const mockSelf = {

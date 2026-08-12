@@ -142,4 +142,55 @@ describe('workerpool lifetime recovery', () => {
 
     await expect(addPromise).resolves.toEqual(createResult('task-after-idle-failure'));
   });
+
+  it('ignores a queued lifetime error from a retired pool generation', async () => {
+    const execution = createCancelablePromise<QueueResult>();
+    poolExecMock.mockReturnValue(execution.promise);
+    const telemetry = {
+      recordBatch: vi.fn(),
+      recordFailure: vi.fn(),
+      recordPipelineCache: vi.fn(),
+      removeSource: vi.fn(),
+    };
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter({ telemetry, workerUrl: '/worker.js' });
+    const poolOptions = poolFactoryMock.mock.calls[0]?.[1] as
+      | {
+          onCreateWorker?: (args: {
+            script?: string;
+            workerOpts?: WorkerOptions;
+          }) => { workerOpts?: WorkerOptions } | undefined;
+        }
+      | undefined;
+    const createdWorker = poolOptions?.onCreateWorker?.({
+      script: '/worker.js',
+      workerOpts: { type: 'module' },
+    });
+    const workerName = createdWorker?.workerOpts?.name;
+    if (!workerName?.startsWith(EMBED_WORKER_INSTANCE_NAME_PREFIX)) {
+      throw new Error('Expected a managed worker identity.');
+    }
+    const workerInstanceId = workerName.slice(EMBED_WORKER_INSTANCE_NAME_PREFIX.length);
+    const telemetryChannel = broadcastChannelInstances[0];
+    if (!telemetryChannel) {
+      throw new Error('Expected a worker-lifetime telemetry channel.');
+    }
+    const lifetimeError = {
+      message: 'Worker unhandled rejection: duplicate idle rejection',
+      type: 'worker-lifetime-error',
+      workerInstanceId,
+    } as const;
+
+    telemetryChannel.emit(lifetimeError);
+    await vi.waitFor(() => expect(poolFactoryMock).toHaveBeenCalledTimes(2));
+    telemetryChannel.emit(lifetimeError);
+    const addPromise = adapter.add(createTask('task-after-stale-lifetime-error'));
+    execution.resolve(createResult('task-after-stale-lifetime-error'));
+
+    await expect(addPromise).resolves.toEqual(createResult('task-after-stale-lifetime-error'));
+    expect(poolTerminateMock).toHaveBeenCalledTimes(1);
+    expect(telemetry.recordFailure).toHaveBeenCalledWith(
+      'Embedding worker lifetime failure required workerpool recovery.'
+    );
+  });
 });

@@ -263,6 +263,9 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   const workerScript = options.workerUrl;
   const minWorkers = options.minWorkers ?? 1;
   const embeddingTelemetrySourceIds = new Set<string>();
+  // Retain every identity assigned during this adapter lifetime. A retired worker can have
+  // more than one already-queued channel event; those are valid but must not affect its
+  // replacement generation. Unknown identities still fail validation visibly.
   const assignedWorkerInstanceIds = new Set<string>();
   const activeWorkerInstanceIds = new Set<string>();
   const telemetryChannelName = `${WORKER_LIFETIME_TELEMETRY_CHANNEL_PREFIX}${globalThis.crypto.randomUUID()}`;
@@ -280,8 +283,10 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       embeddingTelemetry.removeSource(sourceId);
     }
     embeddingTelemetrySourceIds.clear();
-    assignedWorkerInstanceIds.clear();
     activeWorkerInstanceIds.clear();
+  };
+  const forgetManagedWorkerIdentities = (): void => {
+    assignedWorkerInstanceIds.clear();
   };
   const assertManagedWorkerInstanceId = (workerInstanceId: string): void => {
     if (!assignedWorkerInstanceIds.has(workerInstanceId)) {
@@ -359,7 +364,10 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   let workerLifetimeTelemetryFailure: Error | null = null;
   let workerLifetimeRecovery: Promise<void> | null = null;
   const recoverWorkerpoolAfterLifetimeError = (event: EmbedWorkerLifetimeError): void => {
-    assertActiveWorkerInstanceId(event.workerInstanceId);
+    assertManagedWorkerInstanceId(event.workerInstanceId);
+    if (!activeWorkerInstanceIds.has(event.workerInstanceId)) {
+      return;
+    }
     if (workerLifetimeRecovery !== null || terminalState !== 'active') {
       return;
     }
@@ -387,6 +395,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         });
         closeTelemetryChannel();
         clearEmbeddingTelemetrySources();
+        forgetManagedWorkerIdentities();
       } finally {
         workerLifetimeRecovery = null;
       }
@@ -417,6 +426,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         });
       } finally {
         clearEmbeddingTelemetrySources();
+        forgetManagedWorkerIdentities();
       }
     })();
   };
@@ -732,6 +742,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     } finally {
       closeTelemetryChannel();
       clearEmbeddingTelemetrySources();
+      forgetManagedWorkerIdentities();
     }
     logger.debug(`Workerpool adapter ${nextState}`);
   };
