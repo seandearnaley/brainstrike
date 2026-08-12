@@ -39,7 +39,10 @@ describe('model catalog migration contract', () => {
     );
 
     assert.match(databaseContract, /PROVIDER_DEFINITIONS/);
-    assert.match(databaseContract, /static array literal/i);
+    assert.match(databaseContract, /each provider entry as an object literal/i);
+    assert.match(databaseContract, /models.*array literal/i);
+    assert.match(databaseContract, /each model entry as an object literal/i);
+    assert.match(databaseContract, /may reference resolvable string constants/i);
     assert.match(databaseContract, /packages\/assistant-contract\/src\/provider-registry\.ts/);
   });
 

@@ -57,7 +57,7 @@ Adding, removing, or renaming a supported AI model is a multi-layer change. Upda
 When changing the model catalog:
 1. Update the static registry (single source of truth):
    - packages/assistant-contract/src/provider-registry.ts
-   - Keep `PROVIDER_DEFINITIONS` as a static array literal directly in that file; `scripts/model-catalog-migration-contract.mjs` AST-parses it and fails closed on indirection.
+   - Keep `PROVIDER_DEFINITIONS` as an array literal, each provider entry as an object literal, each provider's `models` property as an array literal, and each model entry as an object literal. `scripts/model-catalog-migration-contract.mjs` AST-parses those structural nodes; scalar provider/model fields may reference resolvable string constants.
 2. Add a numbered DB migration that upserts/deletes catalog rows, and register it in BOTH:
    - packages/db/src/migrations/index.ts (numbered MigrationRunner — used by tests)
    - the `customMigrations` ledger in packages/db/src/drizzle/migrate.ts (used by the real app)
