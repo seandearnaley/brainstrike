@@ -125,7 +125,7 @@ describe('tool projection rewrite recording', () => {
     expect(logger.error).toHaveBeenCalledOnce();
   });
 
-  it('builds a winning read rewrite candidate only once', async () => {
+  it('measures winning read candidates from the persisted model output, never by re-projecting', async () => {
     const parts = Array.from({ length: 14 }, (_, index) =>
       persistedInvocation({ id: `read-old-${index}`, result: readResult('x'.repeat(5000)) })
     );
@@ -142,7 +142,59 @@ describe('tool projection rewrite recording', () => {
       { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
     );
 
-    expect(projectReadWorkspaceFileModelOutput).toHaveBeenCalledTimes(14);
+    // BST-1249: persisted invocations carry the exact model-facing projection;
+    // re-projecting the raw result would re-apply the DEFAULT domain budget,
+    // which is smaller than the loop-guard/scaled budget some runtimes used.
+    expect(projectReadWorkspaceFileModelOutput).not.toHaveBeenCalled();
+  });
+
+  it('does not brand a large read as malformed when its projection exceeds the default budget (BST-1249)', async () => {
+    // Reproduces the 2026-08 audit rows: content projecting to ~10k chars was
+    // legitimately projected at runtime under a scaled budget (up to 12k), but
+    // history re-projection under the 6k default threw RangeError and mislabeled
+    // the record `tool_projection_rewrite_malformed_read_history` on every scan.
+    const database = fakeDatabase([
+      persistedInvocation({ id: 'read-large', result: readResult('x'.repeat(10_500)) }),
+    ]);
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+        result: readResult('fresh'),
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'read-new',
+        toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
+    );
+
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('re-projects a legacy row without persisted model output under the ceiling budget (BST-1249)', async () => {
+    const legacy = persistedInvocation({
+      id: 'read-legacy-large',
+      result: readResult('x'.repeat(10_500)),
+    }) as { providerMetadata?: unknown };
+    legacy.providerMetadata = undefined;
+    const database = fakeDatabase([legacy]);
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+        result: readResult('fresh'),
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'read-new',
+        toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
+    );
+
+    // 10.5k chars fits the 12k ceiling budget even though it exceeds the 6k
+    // default: a legacy row projected under a scaled runtime budget must not
+    // be branded malformed.
+    expect(projectReadWorkspaceFileModelOutput).toHaveBeenCalledOnce();
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('warns once per malformed persisted read invocation during a scan', async () => {

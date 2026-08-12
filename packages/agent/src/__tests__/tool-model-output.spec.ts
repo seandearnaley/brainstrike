@@ -1586,6 +1586,28 @@ describe('fail-soft domain projection', () => {
     expect(loggerMocks.error).toHaveBeenCalledTimes(1);
   });
 
+  it('routes a Mastra validation-error carrier to the generic projection without the fail-soft error log (BST-1249)', () => {
+    // Mastra's `validateToolInput` returns `{error: true, message, validationErrors}`
+    // as the tool result when the model mis-parameterizes a call. That is an
+    // EXPECTED shape — it must project generically like a guarded tool error,
+    // never reach the strict domain projector, and never log as fail-soft.
+    const carrier = {
+      input: { pattern: 42 },
+      output: {
+        error: true,
+        message: 'Tool input validation failed for brainstrike.grepSearch',
+        validationErrors: { errors: [], fields: { pattern: { errors: ['expected string'] } } },
+      },
+      toolCallId: 'call-validation',
+    };
+
+    const modelOutput = projectThroughDispatcher(carrier) as { type?: string; value?: string };
+
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain('validation failed');
+    expect(loggerMocks.error).not.toHaveBeenCalled();
+  });
+
   it('still projects contract-conforming values through the domain projector', () => {
     const modelOutput = projectThroughDispatcher({
       candidatesTruncated: false,

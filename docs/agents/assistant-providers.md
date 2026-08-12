@@ -926,6 +926,14 @@ budget guard — and still fails the run, whether thrown inside the projector or
 raised centrally on an oversized returned value. When adding a projector,
 choose per throw site: marker for "not my result", plain error for "my
 producer violated its contract".
+Mastra's tool-input/output validation failure carrier
+(`{error: true, message, validationErrors}` — `@mastra/core` `ValidationError`)
+never reaches domain projectors at all (BST-1249): the dispatcher routes it to
+the generic bounded projection alongside guarded tool errors, both bare and
+nested under the AI-SDK `{input, output, toolCallId}` result envelope. It is an
+EXPECTED shape for a mis-parameterized call, so it must not burn an
+error-severity `tool_model_projection_fail_soft` — that log exists to flag
+genuinely unexpected shapes (pinned in `tool-model-output.spec.ts`).
 
 ### Context-window-scaled default budgets
 

@@ -982,7 +982,16 @@ provider-request boundary without mutating Mastra-owned message content.
   distinct-record ceiling ONE summary warning
   (`tool_projection_rewrite_malformed_history_suppressed`) announces
   suppression instead of an eviction cliff
-  (`tool-projection-rewrite-repository.test.ts` pins all of it).
+  (`tool-projection-rewrite-repository.test.ts` pins all of it). Candidate
+  size is measured from the PERSISTED model output
+  (`providerMetadata.mastra.modelOutput`, the same source recency pruning
+  reads), never by re-projecting the raw result (BST-1249): re-projection
+  re-applies the DEFAULT domain budget, smaller than the loop-guard/scaled
+  budget some runtimes used, so legitimately-large historical reads threw
+  RangeError and were mislabeled malformed on every scan — the 2026-08
+  audit's three "malformed" records were exactly this. Only legacy rows
+  without a persisted model output re-project, under the CEILING scaled
+  budget.
 - **Replay rewriting is surgical and transient.** The agent-side Mastra input
   processor receives the fully built AI-SDK prompt and replaces only matching
   `tool-result.output` values with text markers. It runs before provider-history

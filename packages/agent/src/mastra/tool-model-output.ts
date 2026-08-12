@@ -175,6 +175,40 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+/**
+ * BST-1249: Mastra's tool input/output validation failure carrier
+ * (`@mastra/core` `ValidationError`: `{error: true, message, validationErrors}`).
+ * It is an EXPECTED result shape whenever the model mis-parameterizes a call,
+ * so it routes to the generic bounded projection exactly like a guarded tool
+ * error. Letting it reach a strict domain projector produced a spurious
+ * error-severity `tool_model_projection_fail_soft` on every mis-parameterized
+ * call (8 in the 2026-08 audit window), which polluted the anomaly signal that
+ * log exists to carry. Structural check on purpose — the carrier shape is
+ * Mastra's public validation contract, and depending on it structurally keeps
+ * this module free of a deep `@mastra/core` import.
+ */
+function isMastraToolValidationError(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    value['error'] === true &&
+    typeof value['message'] === 'string' &&
+    isRecord(value['validationErrors'])
+  );
+}
+
+/**
+ * The validation carrier reaches the dispatcher either bare (the persisted
+ * tool result IS the carrier) or nested under the AI-SDK result envelope
+ * (`{input, output, toolCallId}`) — both shapes were observed in the 2026-08
+ * audit's fail-soft events. Detect both.
+ */
+function containsMastraToolValidationError(value: unknown): boolean {
+  if (isMastraToolValidationError(value)) {
+    return true;
+  }
+  return isRecord(value) && isMastraToolValidationError(value['output']);
+}
+
 function stringifyJsonSafe(value: unknown): string {
   const serialized = JSON.stringify(toJsonSafe(value));
   if (serialized === undefined) {
@@ -700,7 +734,7 @@ function projectDefaultModelOutput(
       : normalized;
   }
   const projectionSource = readSettledToolOutputProjectionSource(output);
-  if (isGuardedToolError(projectionSource)) {
+  if (isGuardedToolError(projectionSource) || containsMastraToolValidationError(projectionSource)) {
     return createDefaultModelOutput(toolName, projectionSource, resolvedDefaultBudget);
   }
   const envelope = readHookResultEnvelope(projectionSource);
@@ -798,7 +832,7 @@ function projectExistingModelOutput(
       : normalized;
   }
   const projectionSource = readSettledToolOutputProjectionSource(output);
-  if (isGuardedToolError(projectionSource)) {
+  if (isGuardedToolError(projectionSource) || containsMastraToolValidationError(projectionSource)) {
     return projectDefaultModelOutput(toolName, projectionSource, resolvedDefaultBudget);
   }
   const envelope = readHookResultEnvelope(projectionSource);
