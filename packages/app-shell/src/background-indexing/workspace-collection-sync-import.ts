@@ -740,6 +740,19 @@ function buildBatchedEnhancedImportProgress(args: {
   };
 }
 
+function selectImportedBatchChanges(
+  batch: readonly PreparedCacheChange[],
+  results: readonly FileImportResult[]
+): PreparedCacheChange[] {
+  const importedIds = new Set<string>();
+  for (const result of results) {
+    if (result.imported) {
+      importedIds.add(result.id);
+    }
+  }
+  return batch.filter((change) => importedIds.has(change.id));
+}
+
 function createFileBatchPreparations(
   fileNodes: readonly IFileNode[],
   fileSystemAdapter: FileSystemAdapter,
@@ -1235,10 +1248,7 @@ export async function runRootFolderCacheImport(args: {
               waitForBackgroundPermit,
             });
             errors.push(...batchOutcome.errors);
-            const importedIds = new Set(
-              batchOutcome.results.filter((result) => result.imported).map((result) => result.id)
-            );
-            const importedBatch = selectedBatch.filter((change) => importedIds.has(change.id));
+            const importedBatch = selectImportedBatchChanges(selectedBatch, batchOutcome.results);
             if (importedBatch.length > 0) {
               onChunkingBatchStart?.(importedBatch);
             }
