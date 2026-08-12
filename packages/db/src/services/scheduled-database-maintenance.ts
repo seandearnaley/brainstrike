@@ -1,4 +1,7 @@
+import { createLogger } from '@brainstrike/logging';
 import { buildPruneJobsStatement, type JobState } from '../queue/job-queue.js';
+
+const logger = createLogger('ScheduledDatabaseMaintenance');
 
 export const DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
 export const DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS = 60 * 60 * 1000;
@@ -13,6 +16,11 @@ export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = [
   'job_queue',
   'brainstrike_tool_call_telemetry',
   'brainstrike_token_estimate_calibration',
+  // Embedding backfills create large numbers of dead file_chunks tuples.
+  // Reclaim them here, after the desktop idle/busy gates, rather than inline
+  // with backfill completion where a long PGlite VACUUM blocks every query.
+  // Ordered last because a vacuum failure aborts the remainder of the pass.
+  'file_chunks',
 ] as const;
 // PGlite runs a single standalone backend with no autovacuum launcher, so
 // column statistics are never collected unless maintenance runs ANALYZE
@@ -20,11 +28,12 @@ export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = [
 // 100k+ rows and drive grep JOIN ordering, tsvector/BM25 estimates, and the
 // dedupe CTE plans.
 export const DEFAULT_DATABASE_MAINTENANCE_ANALYZE_TABLES = [
-  'file_chunks',
+  // file_chunks is analyzed by its VACUUM (ANALYZE) entry above.
   'file_records',
   'embedding_cache',
 ] as const;
 export const DEFAULT_DATABASE_MAINTENANCE_ACTIVE_PRUNE_LIMIT = 5000;
+export const DEFAULT_DATABASE_MAINTENANCE_SLOW_STATEMENT_MS = 1000;
 // BST-1198: brainstrike_tool_call_telemetry (migration 083) grows one row per
 // tool call with no other retention path. 60 days comfortably covers the
 // bounded before/after baseline windows the table exists for (BASELINE.md)
@@ -196,12 +205,29 @@ function resolveAnalyzeTables(options: ScheduledDatabaseMaintenanceOptions): rea
   return tables;
 }
 
+async function timeMaintenanceStatement<TResult>(
+  statement: string,
+  operation: () => Promise<TResult>
+): Promise<TResult> {
+  const startedAt = Date.now();
+  try {
+    return await operation();
+  } finally {
+    const durationMs = Math.max(0, Date.now() - startedAt);
+    if (durationMs >= DEFAULT_DATABASE_MAINTENANCE_SLOW_STATEMENT_MS) {
+      logger.warn('Slow scheduled database maintenance statement', {
+        durationMs,
+        statement,
+      });
+    }
+  }
+}
+
 async function readActiveJobCount(db: ScheduledDatabaseMaintenanceDb): Promise<number> {
-  const result = await db.query<JobStateCountRow>(
-    `SELECT state, COUNT(*)::text AS count
+  const sql = `SELECT state, COUNT(*)::text AS count
        FROM job_queue
-      GROUP BY state`
-  );
+      GROUP BY state`;
+  const result = await timeMaintenanceStatement(sql, async () => db.query<JobStateCountRow>(sql));
   return result.rows.reduce((sum, row) => {
     if (!ACTIVE_JOB_STATE_SET.has(row.state)) {
       return sum;
@@ -217,7 +243,7 @@ async function pruneTerminalJobs(
   // Shared statement builder (BST-991 slice 2): this DELETE was hand-written
   // here AND in JobQueue.prune — one source now.
   const { params, sql } = buildPruneJobsStatement(TERMINAL_JOB_STATES, olderThanIso);
-  const result = await db.query<CountRow>(sql, params);
+  const result = await timeMaintenanceStatement(sql, async () => db.query<CountRow>(sql, params));
   return normalizeCount(result.rows[0]?.count);
 }
 
@@ -227,7 +253,7 @@ async function pruneFinishedJobsBounded(
   limit: number
 ): Promise<number> {
   const { params, sql } = buildPruneJobsStatement(ACTIVE_PRUNE_JOB_STATES, olderThanIso, limit);
-  const result = await db.query<CountRow>(sql, params);
+  const result = await timeMaintenanceStatement(sql, async () => db.query<CountRow>(sql, params));
   return normalizeCount(result.rows[0]?.count);
 }
 
@@ -236,13 +262,13 @@ async function pruneByOccurredAt(
   table: (typeof OCCURRED_AT_RETENTION_TABLES)[number]['table'],
   olderThanIso: string
 ): Promise<number> {
-  const result = await db.query<CountRow>(
-    `WITH del AS (
+  const sql = `WITH del AS (
        DELETE FROM ${table}
         WHERE occurred_at < $1
        RETURNING 1
-     ) SELECT COUNT(*)::text AS count FROM del`,
-    [olderThanIso]
+     ) SELECT COUNT(*)::text AS count FROM del`;
+  const result = await timeMaintenanceStatement(sql, async () =>
+    db.query<CountRow>(sql, [olderThanIso])
   );
   return normalizeCount(result.rows[0]?.count);
 }
@@ -252,12 +278,12 @@ async function hasExpiredByOccurredAt(
   table: (typeof OCCURRED_AT_RETENTION_TABLES)[number]['table'],
   olderThanIso: string
 ): Promise<boolean> {
-  const result = await db.query<ExistsRow>(
-    `SELECT EXISTS (
+  const sql = `SELECT EXISTS (
        SELECT 1 FROM ${table}
         WHERE occurred_at < $1
-     ) AS present`,
-    [olderThanIso]
+     ) AS present`;
+  const result = await timeMaintenanceStatement(sql, async () =>
+    db.query<ExistsRow>(sql, [olderThanIso])
   );
   const present = result.rows[0]?.present;
   if (typeof present !== 'boolean') {
@@ -289,18 +315,18 @@ async function pruneByOccurredAtBounded(
   // oldest-first bounded shape (diagnostic-events-repository.ts): once the
   // eligible backlog exceeds `limit`, the oldest rows are evicted first
   // instead of an arbitrary subset.
-  const result = await db.query<CountRow>(
-    `WITH del AS (
+  const sql = `WITH del AS (
        DELETE FROM ${table}
         WHERE id IN (
           SELECT id FROM ${table}
            WHERE occurred_at < $1
            ORDER BY occurred_at ASC
            LIMIT $2
-        )
+       )
        RETURNING 1
-     ) SELECT COUNT(*)::text AS count FROM del`,
-    [olderThanIso, limit]
+     ) SELECT COUNT(*)::text AS count FROM del`;
+  const result = await timeMaintenanceStatement(sql, async () =>
+    db.query<CountRow>(sql, [olderThanIso, limit])
   );
   return normalizeCount(result.rows[0]?.count);
 }
@@ -336,13 +362,15 @@ async function runMaintenanceStatement(
   db: ScheduledDatabaseMaintenanceDb,
   sql: string
 ): Promise<void> {
-  if (typeof db.maintenance?.exec === 'function') {
-    await db.maintenance.exec(sql);
-  } else if (typeof db.exec === 'function') {
-    await db.exec(sql);
-  } else {
-    await db.query(sql);
-  }
+  await timeMaintenanceStatement(sql, async () => {
+    if (typeof db.maintenance?.exec === 'function') {
+      await db.maintenance.exec(sql);
+    } else if (typeof db.exec === 'function') {
+      await db.exec(sql);
+    } else {
+      await db.query(sql);
+    }
+  });
 }
 
 async function vacuumTables(
@@ -453,16 +481,17 @@ export async function runScheduledDatabaseMaintenance(
   // 2. There is a genuine data dependency: VACUUM (ANALYZE) on job_queue and
   //    both telemetry tables must observe the dead tuples their prune calls
   //    just created in THOSE SAME tables to reclaim them. Racing a prune and
-  //    its own table's VACUUM
-  //    via Promise.all would be a correctness regression, not just a missed
-  //    optimization — VACUUM/ANALYZE also cannot be wrapped in a normal
-  //    transaction. If VACUUM or ANALYZE fails after pruning, the next idle
-  //    maintenance pass retries them; deleted terminal rows stay deleted.
+  //    its own table's VACUUM via Promise.all would be a correctness regression,
+  //    not just a missed optimization — VACUUM/ANALYZE also cannot be wrapped
+  //    in a normal transaction. The unrelated plain-ANALYZE set runs first so
+  //    a slow or failing file_chunks vacuum cannot starve those cheap planner
+  //    statistics. If either phase fails after pruning, the next idle pass
+  //    retries it; deleted terminal rows stay deleted.
   const prunedTerminalJobs = await pruneTerminalJobs(db, olderThanIso);
   const { prunedTokenEstimateCalibrationRows, prunedToolCallTelemetryRows } =
     await pruneOccurredAtRetentionTables(db, occurredAtRetentionMs, startedAtMs);
-  const vacuumedTables = await vacuumTables(db, vacuumTableNames);
   const analyzedTables = await analyzeTables(db, analyzeTableNames);
+  const vacuumedTables = await vacuumTables(db, vacuumTableNames);
   const completedAtDate = resolveNow(options);
 
   return {

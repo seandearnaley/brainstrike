@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { coerceLensValues, parseLensFile } from '@brainstrike/assistant-contract';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
@@ -191,13 +192,14 @@ describe('scheduled database maintenance', () => {
 
     expect(result).toMatchObject({
       activeJobs: 0,
-      analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
+      analyzedTables: ['file_records', 'embedding_cache'],
       prunedTerminalJobs: 3,
       status: 'completed',
       vacuumedTables: [
         'job_queue',
         'brainstrike_tool_call_telemetry',
         'brainstrike_token_estimate_calibration',
+        'file_chunks',
       ],
     });
     expect(await countJobs(db)).toBe(1);
@@ -229,21 +231,111 @@ describe('scheduled database maintenance', () => {
     );
 
     expect(statements).toEqual([
+      'ANALYZE file_records',
+      'ANALYZE embedding_cache',
       'VACUUM (ANALYZE) job_queue',
       'VACUUM (ANALYZE) brainstrike_tool_call_telemetry',
       'VACUUM (ANALYZE) brainstrike_token_estimate_calibration',
-      'ANALYZE file_chunks',
-      'ANALYZE file_records',
-      'ANALYZE embedding_cache',
+      'VACUUM (ANALYZE) file_chunks',
     ]);
     expect(result).toMatchObject({
-      analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
+      analyzedTables: ['file_records', 'embedding_cache'],
       status: 'completed',
       vacuumedTables: [
         'job_queue',
         'brainstrike_tool_call_telemetry',
         'brainstrike_token_estimate_calibration',
+        'file_chunks',
       ],
+    });
+  });
+
+  it('warns with per-statement attribution when maintenance exceeds one second', async () => {
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (record.scope === 'ScheduledDatabaseMaintenance') {
+        records.push(record);
+      }
+    });
+    let clockMs = 0;
+    const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => clockMs);
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('GROUP BY state')) {
+        return { rows: [] };
+      }
+      return { rows: [{ count: '0' }] };
+    });
+    const exec = vi.fn(async (sql: string) => {
+      if (sql === 'ANALYZE file_records') {
+        clockMs = 1501;
+      }
+      return [];
+    });
+
+    try {
+      await runScheduledDatabaseMaintenance(
+        { exec, query },
+        {
+          analyzeTables: ['file_records'],
+          now: () => new Date(NOW_ISO),
+          vacuumTables: ['job_queue'],
+        }
+      );
+    } finally {
+      dateNow.mockRestore();
+      unsubscribe();
+    }
+
+    const warning = records.find(
+      (record) => record.message === 'Slow scheduled database maintenance statement'
+    );
+    expect(warning?.level).toBe('warn');
+    expect(warning?.args).toContainEqual({
+      durationMs: 1501,
+      statement: 'ANALYZE file_records',
+    });
+  });
+
+  it('attributes a slow retention prune to its exact DELETE statement', async () => {
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (record.scope === 'ScheduledDatabaseMaintenance') {
+        records.push(record);
+      }
+    });
+    let clockMs = 0;
+    const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => clockMs);
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('GROUP BY state')) {
+        return { rows: [] };
+      }
+      if (sql.includes('DELETE FROM job_queue')) {
+        clockMs = 1500;
+      }
+      return { rows: [{ count: '0' }] };
+    });
+
+    try {
+      await runScheduledDatabaseMaintenance(
+        { exec: vi.fn(async () => []), query },
+        {
+          analyzeTables: [],
+          now: () => new Date(NOW_ISO),
+          vacuumTables: [],
+        }
+      );
+    } finally {
+      dateNow.mockRestore();
+      unsubscribe();
+    }
+
+    const warning = records.find(
+      (record) => record.message === 'Slow scheduled database maintenance statement'
+    );
+    expect(warning?.level).toBe('warn');
+    expect(warning?.args).toContainEqual({
+      durationMs: 1500,
+      statement: expect.stringContaining('DELETE FROM job_queue'),
     });
   });
 
@@ -303,9 +395,8 @@ describe('scheduled database maintenance', () => {
         }
       )
     ).rejects.toThrow('analyze exploded');
-    expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) job_queue');
-    expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) brainstrike_tool_call_telemetry');
-    expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) brainstrike_token_estimate_calibration');
+    expect(exec).toHaveBeenCalledOnce();
+    expect(exec).toHaveBeenCalledWith('ANALYZE file_records');
   });
 
   it('routes VACUUM/ANALYZE through the maintenance exec channel when available', async () => {
@@ -336,7 +427,7 @@ describe('scheduled database maintenance', () => {
     expect(maintenanceExec).toHaveBeenCalledWith(
       'VACUUM (ANALYZE) brainstrike_token_estimate_calibration'
     );
-    expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_chunks');
+    expect(maintenanceExec).toHaveBeenCalledWith('VACUUM (ANALYZE) file_chunks');
     expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE file_records');
     expect(maintenanceExec).toHaveBeenCalledWith('ANALYZE embedding_cache');
     expect(exec).not.toHaveBeenCalled();
@@ -344,8 +435,9 @@ describe('scheduled database maintenance', () => {
       'job_queue',
       'brainstrike_tool_call_telemetry',
       'brainstrike_token_estimate_calibration',
+      'file_chunks',
     ]);
-    expect(result.analyzedTables).toEqual(['file_chunks', 'file_records', 'embedding_cache']);
+    expect(result.analyzedTables).toEqual(['file_records', 'embedding_cache']);
   });
 
   it('surfaces vacuum failures instead of reporting a completed maintenance pass', async () => {
