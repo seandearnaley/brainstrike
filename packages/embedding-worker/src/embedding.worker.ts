@@ -107,14 +107,27 @@ function errorLog(message: string, data?: Record<string, unknown>): void {
 
 /** Request currently executing through workerpool; worker failures use this correlation id. */
 let activeWorkerpoolRequestId: string | null = null;
+/** Direct-stream requests currently executing; global failures notify each owning client. */
+const activeStreamRequestIds = new Set<string>();
 
 // Global error handlers - only set up in actual worker environment.
 // This code only runs in browser Web Worker context where `self` exists.
 // It cannot be tested in Node.js. Coverage is excluded via c8 ignore.
 /* c8 ignore next 36 -- Worker globals only exist in browser Web Worker context */
 if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
-  const terminateAfterGlobalFailure = (): void => {
-    if (typeof self.close === 'function') {
+  const emitGlobalFailure = (message: string, cause?: string): void => {
+    const workerpoolRequestId = activeWorkerpoolRequestId;
+    workerEmit({
+      cause,
+      id: workerpoolRequestId ?? 'global',
+      message,
+      type: 'error',
+    });
+    for (const id of activeStreamRequestIds) {
+      postStreamEvent({ cause, id, message, type: 'error' });
+    }
+    const ownerWasNotified = workerpoolRequestId !== null || activeStreamRequestIds.size > 0;
+    if (ownerWasNotified && typeof self.close === 'function') {
       self.close();
     }
   };
@@ -125,13 +138,10 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     const filename = typeof event === 'object' ? (event as ErrorEvent).filename : undefined;
     const lineno = typeof event === 'object' ? (event as ErrorEvent).lineno : undefined;
     errorLog('Uncaught worker error', { event, filename, lineno, message });
-    workerEmit({
-      cause: filename ? `${filename}:${lineno}` : undefined,
-      id: activeWorkerpoolRequestId ?? 'global',
-      message: `Worker uncaught error: ${message}`,
-      type: 'error',
-    });
-    terminateAfterGlobalFailure();
+    emitGlobalFailure(
+      `Worker uncaught error: ${message}`,
+      filename ? `${filename}:${lineno}` : undefined
+    );
   };
 
   // Catch unhandled promise rejections
@@ -140,13 +150,7 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     const message = reason instanceof Error ? reason.message : String(reason);
     const stack = reason instanceof Error ? reason.stack : undefined;
     errorLog('Unhandled worker promise rejection', { message, reason, stack });
-    workerEmit({
-      cause: stack,
-      id: activeWorkerpoolRequestId ?? 'global',
-      message: `Worker unhandled rejection: ${message}`,
-      type: 'error',
-    });
-    terminateAfterGlobalFailure();
+    emitGlobalFailure(`Worker unhandled rejection: ${message}`, stack);
   };
 
   // Log worker initialization at debug level (removed - too verbose)
@@ -384,7 +388,6 @@ let keepAliveTickCount = 0;
 /** Handle for the idle-sweep interval. */
 let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const batchAckWaiters = new Map<string, () => void>();
-const activeStreamRequestIds = new Set<string>();
 
 type PipelineCacheDiagnosticReason = NonNullable<EmbedWorkerPipelineCacheDiagnostic['reason']>;
 type PipelineCacheDisposedReason = Extract<PipelineCacheDiagnosticReason, 'manual-dispose'>;

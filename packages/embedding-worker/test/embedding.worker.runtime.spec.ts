@@ -143,7 +143,9 @@ describe('embedding worker runtime', () => {
   describe('global error handlers', () => {
     it('sets up onerror handler in worker context', async () => {
       // Use null (not undefined) to simulate browser Worker where the property exists
+      const close = vi.fn();
       const mockSelf = {
+        close,
         onerror: null as ((event: ErrorEvent | string) => void) | null,
         onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
       };
@@ -160,6 +162,7 @@ describe('embedding worker runtime', () => {
         message: 'Worker uncaught error: Test error message',
         type: 'error',
       });
+      expect(close).not.toHaveBeenCalled();
     });
 
     it('handles ErrorEvent objects in onerror', async () => {
@@ -280,6 +283,66 @@ describe('embedding worker runtime', () => {
       expect(close).toHaveBeenCalledTimes(2);
       resolveInference(new Float32Array([1, 0, 0]));
       await embeddingPromise;
+    });
+
+    it('notifies an active direct stream before closing on a global failure', async () => {
+      const messageListeners = new Set<(event: MessageEvent<unknown>) => void>();
+      const postMessage = vi.fn();
+      const close = vi.fn();
+      const mockSelf = {
+        addEventListener: vi.fn(
+          (type: string, listener: (event: MessageEvent<unknown>) => void) => {
+            if (type === 'message') {
+              messageListeners.add(listener);
+            }
+          }
+        ),
+        close,
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+        postMessage,
+      };
+      vi.stubGlobal('self', mockSelf);
+      let resolveInference!: (value: Float32Array) => void;
+      pipelineMock.mockResolvedValue(
+        () =>
+          new Promise<Float32Array>((resolve) => {
+            resolveInference = resolve;
+          })
+      );
+      await import('../src/embedding.worker');
+      const [handleMessage] = [...messageListeners];
+      if (!handleMessage) {
+        throw new Error('Expected worker message handler to be registered');
+      }
+      handleMessage({
+        data: {
+          request: {
+            deviceHint: 'wasm',
+            id: 'active-stream-global-failure',
+            model: 'bge-m3',
+            texts: ['hello'],
+            type: 'embed',
+          },
+          type: 'stream-embed',
+        },
+      } as MessageEvent<unknown>);
+      await waitForAssertion(() => expect(resolveInference).toBeTypeOf('function'));
+
+      mockSelf.onunhandledrejection?.({
+        reason: new Error('stream rejected globally'),
+      } as PromiseRejectionEvent);
+
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'active-stream-global-failure',
+          message: 'Worker unhandled rejection: stream rejected globally',
+          type: 'error',
+        }),
+        []
+      );
+      expect(close).toHaveBeenCalledTimes(1);
+      resolveInference(new Float32Array([1, 0, 0]));
     });
   });
 
