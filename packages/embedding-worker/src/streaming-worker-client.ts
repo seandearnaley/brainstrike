@@ -19,6 +19,7 @@ import type {
   EmbedWorkerStreamEvent,
   EmbedWorkerSuccess,
 } from './shared';
+import { computeInitialBatchSize } from './shared';
 
 let nextTelemetrySourceId = 1;
 
@@ -42,6 +43,7 @@ interface StreamBatchSequence {
   expectedBatchIndex: number;
   expectedStartIndex: number;
   expectedVectorDimensions: number | null;
+  maximumObservedBatchSize: number;
 }
 
 export interface StreamingEmbedOptions {
@@ -131,6 +133,10 @@ function validateStreamBatch(
     }
     sequence.expectedBatchIndex += 1;
     sequence.expectedStartIndex = value.endIndex;
+    sequence.maximumObservedBatchSize = Math.max(
+      sequence.maximumObservedBatchSize,
+      value.endIndex - value.startIndex
+    );
     return true;
   } catch (error) {
     onFailure(error);
@@ -153,6 +159,53 @@ function validateStreamCompletionCoverage(
     )
   );
   return false;
+}
+
+function assertStreamCompletionMatchesRequest(
+  complete: EmbedWorkerComplete,
+  request: EmbedWorkerRequest,
+  sequence: StreamBatchSequence
+): void {
+  if (complete.metadata.model !== request.model) {
+    throw new Error('Embedding worker complete.metadata.model does not match the request model.');
+  }
+  const expectedDtype = request.dtype ?? 'fp16';
+  if (complete.metadata.dtype !== expectedDtype) {
+    throw new Error('Embedding worker complete.metadata.dtype does not match the request dtype.');
+  }
+  const coherentFallback =
+    request.deviceHint === 'webgpu' &&
+    complete.metadata.device === 'wasm' &&
+    complete.metadata.fallbackApplied;
+  const coherentDirectDevice =
+    complete.metadata.device === request.deviceHint && !complete.metadata.fallbackApplied;
+  if (!(coherentFallback || coherentDirectDevice)) {
+    throw new Error(
+      'Embedding worker complete.metadata.device and metadata.fallbackApplied do not match the request device.'
+    );
+  }
+  const expectedBatchSize = computeInitialBatchSize(request.texts.length, request.maxBatchSize);
+  if (complete.metadata.batchSize !== expectedBatchSize) {
+    throw new Error(
+      'Embedding worker complete.metadata.batchSize does not match the request batch size.'
+    );
+  }
+  if (
+    request.texts.length > 0 &&
+    sequence.maximumObservedBatchSize !== complete.metadata.batchSize
+  ) {
+    throw new Error(
+      'Embedding worker complete.metadata.batchSize does not match the observed stream batches.'
+    );
+  }
+  if (
+    sequence.expectedVectorDimensions !== null &&
+    complete.metadata.dimensions !== sequence.expectedVectorDimensions
+  ) {
+    throw new Error(
+      `Embedding worker complete.metadata.dimensions ${complete.metadata.dimensions} does not match streamed vector dimensions ${sequence.expectedVectorDimensions}.`
+    );
+  }
 }
 
 function validateStreamMessage(
@@ -180,28 +233,26 @@ function validateStreamMessage(
   ) {
     return false;
   }
+  if (
+    !validateStreamCompletionCoverage(
+      value,
+      sequence.expectedStartIndex,
+      request.texts.length,
+      onFailure
+    )
+  ) {
+    return false;
+  }
   if (value.type === 'complete') {
     try {
       assertEmbedWorkerComplete(value);
-      if (
-        sequence.expectedVectorDimensions !== null &&
-        value.metadata.dimensions !== sequence.expectedVectorDimensions
-      ) {
-        throw new Error(
-          `Embedding worker complete.metadata.dimensions ${value.metadata.dimensions} does not match streamed vector dimensions ${sequence.expectedVectorDimensions}.`
-        );
-      }
+      assertStreamCompletionMatchesRequest(value, request, sequence);
     } catch (error) {
       onFailure(error);
       return false;
     }
   }
-  return validateStreamCompletionCoverage(
-    value,
-    sequence.expectedStartIndex,
-    request.texts.length,
-    onFailure
-  );
+  return true;
 }
 
 export class StreamingEmbeddingWorkerClient {
@@ -303,6 +354,7 @@ export class StreamingEmbeddingWorkerClient {
           expectedBatchIndex: 0,
           expectedStartIndex: 0,
           expectedVectorDimensions: null,
+          maximumObservedBatchSize: 0,
         };
         const cleanup = this.transport.onMessage((message) => {
           if (

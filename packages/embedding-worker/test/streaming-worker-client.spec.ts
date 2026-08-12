@@ -60,6 +60,7 @@ class MockWorker {
 function createRequest(): EmbedWorkerRequest {
   return {
     deviceHint: 'wasm',
+    dtype: 'fp32',
     id: 'embed-1',
     model: 'local:test-model',
     texts: ['hello'],
@@ -100,7 +101,6 @@ describe('StreamingEmbeddingWorkerClient', () => {
 
     const embedPromise = client.embed(createRequest());
     await flushMicrotasks();
-
     worker.emitMessage({
       batchIndex: 0,
       endIndex: 1,
@@ -393,7 +393,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
     worker.emitMessage({
       id: 'embed-1',
       metadata: {
-        batchSize: 0,
+        batchSize: 1,
         device: 'wasm',
         dimensions: 3,
         dtype: 'fp32',

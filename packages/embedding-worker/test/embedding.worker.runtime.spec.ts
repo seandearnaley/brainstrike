@@ -741,6 +741,51 @@ describe('embedding worker runtime', () => {
     expect(pipelineMock).toHaveBeenCalledTimes(2);
   });
 
+  it('scopes active WebGPU device loss to the workerpool request id', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    vi.stubGlobal('self', {
+      close: vi.fn(),
+      onerror: undefined,
+      onunhandledrejection: undefined,
+    });
+    let resolveLost!: (info: { readonly reason?: string; readonly message: string }) => void;
+    await setOrtWebGpuDevice({
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+      lost: new Promise((resolve) => {
+        resolveLost = resolve;
+      }),
+      queue: { submit: vi.fn() },
+    });
+    let resolveInference!: (value: Float32Array) => void;
+    pipelineMock.mockResolvedValue(
+      () =>
+        new Promise<Float32Array>((resolve) => {
+          resolveInference = resolve;
+        })
+    );
+    const runEmbedding = await loadWorker();
+    const embeddingPromise = runEmbedding({
+      deviceHint: 'webgpu',
+      id: 'active-device-loss',
+      model: 'bge-m3',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    await flushMicrotasks();
+
+    resolveLost({ message: 'device was lost', reason: 'destroyed' });
+    await waitForAssertion(() =>
+      expect(workerEmitMock).toHaveBeenCalledWith({
+        cause: 'reason=destroyed',
+        id: 'active-device-loss',
+        message: 'WebGPU device lost: device was lost',
+        type: 'error',
+      })
+    );
+    resolveInference(new Float32Array([1, 0, 0]));
+    await embeddingPromise;
+  });
+
   it('handles keep-alive tick failures by stopping the timer', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('navigator', { gpu: {} });

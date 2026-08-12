@@ -364,6 +364,9 @@ let keepAlivePaused = false;
  *  that can race on the Metal command queue and trigger a Dawn CHECK(). */
 let isInferenceActive = false;
 
+/** Request currently executing through workerpool; device-loss errors use this correlation id. */
+let activeWorkerpoolRequestId: string | null = null;
+
 /** Whether we have already attached the device-loss watcher for the current device. */
 let deviceLossWatcherAttached = false;
 
@@ -817,7 +820,8 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
   deviceLossWatcherAttached = true;
 
   void device.lost.then((info: GpuDeviceLostInfo) => {
-    const hasActiveRequests = isInferenceActive || activeStreamRequestIds.size > 0;
+    const workerpoolRequestId = activeWorkerpoolRequestId;
+    const hasActiveRequests = workerpoolRequestId !== null || activeStreamRequestIds.size > 0;
     if (hasActiveRequests) {
       warnLog('WebGPU device lost', { message: info.message, reason: info.reason });
     } else {
@@ -828,13 +832,15 @@ function watchDeviceLoss(device: GpuDeviceHandle): void {
     invalidateWebGpuPipelines();
     deviceLossWatcherAttached = false;
 
-    if (hasActiveRequests) {
+    if (workerpoolRequestId !== null) {
       workerEmit({
         cause: `reason=${String(info.reason)}`,
-        id: 'device-lost',
+        id: workerpoolRequestId,
         message: `WebGPU device lost: ${info.message}`,
         type: 'error',
       });
+    }
+    if (activeStreamRequestIds.size > 0) {
       notifyActiveStreamsOfDeviceLoss(info);
     }
 
@@ -1198,6 +1204,7 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
 
   const state = createInitialState(context, deviceHint, payload.maxBatchSize);
   isInferenceActive = true;
+  activeWorkerpoolRequestId = context.id;
   try {
     const result = await processEmbeddings(context, state);
     return result;
@@ -1206,6 +1213,7 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
     // Always throw a proper Error object so workerpool can serialize it correctly
     throw normalizeError(error);
   } finally {
+    activeWorkerpoolRequestId = null;
     isInferenceActive = false;
   }
 }

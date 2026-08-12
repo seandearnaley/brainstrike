@@ -124,7 +124,10 @@ Embedding runtime telemetry (BST-402):
   The client validates the complete batch before telemetry, callbacks, or acknowledgement:
   index/count fields are safe integers, vector counts and shapes agree, current vectors do
   not exceed the peak, and transfer bytes equal the unique received buffers. A malformed
-  batch is a terminal worker failure.
+  batch is a terminal worker failure. Stream completion is equally strict: metadata must
+  match the request model, dtype, deterministic batch size, and a coherent direct-device or
+  WebGPU-to-WASM fallback pair; batch size and dimensions must also agree with observed
+  batches before the client resolves.
 - Cache memory is an estimate from the model registry's declared `size`, parsed strictly
   into binary bytes. WebGPU entries attribute that estimate to GPU memory and WASM
   entries to heap memory. Missing registry metadata remains explicitly unavailable; it
@@ -137,7 +140,10 @@ Embedding runtime telemetry (BST-402):
   `BroadcastChannel`; its name is carried in the managed worker script fragment. The
   device-loss path announces its source identity on that channel before self-closing, so
   the adapter removes the source immediately; the termination callback remains an
-  idempotent cleanup seam. Controlled host restarts publish a metadata-free `starting`
+  idempotent cleanup seam. Active workerpool device-loss errors carry the affected request
+  ID (never a global sentinel), while active direct streams each receive their own request
+  ID, preserving both strict task correlation and the recoverable device-loss message.
+  Controlled host restarts publish a metadata-free `starting`
   transition and retain the latest valid snapshot, while terminal `stopped` and `error`
   states clear it. The
   adapter requires that capability, validates the complete discriminated cache diagnostic
