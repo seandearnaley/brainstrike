@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { WorkerpoolAdapterOptions } from '../browser-workerpool-options.js';
 import type {
   DurableQueueStats,
   EmbedTaskPayload,
@@ -23,6 +24,15 @@ const baseRequest = {
   deviceHint: 'wasm' as const,
   type: 'embed' as const,
 };
+
+describe('WorkerpoolAdapterOptions', () => {
+  it('requires the runtime telemetry sink in its public type', () => {
+    type TelemetryIsRequired =
+      Record<never, never> extends Pick<WorkerpoolAdapterOptions, 'telemetry'> ? false : true;
+
+    expectTypeOf<TelemetryIsRequired>().toEqualTypeOf<true>();
+  });
+});
 
 describe('toWorkerRequest', () => {
   it('should convert minimal EmbedTaskPayload to EmbedWorkerRequest', () => {

@@ -47,8 +47,14 @@ export interface WorkerpoolAdapterOptions {
    */
   readonly minWorkers?: number;
   readonly name?: string;
-  /** Renderer-owned sink for source-scoped embedding runtime telemetry. */
-  readonly telemetry?: WorkerpoolEmbeddingTelemetrySink;
+  /**
+   * Renderer-owned sink for source-scoped embedding runtime telemetry.
+   *
+   * Browser workerpools have no compatibility mode without this sink. Renderer
+   * composition roots should pass `embeddingWorkerTelemetrySink` from
+   * `@brainstrike/embedding-worker`.
+   */
+  readonly telemetry: WorkerpoolEmbeddingTelemetrySink;
   /** Canonical worker URL supplied by the host app or caller. */
   readonly workerUrl?: string;
 }

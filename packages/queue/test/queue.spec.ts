@@ -17,7 +17,7 @@ const TEST_TELEMETRY_SINK = {
   removeSource: vi.fn(),
 };
 
-function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}) {
+function createWorkerpoolAdapter(options: Omit<WorkerpoolAdapterOptions, 'telemetry'> = {}) {
   return createWorkerpoolAdapterBase({
     ...options,
     telemetry: TEST_TELEMETRY_SINK,
@@ -648,9 +648,11 @@ describe('createBrowserEmbeddingQueue', () => {
 
   it('fails fast when renderer telemetry composition is missing', () => {
     setWorkerSupport();
+    // @ts-expect-error Exercise the runtime guard retained for untyped JavaScript callers.
     expect(() => createWorkerpoolAdapterBase({ workerUrl: TEST_WORKER_URL })).toThrow(
       'Workerpool embedding telemetry sink is required.'
     );
+    // @ts-expect-error Exercise the runtime guard retained for untyped JavaScript callers.
     expect(() => createBrowserEmbeddingQueue({ worker: { workerUrl: TEST_WORKER_URL } })).toThrow(
       'Workerpool embedding telemetry sink is required.'
     );

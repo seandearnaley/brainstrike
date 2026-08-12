@@ -154,7 +154,10 @@ Embedding runtime telemetry (BST-402):
   `workerOpts` from its runtime termination callback despite declaring it in the public
   type. The callback-preserved script identifies and clears only the terminated worker's
   source. Full pool shutdown clears any remaining observed sources. Streaming workers
-  likewise clear their own source during explicit shutdown. A missing workerpool cache
+  likewise clear their own source during explicit shutdown. The workerpool option type
+  requires its renderer-owned telemetry sink, matching the runtime guard; composition roots
+  pass `embeddingWorkerTelemetrySink` explicitly and there is no telemetry-free compatibility
+  mode. A missing workerpool cache
   diagnostic latches a session-level telemetry-health failure and logs the task identifier,
   but it never converts otherwise valid vectors into a failed embedding result. The bounded,
   code-authored failure reason remains visible until the renderer session ends; it contains

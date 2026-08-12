@@ -189,6 +189,7 @@ describe('createWorkerpoolAdapter', () => {
 
   it('requires an explicit workerUrl', async () => {
     const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    // @ts-expect-error Exercise the runtime guard retained for untyped JavaScript callers.
     expect(() => createWorkerpoolAdapter()).toThrow(
       'createWorkerpoolAdapter requires an explicit workerUrl.'
     );

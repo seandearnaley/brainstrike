@@ -184,8 +184,9 @@ function calculateElapsed(startedAt: number): number {
   return Math.round(now() - startedAt);
 }
 
-export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}): QueueAdapter {
-  if (!(typeof options.workerUrl === 'string' && options.workerUrl.length > 0)) {
+export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions): QueueAdapter;
+export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): QueueAdapter {
+  if (!(typeof options?.workerUrl === 'string' && options.workerUrl.length > 0)) {
     throw new Error('createWorkerpoolAdapter requires an explicit workerUrl.');
   }
   assertWorkerpoolEmbeddingTelemetrySink(options.telemetry);
