@@ -603,9 +603,14 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       this.#emit();
     }
 
-    if (hasQueuedWork(this.#queues)) {
-      this.#scheduleDrain(this.#nextDelayMs());
+    if (!hasQueuedWork(this.#queues)) {
+      this.#backgroundYieldRequiresForegroundTurn = false;
+      if (this.#backgroundWaitingSince !== null) {
+        this.#clearBackgroundWaiting();
+      }
+      return;
     }
+    this.#scheduleDrain(this.#nextDelayMs());
   }
 
   #recordTaskStarted(task: QueuedTask, startedAt: number): void {

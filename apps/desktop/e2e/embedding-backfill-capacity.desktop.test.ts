@@ -128,7 +128,7 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
       __capacityReproPressure?: {
         failure: string | null;
         inFlight: number;
-        lastAcceptedEnqueueAt: number | null;
+        lastPressureObservedAt: number | null;
         maxUnpressuredGapMs: number;
         stop: () => void;
       };
@@ -156,7 +156,7 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     const pressure = {
       failure: null as string | null,
       inFlight: 0,
-      lastAcceptedEnqueueAt: null as number | null,
+      lastPressureObservedAt: null as number | null,
       maxUnpressuredGapMs: 0,
       stop: () => {
         running = false;
@@ -169,16 +169,16 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     targetWindow.__capacityReproPressure = pressure;
     const enqueuePressureQuery = (): void => {
       const observedAt = performance.now();
-      if (pressure.inFlight === 0 && pressure.lastAcceptedEnqueueAt !== null) {
+      if (pressure.inFlight === 0 && pressure.lastPressureObservedAt !== null) {
         pressure.maxUnpressuredGapMs = Math.max(
           pressure.maxUnpressuredGapMs,
-          observedAt - pressure.lastAcceptedEnqueueAt
+          observedAt - pressure.lastPressureObservedAt
         );
       }
+      pressure.lastPressureObservedAt = observedAt;
       if (pressure.inFlight >= maxInFlight) {
         return;
       }
-      pressure.lastAcceptedEnqueueAt = observedAt;
       pressure.inFlight += 1;
       void query('SELECT COUNT(*)::int AS count FROM file_chunks')
         .then(
@@ -222,7 +222,7 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
         __capacityReproPressure?: {
           failure: string | null;
           inFlight: number;
-          lastAcceptedEnqueueAt: number | null;
+          lastPressureObservedAt: number | null;
           maxUnpressuredGapMs: number;
         };
       }
@@ -233,11 +233,11 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
     if (pressure.failure) {
       throw new Error(pressure.failure);
     }
-    if (pressure.lastAcceptedEnqueueAt === null) {
-      throw new Error('Foreground database pressure did not enqueue a query.');
+    if (pressure.lastPressureObservedAt === null) {
+      throw new Error('Foreground database pressure did not observe an interval tick.');
     }
     const currentUnpressuredGapMs =
-      pressure.inFlight === 0 ? performance.now() - pressure.lastAcceptedEnqueueAt : 0;
+      pressure.inFlight === 0 ? performance.now() - pressure.lastPressureObservedAt : 0;
     const maxUnpressuredGapMs = Math.max(pressure.maxUnpressuredGapMs, currentUnpressuredGapMs);
     if (maxUnpressuredGapMs >= 75) {
       throw new Error(

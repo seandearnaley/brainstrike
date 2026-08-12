@@ -168,4 +168,85 @@ describe('DatabaseWorkScheduler background fairness', () => {
       vi.useRealTimers();
     }
   });
+
+  it('clears the forced-admission interlock when the scheduler drains to idle', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({
+        backgroundStarvationMs: 100,
+        foregroundQuietMs: 50,
+      });
+      const events: string[] = [];
+      let releaseInitialForeground: (() => void) | null = null;
+      const initialForeground = scheduler.run(
+        async () => {
+          events.push('foreground-1-start');
+          await new Promise<void>((resolve) => {
+            releaseInitialForeground = resolve;
+          });
+          events.push('foreground-1-end');
+        },
+        { priority: 'foreground' }
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      const forcedBackground = scheduler.run(
+        async () => {
+          events.push('background-1');
+        },
+        { priority: 'background' }
+      );
+      await vi.advanceTimersByTimeAsync(100);
+      if (!releaseInitialForeground) {
+        throw new Error('Expected the initial foreground task to start.');
+      }
+      releaseInitialForeground();
+      await Promise.all([initialForeground, forcedBackground]);
+      await vi.advanceTimersByTimeAsync(0);
+
+      let releaseRunningBackground: (() => void) | null = null;
+      const runningBackground = scheduler.run(
+        async () => {
+          events.push('background-2-start');
+          await new Promise<void>((resolve) => {
+            releaseRunningBackground = resolve;
+          });
+          events.push('background-2-end');
+        },
+        { priority: 'background' }
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      const waitingBackground = scheduler.run(
+        async () => {
+          events.push('background-3');
+        },
+        { priority: 'background' }
+      );
+      const nextForeground = scheduler.run(
+        async () => {
+          events.push('foreground-2');
+        },
+        { priority: 'foreground' }
+      );
+      await vi.advanceTimersByTimeAsync(100);
+      if (!releaseRunningBackground) {
+        throw new Error('Expected the second background task to start.');
+      }
+      releaseRunningBackground();
+
+      await Promise.all([runningBackground, waitingBackground, nextForeground]);
+      expect(events).toEqual([
+        'foreground-1-start',
+        'foreground-1-end',
+        'background-1',
+        'background-2-start',
+        'background-2-end',
+        'background-3',
+        'foreground-2',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
