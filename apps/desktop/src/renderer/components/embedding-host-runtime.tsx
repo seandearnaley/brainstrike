@@ -4,10 +4,7 @@ import {
 } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { createEmbeddingCacheRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
-import {
-  getEmbeddingTelemetrySnapshot,
-  subscribeEmbeddingTelemetry,
-} from '@brainstrike/embedding-worker';
+import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import {
   type DeviceCapabilities,
@@ -39,11 +36,11 @@ import {
   type EmbeddingHostStatus,
   type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
+import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
 const QUERY_DRAIN_TIMEOUT_MS = 5000;
-const EMBEDDING_TELEMETRY_REPORT_INTERVAL_MS = 250;
 const MAX_RECOVERABLE_WEBGPU_DEVICE_LOSS_RESTARTS = 2;
 const AUTOMATIC_WASM_RECOMMENDATION_ERROR =
   'Workspace Index requires WebGPU for automatic local embedding execution. Device detection recommended WASM, which is a slow/debug backend and will not be selected automatically.';
@@ -244,7 +241,6 @@ function runEmbeddingHostCleanupStep(
   label:
     | 'Embedding host command cleanup failed'
     | 'Embedding host query embedding cleanup failed'
-    | 'Embedding host power channel cleanup failed'
     | 'Embedding host power cleanup failed'
     | 'Embedding host telemetry cleanup failed',
   cleanup: () => void
@@ -711,37 +707,24 @@ export function EmbeddingHostRuntime(): null {
     let disposed = false;
     let restartAfterFatalErrorPromise: Promise<void> | null = null;
     let recoverableDeviceLossRestartCount = 0;
-    let telemetryReportTimeout: ReturnType<typeof setTimeout> | null = null;
     const onWorkerActivityChange = createActivityChangeHandler(
       runtimeIdRef,
       embeddingRuntimeRef,
       fatalErrorRef,
       activeRef
     );
-    const unsubscribeEmbeddingTelemetry = subscribeEmbeddingTelemetry(() => {
-      if (!embeddingRuntimeRef.current) {
-        return;
-      }
-      if (telemetryReportTimeout !== null) {
-        return;
-      }
-      telemetryReportTimeout = setTimeout(() => {
-        telemetryReportTimeout = null;
-        const currentMetadata = embeddingRuntimeRef.current;
-        if (disposed || controllerRef.current === null || !currentMetadata) {
-          return;
-        }
-        embeddingRuntimeRef.current = {
-          ...currentMetadata,
-          telemetry: getEmbeddingTelemetrySnapshot(),
-        };
+    const disposeEmbeddingTelemetryReporter = startEmbeddingTelemetryReporter({
+      controllerRef,
+      embeddingRuntimeRef,
+      isDisposed: () => disposed,
+      reportStatus: () => {
         const fatalError = fatalErrorRef.current;
         reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalError ? 'error' : 'running', {
           active: fatalError ? false : activeRef.current,
           embeddingRuntime: embeddingRuntimeRef.current,
           lastError: fatalError,
         });
-      }, EMBEDDING_TELEMETRY_REPORT_INTERVAL_MS);
+      },
     });
 
     const startWorker = async (): Promise<void> =>
@@ -973,19 +956,16 @@ export function EmbeddingHostRuntime(): null {
         }
       );
       runEmbeddingHostCleanupStep(runtimeIdRef, 'Embedding host telemetry cleanup failed', () => {
-        unsubscribeEmbeddingTelemetry();
-        if (telemetryReportTimeout !== null) {
-          clearTimeout(telemetryReportTimeout);
-          telemetryReportTimeout = null;
-        }
+        disposeEmbeddingTelemetryReporter();
       });
-      runEmbeddingHostCleanupStep(
-        runtimeIdRef,
-        'Embedding host power channel cleanup failed',
-        () => {
-          channel?.close();
-        }
-      );
+      try {
+        channel?.close();
+      } catch (error) {
+        logger.error('Embedding host power channel cleanup failed', {
+          error: error instanceof Error ? error.message : String(error),
+          runtimeId: runtimeIdRef.current,
+        });
+      }
       void stopWorker('dispose');
     };
   }, [db]);

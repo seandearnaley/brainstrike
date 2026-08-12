@@ -22,22 +22,11 @@ import {
   getEmbeddingTelemetrySnapshot,
   subscribeEmbeddingTelemetryThrottled,
 } from '@brainstrike/embeddings';
-import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
-import {
-  Activity,
-  CheckCircle2,
-  Database,
-  type LucideIcon,
-  RefreshCw,
-  Server,
-  Timer,
-  XCircle,
-} from 'lucide-react';
+import { Activity, CheckCircle2, Database, RefreshCw, Server, Timer, XCircle } from 'lucide-react';
 import {
   lazy,
   type ReactElement,
-  type ReactNode,
   Suspense,
   useCallback,
   useEffect,
@@ -197,15 +186,6 @@ function readEmbeddingTelemetryFromHostStatus(status: unknown): EmbeddingTelemet
   return assertEmbeddingTelemetrySnapshot(
     (embeddingRuntime as Record<string, unknown>)['telemetry']
   );
-}
-
-interface DiagnosticsSettingsCategory {
-  readonly content: ReactNode;
-  readonly description?: string;
-  readonly icon?: LucideIcon;
-  readonly id: string;
-  readonly keywords?: string[];
-  readonly title: string;
 }
 
 interface StatusBadgeProps {
@@ -1007,39 +987,4 @@ export function SystemDiagnosticsPanel({
       </div>
     </div>
   );
-}
-
-/**
- * Connected version of SystemDiagnosticsPanel that automatically
- * reads token cache state from context when available.
- */
-function ConnectedSystemDiagnosticsPanel(): ReactElement {
-  const tokenCache = useOptionalTokenCacheContext();
-
-  return (
-    <SystemDiagnosticsPanel
-      persistenceMode={tokenCache?.persistenceMode}
-      showQueueRefresh
-      tokenCacheOperational={tokenCache?.isOperational}
-      tokenCachePersisted={tokenCache?.isPersisted}
-    />
-  );
-}
-
-/**
- * Factory function to create a System Diagnostics settings category.
- *
- * The returned category uses ConnectedSystemDiagnosticsPanel which
- * automatically reads token cache state from TokenCacheContext when
- * rendered inside a TokenCacheProvider.
- */
-export function createSystemDiagnosticsSettingsCategory(): DiagnosticsSettingsCategory {
-  return {
-    content: <ConnectedSystemDiagnosticsPanel />,
-    description: 'Monitor database, queue, and worker health in real-time.',
-    icon: Activity,
-    id: 'system-diagnostics',
-    keywords: ['diagnostics', 'health', 'status', 'database', 'queue', 'worker', 'monitoring'],
-    title: 'System Diagnostics',
-  };
 }

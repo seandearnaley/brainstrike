@@ -11,10 +11,8 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { rendererLongTaskTelemetry } from '../diagnostics/renderer-long-task-telemetry';
-import {
-  createSystemDiagnosticsSettingsCategory,
-  SystemDiagnosticsPanel,
-} from '../diagnostics/system-diagnostics-panel';
+import { SystemDiagnosticsPanel } from '../diagnostics/system-diagnostics-panel';
+import { createSystemDiagnosticsSettingsCategory } from '../diagnostics/system-diagnostics-settings-category';
 
 // Mock QueueDiagnosticsPanel from vector-management
 vi.mock('@brainstrike/vector-management', () => ({
