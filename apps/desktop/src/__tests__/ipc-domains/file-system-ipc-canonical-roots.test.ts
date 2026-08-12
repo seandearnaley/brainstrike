@@ -117,6 +117,49 @@ describe('fs:restoreRoots canonical identity', () => {
     ]);
   });
 
+  it('serializes removeRoot behind restore finalization so a removed capability stays unmounted', async () => {
+    const restoredPath = path.resolve('/users/test/restored');
+    const restoredEntry = { addedAt: 1000, path: restoredPath, rootId: 'root-restored' };
+    const fileSystem = createFileSystem();
+    const storage = createStorage({ rootsList: JSON.stringify([restoredEntry]) });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    let releaseRestore: (() => void) | undefined;
+    let markRestoreStarted: (() => void) | undefined;
+    const restorePause = new Promise<void>((resolve) => {
+      releaseRestore = resolve;
+    });
+    const restoreStarted = new Promise<void>((resolve) => {
+      markRestoreStarted = resolve;
+    });
+    vi.mocked(capabilities.mountRoot).mockImplementationOnce(async ({ path: rootPath }) => {
+      markRestoreStarted?.();
+      await restorePause;
+      return path.resolve(rootPath);
+    });
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    const restorePromise = handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+    await restoreStarted;
+    const databaseCallsBeforeRemove = getRootsDatabase.mock.calls.length;
+    const removePromise = handlers.get('fs:removeRoot')?.(
+      {} as IpcMainInvokeEvent,
+      restoredEntry.rootId
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(getRootsDatabase).toHaveBeenCalledTimes(databaseCallsBeforeRemove);
+
+    releaseRestore?.();
+    await Promise.all([restorePromise, removePromise]);
+    expect(capabilities.unmountRoot).toHaveBeenCalledWith(restoredEntry.rootId);
+    await expect(storage.getItem('rootsList')).resolves.toBe('[]');
+  });
+
   it('rolls back only newly mounted capabilities when a batched restore aborts', async () => {
     const preexisting = {
       addedAt: 1,

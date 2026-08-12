@@ -209,13 +209,13 @@ export async function resolveFileSystemIpcPath(
 }
 
 async function resolveDirectoryHandle(handle: DirectoryHandle): Promise<DirectoryHandle> {
-  const resolvedPath = await resolveFileSystemIpcPath(handle?.path, 'directory handle');
-  return { ...handle, path: resolvedPath };
+  await resolveFileSystemIpcPath(handle?.path, 'directory handle');
+  return handle;
 }
 
 async function resolveFileHandle(handle: FileHandle): Promise<FileHandle> {
-  const resolvedPath = await resolveFileSystemIpcPath(handle?.path, 'file handle');
-  return { ...handle, path: resolvedPath };
+  await resolveFileSystemIpcPath(handle?.path, 'file handle');
+  return handle;
 }
 
 /**
@@ -531,9 +531,9 @@ export function registerFileSystemIpcHandlers({
       }
 
       try {
-        return await workspaceFileCapabilities.readFile(resolved.path);
+        return await workspaceFileCapabilities.readFile(absolutePath);
       } catch (error) {
-        const payload = toFileReadErrorPayload(error, resolved.path);
+        const payload = toFileReadErrorPayload(error, absolutePath);
         if (payload) {
           return payload;
         }
@@ -767,17 +767,18 @@ export function registerFileSystemIpcHandlers({
       if (!restored) {
         continue;
       }
+      const restoredRootId = restored.storedEntry.rootId;
       if (canonicalPaths.has(restored.canonicalPath)) {
-        workspaceFileCapabilities.unmountRoot(restored.storedEntry.rootId);
+        workspaceFileCapabilities.unmountRoot(restoredRootId);
         logger.warn('restoreRoots: discarded duplicate canonical workspace root', {
           path: restored.canonicalPath,
-          rootId: restored.storedEntry.rootId,
+          rootId: restoredRootId,
         });
         continue;
       }
       canonicalPaths.add(restored.canonicalPath);
       if (restored.newlyMounted) {
-        newlyMountedRootIds.add(restored.storedEntry.rootId);
+        newlyMountedRootIds.add(restoredRootId);
       }
       survivors.push(restored.storedEntry);
       descriptors.push(restored.descriptor);
@@ -913,85 +914,89 @@ export function registerFileSystemIpcHandlers({
   registry.registerInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.removeRoot,
-    async (_event, rootId: string) => {
-      // Disconnect ≠ delete: this forgets the stored rootsList entry (and a
-      // matching lastFolderPath) and transitions the DB roots row to
-      // status='disconnected'. It never DELETEs — all roots/file_records/
-      // file_chunks rows are deliberately KEPT, and reconcileRoots restores
-      // status='live' on re-add, so remounting the same folder reuses its
-      // rootId and resumes without re-indexing.
-      const entries = await readRootsList(storage);
-      const removed = entries.find((entry) => entry.rootId === rootId);
-      if (!removed) {
-        if (sessionOnlyRootIds.delete(rootId)) {
-          workspaceFileCapabilities.unmountRoot(rootId);
+    async (_event, rootId: string) =>
+      runSerializedRootMutation(async () => {
+        // Disconnect ≠ delete: this forgets the stored rootsList entry (and a
+        // matching lastFolderPath) and transitions the DB roots row to
+        // status='disconnected'. It never DELETEs — all roots/file_records/
+        // file_chunks rows are deliberately KEPT, and reconcileRoots restores
+        // status='live' on re-add, so remounting the same folder reuses its
+        // rootId and resumes without re-indexing.
+        const entries = await readRootsList(storage);
+        const removed = entries.find((entry) => entry.rootId === rootId);
+        if (!removed) {
+          if (sessionOnlyRootIds.delete(rootId)) {
+            workspaceFileCapabilities.unmountRoot(rootId);
+            return;
+          }
+          logger.debug('removeRoot: rootId not found in rootsList — nothing to remove', { rootId });
           return;
         }
-        logger.debug('removeRoot: rootId not found in rootsList — nothing to remove', { rootId });
-        return;
-      }
 
-      // Status transition FIRST, fail-closed: if it throws, the invoke rejects
-      // and the root stays fully mounted (rootsList untouched). The DB row is
-      // keyed by path (unique idx_roots_path) — the adapter rootId can diverge
-      // from roots.id for path-matched legacy rows. The inverse ordering
-      // (rootsList written, then a failed UPDATE) would leave the assistant
-      // server serving a folder the UI no longer shows.
-      const rootsDatabase = await getRootsDatabase();
-      const disconnectedRootIds = await markRootDisconnectedByPath(rootsDatabase, removed.path);
-      if (disconnectedRootIds.length === 0) {
-        // A rootsList entry is a persisted root, so it SHOULD own a DB row. Zero
-        // rows matched means the row's stored `path` diverged from this entry's
-        // (normalization/case) or the row was never created — surface it (NO
-        // SILENT FALLBACKS) instead of clearing rootsList while a possibly-live
-        // row keeps being served to the assistant tools.
-        logger.warn('removeRoot: no roots row matched the disconnected path; DB status unchanged', {
-          path: removed.path,
-          rootId,
-        });
-      }
+        // Status transition FIRST, fail-closed: if it throws, the invoke rejects
+        // and the root stays fully mounted (rootsList untouched). The DB row is
+        // keyed by path (unique idx_roots_path) — the adapter rootId can diverge
+        // from roots.id for path-matched legacy rows. The inverse ordering
+        // (rootsList written, then a failed UPDATE) would leave the assistant
+        // server serving a folder the UI no longer shows.
+        const rootsDatabase = await getRootsDatabase();
+        const disconnectedRootIds = await markRootDisconnectedByPath(rootsDatabase, removed.path);
+        if (disconnectedRootIds.length === 0) {
+          // A rootsList entry is a persisted root, so it SHOULD own a DB row. Zero
+          // rows matched means the row's stored `path` diverged from this entry's
+          // (normalization/case) or the row was never created — surface it (NO
+          // SILENT FALLBACKS) instead of clearing rootsList while a possibly-live
+          // row keeps being served to the assistant tools.
+          logger.warn(
+            'removeRoot: no roots row matched the disconnected path; DB status unchanged',
+            {
+              path: removed.path,
+              rootId,
+            }
+          );
+        }
 
-      const remaining = entries.filter((entry) => entry.rootId !== rootId);
-      await writeRootsList(storage, remaining);
-      sessionOnlyRootIds.delete(rootId);
-      workspaceFileCapabilities.unmountRoot(rootId);
+        const remaining = entries.filter((entry) => entry.rootId !== rootId);
+        await writeRootsList(storage, remaining);
+        sessionOnlyRootIds.delete(rootId);
+        workspaceFileCapabilities.unmountRoot(rootId);
 
-      // Tear down any pooled LSP language server for this root (report R2): the
-      // folder is leaving the workspace, so its server child process must not
-      // linger. Non-fatal — a stray server would otherwise idle until quit.
-      await Promise.all(
-        disconnectedRootIds.map(async (disconnectedRootId) => {
-          await evictLspServerForRoot(disconnectedRootId).catch((error: unknown) => {
-            logger.debug('removeRoot: LSP server eviction failed (non-fatal)', {
-              error,
-              rootId: disconnectedRootId,
+        // Tear down any pooled LSP language server for this root (report R2): the
+        // folder is leaving the workspace, so its server child process must not
+        // linger. Non-fatal — a stray server would otherwise idle until quit.
+        await Promise.all(
+          disconnectedRootIds.map(async (disconnectedRootId) => {
+            await evictLspServerForRoot(disconnectedRootId).catch((error: unknown) => {
+              logger.debug('removeRoot: LSP server eviction failed (non-fatal)', {
+                error,
+                rootId: disconnectedRootId,
+              });
             });
-          });
-        })
-      );
+          })
+        );
 
-      // A command session is owned by the workspace root, not by a renderer.
-      // Disconnecting that root therefore ends and forgets every session before
-      // the UI can move on. Failure is visible, but does not roll back the DB +
-      // rootsList transition that has already committed.
-      await Promise.all(
-        disconnectedRootIds.map(async (disconnectedRootId) => {
-          await disposeCommandSessionsForRoot(disconnectedRootId).catch((error: unknown) => {
-            logger.warn('removeRoot: command session disposal failed', {
-              error,
-              rootId: disconnectedRootId,
+        // A command session is owned by the workspace root, not by a renderer.
+        // Disconnecting that root therefore ends and forgets every session before
+        // the UI can move on. Failure is visible, but does not roll back the DB +
+        // rootsList transition that has already committed.
+        await Promise.all(
+          disconnectedRootIds.map(async (disconnectedRootId) => {
+            await disposeCommandSessionsForRoot(disconnectedRootId).catch((error: unknown) => {
+              logger.warn('removeRoot: command session disposal failed', {
+                error,
+                rootId: disconnectedRootId,
+              });
             });
-          });
-        })
-      );
+          })
+        );
 
-      // Keep the dual stores coherent: clear lastFolderPath only when it points
-      // at the removed root's path.
-      const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
-      if (lastFolderPath === removed.path) {
-        await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
-      }
-    }
+        // Keep the dual stores coherent: clear lastFolderPath only when it points
+        // at the removed root's path.
+        const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
+        if (lastFolderPath === removed.path) {
+          await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
+        }
+      })
   );
 
   return () => {

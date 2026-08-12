@@ -274,8 +274,10 @@ only within those mounted roots. A relative read requires a rootId; an absolute
 read must fall inside one mounted root, choosing the longest match for nested
 roots. There is no rootless adapter fallback.
 
-Every target is canonicalized with `allowMissing: false` before the native
-operation. Descendant symlinks/reparse points are intentionally unsupported,
+Every target is canonicalized with `allowMissing: false` for containment before
+the native operation, while the original lexical path is preserved into that
+operation so its no-follow traversal still observes link components. Descendant
+symlinks/reparse points are intentionally unsupported,
 including in-root, dangling, relative, absolute, and chained links. The native
 capability performs component-relative no-follow traversal (`openat` on POSIX,
 root-relative `NtCreateFile` on Windows), so swapping a parent or leaf after
@@ -305,8 +307,9 @@ permission failure never becomes permanent root deletion. Root containment
 rejects only a literal parent segment (`..` or `../...`), not valid descendants
 such as `..config` or `..archive/file`; traversal tokenization treats backslash
 as a separator only on Windows, preserving literal POSIX filenames. Boot
-restore and add-root mutations share a queue, so restore finalization cannot
-retain or rewrite a stale snapshot after a newly added root is mounted. Restore
+restore, add-root, and remove-root mutations share a queue, so restore
+finalization cannot retain or rewrite a stale snapshot after a root is added or
+removed. Restore
 mounts entries concurrently, waits for every result, and rolls back only roots
 newly mounted by that invocation if any mount aborts; a capability that existed
 before restore is reused and preserved.
@@ -318,8 +321,9 @@ handoff, so no file record/chunk persistence is created for escaped content.
 
 Paired tests:
 `workspace-file-capabilities.test.ts`,
-`workspace-file-capabilities.integration.test.ts`, and
-`file-system-ipc.test.ts`.
+`workspace-file-capabilities.integration.test.ts`, `file-system-ipc.test.ts`,
+`file-system-ipc-canonical-roots.test.ts`, and
+`file-system-ipc-lexical-path.test.ts`.
 
 ---
 
