@@ -26,6 +26,7 @@ import {
 } from '../file-read-errors';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import { mountLastFolderCapability } from './last-folder-capability';
 import {
   createWorkspaceFileCapabilities,
   type WorkspaceFileCapabilities,
@@ -427,6 +428,68 @@ export function registerFileSystemIpcHandlers({
     }
     return await workspaceFileCapabilities.mountRoot(entry);
   };
+  const mountWorkspaceRootIfNeeded = async (
+    entry: StoredRootEntry
+  ): Promise<{ canonicalPath: string; newlyMounted: boolean }> => {
+    const existingMount = workspaceFileCapabilities.getMountedRoot?.(entry.rootId);
+    if (existingMount) {
+      return { canonicalPath: existingMount.path, newlyMounted: false };
+    }
+    return { canonicalPath: await mountWorkspaceRoot(entry), newlyMounted: true };
+  };
+  const resolveLastFolderForSave = async (folderPath: string): Promise<string | null> => {
+    try {
+      return await resolveFileSystemIpcPath(folderPath, 'last folder');
+    } catch (error) {
+      if (process.env['NODE_ENV'] === 'development') {
+        logger.debug('Failed to save last folder', { error });
+      }
+      return null;
+    }
+  };
+  const performSaveLastFolder = async (folderPath: string): Promise<void> => {
+    const resolvedPath = await resolveLastFolderForSave(folderPath);
+    if (resolvedPath === null) {
+      return;
+    }
+    const entries = await readRootsList(storage);
+    const existing = entries.find((entry) => entry.path === resolvedPath);
+    const initialEntry =
+      existing ??
+      ({
+        addedAt: Date.now(),
+        path: resolvedPath,
+        rootId: crypto.randomUUID(),
+      } satisfies StoredRootEntry);
+    const newlyMountedRootIds = new Set<string>();
+    try {
+      const mounted = await mountLastFolderCapability({
+        entries,
+        existing,
+        initialEntry,
+        mountIfNeeded: mountWorkspaceRootIfNeeded,
+        newlyMountedRootIds,
+        unmountRoot: workspaceFileCapabilities.unmountRoot,
+      });
+      await storage.setItem(LAST_FOLDER_STORAGE_KEY, mounted.canonicalPath);
+      const canonicalEntry: StoredRootEntry = {
+        ...mounted.entry,
+        path: mounted.canonicalPath,
+      };
+      const updatedEntries = rewriteCanonicalRootEntry(entries, resolvedPath, canonicalEntry);
+      if (updatedEntries) {
+        await writeRootsList(storage, updatedEntries);
+      }
+      if (mounted.supersededPreexistingRootId) {
+        workspaceFileCapabilities.unmountRoot(mounted.supersededPreexistingRootId);
+      }
+    } catch (error) {
+      for (const rootId of newlyMountedRootIds) {
+        workspaceFileCapabilities.unmountRoot(rootId);
+      }
+      throw error;
+    }
+  };
 
   registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess, async () =>
     resolveRequestedDirectoryHandle(fileSystem)
@@ -599,41 +662,8 @@ export function registerFileSystemIpcHandlers({
   registry.registerInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.saveLastFolder,
-    async (_event, folderPath: string) => {
-      let resolvedPath: string;
-      try {
-        resolvedPath = await resolveFileSystemIpcPath(folderPath, 'last folder');
-      } catch (error) {
-        if (process.env['NODE_ENV'] === 'development') {
-          logger.debug('Failed to save last folder', { error });
-        }
-        return;
-      }
-
-      const entries = await readRootsList(storage);
-      const existing = entries.find((entry) => entry.path === resolvedPath);
-      let entry =
-        existing ??
-        ({
-          addedAt: Date.now(),
-          path: resolvedPath,
-          rootId: crypto.randomUUID(),
-        } satisfies StoredRootEntry);
-      let canonicalPath = await mountWorkspaceRoot(entry);
-      const canonicalExisting =
-        entries.find((candidate) => candidate.path === canonicalPath) ?? existing;
-      if (canonicalExisting && canonicalExisting.rootId !== entry.rootId) {
-        workspaceFileCapabilities.unmountRoot(entry.rootId);
-        entry = canonicalExisting;
-        canonicalPath = await mountWorkspaceRoot(entry);
-      }
-      await storage.setItem(LAST_FOLDER_STORAGE_KEY, canonicalPath);
-      const canonicalEntry: StoredRootEntry = { ...entry, path: canonicalPath };
-      const updatedEntries = rewriteCanonicalRootEntry(entries, resolvedPath, canonicalEntry);
-      if (updatedEntries) {
-        await writeRootsList(storage, updatedEntries);
-      }
-    }
+    async (_event, folderPath: string) =>
+      runSerializedRootMutation(() => performSaveLastFolder(folderPath))
   );
 
   /**
@@ -715,8 +745,7 @@ export function registerFileSystemIpcHandlers({
 
     // Capability construction failures are not proof that the saved root is
     // stale. Surface them so transient failure cannot delete user state.
-    const existingMount = workspaceFileCapabilities.getMountedRoot?.(entry.rootId);
-    const canonicalPath = existingMount?.path ?? (await mountWorkspaceRoot(entry));
+    const { canonicalPath, newlyMounted } = await mountWorkspaceRootIfNeeded(entry);
     const basename = path.basename(canonicalPath);
     return {
       canonicalPath,
@@ -734,7 +763,7 @@ export function registerFileSystemIpcHandlers({
         persisted: true,
         rootId: entry.rootId,
       },
-      newlyMounted: existingMount === undefined,
+      newlyMounted,
       storedEntry: { ...entry, path: canonicalPath },
     };
   };
@@ -789,7 +818,7 @@ export function registerFileSystemIpcHandlers({
   const performRestoreRoots = async (): Promise<RootDescriptor[]> => {
     const entries = await readRootsList(storage);
     if (entries.length === 0) {
-      workspaceFileCapabilities.retainRoots(new Set());
+      workspaceFileCapabilities.retainRoots(new Set(sessionOnlyRootIds));
       await convergeRootStatuses([]);
       return [];
     }
@@ -816,7 +845,11 @@ export function registerFileSystemIpcHandlers({
       }
       throw error;
     }
-    workspaceFileCapabilities.retainRoots(new Set(survivors.map((entry) => entry.rootId)));
+    const retainedRootIds = new Set(sessionOnlyRootIds);
+    for (const survivor of survivors) {
+      retainedRootIds.add(survivor.rootId);
+    }
+    workspaceFileCapabilities.retainRoots(retainedRootIds);
     await convergeRootStatuses(descriptors.map((descriptor) => descriptor.handle.path));
     return descriptors;
   };

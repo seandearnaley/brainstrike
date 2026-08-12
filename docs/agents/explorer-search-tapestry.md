@@ -307,12 +307,15 @@ permission failure never becomes permanent root deletion. Root containment
 rejects only a literal parent segment (`..` or `../...`), not valid descendants
 such as `..config` or `..archive/file`; traversal tokenization treats backslash
 as a separator only on Windows, preserving literal POSIX filenames. Boot
-restore, add-root, and remove-root mutations share a queue, so restore
-finalization cannot retain or rewrite a stale snapshot after a root is added or
-removed. Restore
-mounts entries concurrently, waits for every result, and rolls back only roots
-newly mounted by that invocation if any mount aborts; a capability that existed
-before restore is reused and preserved.
+restore, add-root, remove-root, and legacy save-last-folder mutations share a
+queue, so restore finalization cannot retain or rewrite a stale snapshot after
+a root is added or removed. Restore mounts entries concurrently, waits for
+every result, and rolls back only roots newly mounted by that invocation if any
+mount aborts; a capability that existed before restore is reused and preserved.
+Session-only roots created after a
+persistence failure remain retained by later restores until explicit removal or
+shutdown. The legacy last-folder shim likewise reuses a pre-existing capability
+and rolls back only capabilities it created when either persistence write fails.
 E2E in-memory fixture paths are the sole explicit exception: their handlers
 serve registered fixture data directly and never touch the host filesystem or
 native capability. A rejected content read becomes the worker's explicit
@@ -322,8 +325,9 @@ handoff, so no file record/chunk persistence is created for escaped content.
 Paired tests:
 `workspace-file-capabilities.test.ts`,
 `workspace-file-capabilities.integration.test.ts`, `file-system-ipc.test.ts`,
-`file-system-ipc-canonical-roots.test.ts`, and
-`file-system-ipc-lexical-path.test.ts`.
+`file-system-ipc-canonical-roots.test.ts`,
+`file-system-ipc-lexical-path.test.ts`, and
+`file-system-ipc-last-folder-capability.test.ts`.
 
 ---
 

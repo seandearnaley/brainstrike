@@ -209,4 +209,34 @@ describe('fs:restoreRoots canonical identity', () => {
     expect(capabilities.retainRoots).not.toHaveBeenCalled();
     await expect(storage.getItem('rootsList')).resolves.toBe(JSON.stringify(originalRoots));
   });
+
+  it('retains a session-only capability during a later durable-root restore', async () => {
+    const fileSystem = createFileSystem('/users/test/session-only');
+    const storage = createStorage();
+    vi.mocked(storage.setItem).mockImplementation(async (key) => {
+      if (key === 'rootsList') {
+        throw new Error('disk full');
+      }
+    });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    const added = (await handlers.get('fs:addRoot')?.({} as IpcMainInvokeEvent)) as
+      | { persisted: boolean; rootId: string }
+      | undefined;
+    expect(added).toMatchObject({ persisted: false });
+    if (!added) {
+      throw new Error('Expected addRoot to return a session-only descriptor.');
+    }
+    vi.mocked(capabilities.retainRoots).mockClear();
+
+    await handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent);
+
+    expect(capabilities.retainRoots).toHaveBeenLastCalledWith(new Set([added.rootId]));
+  });
 });
