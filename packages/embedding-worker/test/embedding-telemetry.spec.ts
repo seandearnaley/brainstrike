@@ -184,6 +184,7 @@ describe('embedding telemetry store', () => {
         memoryEstimateUnavailableCount: 1,
         residentCount: 2,
       },
+      lastUpdatedAt: 200,
     } as const;
 
     const inconsistentAggregates = [
@@ -201,6 +202,88 @@ describe('embedding telemetry store', () => {
         })
       ).toThrow(`Embedding telemetry cache.${field} does not match cache.entries.`);
     }
+  });
+
+  it('rejects duplicate cache source identities at the process boundary', () => {
+    const entry = {
+      cacheKey: 'model-a|webgpu|fp16',
+      createdAt: 100,
+      device: 'webgpu',
+      dtype: 'fp16',
+      lastUsedAt: 200,
+      memory: {
+        gpuBytes: 1024,
+        heapBytes: 0,
+        reason: 'model-size-estimate',
+      },
+      model: 'model-a',
+      residencyMs: 100,
+      sourceId: 'worker-a',
+    } as const;
+
+    expect(() =>
+      assertEmbeddingTelemetrySnapshot({
+        ...createEmptyEmbeddingTelemetrySnapshot(),
+        cache: {
+          entries: [entry, entry],
+          estimatedGpuBytes: 2048,
+          estimatedHeapBytes: 0,
+          memoryEstimateUnavailableCount: 0,
+          residentCount: 2,
+        },
+        lastUpdatedAt: 200,
+      })
+    ).toThrow('Embedding telemetry cache.entries contains duplicate source/cache identities.');
+  });
+
+  it.each([
+    [
+      'a transferred batch',
+      {
+        batchTransfer: { batchCount: 1, lastBytes: 8, peakBytes: 8, totalBytes: 8 },
+      },
+    ],
+    [
+      'a resident cache entry',
+      {
+        cache: {
+          entries: [
+            {
+              cacheKey: 'model-a|webgpu|fp16',
+              createdAt: 100,
+              device: 'webgpu',
+              dtype: 'fp16',
+              lastUsedAt: 200,
+              memory: {
+                gpuBytes: 1024,
+                heapBytes: 0,
+                reason: 'model-size-estimate',
+              },
+              model: 'model-a',
+              residencyMs: 100,
+              sourceId: 'worker-a',
+            },
+          ],
+          estimatedGpuBytes: 1024,
+          estimatedHeapBytes: 0,
+          memoryEstimateUnavailableCount: 0,
+          residentCount: 1,
+        },
+      },
+    ],
+    [
+      'a health failure',
+      {
+        health: { failureCount: 1, lastFailure: 'worker failed' },
+      },
+    ],
+  ] as const)('requires a mutation timestamp for %s', (_case, mutation) => {
+    expect(() =>
+      assertEmbeddingTelemetrySnapshot({
+        ...createEmptyEmbeddingTelemetrySnapshot(),
+        ...mutation,
+      })
+    ).toThrow('Embedding telemetry lastUpdatedAt is required after an observed mutation.');
   });
 
   it('tracks resident model bytes by device and removes terminated worker state', () => {

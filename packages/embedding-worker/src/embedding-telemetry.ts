@@ -198,6 +198,38 @@ function calculateCacheAggregates(
   };
 }
 
+function assertUniqueCacheIdentities(entries: EmbeddingPipelineCacheTelemetry['entries']): void {
+  const cacheKeysBySource = new Map<string, Set<string>>();
+  for (const entry of entries) {
+    const sourceCacheKeys = cacheKeysBySource.get(entry.sourceId) ?? new Set<string>();
+    if (sourceCacheKeys.has(entry.cacheKey)) {
+      throw new Error(
+        'Embedding telemetry cache.entries contains duplicate source/cache identities.'
+      );
+    }
+    sourceCacheKeys.add(entry.cacheKey);
+    cacheKeysBySource.set(entry.sourceId, sourceCacheKeys);
+  }
+}
+
+function assertMutationTimestamp(
+  lastUpdatedAt: number | null,
+  batchTransfer: EmbeddingBatchTransferTelemetry,
+  cacheEntries: EmbeddingPipelineCacheTelemetry['entries'],
+  failureCount: number,
+  peakVectorsInFlight: number
+): void {
+  if (
+    lastUpdatedAt === null &&
+    (batchTransfer.batchCount > 0 ||
+      cacheEntries.length > 0 ||
+      failureCount > 0 ||
+      peakVectorsInFlight > 0)
+  ) {
+    throw new Error('Embedding telemetry lastUpdatedAt is required after an observed mutation.');
+  }
+}
+
 function assertMatchingCacheAggregate(
   candidate: Record<string, unknown>,
   field: EmbeddingCacheAggregateField,
@@ -265,11 +297,21 @@ export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelem
     throw new Error('Embedding telemetry cache.entries must be an array.');
   }
   const validatedEntries = entries.map(assertCacheEntry);
+  assertUniqueCacheIdentities(validatedEntries);
   const expectedCacheAggregates = calculateCacheAggregates(validatedEntries);
   const lastUpdatedAt = candidate['lastUpdatedAt'];
   if (!(lastUpdatedAt === null || typeof lastUpdatedAt === 'number')) {
     throw new Error('Embedding telemetry lastUpdatedAt must be a number or null.');
   }
+  const validatedLastUpdatedAt =
+    lastUpdatedAt === null
+      ? null
+      : assertNonNegativeNumber(lastUpdatedAt, 'Embedding telemetry lastUpdatedAt');
+  const validatedBatchTransfer = readBatchTransferTelemetry(batchCandidate);
+  const peakVectorsInFlight = assertNonNegativeSafeInteger(
+    candidate['peakVectorsInFlight'],
+    'Embedding telemetry peakVectorsInFlight'
+  );
   const failureCount = assertNonNegativeNumber(
     healthCandidate['failureCount'],
     'Embedding telemetry health.failureCount'
@@ -295,8 +337,15 @@ export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelem
       'Embedding telemetry health requires lastFailure exactly when failureCount is non-zero.'
     );
   }
+  assertMutationTimestamp(
+    validatedLastUpdatedAt,
+    validatedBatchTransfer,
+    validatedEntries,
+    failureCount,
+    peakVectorsInFlight
+  );
   return {
-    batchTransfer: readBatchTransferTelemetry(batchCandidate),
+    batchTransfer: validatedBatchTransfer,
     cache: {
       entries: validatedEntries,
       estimatedGpuBytes: assertMatchingCacheAggregate(
@@ -324,14 +373,8 @@ export function assertEmbeddingTelemetrySnapshot(value: unknown): EmbeddingTelem
       failureCount,
       lastFailure,
     },
-    lastUpdatedAt:
-      lastUpdatedAt === null
-        ? null
-        : assertNonNegativeNumber(lastUpdatedAt, 'Embedding telemetry lastUpdatedAt'),
-    peakVectorsInFlight: assertNonNegativeSafeInteger(
-      candidate['peakVectorsInFlight'],
-      'Embedding telemetry peakVectorsInFlight'
-    ),
+    lastUpdatedAt: validatedLastUpdatedAt,
+    peakVectorsInFlight,
   };
 }
 
