@@ -64,7 +64,10 @@ export interface DatabaseWorkSchedulerOptions {
    * while guaranteeing bounded progress under sustained foreground arrivals.
    */
   readonly backgroundStarvationMs?: number;
+  /** Monotonic elapsed-time source. Defaults to performance.now(). */
+  readonly elapsedNow?: () => number;
   readonly foregroundQuietMs?: number;
+  /** Wall-clock source for diagnostic timestamps and duration metrics. */
   readonly now?: () => number;
 }
 
@@ -324,6 +327,7 @@ function hasForegroundOrNormalWork(
 
 class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   readonly #backgroundStarvationMs: number;
+  readonly #elapsedNow: () => number;
   readonly #foregroundQuietMs: number;
   readonly #listeners = new Set<(snapshot: DatabaseWorkSchedulerSnapshot) => void>();
   readonly #now: () => number;
@@ -332,12 +336,14 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   readonly #serviceSamples = createEmptyMetricSamples();
   readonly #waitSamples = createEmptyMetricSamples();
   #backgroundYieldRequiresForegroundTurn = false;
+  #backgroundWaitingElapsedSince: number | null = null;
   #backgroundWaitingSince: number | null = null;
   #backgroundYieldCount = 0;
   #drainMicrotaskScheduled = false;
   #drainTimer: ReturnType<typeof setTimeout> | null = null;
   #lastBackgroundYieldAt: number | null = null;
   #lastCompletedAt: number | null = null;
+  #lastForegroundElapsedAt: number | null = null;
   #lastForegroundAt: number | null = null;
   #lastNormalAt: number | null = null;
   #lastStartedAt: number | null = null;
@@ -364,16 +370,20 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     }
     this.#foregroundQuietMs = foregroundQuietMs;
     this.#now = options.now ?? (() => Date.now());
+    this.#elapsedNow = options.elapsedNow ?? (() => globalThis.performance.now());
   }
 
   getSnapshot(): DatabaseWorkSchedulerSnapshot {
+    const elapsedNow = this.#elapsedNow();
     const now = this.#now();
     return {
       backgroundWaiting: this.#backgroundWaitingSince !== null,
       backgroundWaitingSince: this.#backgroundWaitingSince,
       backgroundYieldCount: this.#backgroundYieldCount,
       currentBackgroundWaitMs:
-        this.#backgroundWaitingSince === null ? 0 : Math.max(0, now - this.#backgroundWaitingSince),
+        this.#backgroundWaitingElapsedSince === null
+          ? 0
+          : Math.max(0, elapsedNow - this.#backgroundWaitingElapsedSince),
       forcedBackgroundAdmissionCount: this.#forcedBackgroundAdmissionCount,
       foregroundQuietMs: this.#foregroundQuietMs,
       lastBackgroundYieldAt: this.#lastBackgroundYieldAt,
@@ -394,8 +404,10 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     // options?. because untyped JS callers can still omit the argument entirely;
     // requireExplicitPriority turns that into a loud failure instead of a default.
     const priority = requireExplicitPriority(options?.priority);
+    const elapsedEnqueuedAt = this.#elapsedNow();
     const enqueuedAt = this.#now();
     if (priority === 'foreground') {
+      this.#lastForegroundElapsedAt = elapsedEnqueuedAt;
       this.#lastForegroundAt = enqueuedAt;
     }
     if (priority === 'normal') {
@@ -411,7 +423,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
         this.#runningPriority === 'normal' ||
         hasForegroundOrNormalWork(this.#queues))
     ) {
-      this.#markBackgroundWaiting(enqueuedAt);
+      this.#markBackgroundWaiting(enqueuedAt, elapsedEnqueuedAt);
     }
 
     return new Promise<T>((resolve, reject) => {
@@ -424,7 +436,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
         work: work as () => Promise<unknown>,
       });
       if (priority !== 'background' && this.#queues.background.length > 0) {
-        this.#markBackgroundWaiting(enqueuedAt);
+        this.#markBackgroundWaiting(enqueuedAt, elapsedEnqueuedAt);
       }
       this.#emit();
       this.#scheduleDrain(0);
@@ -445,29 +457,31 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     }
   }
 
-  #markBackgroundWaiting(now: number): void {
+  #markBackgroundWaiting(now: number, elapsedNow: number): void {
     if (this.#backgroundWaitingSince !== null) {
       return;
     }
+    this.#backgroundWaitingElapsedSince = elapsedNow;
     this.#backgroundWaitingSince = now;
     this.#lastBackgroundYieldAt = now;
     this.#backgroundYieldCount += 1;
   }
 
   #clearBackgroundWaiting(): void {
+    this.#backgroundWaitingElapsedSince = null;
     this.#backgroundWaitingSince = null;
   }
 
-  #isBackgroundStarved(now: number): boolean {
+  #isBackgroundStarved(elapsedNow: number): boolean {
     return (
       !this.#backgroundYieldRequiresForegroundTurn &&
       this.#queues.background.length > 0 &&
-      this.#backgroundWaitingSince !== null &&
-      now - this.#backgroundWaitingSince >= this.#backgroundStarvationMs
+      this.#backgroundWaitingElapsedSince !== null &&
+      elapsedNow - this.#backgroundWaitingElapsedSince >= this.#backgroundStarvationMs
     );
   }
 
-  #nextDelayMs(now = this.#now()): number {
+  #nextDelayMs(elapsedNow = this.#elapsedNow()): number {
     if (this.#running || !hasQueuedWork(this.#queues)) {
       return 0;
     }
@@ -476,18 +490,24 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       return 0;
     }
 
-    if (this.#isBackgroundStarved(now)) {
+    if (this.#isBackgroundStarved(elapsedNow)) {
       return 0;
     }
-    const lastForegroundAt = this.#lastForegroundAt;
-    if (lastForegroundAt === null) {
+    const lastForegroundElapsedAt = this.#lastForegroundElapsedAt;
+    if (lastForegroundElapsedAt === null) {
       return 0;
     }
-    const quietWindowRemainingMs = Math.max(0, this.#foregroundQuietMs - (now - lastForegroundAt));
+    const quietWindowRemainingMs = Math.max(
+      0,
+      this.#foregroundQuietMs - (elapsedNow - lastForegroundElapsedAt)
+    );
     const starvationRemainingMs =
-      this.#backgroundWaitingSince === null
+      this.#backgroundWaitingElapsedSince === null
         ? this.#backgroundStarvationMs
-        : Math.max(0, this.#backgroundStarvationMs - (now - this.#backgroundWaitingSince));
+        : Math.max(
+            0,
+            this.#backgroundStarvationMs - (elapsedNow - this.#backgroundWaitingElapsedSince)
+          );
     return Math.min(quietWindowRemainingMs, starvationRemainingMs);
   }
 
@@ -496,11 +516,12 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       return null;
     }
 
+    const elapsedNow = this.#elapsedNow();
     const now = this.#now();
-    if (this.#isBackgroundStarved(now)) {
+    if (this.#isBackgroundStarved(elapsedNow)) {
       const starvedTask = this.#queues.background.shift();
       if (starvedTask) {
-        return this.#startTask(starvedTask, now, true);
+        return this.#startTask(starvedTask, now, elapsedNow, true);
       }
     }
 
@@ -510,13 +531,13 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
         this.#queues.background.length > 0 &&
         hasForegroundOrNormalWork(this.#queues)
       ) {
-        this.#markBackgroundWaiting(now);
+        this.#markBackgroundWaiting(now, elapsedNow);
       }
 
       if (priority === 'background') {
-        const delayMs = this.#nextDelayMs(now);
+        const delayMs = this.#nextDelayMs(elapsedNow);
         if (delayMs > 0) {
-          this.#markBackgroundWaiting(now);
+          this.#markBackgroundWaiting(now, elapsedNow);
           this.#emit();
           this.#scheduleDrain(delayMs);
           return null;
@@ -525,7 +546,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
 
       const task = this.#queues[priority].shift();
       if (task) {
-        return this.#startTask(task, now);
+        return this.#startTask(task, now, elapsedNow);
       }
     }
 
@@ -533,7 +554,12 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     return null;
   }
 
-  #startTask(task: QueuedTask, startedAt: number, forcedBackground = false): QueuedTask {
+  #startTask(
+    task: QueuedTask,
+    startedAt: number,
+    elapsedStartedAt: number,
+    forcedBackground = false
+  ): QueuedTask {
     this.#lastStartedAt = startedAt;
     this.#runningStartedAt = startedAt;
     this.#recordTaskStarted(task, startedAt);
@@ -544,7 +570,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
         this.#backgroundYieldRequiresForegroundTurn = true;
       }
       if (this.#queues.background.length > 0 && hasForegroundOrNormalWork(this.#queues)) {
-        this.#markBackgroundWaiting(startedAt);
+        this.#markBackgroundWaiting(startedAt, elapsedStartedAt);
       }
     } else {
       this.#backgroundYieldRequiresForegroundTurn = false;

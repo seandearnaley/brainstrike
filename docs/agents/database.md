@@ -77,7 +77,9 @@ The windows are configurable through `backgroundStarvationMs` and
 `foregroundQuietMs` for deterministic tests and specialized hosts. The
 starvation bound must be positive and finite; the quiet window must be
 non-negative and finite. Invalid values throw rather than silently disabling or
-degrading either fairness rule. Work admitted through the background lane must
+degrading either fairness rule. Fairness elapsed time uses a monotonic clock;
+wall-clock timestamps remain diagnostic only, so clock corrections cannot
+extend either admission window. Work admitted through the background lane must
 therefore be short and bounded. Long maintenance statements such as
 `VACUUM (ANALYZE)` may run only after the maintenance scheduler has established
 an idle database/queue state; do not use background priority as authority to run

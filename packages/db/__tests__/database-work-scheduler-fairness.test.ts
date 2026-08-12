@@ -23,6 +23,52 @@ describe('DatabaseWorkScheduler background fairness', () => {
     );
   });
 
+  it('keeps the starvation bound when the diagnostic wall clock moves backward', async () => {
+    vi.useFakeTimers();
+    try {
+      let elapsedNow = 0;
+      let wallNow = 1000;
+      const scheduler = createDatabaseWorkScheduler({
+        backgroundStarvationMs: 100,
+        elapsedNow: () => elapsedNow,
+        foregroundQuietMs: 50,
+        now: () => wallNow,
+      });
+      const events: string[] = [];
+      let releaseForeground: (() => void) | null = null;
+      const foreground = scheduler.run(
+        async () => {
+          events.push('foreground');
+          await new Promise<void>((resolve) => {
+            releaseForeground = resolve;
+          });
+        },
+        { priority: 'foreground' }
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      const background = scheduler.run(
+        async () => {
+          events.push('background');
+        },
+        { priority: 'background' }
+      );
+      elapsedNow = 100;
+      wallNow = 0;
+      if (!releaseForeground) {
+        throw new Error('Expected foreground work to start.');
+      }
+      releaseForeground();
+      await foreground;
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(events).toEqual(['foreground', 'background']);
+      await background;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('returns to foreground-first ordering after each forced background admission', async () => {
     vi.useFakeTimers();
     try {
