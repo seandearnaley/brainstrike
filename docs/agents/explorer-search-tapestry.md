@@ -287,7 +287,10 @@ index exclusion, change detection, tree indexing, and row display. Directory
 enumeration and file content reads use the native addon's async-worker methods;
 blocking descriptor traversal never runs on Electron's main event loop. The
 addon import is dynamic at first real-root mount so importing the IPC registrar
-does not eagerly load the native binary in unit/boot paths.
+does not eagerly load the native binary in unit/boot paths. POSIX enumeration
+opens a fresh descriptor for `.` relative to the pinned root instead of using
+`dup`, so repeated or concurrent root listings have independent directory
+offsets and each observes the complete entry set.
 
 The registry closes a prior handle when a root is remounted, closes it on
 disconnect (including session-only roots whose persistence write failed), and
@@ -295,6 +298,12 @@ closes every remaining handle when the IPC domain unregisters. Restore and the
 legacy last-folder shim rewrite aliases to canonical paths and deduplicate
 canonical collisions before returning descriptors, so one canonical root never
 retains multiple independently disconnectable rootIds.
+Restore prunes only roots confirmed absent. Path-validation failures may skip a
+malformed stored entry, but a capability-mount failure aborts visibly before
+retaining or rewriting the list, so a transient addon, descriptor, or
+permission failure never becomes permanent root deletion. Root containment
+rejects only a literal parent segment (`..` or `../...`), not valid descendants
+such as `..config` or `..archive/file`.
 E2E in-memory fixture paths are the sole explicit exception: their handlers
 serve registered fixture data directly and never touch the host filesystem or
 native capability. A rejected content read becomes the worker's explicit

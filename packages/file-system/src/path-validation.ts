@@ -69,7 +69,10 @@ export function normalizeRootDir(dir: string): string {
 
 export function isPathInsideRoot(rootDir: string, candidate: string): boolean {
   const relative = path.relative(rootDir, candidate);
-  return relative === '' || !(relative.startsWith('..') || path.isAbsolute(relative));
+  return (
+    relative === '' ||
+    !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+  );
 }
 
 function containsNullByte(value: string): boolean {

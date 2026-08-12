@@ -696,45 +696,51 @@ export function registerFileSystemIpcHandlers({
     const canonicalPaths = new Set<string>();
 
     for (const entry of entries) {
+      let exists: boolean;
       try {
         const resolvedPath = await resolveFileSystemIpcPath(entry.path, 'stored root');
         // Mock-aware existence: a raw fileSystem.exists would stat the real
         // disk and prune e2e-seeded mock roots (see ipcPathExists).
-        const exists = await ipcPathExists(fileSystem, resolvedPath);
-        if (!exists) {
-          logger.debug('Pruning stale root from rootsList', { path: entry.path });
-          continue;
-        }
-        const canonicalPath = await mountWorkspaceRoot(entry);
-        if (canonicalPaths.has(canonicalPath)) {
-          workspaceFileCapabilities.unmountRoot(entry.rootId);
-          logger.warn('restoreRoots: discarded duplicate canonical workspace root', {
-            path: canonicalPath,
-            rootId: entry.rootId,
-          });
-          continue;
-        }
-        canonicalPaths.add(canonicalPath);
-        const basename = path.basename(canonicalPath);
-        const canonicalEntry = { ...entry, path: canonicalPath };
-        survivors.push(canonicalEntry);
-        descriptors.push({
-          displayName: basename,
-          handle: {
-            kind: 'directory',
-            name: basename,
-            path: canonicalPath,
-            platform: 'electron',
-            rootId: entry.rootId,
-          },
-          kind: 'path',
-          permissionState: 'granted',
-          persisted: true,
-          rootId: entry.rootId,
-        });
+        exists = await ipcPathExists(fileSystem, resolvedPath);
       } catch (error) {
         logger.debug('Skipping invalid root entry during restore', { error, path: entry.path });
+        continue;
       }
+      if (!exists) {
+        logger.debug('Pruning stale root from rootsList', { path: entry.path });
+        continue;
+      }
+
+      // Capability construction failures are not proof that the saved root is
+      // stale. Surface them and leave rootsList untouched so a transient addon,
+      // descriptor, or permission failure cannot permanently delete user state.
+      const canonicalPath = await mountWorkspaceRoot(entry);
+      if (canonicalPaths.has(canonicalPath)) {
+        workspaceFileCapabilities.unmountRoot(entry.rootId);
+        logger.warn('restoreRoots: discarded duplicate canonical workspace root', {
+          path: canonicalPath,
+          rootId: entry.rootId,
+        });
+        continue;
+      }
+      canonicalPaths.add(canonicalPath);
+      const basename = path.basename(canonicalPath);
+      const canonicalEntry = { ...entry, path: canonicalPath };
+      survivors.push(canonicalEntry);
+      descriptors.push({
+        displayName: basename,
+        handle: {
+          kind: 'directory',
+          name: basename,
+          path: canonicalPath,
+          platform: 'electron',
+          rootId: entry.rootId,
+        },
+        kind: 'path',
+        permissionState: 'granted',
+        persisted: true,
+        rootId: entry.rootId,
+      });
     }
 
     const rootsChanged =

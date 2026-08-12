@@ -64,6 +64,31 @@ test('lists metadata and reads regular files asynchronously beneath a pinned roo
   }
 });
 
+test('repeated and concurrent root listings each enumerate the complete directory', async () => {
+  const { workspace } = fixture();
+  writeFileSync(path.join(workspace, 'first.txt'), 'first');
+  writeFileSync(path.join(workspace, 'second.txt'), 'second');
+  const root = new SecureRoot(workspace);
+  try {
+    const [first, second] = await Promise.all([
+      root.listDirAsync('.', 20),
+      root.listDirAsync('.', 20),
+    ]);
+    const expectedNames = ['.brainstrike', 'first.txt', 'second.txt'];
+    assert.deepEqual(first.entries.map((entry) => entry.name).sort(), expectedNames);
+    assert.deepEqual(second.entries.map((entry) => entry.name).sort(), expectedNames);
+    assert.deepEqual(
+      root
+        .listDir('.', 20)
+        .entries.map((entry) => entry.name)
+        .sort(),
+      expectedNames
+    );
+  } finally {
+    root.close();
+  }
+});
+
 test('bounds directory enumeration and reports truncation', () => {
   const { commands, workspace } = fixture();
   writeFileSync(path.join(commands, 'second.md'), 'Second');

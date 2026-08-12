@@ -447,7 +447,12 @@ NativeHandle OpenAbsoluteDirectory(const std::string& path) {
 
 NativeHandle OpenRelativeDirectory(NativeHandle root,
                                    const std::vector<std::string>& components) {
-  NativeHandle current = dup(root);
+  // `dup` would share the directory offset with the pinned root's open-file
+  // description. Opening `.` relative to the pinned descriptor creates an
+  // independent description so concurrent/repeated listings cannot consume
+  // one another's readdir position.
+  NativeHandle current =
+      openat(root, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
   if (current == kInvalidHandle) {
     return kInvalidHandle;
   }

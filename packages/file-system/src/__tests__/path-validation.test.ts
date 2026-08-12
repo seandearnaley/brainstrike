@@ -105,6 +105,22 @@ describe('resolveValidatedPath', () => {
     expect(result).toEqual({ ok: true, path: await fsPromises.realpath(dottedFile) });
   });
 
+  it('allows descendants whose path segments begin with two dots', async () => {
+    const dottedDirectory = path.join(tempDir, '..archive');
+    const dottedFile = path.join(dottedDirectory, '..config');
+    await fsPromises.mkdir(dottedDirectory);
+    await fsPromises.writeFile(dottedFile, 'valid');
+
+    const result = await resolveValidatedPath({
+      allowMissing: false,
+      maxTraversal: 0,
+      requestedPath: dottedFile,
+      rootDir: tempDir,
+    });
+
+    expect(result).toEqual({ ok: true, path: await fsPromises.realpath(dottedFile) });
+  });
+
   it('rejects paths outside the root when missing', async () => {
     const result = await resolveValidatedPath({
       requestedPath: '../outside-root',

@@ -44,4 +44,25 @@ describe('fs:restoreRoots canonical identity', () => {
       JSON.stringify([{ ...aliasEntry, path: canonicalPath }])
     );
   });
+
+  it('surfaces capability mount failures without pruning the saved root', async () => {
+    const rootPath = path.resolve('/users/test/temporarily-unmountable');
+    const entry = { addedAt: 1000, path: rootPath, rootId: 'root-id-1' };
+    const fileSystem = createFileSystem();
+    const storage = createStorage({ rootsList: JSON.stringify([entry]) });
+    const capabilities = createAdapterBackedCapabilities(fileSystem);
+    vi.mocked(capabilities.mountRoot).mockRejectedValueOnce(new Error('descriptor unavailable'));
+    registerFileSystemIpcHandlers({
+      fileSystem,
+      getRootsDatabase,
+      storage,
+      workspaceFileCapabilities: capabilities,
+    });
+
+    await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).rejects.toThrow(
+      'descriptor unavailable'
+    );
+    expect(storage.setItem).not.toHaveBeenCalledWith('rootsList', expect.anything());
+    expect(capabilities.retainRoots).not.toHaveBeenCalled();
+  });
 });
