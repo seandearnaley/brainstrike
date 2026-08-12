@@ -531,6 +531,9 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     this.#recordTaskStarted(task, startedAt);
     if (task.priority === 'background') {
       this.#clearBackgroundWaiting();
+      if (this.#queues.background.length > 0 && hasForegroundOrNormalWork(this.#queues)) {
+        this.#markBackgroundWaiting(startedAt);
+      }
     }
     return task;
   }
