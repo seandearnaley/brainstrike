@@ -866,9 +866,12 @@ selection-default read resolves the focused path against the authoritative
 inventory instead of the thread binding. If the inventory is unavailable, the
 selection-default read fails visibly; focused renderer state never authorizes a
 path-backed root. Supplying `filePaths` restores the normal omitted-root binding
-rule. Disconnect transitions also revoke
-already-enriched in-flight runtime snapshots, while a later authoritative live
-root load clears that revocation after reconciliation/reconnect.
+rule. Disconnect transitions also revoke already-enriched in-flight runtime
+snapshots. If the durable DB transition fails, process-local path revocation
+still blocks stale DB-backed ids and root-owned command/LSP resources are
+disposed; only an explicit remount clears that fail-closed path tombstone. A
+later authoritative live root load clears normal id revocation after
+reconciliation/reconnect.
 
 **Initial workspace-root manifest** (`packages/agent/src/workspace-root-manifest.ts`):
 every fresh hosted-provider turn receives one `system` message before the

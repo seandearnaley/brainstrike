@@ -7,6 +7,10 @@ const logger = createLogger('AssistantWorkspaceRoots');
 // Process-lifetime revocation tombstones protect in-flight runtime snapshots.
 // An id clears only after a verified live DB reload observes that exact root.
 const disconnectedRootIds = new Set<string>();
+// A failed durable disconnect cannot discover the DB root id. Keep its path
+// revoked until an explicit remount proves the user reconnected it.
+const disconnectedRootPaths = new Set<string>();
+const liveRootIdsByPath = new Map<string, string>();
 const REDACTED_ROOT_ID_LOG_VALUE = { redacted: true } as const;
 
 export class BoundWorkspaceRootUnavailableError extends ToolInputError {
@@ -102,12 +106,33 @@ function describeRootsWithIds(roots: readonly RuntimeWorkspaceRoot[]): string {
 }
 
 function assertRootStillConnected(root: RuntimeWorkspaceRoot): RuntimeWorkspaceRoot {
-  if (disconnectedRootIds.has(root.rootId)) {
+  if (disconnectedRootIds.has(root.rootId) || disconnectedRootPaths.has(root.path)) {
     throw new ToolInputError(
       `Workspace root "${root.displayName}" (id ${rootIdForMessage(root.rootId)}) was disconnected during this run. Reconnect it before continuing.`
     );
   }
   return root;
+}
+
+function processRootIds(rootId: string, rootPath: string): readonly string[] {
+  const knownRootId = liveRootIdsByPath.get(path.resolve(rootPath));
+  return knownRootId && knownRootId !== rootId ? [rootId, knownRootId] : [rootId];
+}
+
+export function revokeWorkspaceRootForProcess(rootId: string, rootPath: string): readonly string[] {
+  const rootIds = processRootIds(rootId, rootPath);
+  for (const id of rootIds) {
+    disconnectedRootIds.add(id);
+  }
+  disconnectedRootPaths.add(path.resolve(rootPath));
+  return rootIds;
+}
+
+export function reconnectWorkspaceRootForProcess(rootId: string, rootPath: string): void {
+  for (const id of processRootIds(rootId, rootPath)) {
+    disconnectedRootIds.delete(id);
+  }
+  disconnectedRootPaths.delete(path.resolve(rootPath));
 }
 
 function rootIdForMessage(rootId: string): string {
@@ -347,7 +372,9 @@ export async function loadWorkspaceRootsFromDatabase(
       })
     )
     .filter((root): root is RuntimeWorkspaceRoot => root !== null);
+  liveRootIdsByPath.clear();
   for (const root of roots) {
+    liveRootIdsByPath.set(root.path, root.rootId);
     disconnectedRootIds.delete(root.rootId);
   }
   return roots;

@@ -16,6 +16,8 @@ import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
 import {
   markRootDisconnectedByPath,
   markRootsDisconnectedExcept,
+  reconnectWorkspaceRootForProcess,
+  revokeWorkspaceRootForProcess,
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
 import {
@@ -430,6 +432,20 @@ export function registerFileSystemIpcHandlers({
     sessionRevokedRootIds.add(rootId);
     workspaceFileCapabilities.unmountRoot(rootId);
   };
+  const cleanupRootResources = async (rootIds: readonly string[]): Promise<void> => {
+    await Promise.all(
+      rootIds.map(async (rootId) => {
+        await Promise.all([
+          evictLspServerForRoot(rootId).catch((error: unknown) => {
+            logger.debug('removeRoot: LSP server eviction failed (non-fatal)', { error, rootId });
+          }),
+          disposeCommandSessionsForRoot(rootId).catch((error: unknown) => {
+            logger.warn('removeRoot: command session disposal failed', { error, rootId });
+          }),
+        ]);
+      })
+    );
+  };
   const resolveLastFolderForSave = async (folderPath: string): Promise<string | null> => {
     try {
       return await resolveFileSystemIpcPath(folderPath, 'last folder');
@@ -477,6 +493,7 @@ export function registerFileSystemIpcHandlers({
         workspaceFileCapabilities.unmountRoot(mounted.supersededPreexistingRootId);
       }
       sessionRevokedRootIds.delete(mounted.entry.rootId);
+      reconnectWorkspaceRootForProcess(mounted.entry.rootId, mounted.canonicalPath);
     } catch (error) {
       for (const rootId of newlyMountedRootIds) {
         workspaceFileCapabilities.unmountRoot(rootId);
@@ -929,6 +946,7 @@ export function registerFileSystemIpcHandlers({
       } catch (error) {
         logger.warn('addRoot: failed to write lastFolderPath', { error });
       }
+      reconnectWorkspaceRootForProcess(rootId, canonicalPath);
 
       const descriptor: RootDescriptor = {
         displayName: basename,
@@ -981,7 +999,9 @@ export function registerFileSystemIpcHandlers({
           const rootsDatabase = await getRootsDatabase();
           disconnectedRootIds = await markRootDisconnectedByPath(rootsDatabase, removed.path);
         } catch (error) {
+          const revokedRootIds = revokeWorkspaceRootForProcess(rootId, removed.path);
           revokeRootForSession(rootId);
+          await cleanupRootResources(revokedRootIds);
           throw error;
         }
         if (disconnectedRootIds.length === 0) {
@@ -1008,34 +1028,10 @@ export function registerFileSystemIpcHandlers({
         }
         revokeRootForSession(rootId);
 
-        // Tear down any pooled LSP language server for this root (report R2): the
-        // folder is leaving the workspace, so its server child process must not
-        // linger. Non-fatal — a stray server would otherwise idle until quit.
-        await Promise.all(
-          disconnectedRootIds.map(async (disconnectedRootId) => {
-            await evictLspServerForRoot(disconnectedRootId).catch((error: unknown) => {
-              logger.debug('removeRoot: LSP server eviction failed (non-fatal)', {
-                error,
-                rootId: disconnectedRootId,
-              });
-            });
-          })
-        );
-
-        // A command session is owned by the workspace root, not by a renderer.
-        // Disconnecting that root therefore ends and forgets every session before
-        // the UI can move on. Failure is visible, but does not roll back the DB +
-        // rootsList transition that has already committed.
-        await Promise.all(
-          disconnectedRootIds.map(async (disconnectedRootId) => {
-            await disposeCommandSessionsForRoot(disconnectedRootId).catch((error: unknown) => {
-              logger.warn('removeRoot: command session disposal failed', {
-                error,
-                rootId: disconnectedRootId,
-              });
-            });
-          })
-        );
+        // Root-owned LSP servers and command sessions cannot survive disconnect.
+        // Cleanup is best-effort because the durable DB + rootsList transition
+        // has already committed by this point.
+        await cleanupRootResources(disconnectedRootIds);
 
         // Keep the dual stores coherent: clear lastFolderPath only when it points
         // at the removed root's path.

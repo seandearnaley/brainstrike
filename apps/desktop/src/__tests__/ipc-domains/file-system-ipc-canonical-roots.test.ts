@@ -1,9 +1,14 @@
 import path from 'node:path';
+import type { RuntimeData } from '@brainstrike/agent';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 
+import {
+  loadWorkspaceRootsFromDatabase,
+  resolveWorkspaceRoot,
+} from '../../assistant-server/workspace-roots';
 import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
 import {
   clearE2eFileSystemFixture,
@@ -361,8 +366,29 @@ describe('fs:restoreRoots canonical identity', () => {
     const fileSystem = createFileSystem();
     const storage = createStorage({ rootsList: JSON.stringify([entry]) });
     const capabilities = createAdapterBackedCapabilities(fileSystem);
+    const disposeCommandSessionsForRoot = vi.fn(async () => 1);
+    const evictLspServersForRoot = vi.fn(async () => undefined);
+    const durableRoot = {
+      displayName: 'DB failure',
+      path: entry.path,
+      rootId: 'durable-db-root-failure',
+    };
+    const runtimeSnapshot = {
+      boundWorkspaceRootId: durableRoot.rootId,
+      provider: 'openai',
+      workspaceRoots: [durableRoot],
+    } as RuntimeData;
+    await loadWorkspaceRootsFromDatabase({
+      query: vi.fn(async () => ({
+        rows: [
+          { displayName: durableRoot.displayName, id: durableRoot.rootId, path: durableRoot.path },
+        ],
+      })),
+    });
     rootsDbQuery.mockRejectedValueOnce(new Error('db unavailable'));
     registerFileSystemIpcHandlers({
+      disposeCommandSessionsForRoot,
+      evictLspServersForRoot,
       fileSystem,
       getRootsDatabase,
       storage,
@@ -376,5 +402,13 @@ describe('fs:restoreRoots canonical identity', () => {
     expect(storage.setItem).not.toHaveBeenCalled();
     expect(storage.removeItem).not.toHaveBeenCalled();
     expect(capabilities.unmountRoot).toHaveBeenCalledWith(entry.rootId);
+    expect(() => resolveWorkspaceRoot(runtimeSnapshot)).toThrow(/disconnected during this run/i);
+    expect(disposeCommandSessionsForRoot).toHaveBeenCalledWith(entry.rootId);
+    expect(disposeCommandSessionsForRoot).toHaveBeenCalledWith(durableRoot.rootId);
+    expect(evictLspServersForRoot).toHaveBeenCalledWith(entry.rootId);
+    expect(evictLspServersForRoot).toHaveBeenCalledWith(durableRoot.rootId);
+
+    await handlers.get('fs:saveLastFolder')?.({} as IpcMainInvokeEvent, entry.path);
+    expect(resolveWorkspaceRoot(runtimeSnapshot)).toEqual(durableRoot);
   });
 });
