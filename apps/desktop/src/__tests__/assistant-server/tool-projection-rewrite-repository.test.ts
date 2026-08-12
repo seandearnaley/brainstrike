@@ -37,6 +37,7 @@ import {
 import {
   applyToolProjectionRewriteRecording,
   recordSuccessfulToolProjection,
+  resetMalformedProjectionMemoForTests,
   runRecencyPruneScan,
   toRecencyPruneInvocation,
 } from '../../assistant-server/tool-projection-rewrite-repository';
@@ -96,6 +97,7 @@ function fakeDatabase(parts: readonly unknown[]) {
 describe('tool projection rewrite recording', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetMalformedProjectionMemoForTests();
   });
 
   it('returns an already-successful tool result when projection bookkeeping throws', async () => {
@@ -180,6 +182,61 @@ describe('tool projection rewrite recording', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       'Skipping malformed persisted read result during supersession detection',
       expect.objectContaining({ toolCallId: 'read-malformed' })
+    );
+  });
+
+  it('warns once per malformed record across scans, not once per scan (BST-1248)', async () => {
+    const database = fakeDatabase([
+      persistedInvocation({ id: 'read-malformed-cross-scan', result: { content: 'no identity' } }),
+    ]);
+    const scan = (toolCallId: string) =>
+      recordSuccessfulToolProjection(
+        {
+          input: { endLine: 100, path: 'src/other.ts', root: 'root-a', startLine: 1 },
+          result: readResult('fresh', { path: 'src/other.ts' }),
+          runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+          toolCallId,
+          toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+        },
+        { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
+      );
+
+    await scan('read-new-1');
+    await scan('read-new-2');
+    await scan('read-new-3');
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Skipping malformed persisted read result during supersession detection',
+      expect.objectContaining({ toolCallId: 'read-malformed-cross-scan' })
+    );
+  });
+
+  it('still warns for each distinct malformed record (BST-1248 memo must not over-suppress)', async () => {
+    const database = fakeDatabase([
+      persistedInvocation({ id: 'read-malformed-a', result: { content: 'missing identity' } }),
+      persistedInvocation({ id: 'read-malformed-b', result: { content: 'also malformed' } }),
+    ]);
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { endLine: 100, path: 'src/other.ts', root: 'root-a', startLine: 1 },
+        result: readResult('fresh', { path: 'src/other.ts' }),
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'read-new-1',
+        toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
+    );
+
+    expect(logger.warn).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Skipping malformed persisted read result during supersession detection',
+      expect.objectContaining({ toolCallId: 'read-malformed-a' })
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Skipping malformed persisted read result during supersession detection',
+      expect.objectContaining({ toolCallId: 'read-malformed-b' })
     );
   });
 });

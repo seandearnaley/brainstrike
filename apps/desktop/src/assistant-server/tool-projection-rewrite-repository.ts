@@ -106,6 +106,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+/**
+ * BST-1248: persisted tool records already known to be malformed, keyed by
+ * toolCallId. Supersession detection re-scans the full thread history on EVERY
+ * subsequent tool call, so without this memo a single malformed persisted
+ * record re-parses and re-warns once per later call — one record produced 139
+ * duplicate `tool_projection_rewrite_malformed_read_history` warnings in the
+ * 2026-08 audit. The first encounter still warns (the signal must survive);
+ * repeats skip both the parse and the warn. Bounded so a pathological session
+ * cannot grow it without limit; eviction is insertion-order (oldest first).
+ */
+const MALFORMED_PROJECTION_MEMO_CAP = 256;
+const knownMalformedToolCallIds = new Set<string>();
+
+function isKnownMalformed(toolCallId: string): boolean {
+  return knownMalformedToolCallIds.has(toolCallId);
+}
+
+function rememberMalformed(toolCallId: string): void {
+  if (knownMalformedToolCallIds.size >= MALFORMED_PROJECTION_MEMO_CAP) {
+    const oldest = knownMalformedToolCallIds.values().next().value;
+    if (oldest !== undefined) {
+      knownMalformedToolCallIds.delete(oldest);
+    }
+  }
+  knownMalformedToolCallIds.add(toolCallId);
+}
+
+/** Test-only: reset the malformed-record memo between cases. */
+export function resetMalformedProjectionMemoForTests(): void {
+  knownMalformedToolCallIds.clear();
+}
+
 function parseReadProjectionResult(value: unknown): ReadProjectionResult | undefined {
   if (!isRecord(value)) {
     return;
@@ -191,6 +223,7 @@ function readCandidate(
       toolCallId: invocation.toolCallId,
     };
   } catch (error) {
+    rememberMalformed(invocation.toolCallId);
     logger.warn('Skipping malformed persisted read result during supersession detection', {
       code: 'tool_projection_rewrite_malformed_read_history',
       error: redactToolErrorForLog(error),
@@ -203,10 +236,14 @@ function readCandidate(
 function grepCandidate(
   invocation: PersistedToolInvocation
 ): SupersessionRewriteCandidate | undefined {
+  if (isKnownMalformed(invocation.toolCallId)) {
+    return;
+  }
   let result: GrepToolResult;
   try {
     result = parseGrepToolResult(invocation.result);
   } catch (error) {
+    rememberMalformed(invocation.toolCallId);
     logger.warn('Skipping malformed persisted grep result during supersession detection', {
       code: 'tool_projection_rewrite_malformed_grep_history',
       error,
@@ -237,6 +274,7 @@ function normalizeGrepKey(
   const parsed = GrepSearchInputSchema.safeParse(candidate);
   if (!parsed.success) {
     if (persisted) {
+      rememberMalformed(invocation.toolCallId);
       logger.warn('Skipping unparseable persisted grep arguments during supersession detection', {
         code: 'tool_projection_rewrite_malformed_grep_history_args',
         toolCallId: invocation.toolCallId,
@@ -344,11 +382,15 @@ function prepareInvocation(
   invocation: PersistedToolInvocation,
   persisted: boolean
 ): PreparedToolInvocation {
+  // BST-1248: a record already known malformed skips the re-parse AND the
+  // re-warn — otherwise every later tool call in the thread repeats both.
+  const knownMalformed = isKnownMalformed(invocation.toolCallId);
   const read =
-    invocation.toolName === NATIVE_TOOL_ID.readWorkspaceFile
+    invocation.toolName === NATIVE_TOOL_ID.readWorkspaceFile && !knownMalformed
       ? parseReadProjectionResult(invocation.result)
       : undefined;
-  if (invocation.toolName === NATIVE_TOOL_ID.readWorkspaceFile && !read) {
+  if (invocation.toolName === NATIVE_TOOL_ID.readWorkspaceFile && !(read || knownMalformed)) {
+    rememberMalformed(invocation.toolCallId);
     logger.warn('Skipping malformed persisted read result during supersession detection', {
       code: 'tool_projection_rewrite_malformed_read_history',
       toolCallId: invocation.toolCallId,
@@ -356,7 +398,7 @@ function prepareInvocation(
   }
   return {
     grepKey:
-      invocation.toolName === NATIVE_TOOL_ID.grepSearch
+      invocation.toolName === NATIVE_TOOL_ID.grepSearch && !knownMalformed
         ? normalizeGrepKey(invocation, persisted)
         : undefined,
     invocation,

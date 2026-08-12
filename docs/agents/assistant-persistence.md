@@ -969,7 +969,13 @@ provider-request boundary without mutating Mastra-owned message content.
   the whole pending batch only at 65,536 reclaimable decoded characters or
   more; below threshold it writes nothing. Detection/commit is post-success
   optimization bookkeeping: any failure is logged and the already successful
-  tool result remains successful.
+  tool result remains successful. Malformed persisted records warn ONCE per
+  process, not once per scan (BST-1248): a bounded module-scope memo keyed by
+  `tool_call_id` skips both the re-parse and the re-warn on later scans —
+  before it, one bad record re-warned on every subsequent tool call in the
+  thread (139 duplicates from a single record in the 2026-08 audit). The first
+  encounter always warns; distinct records always warn independently
+  (`tool-projection-rewrite-repository.test.ts` pins both).
 - **Replay rewriting is surgical and transient.** The agent-side Mastra input
   processor receives the fully built AI-SDK prompt and replaces only matching
   `tool-result.output` values with text markers. It runs before provider-history
