@@ -125,6 +125,7 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaitingSince: number | null;
   readonly backgroundYieldCount: number;
   readonly currentBackgroundWaitMs: number;
+  readonly forcedBackgroundAdmissionCount: number;
   readonly foregroundQuietMs: number;
   readonly lastBackgroundYieldAt: number | null;
   readonly lastCompletedAt: number | null;

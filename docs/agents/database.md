@@ -63,6 +63,10 @@ background admission, so the guarantee is one admission per bound, not a
 250 ms per-task latency ceiling. The clock restarts at admission even while the
 admitted task is running; the next forced background admission occurs only after
 both the bound has elapsed and the required foreground/normal turn has started.
+The wait clock and pending foreground-turn requirement both reset when every
+queue drains, so an idle scheduler never carries bypass debt into an unrelated
+workload. `forcedBackgroundAdmissionCount` records only starvation-rule
+admissions and is the authoritative diagnostic that the bound actually fired.
 Queueing behind multiple background tasks compounds those intervals; background
 consumers must be sized for bounded progress rather than a fixed completion
 deadline. This keeps embedding claims, completion writes, and background

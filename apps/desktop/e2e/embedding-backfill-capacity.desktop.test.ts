@@ -128,14 +128,12 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
       __capacityReproPressure?: {
         failure: string | null;
         inFlight: number;
-        lastPressureObservedAt: number | null;
-        maxUnpressuredGapMs: number;
         stop: () => void;
       };
       electronAPI?: {
         db?: {
           query?: (sql: string) => Promise<{ rows: unknown[] }>;
-          schedulerSnapshot?: () => Promise<{ backgroundYieldCount: number }>;
+          schedulerSnapshot?: () => Promise<{ forcedBackgroundAdmissionCount: number }>;
         };
       };
     };
@@ -144,7 +142,7 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     if (!(query && schedulerSnapshot)) {
       throw new Error('Database query and scheduler snapshot APIs are required');
     }
-    const backgroundYieldBaseline = (await schedulerSnapshot()).backgroundYieldCount;
+    const forcedAdmissionBaseline = (await schedulerSnapshot()).forcedBackgroundAdmissionCount;
     // A successful query is the pressure-loop handshake. Without it, a broken
     // IPC bridge could make the detached loop swallow every rejection and let
     // the starvation regression pass while applying no foreground pressure.
@@ -156,8 +154,6 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     const pressure = {
       failure: null as string | null,
       inFlight: 0,
-      lastPressureObservedAt: null as number | null,
-      maxUnpressuredGapMs: 0,
       stop: () => {
         running = false;
         if (pressureTimer !== null) {
@@ -168,14 +164,6 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     };
     targetWindow.__capacityReproPressure = pressure;
     const enqueuePressureQuery = (): void => {
-      const observedAt = performance.now();
-      if (pressure.inFlight === 0 && pressure.lastPressureObservedAt !== null) {
-        pressure.maxUnpressuredGapMs = Math.max(
-          pressure.maxUnpressuredGapMs,
-          observedAt - pressure.lastPressureObservedAt
-        );
-      }
-      pressure.lastPressureObservedAt = observedAt;
       if (pressure.inFlight >= maxInFlight) {
         return;
       }
@@ -211,7 +199,7 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     // starvation bound.
     pressureTimer = window.setInterval(enqueuePressureQuery, 40);
     enqueuePressureQuery();
-    return backgroundYieldBaseline;
+    return forcedAdmissionBaseline;
   });
 }
 
@@ -221,9 +209,6 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
       window as Window & {
         __capacityReproPressure?: {
           failure: string | null;
-          inFlight: number;
-          lastPressureObservedAt: number | null;
-          maxUnpressuredGapMs: number;
         };
       }
     ).__capacityReproPressure;
@@ -233,35 +218,29 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
     if (pressure.failure) {
       throw new Error(pressure.failure);
     }
-    if (pressure.lastPressureObservedAt === null) {
-      throw new Error('Foreground database pressure did not observe an interval tick.');
-    }
-    const currentUnpressuredGapMs =
-      pressure.inFlight === 0 ? performance.now() - pressure.lastPressureObservedAt : 0;
-    const maxUnpressuredGapMs = Math.max(pressure.maxUnpressuredGapMs, currentUnpressuredGapMs);
-    if (maxUnpressuredGapMs >= 75) {
-      throw new Error(
-        `Foreground database pressure had no outstanding query for ${maxUnpressuredGapMs.toFixed(1)}ms; the scheduler quiet window is 75ms.`
-      );
-    }
   });
 }
 
-async function assertBackgroundYieldObserved(page: Page, baseline: number): Promise<void> {
-  const backgroundYieldCount = await page.evaluate(async () => {
+async function assertForcedBackgroundAdmissionObserved(
+  page: Page,
+  baseline: number
+): Promise<void> {
+  const forcedBackgroundAdmissionCount = await page.evaluate(async () => {
     const schedulerSnapshot = (
       window as Window & {
         electronAPI?: {
-          db?: { schedulerSnapshot?: () => Promise<{ backgroundYieldCount: number }> };
+          db?: {
+            schedulerSnapshot?: () => Promise<{ forcedBackgroundAdmissionCount: number }>;
+          };
         };
       }
     ).electronAPI?.db?.schedulerSnapshot;
     if (!schedulerSnapshot) {
       throw new Error('Database scheduler snapshot API is not available');
     }
-    return (await schedulerSnapshot()).backgroundYieldCount;
+    return (await schedulerSnapshot()).forcedBackgroundAdmissionCount;
   });
-  expect(backgroundYieldCount).toBeGreaterThan(baseline);
+  expect(forcedBackgroundAdmissionCount).toBeGreaterThan(baseline);
 }
 
 async function stopForegroundDatabasePressure(page: Page): Promise<void> {
@@ -300,7 +279,7 @@ async function runCapacityBackfill(
   await expect(backfillButton).toBeVisible({ timeout: 15_000 });
   await waitForBackfillButtonEnabled(activeWindow, backfillButton);
 
-  const backgroundYieldBaseline = options.foregroundPressure
+  const forcedAdmissionBaseline = options.foregroundPressure
     ? await startForegroundDatabasePressure(activeWindow)
     : null;
   try {
@@ -323,10 +302,10 @@ async function runCapacityBackfill(
           }
         )
         .toBeGreaterThan(0);
-      if (backgroundYieldBaseline === null) {
+      if (forcedAdmissionBaseline === null) {
         throw new Error('Foreground pressure scheduler baseline was not captured');
       }
-      await assertBackgroundYieldObserved(activeWindow, backgroundYieldBaseline);
+      await assertForcedBackgroundAdmissionObserved(activeWindow, forcedAdmissionBaseline);
       return;
     }
 

@@ -27,6 +27,7 @@ export interface DatabaseWorkSchedulerSnapshot {
   readonly backgroundWaitingSince: number | null;
   readonly backgroundYieldCount: number;
   readonly currentBackgroundWaitMs: number;
+  readonly forcedBackgroundAdmissionCount: number;
   readonly foregroundQuietMs: number;
   readonly lastBackgroundYieldAt: number | null;
   readonly lastCompletedAt: number | null;
@@ -340,6 +341,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
   #lastForegroundAt: number | null = null;
   #lastNormalAt: number | null = null;
   #lastStartedAt: number | null = null;
+  #forcedBackgroundAdmissionCount = 0;
   #running = false;
   #runningStartedAt: number | null = null;
   #runningLabel: string | null = null;
@@ -372,6 +374,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       backgroundYieldCount: this.#backgroundYieldCount,
       currentBackgroundWaitMs:
         this.#backgroundWaitingSince === null ? 0 : Math.max(0, now - this.#backgroundWaitingSince),
+      forcedBackgroundAdmissionCount: this.#forcedBackgroundAdmissionCount,
       foregroundQuietMs: this.#foregroundQuietMs,
       lastBackgroundYieldAt: this.#lastBackgroundYieldAt,
       lastCompletedAt: this.#lastCompletedAt,
@@ -527,9 +530,6 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     }
 
     this.#backgroundYieldRequiresForegroundTurn = false;
-    if (this.#backgroundWaitingSince !== null) {
-      this.#clearBackgroundWaiting();
-    }
     return null;
   }
 
@@ -540,6 +540,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     if (task.priority === 'background') {
       this.#clearBackgroundWaiting();
       if (forcedBackground) {
+        this.#forcedBackgroundAdmissionCount += 1;
         this.#backgroundYieldRequiresForegroundTurn = true;
       }
       if (this.#queues.background.length > 0 && hasForegroundOrNormalWork(this.#queues)) {
@@ -605,9 +606,6 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
 
     if (!hasQueuedWork(this.#queues)) {
       this.#backgroundYieldRequiresForegroundTurn = false;
-      if (this.#backgroundWaitingSince !== null) {
-        this.#clearBackgroundWaiting();
-      }
       return;
     }
     this.#scheduleDrain(this.#nextDelayMs());

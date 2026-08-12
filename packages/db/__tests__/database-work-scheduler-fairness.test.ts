@@ -164,6 +164,9 @@ describe('DatabaseWorkScheduler background fairness', () => {
         'foreground-2',
         'background-2',
       ]);
+      expect(scheduler.getSnapshot()).toMatchObject({
+        forcedBackgroundAdmissionCount: 2,
+      });
     } finally {
       vi.useRealTimers();
     }
