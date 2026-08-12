@@ -65,19 +65,19 @@ admitted task is running; the next forced background admission occurs only after
 both the bound has elapsed and the required foreground/normal turn has started.
 Queueing behind multiple background tasks compounds those intervals; background
 consumers must be sized for bounded progress rather than a fixed completion
-deadline. This
-keeps embedding claims, completion writes, and background indexing live under
-continuous foreground polling without turning the background lane into an
-equal-priority queue.
+deadline. This keeps embedding claims, completion writes, and background
+indexing live under continuous foreground polling without turning the
+background lane into an equal-priority queue.
 
-The bound is configurable through `backgroundStarvationMs` for deterministic
-tests and specialized hosts; it must be positive and finite, so zero, negative,
-NaN, and infinite values throw rather than silently disabling foreground-first
-fairness or the starvation guarantee. Work
-admitted through the background lane must therefore be short and bounded. Long
-maintenance statements such as `VACUUM (ANALYZE)` may run only after the
-maintenance scheduler has established an idle database/queue state; do not use
-background priority as authority to run an unbounded maintenance statement.
+The windows are configurable through `backgroundStarvationMs` and
+`foregroundQuietMs` for deterministic tests and specialized hosts. The
+starvation bound must be positive and finite; the quiet window must be
+non-negative and finite. Invalid values throw rather than silently disabling or
+degrading either fairness rule. Work admitted through the background lane must
+therefore be short and bounded. Long maintenance statements such as
+`VACUUM (ANALYZE)` may run only after the maintenance scheduler has established
+an idle database/queue state; do not use background priority as authority to run
+an unbounded maintenance statement.
 
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 

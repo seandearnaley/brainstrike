@@ -3,6 +3,17 @@ import { createDatabaseWorkScheduler } from '../src/database-work-scheduler';
 
 describe('DatabaseWorkScheduler background fairness', () => {
   it.each([
+    0,
+    -1,
+    Number.POSITIVE_INFINITY,
+    Number.NaN,
+  ])('rejects an invalid background starvation bound (%s)', (backgroundStarvationMs) => {
+    expect(() => createDatabaseWorkScheduler({ backgroundStarvationMs })).toThrow(
+      'DatabaseWorkScheduler backgroundStarvationMs must be a positive finite number.'
+    );
+  });
+
+  it.each([
     -1,
     Number.POSITIVE_INFINITY,
     Number.NaN,
@@ -79,6 +90,79 @@ describe('DatabaseWorkScheduler background fairness', () => {
         'background-2-end',
         'foreground',
         'background-3',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives foreground the next turn when it arrives during a forced background task', async () => {
+    vi.useFakeTimers();
+    try {
+      const scheduler = createDatabaseWorkScheduler({
+        backgroundStarvationMs: 100,
+        foregroundQuietMs: 50,
+      });
+      const events: string[] = [];
+      let releaseInitialForeground: (() => void) | null = null;
+      let releaseFirstBackground: (() => void) | null = null;
+      const initialForeground = scheduler.run(
+        async () => {
+          events.push('foreground-1-start');
+          await new Promise<void>((resolve) => {
+            releaseInitialForeground = resolve;
+          });
+          events.push('foreground-1-end');
+        },
+        { priority: 'foreground' }
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      const firstBackground = scheduler.run(
+        async () => {
+          events.push('background-1-start');
+          await new Promise<void>((resolve) => {
+            releaseFirstBackground = resolve;
+          });
+          events.push('background-1-end');
+        },
+        { priority: 'background' }
+      );
+      const secondBackground = scheduler.run(
+        async () => {
+          events.push('background-2');
+        },
+        { priority: 'background' }
+      );
+
+      await vi.advanceTimersByTimeAsync(100);
+      if (!releaseInitialForeground) {
+        throw new Error('Expected the initial foreground task to start.');
+      }
+      releaseInitialForeground();
+      await initialForeground;
+      await vi.advanceTimersByTimeAsync(0);
+      if (!releaseFirstBackground) {
+        throw new Error('Expected the first background task to be force-admitted.');
+      }
+
+      const lateForeground = scheduler.run(
+        async () => {
+          events.push('foreground-2');
+        },
+        { priority: 'foreground' }
+      );
+      await vi.advanceTimersByTimeAsync(100);
+      releaseFirstBackground();
+
+      await Promise.all([firstBackground, secondBackground, lateForeground]);
+      expect(events).toEqual([
+        'foreground-1-start',
+        'foreground-1-end',
+        'background-1-start',
+        'background-1-end',
+        'foreground-2',
+        'background-2',
       ]);
     } finally {
       vi.useRealTimers();

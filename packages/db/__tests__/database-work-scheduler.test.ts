@@ -188,17 +188,6 @@ describe('DatabaseWorkScheduler', () => {
     }
   });
 
-  it.each([
-    0,
-    -1,
-    Number.POSITIVE_INFINITY,
-    Number.NaN,
-  ])('rejects an invalid background starvation bound (%s)', (backgroundStarvationMs) => {
-    expect(() => createDatabaseWorkScheduler({ backgroundStarvationMs })).toThrow(
-      'DatabaseWorkScheduler backgroundStarvationMs must be a positive finite number.'
-    );
-  });
-
   it('does not treat normal-priority work as scheduler foreground quiet-window pressure', async () => {
     vi.useFakeTimers();
     try {

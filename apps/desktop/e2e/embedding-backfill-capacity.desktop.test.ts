@@ -128,8 +128,8 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
       __capacityReproPressure?: {
         failure: string | null;
         inFlight: number;
-        maxInFlight: number;
-        maxObservedInFlight: number;
+        lastEnqueueAt: number | null;
+        maxGapMs: number;
         stop: () => void;
       };
       electronAPI?: {
@@ -156,8 +156,8 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     const pressure = {
       failure: null as string | null,
       inFlight: 0,
-      maxInFlight,
-      maxObservedInFlight: 0,
+      lastEnqueueAt: null as number | null,
+      maxGapMs: 0,
       stop: () => {
         running = false;
         if (pressureTimer !== null) {
@@ -168,11 +168,15 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     };
     targetWindow.__capacityReproPressure = pressure;
     const enqueuePressureQuery = (): void => {
+      const observedAt = performance.now();
+      if (pressure.lastEnqueueAt !== null) {
+        pressure.maxGapMs = Math.max(pressure.maxGapMs, observedAt - pressure.lastEnqueueAt);
+      }
       if (pressure.inFlight >= maxInFlight) {
         return;
       }
+      pressure.lastEnqueueAt = observedAt;
       pressure.inFlight += 1;
-      pressure.maxObservedInFlight = Math.max(pressure.maxObservedInFlight, pressure.inFlight);
       void query('SELECT COUNT(*)::int AS count FROM file_chunks')
         .then(
           () => {
@@ -214,8 +218,8 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
       window as Window & {
         __capacityReproPressure?: {
           failure: string | null;
-          maxInFlight: number;
-          maxObservedInFlight: number;
+          lastEnqueueAt: number | null;
+          maxGapMs: number;
         };
       }
     ).__capacityReproPressure;
@@ -225,9 +229,13 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
     if (pressure.failure) {
       throw new Error(pressure.failure);
     }
-    if (pressure.maxObservedInFlight > pressure.maxInFlight) {
+    if (pressure.lastEnqueueAt === null) {
+      throw new Error('Foreground database pressure did not enqueue a query.');
+    }
+    const maxGapMs = Math.max(pressure.maxGapMs, performance.now() - pressure.lastEnqueueAt);
+    if (maxGapMs >= 75) {
       throw new Error(
-        `Foreground database pressure exceeded its in-flight cap: ${pressure.maxObservedInFlight} > ${pressure.maxInFlight}`
+        `Foreground database pressure enqueue gap reached ${maxGapMs.toFixed(1)}ms; the scheduler quiet window is 75ms.`
       );
     }
   });
