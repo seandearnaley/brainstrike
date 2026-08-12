@@ -48,8 +48,12 @@ export const DEFAULT_CHUNKING_REDISPATCH_ATTEMPT_CAP = 3;
 
 interface ChunkingRedispatchState {
   attempts: number;
+  collectionId: string;
   contentHash: string;
+  exhaustionReported: boolean;
   fileRecordId: string;
+  relativePath: string;
+  rootId: string;
 }
 
 export interface ChunkingRedispatchTerminalError {
@@ -64,10 +68,19 @@ type ChunkingRedispatchDecision =
   | { attempts: number; kind: 'exhausted' };
 
 export interface ChunkingRedispatchAttemptKey {
+  collectionId: string;
   contentHash: string;
   fileRecordId: string;
   relativePath: string;
   rootId: string;
+}
+
+function buildChunkingRedispatchIdentity(args: {
+  collectionId: string;
+  relativePath: string;
+  rootId: string;
+}): string {
+  return JSON.stringify([args.collectionId, args.rootId, args.relativePath]);
 }
 
 /**
@@ -85,12 +98,39 @@ export class ChunkingRedispatchTracker {
     }
   }
 
-  clear(rootId: string, relativePath: string): void {
-    this.stateByIdentity.delete(buildRootFolderCacheIdentityKey(rootId, relativePath));
+  clear(collectionId: string, rootId: string, relativePath: string): void {
+    this.stateByIdentity.delete(
+      buildChunkingRedispatchIdentity({ collectionId, relativePath, rootId })
+    );
+  }
+
+  markExhaustionReported(args: ChunkingRedispatchAttemptKey): boolean {
+    const state = this.stateByIdentity.get(buildChunkingRedispatchIdentity(args));
+    if (!state || state.exhaustionReported) {
+      return false;
+    }
+    state.exhaustionReported = true;
+    return true;
+  }
+
+  pruneMissing(args: {
+    collectionId: string;
+    liveRelativePaths: ReadonlySet<string>;
+    rootId: string;
+  }): void {
+    for (const [identity, state] of this.stateByIdentity) {
+      if (
+        state.collectionId === args.collectionId &&
+        state.rootId === args.rootId &&
+        !args.liveRelativePaths.has(state.relativePath)
+      ) {
+        this.stateByIdentity.delete(identity);
+      }
+    }
   }
 
   inspect(args: ChunkingRedispatchAttemptKey): ChunkingRedispatchDecision {
-    const identity = buildRootFolderCacheIdentityKey(args.rootId, args.relativePath);
+    const identity = buildChunkingRedispatchIdentity(args);
     const current = this.stateByIdentity.get(identity);
     const matchingRevision =
       current?.contentHash === args.contentHash && current.fileRecordId === args.fileRecordId
@@ -116,11 +156,15 @@ export class ChunkingRedispatchTracker {
     if (decision.kind === 'exhausted') {
       return decision;
     }
-    const identity = buildRootFolderCacheIdentityKey(args.rootId, args.relativePath);
+    const identity = buildChunkingRedispatchIdentity(args);
     this.stateByIdentity.set(identity, {
       attempts: decision.attempt,
+      collectionId: args.collectionId,
       contentHash: args.contentHash,
+      exhaustionReported: false,
       fileRecordId: args.fileRecordId,
+      relativePath: args.relativePath,
+      rootId: args.rootId,
     });
     return decision;
   }
@@ -393,6 +437,71 @@ async function collectDiscoveredPreparedFiles(args: {
   return { excludedEntries, files: discoveredFiles };
 }
 
+function applyHashUnchangedPreparedFile(args: {
+  changes: PreparedCacheChange[];
+  chunkingRedispatchTracker: ChunkingRedispatchTracker;
+  discovered: DiscoveredPreparedFile;
+  existing: ManagedCacheEntryMetadata;
+  statRefreshes: StatMetadataRefresh[];
+  terminalChunkingErrors: ChunkingRedispatchTerminalError[];
+}): number {
+  if (!hasCompletedChunking(args.existing)) {
+    const redispatchKey = {
+      collectionId: args.existing.embeddingSetId,
+      contentHash: args.discovered.contentHash,
+      fileRecordId: args.existing.fileRecordId,
+      relativePath: args.discovered.relativePath,
+      rootId: args.discovered.rootId,
+    };
+    const decision = args.chunkingRedispatchTracker.inspect(redispatchKey);
+    if (decision.kind === 'exhausted') {
+      const message = `Workspace Index stopped re-dispatching "${args.discovered.relativePath}" after ${decision.attempts} redispatch attempts because its file record still has no completed chunking stamp. Edit the file or recreate the managed collection to retry.`;
+      args.terminalChunkingErrors.push({
+        attempts: decision.attempts,
+        fileRecordId: args.existing.fileRecordId,
+        message,
+        relativePath: args.discovered.relativePath,
+      });
+      if (args.chunkingRedispatchTracker.markExhaustionReported(redispatchKey)) {
+        logger.error('Workspace Index chunking redispatch attempt cap exhausted', {
+          attempts: decision.attempts,
+          collectionId: args.existing.embeddingSetId,
+          fileRecordId: args.existing.fileRecordId,
+          relativePath: args.discovered.relativePath,
+          rootId: args.discovered.rootId,
+        });
+      }
+      return 1;
+    }
+    args.changes.push({
+      ...args.discovered,
+      chunkingRedispatch: redispatchKey,
+      id: args.existing.fileRecordId,
+      mode: 'replace',
+    });
+    return 0;
+  }
+  args.chunkingRedispatchTracker.clear(
+    args.existing.embeddingSetId,
+    args.discovered.rootId,
+    args.discovered.relativePath
+  );
+  // Unchanged rows never write, so stamp missing/stale stats here or
+  // pre-migration rows miss the stat-cache on every future sync.
+  if (
+    args.discovered.mtimeMs !== null &&
+    (args.existing.mtimeMs !== args.discovered.mtimeMs ||
+      args.existing.size !== args.discovered.size)
+  ) {
+    args.statRefreshes.push({
+      fileRecordId: args.existing.fileRecordId,
+      mtimeMs: args.discovered.mtimeMs,
+      size: args.discovered.size,
+    });
+  }
+  return 1;
+}
+
 function applyDiscoveredPreparedFiles(args: {
   changes: PreparedCacheChange[];
   chunkingRedispatchTracker: ChunkingRedispatchTracker;
@@ -410,7 +519,6 @@ function applyDiscoveredPreparedFiles(args: {
     const identity = buildRootFolderCacheIdentityKey(discovered.rootId, discovered.relativePath);
     const existing = args.existingByIdentity.get(identity);
     if (!existing) {
-      args.chunkingRedispatchTracker.clear(discovered.rootId, discovered.relativePath);
       args.changes.push({
         ...discovered,
         id: crypto.randomUUID(),
@@ -419,55 +527,21 @@ function applyDiscoveredPreparedFiles(args: {
       continue;
     }
     if (existing.contentHash === discovered.contentHash) {
-      if (!hasCompletedChunking(existing)) {
-        const redispatchKey = {
-          contentHash: discovered.contentHash,
-          fileRecordId: existing.fileRecordId,
-          relativePath: discovered.relativePath,
-          rootId: discovered.rootId,
-        };
-        const decision = args.chunkingRedispatchTracker.inspect(redispatchKey);
-        if (decision.kind === 'exhausted') {
-          const message = `Workspace Index stopped re-dispatching "${discovered.relativePath}" after ${decision.attempts} unsuccessful chunking attempts because its file record still has no completed chunking stamp. Edit the file or recreate the managed collection to retry.`;
-          args.terminalChunkingErrors.push({
-            attempts: decision.attempts,
-            fileRecordId: existing.fileRecordId,
-            message,
-            relativePath: discovered.relativePath,
-          });
-          logger.error('Workspace Index chunking redispatch attempt cap exhausted', {
-            attempts: decision.attempts,
-            fileRecordId: existing.fileRecordId,
-            relativePath: discovered.relativePath,
-            rootId: discovered.rootId,
-          });
-          continue;
-        }
-        args.changes.push({
-          ...discovered,
-          chunkingRedispatch: redispatchKey,
-          id: existing.fileRecordId,
-          mode: 'replace',
-        });
-        continue;
-      }
-      args.chunkingRedispatchTracker.clear(discovered.rootId, discovered.relativePath);
-      unchangedCount += 1;
-      // Unchanged rows never write, so stamp missing/stale stats here or
-      // pre-migration rows miss the stat-cache on every future sync.
-      if (
-        discovered.mtimeMs !== null &&
-        (existing.mtimeMs !== discovered.mtimeMs || existing.size !== discovered.size)
-      ) {
-        args.statRefreshes.push({
-          fileRecordId: existing.fileRecordId,
-          mtimeMs: discovered.mtimeMs,
-          size: discovered.size,
-        });
-      }
+      unchangedCount += applyHashUnchangedPreparedFile({
+        changes: args.changes,
+        chunkingRedispatchTracker: args.chunkingRedispatchTracker,
+        discovered,
+        existing,
+        statRefreshes: args.statRefreshes,
+        terminalChunkingErrors: args.terminalChunkingErrors,
+      });
       continue;
     }
-    args.chunkingRedispatchTracker.clear(discovered.rootId, discovered.relativePath);
+    args.chunkingRedispatchTracker.clear(
+      existing.embeddingSetId,
+      discovered.rootId,
+      discovered.relativePath
+    );
     args.changes.push({
       ...discovered,
       id: existing.fileRecordId,
@@ -764,12 +838,14 @@ function hasCompletedChunking(existing: ManagedCacheEntryMetadata): boolean {
 export async function collectPreparedChangesInBatches(args: {
   abortSignal: AbortSignal;
   chunkingRedispatchTracker?: ChunkingRedispatchTracker;
+  collectionId?: string;
   existingEntries: readonly ManagedCacheEntryMetadata[];
   fileContentProcessor?: FileContentProcessor;
   fileNodes: readonly IFileNode[];
   fileSystemAdapter: FileSystemAdapter;
   forceReadRelativePaths?: ReadonlySet<string>;
   onCurrentFile: (path: string | null) => void;
+  pruneMissingRedispatchEntries?: boolean;
   qosPolicy: WorkspaceIndexingImportQosPolicy;
   // rootPath drives path normalization / composite keys; rootId is the durable
   // managed-cache dedup identity (since the source_root_path retirement).
@@ -779,12 +855,14 @@ export async function collectPreparedChangesInBatches(args: {
   const {
     abortSignal,
     chunkingRedispatchTracker = new ChunkingRedispatchTracker(),
+    collectionId,
     existingEntries,
     fileContentProcessor,
     fileNodes,
     fileSystemAdapter,
     forceReadRelativePaths,
     onCurrentFile,
+    pruneMissingRedispatchEntries = false,
     qosPolicy,
     rootId,
     rootPath,
@@ -800,6 +878,16 @@ export async function collectPreparedChangesInBatches(args: {
       concurrency: qosPolicy.contentReadConcurrency,
     });
   const allPreparations = createFileBatchPreparations(fileNodes, fileSystemAdapter, rootPath);
+  if (pruneMissingRedispatchEntries) {
+    if (!collectionId) {
+      throw new Error('A collection id is required to prune chunking redispatch state.');
+    }
+    chunkingRedispatchTracker.pruneMissing({
+      collectionId,
+      liveRelativePaths: new Set(allPreparations.map((preparation) => preparation.relativePath)),
+      rootId,
+    });
+  }
   const existingByIdentity = new Map(
     existingEntries.map((entry) => [
       buildRootFolderCacheIdentityKey(entry.rootId, entry.relativePath),
@@ -810,7 +898,11 @@ export async function collectPreparedChangesInBatches(args: {
   // applyDiscoveredPreparedFiles, so clear their retry state before partitioning.
   for (const existing of existingEntries) {
     if (hasCompletedChunking(existing)) {
-      chunkingRedispatchTracker.clear(existing.rootId, existing.relativePath);
+      chunkingRedispatchTracker.clear(
+        existing.embeddingSetId,
+        existing.rootId,
+        existing.relativePath
+      );
     }
   }
   // Stat-cache fast-path: drop files whose size+mtime already match the stored

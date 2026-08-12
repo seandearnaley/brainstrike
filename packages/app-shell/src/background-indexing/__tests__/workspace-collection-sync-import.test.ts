@@ -555,6 +555,7 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
 
     const exhausted = await collect(null);
     expect(exhausted.changes).toEqual([]);
+    expect(exhausted.unchangedCount).toBe(1);
     expect(exhausted.terminalChunkingErrors).toEqual([
       expect.objectContaining({
         attempts: 2,
@@ -566,6 +567,98 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
 
     expect((await collect('2026-08-11T00:00:00.000Z')).terminalChunkingErrors).toEqual([]);
     expect((await collect(null)).changes).toHaveLength(1);
+  });
+
+  it('keeps redispatch budgets isolated between collections sharing a root and path', async () => {
+    const { processor } = createRecordingProcessor();
+    const tracker = new ChunkingRedispatchTracker(1);
+    const contentHash = await hashForRecordedContent('shared.ts');
+    const collect = async (collectionId: string) =>
+      await collectPreparedChangesInBatches({
+        abortSignal: new AbortController().signal,
+        chunkingRedispatchTracker: tracker,
+        existingEntries: [
+          existingEntry('shared.ts', {
+            chunksProcessedAt: null,
+            contentHash,
+            embeddingSetId: collectionId,
+            mtimeMs: 1000,
+            size: 42,
+          }),
+        ],
+        fileContentProcessor: processor,
+        fileNodes: [makeFileNode('shared.ts', 42, 1000)],
+        fileSystemAdapter: {} as FileSystemAdapter,
+        onCurrentFile: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: ROOT,
+        rootPath: ROOT,
+      });
+
+    const collectionA = await collect('set-a');
+    tracker.recordDispatches(collectionA.changes);
+
+    expect((await collect('set-b')).changes).toHaveLength(1);
+  });
+
+  it('prunes retry state for paths absent from a full collection scan', async () => {
+    const { processor } = createRecordingProcessor();
+    const tracker = new ChunkingRedispatchTracker(1);
+    const contentHash = await hashForRecordedContent('deleted.ts');
+    const existing = existingEntry('deleted.ts', {
+      chunksProcessedAt: null,
+      contentHash,
+      embeddingSetId: 'set-a',
+      mtimeMs: 1000,
+      size: 42,
+    });
+    const collectFile = async () =>
+      await collectPreparedChangesInBatches({
+        abortSignal: new AbortController().signal,
+        chunkingRedispatchTracker: tracker,
+        existingEntries: [existing],
+        fileContentProcessor: processor,
+        fileNodes: [makeFileNode('deleted.ts', 42, 1000)],
+        fileSystemAdapter: {} as FileSystemAdapter,
+        onCurrentFile: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: ROOT,
+        rootPath: ROOT,
+      });
+
+    const first = await collectFile();
+    tracker.recordDispatches(first.changes);
+    await collectPreparedChangesInBatches({
+      abortSignal: new AbortController().signal,
+      chunkingRedispatchTracker: tracker,
+      collectionId: 'set-a',
+      existingEntries: [existing],
+      fileContentProcessor: processor,
+      fileNodes: [],
+      fileSystemAdapter: {} as FileSystemAdapter,
+      onCurrentFile: () => {},
+      pruneMissingRedispatchEntries: true,
+      qosPolicy: {
+        allowNewWork: true,
+        contentReadBatchSize: 10,
+        contentReadConcurrency: 1,
+        importBatchSize: 10,
+      },
+      rootId: ROOT,
+      rootPath: ROOT,
+    });
+
+    expect((await collectFile()).changes).toHaveLength(1);
   });
 
   it.each([

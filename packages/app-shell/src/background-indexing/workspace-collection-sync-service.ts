@@ -37,6 +37,7 @@ import type { FileSystemChange } from '@brainstrike/types';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { validateRootFolderCacheRequest } from './root-folder-cache-reconciliation';
 import {
+  type ChunkingRedispatchTerminalError,
   ChunkingRedispatchTracker,
   type PreparedChangesSummary,
   runRootFolderCacheImport,
@@ -226,9 +227,15 @@ interface ActiveBackfillTracking {
   unsubscribe: (() => void) | null;
 }
 
+interface TerminalChunkingErrorScope {
+  context: ResolvedSyncContext;
+  errors: readonly ChunkingRedispatchTerminalError[];
+}
+
 export class WorkspaceCollectionSyncService {
   private activeBackfill: ActiveBackfillTracking | null = null;
   private readonly chunkingRedispatchTracker = new ChunkingRedispatchTracker();
+  private readonly terminalChunkingErrorsByScope = new Map<string, TerminalChunkingErrorScope>();
   private currentAbortController: AbortController | null = null;
   private runId = 0;
 
@@ -588,23 +595,43 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
-  private surfaceTerminalChunkingRedispatchError(
+  private updateTerminalChunkingRedispatchErrors(
     context: ResolvedSyncContext,
     prepared: PreparedChangesSummary
-  ): boolean {
-    const terminalError = prepared.terminalChunkingErrors[0];
+  ): void {
+    const scopeKey = JSON.stringify([context.collection.id, context.dbRootId, context.rootPath]);
+    if (prepared.terminalChunkingErrors.length === 0) {
+      this.terminalChunkingErrorsByScope.delete(scopeKey);
+      return;
+    }
+    this.terminalChunkingErrorsByScope.set(scopeKey, {
+      context,
+      errors: prepared.terminalChunkingErrors,
+    });
+  }
+
+  private surfaceTerminalChunkingRedispatchError(): boolean {
+    const scopes = [...this.terminalChunkingErrorsByScope.values()];
+    const firstScope = scopes[0];
+    const terminalError = firstScope?.errors[0];
     if (!terminalError) {
       return false;
     }
-    const additionalCount = Math.max(0, prepared.terminalChunkingErrors.length - 1);
+    const allErrors = scopes.flatMap((scope) => scope.errors);
+    const additionalErrors = allErrors.slice(1);
+    const listedPaths = additionalErrors.slice(0, 5).map((error) => `"${error.relativePath}"`);
+    const unlistedCount = Math.max(0, additionalErrors.length - listedPaths.length);
+    const additionalDetail =
+      listedPaths.length === 0
+        ? ''
+        : ` Additional exhausted files: ${listedPaths.join(', ')}${
+            unlistedCount > 0 ? `, plus ${unlistedCount} more` : ''
+          }.`;
     this.setErrorStatus({
-      activeRootPath: context.rootPath,
-      managedCollectionId: context.collection.id,
-      managedCollectionName: context.collection.name ?? null,
-      message:
-        additionalCount === 0
-          ? terminalError.message
-          : `${terminalError.message} ${additionalCount} additional file(s) exhausted the same retry cap.`,
+      activeRootPath: firstScope.context.rootPath,
+      managedCollectionId: firstScope.context.collection.id,
+      managedCollectionName: firstScope.context.collection.name ?? null,
+      message: `${terminalError.message}${additionalDetail}`,
     });
     return true;
   }
@@ -918,9 +945,6 @@ export class WorkspaceCollectionSyncService {
     prepared: PreparedChangesSummary;
     request: WorkspaceCollectionSyncRequest;
   }): Promise<void> {
-    if (this.surfaceTerminalChunkingRedispatchError(args.context, args.prepared)) {
-      return;
-    }
     const needsBackfill = await this.collectionNeedsBackfill(args.context.collection.id);
     throwIfAborted(args.abortSignal);
     if (!(needsBackfill && this.shouldEnqueueBackfill(args.request))) {
@@ -929,6 +953,7 @@ export class WorkspaceCollectionSyncService {
         rootPath: args.context.rootPath,
         summary: args.prepared,
       });
+      this.surfaceTerminalChunkingRedispatchError();
       return;
     }
     await this.ensureCollectionAccess(args.context);
@@ -945,6 +970,7 @@ export class WorkspaceCollectionSyncService {
       rootPath: args.context.rootPath,
       summary: args.prepared,
     });
+    this.surfaceTerminalChunkingRedispatchError();
   }
 
   private async runSyncPass(args: {
@@ -984,6 +1010,7 @@ export class WorkspaceCollectionSyncService {
     });
     throwIfAborted(args.abortSignal);
     const { invalidationTargets, prepared } = syncChanges;
+    this.updateTerminalChunkingRedispatchErrors(args.context, prepared);
     this.setScanSummary(args.context, prepared);
     if (invalidationTargets.length > 0) {
       // The desktop DB host executes ONE IPC request at a time, so a single
@@ -1082,10 +1109,6 @@ export class WorkspaceCollectionSyncService {
     }
     throwIfAborted(args.abortSignal);
 
-    if (this.surfaceTerminalChunkingRedispatchError(args.context, prepared)) {
-      return;
-    }
-
     const chunkingProgress = latestImportProgress
       ? toWorkspaceCollectionSyncChunkingProgress(latestImportProgress)
       : null;
@@ -1095,6 +1118,7 @@ export class WorkspaceCollectionSyncService {
         rootPath: args.context.rootPath,
         summary: prepared,
       });
+      this.surfaceTerminalChunkingRedispatchError();
       return;
     }
     await this.enqueueManagedBackfill({
@@ -1109,6 +1133,7 @@ export class WorkspaceCollectionSyncService {
       rootPath: args.context.rootPath,
       summary: prepared,
     });
+    this.surfaceTerminalChunkingRedispatchError();
     if (this.isCancelled(args.runId) || args.abortSignal.aborted) {
     }
   }

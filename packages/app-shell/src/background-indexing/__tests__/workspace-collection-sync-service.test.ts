@@ -861,15 +861,38 @@ describe('WorkspaceCollectionSyncService', () => {
     await service.sync(request);
     await service.sync(request);
     await service.sync(request);
-    await service.sync(request);
+    vi.mocked(deps.chunkRepository.getCoverageForSet).mockResolvedValueOnce({
+      chunksWithEmbeddingsForSet: 0,
+      totalChunks: 1,
+    });
+    await service.sync({ ...request, backfillMode: 'enqueue' });
 
     expect(runEnhancedImportMock).toHaveBeenCalledTimes(3);
     expect(deps.applyManagedCacheBatch).toHaveBeenCalledTimes(3);
     expect(deps.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({
         lastError: expect.stringContaining(
-          'stopped re-dispatching "src/index.ts" after 3 unsuccessful chunking attempts'
+          'stopped re-dispatching "src/index.ts" after 3 redispatch attempts'
         ),
+        state: 'error',
+      })
+    );
+    expect(deps.enqueueBackfill).toHaveBeenCalledOnce();
+
+    readFullTreeWithOptionsMock.mockResolvedValueOnce([]);
+    vi.mocked(deps.resolveDbRootId).mockResolvedValueOnce(DB_ROOT_B_ID);
+    await service.sync({
+      backfillMode: 'defer',
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
         state: 'error',
       })
     );

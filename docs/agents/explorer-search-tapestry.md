@@ -297,14 +297,17 @@ there rather than hiding entries after the adapter has already read them.
 - **Chunking re-dispatch is bounded per service session (BST-1229).** A
   hash-unchanged managed-cache row with no `chunks_processed_at` stamp may be
   re-dispatched at most three times. The service-owned in-memory tracker keys
-  that budget by durable root/path plus file-record id and content hash; a
+  that budget by collection id, durable root/path, file-record id, and content hash; a
   completed stamp, new record, or changed content resets it. Attempts are
   consumed only at importer handoff, after access, worker startup, and import
   QoS succeed; cancelled or failed pre-import scans do not spend the budget.
-  Exhaustion removes
-  that row from later import batches, logs one explicit terminal diagnostic per
-  scan, and puts Workspace Index in its visible `error` state with the file path
-  and recovery instruction. Never replace this with an unbounded retry or a
+  Exhaustion counts the row as scanned-but-unchanged, removes only that row from
+  later import batches, logs one explicit terminal diagnostic per exhausted
+  revision, and puts Workspace Index in its visible `error` state with the file
+  paths and recovery instruction. It does not block unrelated embedding
+  backfill, and a healthy scan of another root cannot clear the terminal state.
+  Full scans prune retry state for paths no longer present. Never replace this
+  with an unbounded retry or a
   quiet skip. This is intentionally not persistent sync state: restarting the
   renderer grants a fresh bounded budget.
 

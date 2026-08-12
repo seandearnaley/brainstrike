@@ -690,12 +690,14 @@ async function collectPreparedFullChanges(args: {
     const prepared = await collectPreparedChangesInBatches({
       abortSignal: args.abortSignal,
       chunkingRedispatchTracker: args.deps.chunkingRedispatchTracker,
+      collectionId: args.context.collectionId,
       existingEntries,
       fileNodes,
       fileSystemAdapter: args.deps.fileSystemAdapter,
       onCurrentFile: (path) => {
         statusReporter.report(path);
       },
+      pruneMissingRedispatchEntries: true,
       qosPolicy: args.qosPolicy,
       rootId,
       rootPath: args.context.activeRootPath,
@@ -774,6 +776,7 @@ async function collectPreparedScopedChanges(args: {
     const prepared = await collectPreparedChangesInBatches({
       abortSignal: args.abortSignal,
       chunkingRedispatchTracker: args.deps.chunkingRedispatchTracker,
+      collectionId: args.context.collectionId,
       existingEntries,
       fileNodes: [...accumulator.changedFileNodesByPath.values()],
       fileSystemAdapter: args.deps.fileSystemAdapter,
