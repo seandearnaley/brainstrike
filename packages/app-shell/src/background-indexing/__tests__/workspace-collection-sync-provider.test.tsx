@@ -1183,11 +1183,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
-  it('routes typed watcher incremental refreshes only to matching active root handles', async () => {
+  it('routes same-path watcher refreshes by durable root identity', async () => {
     const rootA = {
       kind: 'directory',
       name: 'root-a',
-      path: '/workspace/root-a',
+      path: '/workspace/shared',
       platform: 'electron',
       rootId: 'root-a-id',
     };
@@ -1197,15 +1197,12 @@ describe('WorkspaceCollectionSyncProvider', () => {
       {
         kind: 'directory',
         name: 'root-b',
-        path: '/workspace/root-b',
+        path: '/workspace/shared',
         platform: 'electron',
         rootId: 'root-b-id',
       },
     ];
-    fileSystemState.rootIdByPath = new Map([
-      ['/workspace/root-a', 'root-a-id'],
-      ['/workspace/root-b', 'root-b-id'],
-    ]);
+    fileSystemState.rootIdByPath = new Map([['/workspace/shared', 'root-b-id']]);
     resolveDbRootIdMock.mockImplementation(async (_rootPath: string, rootId?: string | null) =>
       rootId === 'root-b-id' ? 'db-root-b-id' : 'db-root-a-id'
     );
@@ -1228,7 +1225,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       const change = {
         kind: 'file' as const,
-        path: '/workspace/root-b/src/index.ts',
+        path: '/workspace/shared/src/index.ts',
         type: 'modified' as const,
       };
       act(() => {
@@ -1238,8 +1235,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
               roots: [
                 {
                   changes: [change],
-                  rootId: 'root-b-id',
-                  rootPath: '/workspace/root-b',
+                  rootId: 'root-a-id',
+                  rootPath: '/workspace/shared',
                 },
               ],
               scope: 'incremental',
@@ -1252,10 +1249,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
       expect(syncSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          dbRootId: 'db-root-b-id',
+          dbRootId: 'db-root-a-id',
           rootDirectoryHandle: expect.objectContaining({
-            path: '/workspace/root-b',
-            rootId: 'root-b-id',
+            path: '/workspace/shared',
+            rootId: 'root-a-id',
           }),
           scope: {
             changes: [change],
@@ -1266,11 +1263,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
       expect(reconcileMountedRootsSpy).toHaveBeenLastCalledWith(
         '00000000-0000-0000-0000-000000000101',
         [
-          { dbRootId: 'db-root-a-id', rootPath: '/workspace/root-a' },
-          { dbRootId: 'db-root-b-id', rootPath: '/workspace/root-b' },
+          { dbRootId: 'db-root-a-id', rootPath: '/workspace/shared' },
+          { dbRootId: 'db-root-b-id', rootPath: '/workspace/shared' },
         ]
       );
-      expect(resolveDbRootIdMock).toHaveBeenLastCalledWith('/workspace/root-b', 'root-b-id');
+      expect(resolveDbRootIdMock).toHaveBeenLastCalledWith('/workspace/shared', 'root-b-id');
     } finally {
       reconcileMountedRootsSpy.mockRestore();
       syncSpy.mockRestore();

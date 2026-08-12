@@ -357,6 +357,14 @@ function getActiveRootHandles(args: {
   return args.rootDirectoryHandle ? [args.rootDirectoryHandle] : [];
 }
 
+function createMountedRootIdentityKey(
+  handle: DirectoryHandle,
+  rootIdByPath: ReadonlyMap<string, string>
+): string {
+  const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path) ?? null;
+  return JSON.stringify([adapterRootId, handle.path]);
+}
+
 function createCoverageAuditKey(args: {
   collectionId: string;
   handles: readonly DirectoryHandle[];
@@ -1984,17 +1992,21 @@ export function WorkspaceCollectionSyncProvider({
             const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path);
             return {
               dbRootId: await resolveDbRootId(handle.path, adapterRootId),
+              identityKey: createMountedRootIdentityKey(handle, rootIdByPath),
               rootPath: handle.path,
             };
           })
         );
-        const mountedDbRootIdByPath = new Map(
-          resolvedMountedRoots.map((root) => [root.rootPath, root.dbRootId])
+        const mountedDbRootIdByIdentity = new Map(
+          resolvedMountedRoots.map((root) => [root.identityKey, root.dbRootId])
         );
         const resolvedTargets = targets.map(
           (target): SyncLoopTarget & { dbRootId: string | null } => ({
             ...target,
-            dbRootId: mountedDbRootIdByPath.get(target.handle.path) ?? null,
+            dbRootId:
+              mountedDbRootIdByIdentity.get(
+                createMountedRootIdentityKey(target.handle, rootIdByPath)
+              ) ?? null,
           })
         );
         if (syncLoopGenerationRef.current !== myGeneration) {
@@ -2013,7 +2025,10 @@ export function WorkspaceCollectionSyncProvider({
         }
 
         const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
-        service.reconcileMountedRoots(managedCollectionId, resolvedMountedRoots);
+        service.reconcileMountedRoots(
+          managedCollectionId,
+          resolvedMountedRoots.map(({ dbRootId, rootPath }) => ({ dbRootId, rootPath }))
+        );
         // Order by ACTUAL indexed coverage: least-indexed roots sync first. A
         // folder you just added (0 files), or one whose earlier pass imported
         // nothing, is processed before a giant repo that is only partway through
