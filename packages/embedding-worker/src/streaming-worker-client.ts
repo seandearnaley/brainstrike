@@ -40,6 +40,7 @@ type StreamReject = (error: Error) => void;
 interface StreamBatchSequence {
   expectedBatchIndex: number;
   expectedStartIndex: number;
+  expectedVectorDimensions: number | null;
 }
 
 export interface StreamingEmbedOptions {
@@ -105,6 +106,17 @@ function validateStreamBatch(
       sequence.expectedStartIndex,
       requestTextCount
     );
+    const vectorDimensions = value.vectors[0]?.length;
+    if (vectorDimensions === undefined) {
+      throw new Error('Embedding worker batch must contain at least one vector.');
+    }
+    if (sequence.expectedVectorDimensions === null) {
+      sequence.expectedVectorDimensions = vectorDimensions;
+    } else if (vectorDimensions !== sequence.expectedVectorDimensions) {
+      throw new Error(
+        `Embedding worker batch vector dimensions changed from ${sequence.expectedVectorDimensions} to ${vectorDimensions}.`
+      );
+    }
     sequence.expectedBatchIndex += 1;
     sequence.expectedStartIndex = value.endIndex;
     return true;
@@ -259,7 +271,11 @@ export class StreamingEmbeddingWorkerClient {
       // execution time so a queued request never posts to the worker after onFailure terminates it.
       this.runtime.throwIfFailed();
       return await new Promise<EmbedWorkerComplete['metadata']>((resolve, reject) => {
-        const batchSequence = { expectedBatchIndex: 0, expectedStartIndex: 0 };
+        const batchSequence = {
+          expectedBatchIndex: 0,
+          expectedStartIndex: 0,
+          expectedVectorDimensions: null,
+        };
         const cleanup = this.transport.onMessage((message) => {
           if (
             !validateStreamMessage(message, request, batchSequence, (error) =>

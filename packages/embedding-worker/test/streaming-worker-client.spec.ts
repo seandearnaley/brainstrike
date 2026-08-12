@@ -550,6 +550,90 @@ describe('StreamingEmbeddingWorkerClient', () => {
     });
   });
 
+  it('terminally rejects non-finite vector values before delivery or acknowledgement', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const onBatch = vi.fn();
+    const streamOutcome = client
+      .stream(createRequest(), { onBatch })
+      .catch((error: unknown) => error);
+    await flushMicrotasks();
+
+    worker.emitMessage({
+      batchIndex: 0,
+      endIndex: 1,
+      id: 'embed-1',
+      peakVectorsInFlight: 1,
+      startIndex: 0,
+      transferBytes: 12,
+      type: 'batch',
+      vectors: [new Float32Array([1, Number.NaN, 3])],
+      vectorsInFlight: 1,
+    } satisfies EmbedWorkerBatch);
+    await flushMicrotasks();
+
+    expect(onBatch).not.toHaveBeenCalled();
+    expect(worker.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'stream-ack' })
+    );
+    await expect(streamOutcome).resolves.toMatchObject({
+      message: 'Embedding worker batch.vectors[0][1] must be finite.',
+    });
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminally rejects a vector dimension change before delivering the later batch', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const onBatch = vi.fn();
+    const streamOutcome = client
+      .stream({ ...createRequest(), texts: ['hello', 'world'] }, { onBatch })
+      .catch((error: unknown) => error);
+    await flushMicrotasks();
+
+    worker.emitMessage({
+      batchIndex: 0,
+      endIndex: 1,
+      id: 'embed-1',
+      peakVectorsInFlight: 1,
+      startIndex: 0,
+      transferBytes: 12,
+      type: 'batch',
+      vectors: [new Float32Array([1, 2, 3])],
+      vectorsInFlight: 1,
+    } satisfies EmbedWorkerBatch);
+    await flushMicrotasks();
+    worker.emitMessage({
+      batchIndex: 1,
+      endIndex: 2,
+      id: 'embed-1',
+      peakVectorsInFlight: 1,
+      startIndex: 1,
+      transferBytes: 8,
+      type: 'batch',
+      vectors: [new Float32Array([4, 5])],
+      vectorsInFlight: 1,
+    } satisfies EmbedWorkerBatch);
+    await flushMicrotasks();
+
+    expect(onBatch).toHaveBeenCalledTimes(1);
+    expect(
+      worker.postMessage.mock.calls.filter(([message]) => message?.type === 'stream-ack')
+    ).toEqual([
+      [
+        {
+          batchIndex: 0,
+          id: 'embed-1',
+          type: 'stream-ack',
+        },
+      ],
+    ]);
+    await expect(streamOutcome).resolves.toMatchObject({
+      message: 'Embedding worker batch vector dimensions changed from 3 to 2.',
+    });
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     [
       'duplicate batch index',

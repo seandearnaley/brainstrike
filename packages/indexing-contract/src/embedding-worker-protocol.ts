@@ -462,6 +462,13 @@ export function assertEmbedWorkerBatch(value: unknown): asserts value is EmbedWo
     if (vector.length === 0) {
       throw new Error(`Embedding worker batch.vectors[${index}] must not be empty.`);
     }
+    vector.forEach((component, componentIndex) => {
+      if (!Number.isFinite(component)) {
+        throw new Error(
+          `Embedding worker batch.vectors[${index}][${componentIndex}] must be finite.`
+        );
+      }
+    });
     if (dimensions === null) {
       dimensions = vector.length;
     } else if (vector.length !== dimensions) {
