@@ -307,6 +307,32 @@ describe('StreamingEmbeddingWorkerClient', () => {
     expect(getEmbeddingTelemetrySnapshot().cache.residentCount).toBe(0);
   });
 
+  it('terminally rejects a cache hit that reports an empty cache', async () => {
+    const worker = new MockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const onDiagnostic = vi.fn();
+    const streamPromise = client.stream(createRequest(), { onDiagnostic });
+    await flushMicrotasks();
+
+    worker.emitMessage({
+      cacheSize: 0,
+      diagnostic: 'pipeline-cache',
+      emittedAt: 1000,
+      entry: createPipelineCacheEntry(),
+      event: 'hit',
+      id: 'embed-1',
+      type: 'diagnostic',
+      workerInstanceId: 'stream-worker-1',
+    });
+
+    await expect(streamPromise).rejects.toThrow(
+      'Embedding worker pipeline-cache diagnostic.hit requires a positive cacheSize.'
+    );
+    expect(onDiagnostic).not.toHaveBeenCalled();
+    expect(worker.terminate).toHaveBeenCalledTimes(1);
+    expect(getEmbeddingTelemetrySnapshot().cache.residentCount).toBe(0);
+  });
+
   it('terminally latches a malformed id-less cache diagnostic', async () => {
     const worker = new MockWorker();
     const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);

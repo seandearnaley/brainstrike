@@ -255,6 +255,9 @@ function assertEmbedWorkerPipelineCacheHit(
   context: EmbedWorkerPipelineCacheValidationContext
 ): void {
   requireEmbedWorkerPipelineCacheSubjectEntry('hit', context.entry, context.path);
+  if (context.cacheSize === 0) {
+    throw new Error(`${context.path}.hit requires a positive cacheSize.`);
+  }
   if (context.reason !== undefined) {
     throw new Error(`${context.path}.hit must not include a reason.`);
   }
