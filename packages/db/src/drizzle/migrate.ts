@@ -82,6 +82,7 @@ import { migration089TokenEstimateCalibrationResolvedBudgets } from '../migratio
 import { migration090CompactionSummaryRunUsageKind } from '../migrations/090-compaction-summary-run-usage-kind.js';
 import { migration091TokenEstimateCalibrationPromptBaseline } from '../migrations/091-token-estimate-calibration-prompt-baseline.js';
 import { migration092ToolCallTelemetrySubstrateSplit } from '../migrations/092-tool-call-telemetry-substrate-split.js';
+import { migration093AssistantRunTreatments } from '../migrations/093-assistant-run-treatments.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -302,6 +303,7 @@ const customMigrations: Migration[] = [
     'custom-092-tool-call-telemetry-substrate-split',
     migration092ToolCallTelemetrySubstrateSplit
   ),
+  customMigration('custom-093-assistant-run-treatments', migration093AssistantRunTreatments),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

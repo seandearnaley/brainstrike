@@ -687,6 +687,7 @@ const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
 const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
+const ASSISTANT_RUN_TREATMENTS_TABLE = 'brainstrike_assistant_run_treatments';
 const ASSISTANT_RUN_ERRORS_TABLE = 'brainstrike_assistant_run_errors';
 const ASSISTANT_MESSAGE_PARENTS_TABLE = 'brainstrike_assistant_message_parents';
 /**
@@ -1189,6 +1190,34 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_thread_idx
 
 CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_resource_idx
   ON ${ASSISTANT_RUN_OUTCOMES_TABLE} (resource_id, labeled_at DESC);
+
+-- Per-run experiment treatment record (BST-1250, recursive self-improvement
+-- phase 2A). One row per hosted run, written by desktop main at prompt
+-- assembly — the ONE seam that knows whether self-improvement signal
+-- injection actually happened and what exact text was injected
+-- (signal_content_hash = SHA-256 of the injected system message). Without it
+-- treatment could only be inferred from date windows or the CURRENT
+-- preference value, both unsound. experiment_id/variant stay NULL for
+-- un-enrolled runs. FK-less and bootstrap-only like the sibling run_outcomes
+-- (no numbered migration exists or may be added for the run-scoped family);
+-- retained on thread delete like run_outcomes (experiment evidence), cleared
+-- on factory reset via the db reset registry.
+CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_TREATMENTS_TABLE} (
+  run_id text PRIMARY KEY,
+  thread_id text NOT NULL,
+  resource_id text NOT NULL,
+  experiment_id text,
+  variant text,
+  signal_injected boolean NOT NULL,
+  signal_content_hash text,
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_treatments_thread_idx
+  ON ${ASSISTANT_RUN_TREATMENTS_TABLE} (thread_id, resource_id);
+
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_treatments_experiment_idx
+  ON ${ASSISTANT_RUN_TREATMENTS_TABLE} (experiment_id, variant);
 
 -- Thread placements are Brainstrike presentation state (migrations 054+056).
 -- Bootstrapped here because the thread-delete cascade now owns the placements

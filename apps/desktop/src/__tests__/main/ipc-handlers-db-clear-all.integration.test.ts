@@ -45,6 +45,8 @@ const PRESENT_RELATIONS = [
   'brainstrike_assistant_run_usage',
   'brainstrike_assistant_run_errors',
   'brainstrike_assistant_run_outcomes',
+  // Per-run experiment treatment records (migration 093, BST-1250).
+  'brainstrike_assistant_run_treatments',
   'brainstrike_assistant_task_lists',
   'brainstrike_assistant_edit_checkpoints',
   'brainstrike_assistant_message_parents',

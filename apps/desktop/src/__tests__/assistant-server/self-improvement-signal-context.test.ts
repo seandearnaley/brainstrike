@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
@@ -356,6 +357,125 @@ describe('injectSelfImprovementSignalContext', () => {
     // all three 100% clauses plus the two-line legend = 934 chars. The bound
     // is structural (id cap + top-5), not a runtime truncation path.
     expect(systemText(result).length).toBeLessThan(1000);
+  });
+});
+
+describe('run treatment recording (BST-1250)', () => {
+  beforeEach(resetSelfImprovementSignalMemoForTests);
+
+  function runtimeWithRun(overrides: Record<string, unknown> = {}): RuntimeData {
+    return {
+      memory: { resourceId: 'workspace-a', runId: 'run-1', threadId: 'thread-1' },
+      provider: 'openai',
+      selfImprovementSignalPreference: { enabled: true },
+      ...overrides,
+    } as RuntimeData;
+  }
+
+  const signalRows = {
+    columns: [...EXPECTED_COLUMNS],
+    rows: [['grepSearch', 65, 100_000, 0.98, 0.42, 0.1, 140_000]],
+  };
+
+  it('records signal_injected with the SHA-256 of the exact injected text', async () => {
+    const recordTreatment = vi.fn(async () => {});
+    const result = await injectSelfImprovementSignalContext(messages(), runtimeWithRun(), {
+      now: () => NOW,
+      recordTreatment,
+      runSignalQuery: async () => signalRows,
+    });
+
+    const injectedText = systemText(result);
+    expect(injectedText.length).toBeGreaterThan(0);
+    expect(recordTreatment).toHaveBeenCalledExactlyOnceWith({
+      experimentId: null,
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      signalContentHash: createHash('sha256').update(injectedText, 'utf8').digest('hex'),
+      signalInjected: true,
+      threadId: 'thread-1',
+      variant: null,
+    });
+  });
+
+  it('records a control row (signal_injected false) when the preference is off', async () => {
+    const recordTreatment = vi.fn(async () => {});
+    const runSignalQuery = vi.fn();
+    const input = messages();
+
+    const result = await injectSelfImprovementSignalContext(
+      input,
+      runtimeWithRun({ selfImprovementSignalPreference: { enabled: false } }),
+      { now: () => NOW, recordTreatment, runSignalQuery }
+    );
+
+    expect(result).toBe(input);
+    expect(runSignalQuery).not.toHaveBeenCalled();
+    expect(recordTreatment).toHaveBeenCalledExactlyOnceWith({
+      experimentId: null,
+      resourceId: 'workspace-a',
+      runId: 'run-1',
+      signalContentHash: null,
+      signalInjected: false,
+      threadId: 'thread-1',
+      variant: null,
+    });
+  });
+
+  it('persists a strictly-parsed experiment assignment verbatim', async () => {
+    const recordTreatment = vi.fn(async () => {});
+    await injectSelfImprovementSignalContext(
+      messages(),
+      runtimeWithRun({
+        experimentAssignment: { experimentId: 'search-policy-2026-08', variant: 'control' },
+        selfImprovementSignalPreference: { enabled: false },
+      }),
+      { now: () => NOW, recordTreatment, runSignalQuery: vi.fn() }
+    );
+
+    expect(recordTreatment).toHaveBeenCalledWith(
+      expect.objectContaining({ experimentId: 'search-policy-2026-08', variant: 'control' })
+    );
+  });
+
+  it('warns and treats a malformed experiment assignment as un-enrolled', async () => {
+    const recordTreatment = vi.fn(async () => {});
+    const { records } = await logsDuring(() =>
+      injectSelfImprovementSignalContext(
+        messages(),
+        runtimeWithRun({
+          experimentAssignment: { experimentId: 42 },
+          selfImprovementSignalPreference: { enabled: false },
+        }),
+        { now: () => NOW, recordTreatment, runSignalQuery: vi.fn() }
+      )
+    );
+
+    expect(recordTreatment).toHaveBeenCalledWith(
+      expect.objectContaining({ experimentId: null, variant: null })
+    );
+    expect(
+      records.some(
+        (record) =>
+          record.level === LogLevel.WARN && String(record.message).includes('experimentAssignment')
+      )
+    ).toBe(true);
+  });
+
+  it('does not record for local-provider runs or runs without a runId', async () => {
+    const recordTreatment = vi.fn(async () => {});
+    await injectSelfImprovementSignalContext(messages(), runtimeWithRun({ provider: 'local' }), {
+      now: () => NOW,
+      recordTreatment,
+      runSignalQuery: vi.fn(),
+    });
+    await injectSelfImprovementSignalContext(
+      messages(),
+      runtimeWithRun({ memory: { resourceId: 'workspace-a', threadId: 'thread-1' } }),
+      { now: () => NOW, recordTreatment, runSignalQuery: async () => signalRows }
+    );
+
+    expect(recordTreatment).not.toHaveBeenCalled();
   });
 });
 

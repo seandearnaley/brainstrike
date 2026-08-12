@@ -1670,6 +1670,28 @@ checked-in lens rather than an inlined copy.
 
 Per-run cost/outcome analytics over tables the assistant already writes.
 
+- **Experiment treatments (BST-1250, recursive self-improvement phase 2A):**
+  `brainstrike_assistant_run_treatments` (migration 093 + byte-identical
+  bootstrap mirror in `assistant-memory-repository.ts`; no FKs; retained on
+  thread delete like run_outcomes, cleared on factory reset via the db reset
+  registry). One row per hosted run, `run_id` PK, written at prompt assembly
+  by `recordDesktopRunTreatment` — the injector seam
+  (`self-improvement-signal-context.ts`) is the ONE place that knows whether
+  BST-1241 signal injection actually happened and its exact text
+  (`signal_content_hash` = SHA-256; null when nothing injected). Hosted runs
+  ALWAYS record a row — preference-off and no-waste runs are the control
+  evidence; local-provider runs and runs without a runId skip. `experiment_id`
+  / `variant` come from the strictly-parsed renderer `experimentAssignment`
+  (malformed → warn + un-enrolled, never coerced) and stay NULL when
+  un-enrolled. `ON CONFLICT (run_id) DO NOTHING` — the first treatment wins;
+  a duplicate assembly must not rewrite evidence. Do NOT infer treatment from
+  date windows or the current preference value — this record exists because
+  both are unsound. Queryable via the `experiment-outcome-correlation` lens
+  (joins outcomes; unlabeled runs stay visible). Paired tests:
+  `self-improvement-signal-context.test.ts` ("run treatment recording"),
+  `run-treatment-persistence.integration.test.ts`,
+  `search-lens-experiment-outcome-correlation.test.ts`.
+
 - **Outcome labels:** `brainstrike_assistant_run_outcomes` (migration 062 +
   byte-identical bootstrap in `ASSISTANT_THREAD_RUNS_SCHEMA_SQL`; no FKs, purged
   on factory reset via db-ipc `OptionalRelationTable`). At most ONE label per

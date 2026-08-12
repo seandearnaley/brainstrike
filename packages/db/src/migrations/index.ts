@@ -91,6 +91,7 @@ import { migration089TokenEstimateCalibrationResolvedBudgets } from './089-token
 import { migration090CompactionSummaryRunUsageKind } from './090-compaction-summary-run-usage-kind.js';
 import { migration091TokenEstimateCalibrationPromptBaseline } from './091-token-estimate-calibration-prompt-baseline.js';
 import { migration092ToolCallTelemetrySubstrateSplit } from './092-tool-call-telemetry-substrate-split.js';
+import { migration093AssistantRunTreatments } from './093-assistant-run-treatments.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -188,6 +189,7 @@ export const migrations: Migration[] = [
   migration090CompactionSummaryRunUsageKind,
   migration091TokenEstimateCalibrationPromptBaseline,
   migration092ToolCallTelemetrySubstrateSplit,
+  migration093AssistantRunTreatments,
 ];
 
 // Export base migrations (without chunks table) for test environments
