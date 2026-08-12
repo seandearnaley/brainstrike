@@ -191,22 +191,26 @@ describe('run token diagnostics', () => {
     const telemetry = diagnostics.toolCallTelemetry();
     expect(telemetry).toEqual([
       {
+        candidatesTruncated: false,
         isPaginationFollowup: false,
         modelFacingChars: JSON.stringify({
           type: 'json',
           value: { omittedItems: 4, truncated: true },
         }).length,
         occurredAt: expect.any(Number),
+        scanLimited: false,
         toolId: 'grepSearch',
         truncated: true,
       },
       {
+        candidatesTruncated: false,
         isPaginationFollowup: false,
         modelFacingChars: JSON.stringify({
           type: 'text',
           value: 'private file contents',
         }).length,
         occurredAt: expect.any(Number),
+        scanLimited: false,
         toolId: 'readWorkspaceFile',
         truncated: false,
       },
@@ -334,9 +338,11 @@ describe('run token diagnostics', () => {
 
     expect(diagnostics.toolCallTelemetry()).toEqual([
       {
+        candidatesTruncated: false,
         isPaginationFollowup: false,
         modelFacingChars: JSON.stringify(output).length,
         occurredAt: expect.any(Number),
+        scanLimited: false,
         toolId: 'imageTool',
         truncated: false,
       },

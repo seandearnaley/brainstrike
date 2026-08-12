@@ -291,6 +291,9 @@ export async function* persistDesktopToolCallTelemetry(
     const truncated: boolean[] = [];
     const zeroMatch: (boolean | null)[] = [];
     const isPaginationFollowup: boolean[] = [];
+    const engines: (string | null)[] = [];
+    const scanLimited: boolean[] = [];
+    const candidatesTruncated: boolean[] = [];
     for (const sample of samples) {
       const isSearch = isSearchTelemetryTool(sample.toolId);
       ids.push(crypto.randomUUID());
@@ -300,17 +303,23 @@ export async function* persistDesktopToolCallTelemetry(
       truncated.push(sample.truncated);
       zeroMatch.push(isSearch ? (sample.zeroMatch ?? null) : null);
       isPaginationFollowup.push(isSearch ? sample.isPaginationFollowup : false);
+      // BST-1247: substrate flags land in their own columns so `truncated`
+      // stays "output clipped" and the waste lens can separate model behavior
+      // from substrate degradation.
+      engines.push(sample.engine ?? null);
+      scanLimited.push(sample.scanLimited);
+      candidatesTruncated.push(sample.candidatesTruncated);
     }
     try {
       const database = await getDatabase();
       const result = await database.query(
         `INSERT INTO ${TOOL_CALL_TELEMETRY_TABLE}
-          (id, thread_id, run_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup)
-         SELECT gen.id, runs.thread_id, runs.id, gen.tool_id, gen.occurred_at, gen.model_facing_chars, gen.truncated, gen.zero_match, gen.is_pagination_followup
+          (id, thread_id, run_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup, engine, scan_limited, candidates_truncated)
+         SELECT gen.id, runs.thread_id, runs.id, gen.tool_id, gen.occurred_at, gen.model_facing_chars, gen.truncated, gen.zero_match, gen.is_pagination_followup, gen.engine, gen.scan_limited, gen.candidates_truncated
          FROM ${ASSISTANT_THREAD_RUNS_TABLE} AS runs
          CROSS JOIN unnest(
-           $2::text[], $3::text[], $4::timestamptz[], $5::integer[], $6::boolean[], $7::boolean[], $8::boolean[]
-         ) AS gen(id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup)
+           $2::text[], $3::text[], $4::timestamptz[], $5::integer[], $6::boolean[], $7::boolean[], $8::boolean[], $9::text[], $10::boolean[], $11::boolean[]
+         ) AS gen(id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup, engine, scan_limited, candidates_truncated)
          WHERE runs.id = $1
          RETURNING id`,
         [
@@ -322,6 +331,9 @@ export async function* persistDesktopToolCallTelemetry(
           truncated,
           zeroMatch,
           isPaginationFollowup,
+          engines,
+          scanLimited,
+          candidatesTruncated,
         ]
       );
       if (result.rows.length !== samples.length) {

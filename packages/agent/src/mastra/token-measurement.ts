@@ -420,11 +420,14 @@ export class RunTokenDiagnostics {
     }
     const metadata = readToolCallTelemetryMetadata(output);
     this.#toolCallTelemetry.push({
+      candidatesTruncated: metadata?.candidatesTruncated ?? false,
       isPaginationFollowup: metadata?.isPaginationFollowup ?? false,
       modelFacingChars,
       occurredAt: Date.now(),
+      scanLimited: metadata?.scanLimited ?? false,
       toolId,
       truncated: detectGenericTruncation(output) || (metadata?.truncated ?? false),
+      ...(metadata?.engine === undefined ? {} : { engine: metadata.engine }),
       ...(metadata ? { zeroMatch: metadata.zeroMatch } : {}),
     });
   }

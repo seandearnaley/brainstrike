@@ -2349,7 +2349,7 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   });
 
-  it('bootstraps the migration-083 tool-call telemetry shape for thread deletion', async () => {
+  it('bootstraps the migration-083+092 tool-call telemetry shape for thread deletion', async () => {
     const dataDir = createPgliteTestDataDir('tool-call-telemetry-bootstrap-shape');
     const db = await wasmLoader.createPGlite(dataDir);
     try {
@@ -2372,6 +2372,10 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
         'truncated',
         'zero_match',
         'is_pagination_followup',
+        // Migration 092 (BST-1247): substrate flags split out of `truncated`.
+        'engine',
+        'scan_limited',
+        'candidates_truncated',
       ]);
 
       const indexes = await db.query<{ indexname: string }>(

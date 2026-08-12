@@ -20,7 +20,9 @@ export const SELF_IMPROVEMENT_SIGNAL_SQL = `WITH normalized AS (
     END AS tool_id,
     model_facing_chars,
     truncated,
-    zero_match
+    zero_match,
+    (engine IS NOT DISTINCT FROM 'js-walk' OR scan_limited OR candidates_truncated)
+      AS substrate_degraded
   FROM brainstrike_tool_call_telemetry
   WHERE occurred_at >= $1::timestamptz
     AND occurred_at <= $2::timestamptz
@@ -29,10 +31,13 @@ SELECT
   tool_id,
   count(*)::int AS calls,
   sum(model_facing_chars)::float8 AS total_model_facing_chars,
-  sum(truncated::int)::float8 / count(*) AS truncation_hit_rate,
-  avg(zero_match::int)::float8 AS zero_match_rate,
+  (count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8 / count(*)
+    AS truncation_hit_rate,
+  (avg(zero_match::int) FILTER (WHERE NOT substrate_degraded))::float8 AS zero_match_rate,
+  avg(substrate_degraded::int)::float8 AS substrate_degraded_rate,
   sum(model_facing_chars)::float8
-    * (sum(truncated::int)::float8 / count(*) + COALESCE(avg(zero_match::int)::float8, 0))
+    * ((count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8 / count(*)
+      + COALESCE((avg(zero_match::int) FILTER (WHERE NOT substrate_degraded))::float8, 0))
     AS waste_score
 FROM normalized
 GROUP BY tool_id
@@ -45,6 +50,7 @@ const EXPECTED_COLUMNS = [
   'total_model_facing_chars',
   'truncation_hit_rate',
   'zero_match_rate',
+  'substrate_degraded_rate',
   'waste_score',
 ] as const;
 
@@ -140,6 +146,7 @@ export interface SelfImprovementSignalContextDeps {
 
 interface SignalRow {
   readonly calls: number;
+  readonly substrateDegradedRate: number;
   readonly toolId: string;
   readonly truncationHitRate: number;
   readonly wasteScore: number;
@@ -163,29 +170,39 @@ function readSignalRow(row: readonly unknown[]): SignalRow | null {
   const totalModelFacingChars = row[2];
   const truncationHitRate = row[3];
   const zeroMatchRate = row[4];
-  const wasteScore = row[5];
+  const substrateDegradedRate = row[5];
+  const wasteScore = row[6];
   if (
     typeof toolId !== 'string' ||
     !isFiniteNumber(calls) ||
     !isFiniteNumber(totalModelFacingChars) ||
     !isFiniteNumber(truncationHitRate) ||
     !(zeroMatchRate === null || isFiniteNumber(zeroMatchRate)) ||
+    !isFiniteNumber(substrateDegradedRate) ||
     !isFiniteNumber(wasteScore)
   ) {
     return null;
   }
-  return { calls, toolId, truncationHitRate, wasteScore, zeroMatchRate };
+  return { calls, substrateDegradedRate, toolId, truncationHitRate, wasteScore, zeroMatchRate };
 }
 
 function buildSignalContent(rows: readonly SignalRow[]): string {
   const lines = rows.map((row) => {
     const zeroMatchClause =
       row.zeroMatchRate === null ? '' : `, ${Math.round(row.zeroMatchRate * 100)}% zero-match`;
-    return `- ${sanitizeSignalToolId(row.toolId)}: ${row.calls} calls, ${Math.round(row.truncationHitRate * 100)}% truncated${zeroMatchClause}`;
+    // BST-1247: substrate degradation is environment information, not a model
+    // behavior signal — rendered separately so the model neither ignores a
+    // degraded search substrate nor tries to "fix" it by changing behavior.
+    const substrateClause =
+      row.substrateDegradedRate > 0
+        ? `, ${Math.round(row.substrateDegradedRate * 100)}% substrate-degraded`
+        : '';
+    return `- ${sanitizeSignalToolId(row.toolId)}: ${row.calls} calls, ${Math.round(row.truncationHitRate * 100)}% truncated${zeroMatchClause}${substrateClause}`;
   });
   return [
     '## Self-assessment signal (agent tool telemetry, last 24h)',
-    'Top tool waste, ranked (truncation = output cut to budget; zero-match = call found nothing):',
+    'Top tool waste, ranked (truncation = output cut to budget; zero-match = call found nothing;',
+    'substrate-degraded = the search engine degraded — an environment condition, not your behavior):',
     ...lines,
     'Adapt: scope searches (filePaths/narrower patterns) and read selectively to reduce this waste.',
   ].join('\n');

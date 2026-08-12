@@ -10,6 +10,17 @@
 -- signal (a tool that misses often has a targeting problem regardless of how
 -- few chars each miss costs). Do not read the score as a char count.
 --
+-- BST-1247: the score counts MODEL-CONTROLLABLE waste only. A call is
+-- substrate_degraded when the live search engine fell back to the capped JS
+-- walk, the bounded scan hit its cap, or the candidate set was truncated —
+-- infrastructure failure the model cannot influence (BST-1246 showed rg
+-- degrading on ~80% of grep calls, which the pre-split score misread as
+-- model misbehavior). Degraded calls are excluded from truncation_hit_rate
+-- and zero_match_rate (a capped walk both flags "truncated" and misses
+-- files) and reported separately as substrate_degraded_rate. Pre-092 rows
+-- (engine IS NULL, substrate columns default false) keep their old OR-folded
+-- `truncated` meaning and simply age out of the window.
+--
 -- tool_id is stored VERBATIM by the telemetry writer, so one logical tool
 -- can land under both bare and dotted spellings ('grepSearch' /
 -- 'brainstrike.grepSearch'); the CTE normalizes to the bare spelling before
@@ -30,7 +41,9 @@ WITH normalized AS (
     END AS tool_id,
     model_facing_chars,
     truncated,
-    zero_match
+    zero_match,
+    (engine IS NOT DISTINCT FROM 'js-walk' OR scan_limited OR candidates_truncated)
+      AS substrate_degraded
   FROM brainstrike_tool_call_telemetry
   WHERE occurred_at >= $1::timestamptz
     AND occurred_at <= $2::timestamptz
@@ -39,10 +52,13 @@ SELECT
   tool_id,
   count(*)::int AS calls,
   sum(model_facing_chars)::float8 AS total_model_facing_chars,
-  sum(truncated::int)::float8 / count(*) AS truncation_hit_rate,
-  avg(zero_match::int)::float8 AS zero_match_rate,
+  (count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8 / count(*)
+    AS truncation_hit_rate,
+  (avg(zero_match::int) FILTER (WHERE NOT substrate_degraded))::float8 AS zero_match_rate,
+  avg(substrate_degraded::int)::float8 AS substrate_degraded_rate,
   sum(model_facing_chars)::float8
-    * (sum(truncated::int)::float8 / count(*) + COALESCE(avg(zero_match::int)::float8, 0))
+    * ((count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8 / count(*)
+      + COALESCE((avg(zero_match::int) FILTER (WHERE NOT substrate_degraded))::float8, 0))
     AS waste_score
 FROM normalized
 GROUP BY tool_id

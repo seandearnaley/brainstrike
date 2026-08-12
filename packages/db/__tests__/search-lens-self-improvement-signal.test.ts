@@ -77,6 +77,7 @@ describe('self-improvement-signal lens', () => {
       'total_model_facing_chars',
       'truncation_hit_rate',
       'zero_match_rate',
+      'substrate_degraded_rate',
       'waste_score',
     ]);
     // Hand-computed scores (row 9 is outside the window):
@@ -89,11 +90,11 @@ describe('self-improvement-signal lens', () => {
     // The zero_match_rate COLUMN stays NULL for tools that never report it;
     // only the score folds the missing term to 0.
     expect(result.rows).toEqual([
-      ['grepSearch', 2, 400, 0.5, 0.5, 400],
-      ['executeCommand', 1, 300, 1, null, 300],
-      ['globWorkspace', 1, 80, 1, 1, 160],
-      ['readWorkspaceFile', 2, 1000, 0, null, 0],
-      ['runPython', 1, 10, 0, null, 0],
+      ['grepSearch', 2, 400, 0.5, 0.5, 0, 400],
+      ['executeCommand', 1, 300, 1, null, 0, 300],
+      ['globWorkspace', 1, 80, 1, 1, 0, 160],
+      ['readWorkspaceFile', 2, 1000, 0, null, 0, 0],
+      ['runPython', 1, 10, 0, null, 0, 0],
     ]);
   });
 
@@ -104,8 +105,8 @@ describe('self-improvement-signal lens', () => {
     });
 
     expect(result.rows).toEqual([
-      ['grepSearch', 2, 400, 0.5, 0.5, 400],
-      ['executeCommand', 1, 300, 1, null, 300],
+      ['grepSearch', 2, 400, 0.5, 0.5, 0, 400],
+      ['executeCommand', 1, 300, 1, null, 0, 300],
     ]);
   });
 
@@ -125,6 +126,30 @@ describe('self-improvement-signal lens', () => {
       params: coerce(['2026-08-07T11:30:00Z', '2026-08-07T12:00:00Z', '5']),
     });
 
-    expect(result.rows).toEqual([['grepSearch', 2, 400, 0.5, 0.5, 400]]);
+    expect(result.rows).toEqual([['grepSearch', 2, 400, 0.5, 0.5, 0, 400]]);
+  });
+
+  it('excludes substrate-degraded calls from the waste rates (BST-1247)', async () => {
+    // Isolated window: three grep calls, two degraded (js-walk fallback with
+    // scan cap, candidate cap) and both flagged truncated/zero-match by the
+    // OLD conflated semantics, one clean truncated call. The degraded pair
+    // must count ONLY toward substrate_degraded_rate — the 2026-08 audit's
+    // 94-100% "truncation" was mostly this substrate failure.
+    await db.query(
+      `INSERT INTO brainstrike_tool_call_telemetry
+        (id, thread_id, run_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup, engine, scan_limited, candidates_truncated)
+       VALUES
+        ('20', 'thread', 'run', 'grepSearch', '2026-08-07T13:00:00Z', 100, true, true, false, 'js-walk', true, false),
+        ('21', 'thread', 'run', 'grepSearch', '2026-08-07T13:05:00Z', 100, true, true, false, 'ripgrep', false, true),
+        ('22', 'thread', 'run', 'grepSearch', '2026-08-07T13:10:00Z', 100, true, false, false, 'ripgrep', false, false)`
+    );
+    const sql = loadLensSql();
+    const result = await service.query(sql, {
+      params: coerce(['2026-08-07T13:00:00Z', '2026-08-07T13:30:00Z', '5']),
+    });
+
+    // truncation_hit_rate = 1 clean truncated / 3 calls; zero_match_rate over
+    // the single clean call only; substrate rate = 2/3.
+    expect(result.rows).toEqual([['grepSearch', 3, 300, 1 / 3, 0, 2 / 3, 300 * (1 / 3)]]);
   });
 });
