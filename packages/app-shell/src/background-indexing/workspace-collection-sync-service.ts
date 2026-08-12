@@ -608,8 +608,13 @@ export class WorkspaceCollectionSyncService {
       ? (previous?.errors ?? []).filter(
           (error) =>
             !partialChanges.some((change) => {
+              const normalizedChangePath = change.path.replace(/\\/g, '/').replace(/\/+$/u, '');
+              const normalizedRootPath = context.rootPath.replace(/\\/g, '/').replace(/\/+$/u, '');
+              if (normalizedChangePath === normalizedRootPath) {
+                return false;
+              }
               const relativePath = normalizeSelectionPathForFolder(
-                change.path.replace(/\\/g, '/'),
+                normalizedChangePath,
                 context.rootPath,
                 { label: 'Workspace Index watcher path' }
               );

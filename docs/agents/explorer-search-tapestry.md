@@ -308,8 +308,9 @@ there rather than hiding entries after the adapter has already read them.
   backfill, and neither asynchronous backfill progress nor a healthy scan of
   another root can clear the terminal state.
   Partial watcher scans preserve errors for paths they did not examine and
-  clear only errors covered by that scoped scan; switching or disabling the
-  managed collection discards errors owned by the retired collection. Full
+  clear only errors covered by that scoped scan; an ignored root-self removal
+  preserves the existing errors. Switching or disabling the managed collection
+  discards errors owned by the retired collection. Full
   scans prune retry state for paths no longer present. Never replace this with
   an unbounded retry or a
   quiet skip. This is intentionally not persistent sync state: restarting the

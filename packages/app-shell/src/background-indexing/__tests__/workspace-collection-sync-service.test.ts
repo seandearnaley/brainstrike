@@ -915,6 +915,21 @@ describe('WorkspaceCollectionSyncService', () => {
       })
     );
 
+    await service.sync({
+      ...request,
+      scope: {
+        changes: [{ kind: 'directory', path: ROOT_PATH, type: 'removed' }],
+        mode: 'paths',
+      },
+    });
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: ROOT_PATH,
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
+        state: 'error',
+      })
+    );
+
     readFullTreeWithOptionsMock.mockResolvedValueOnce([]);
     vi.mocked(deps.resolveDbRootId).mockResolvedValueOnce(DB_ROOT_B_ID);
     await service.sync({
