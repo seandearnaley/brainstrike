@@ -205,12 +205,29 @@ function resolveAnalyzeTables(options: ScheduledDatabaseMaintenanceOptions): rea
   return tables;
 }
 
+async function timeMaintenanceStatement<TResult>(
+  statement: string,
+  operation: () => Promise<TResult>
+): Promise<TResult> {
+  const startedAt = Date.now();
+  try {
+    return await operation();
+  } finally {
+    const durationMs = Math.max(0, Date.now() - startedAt);
+    if (durationMs >= DEFAULT_DATABASE_MAINTENANCE_SLOW_STATEMENT_MS) {
+      logger.warn('Slow scheduled database maintenance statement', {
+        durationMs,
+        statement,
+      });
+    }
+  }
+}
+
 async function readActiveJobCount(db: ScheduledDatabaseMaintenanceDb): Promise<number> {
-  const result = await db.query<JobStateCountRow>(
-    `SELECT state, COUNT(*)::text AS count
+  const sql = `SELECT state, COUNT(*)::text AS count
        FROM job_queue
-      GROUP BY state`
-  );
+      GROUP BY state`;
+  const result = await timeMaintenanceStatement(sql, async () => db.query<JobStateCountRow>(sql));
   return result.rows.reduce((sum, row) => {
     if (!ACTIVE_JOB_STATE_SET.has(row.state)) {
       return sum;
@@ -226,7 +243,7 @@ async function pruneTerminalJobs(
   // Shared statement builder (BST-991 slice 2): this DELETE was hand-written
   // here AND in JobQueue.prune — one source now.
   const { params, sql } = buildPruneJobsStatement(TERMINAL_JOB_STATES, olderThanIso);
-  const result = await db.query<CountRow>(sql, params);
+  const result = await timeMaintenanceStatement(sql, async () => db.query<CountRow>(sql, params));
   return normalizeCount(result.rows[0]?.count);
 }
 
@@ -236,7 +253,7 @@ async function pruneFinishedJobsBounded(
   limit: number
 ): Promise<number> {
   const { params, sql } = buildPruneJobsStatement(ACTIVE_PRUNE_JOB_STATES, olderThanIso, limit);
-  const result = await db.query<CountRow>(sql, params);
+  const result = await timeMaintenanceStatement(sql, async () => db.query<CountRow>(sql, params));
   return normalizeCount(result.rows[0]?.count);
 }
 
@@ -245,13 +262,13 @@ async function pruneByOccurredAt(
   table: (typeof OCCURRED_AT_RETENTION_TABLES)[number]['table'],
   olderThanIso: string
 ): Promise<number> {
-  const result = await db.query<CountRow>(
-    `WITH del AS (
+  const sql = `WITH del AS (
        DELETE FROM ${table}
         WHERE occurred_at < $1
        RETURNING 1
-     ) SELECT COUNT(*)::text AS count FROM del`,
-    [olderThanIso]
+     ) SELECT COUNT(*)::text AS count FROM del`;
+  const result = await timeMaintenanceStatement(sql, async () =>
+    db.query<CountRow>(sql, [olderThanIso])
   );
   return normalizeCount(result.rows[0]?.count);
 }
@@ -261,12 +278,12 @@ async function hasExpiredByOccurredAt(
   table: (typeof OCCURRED_AT_RETENTION_TABLES)[number]['table'],
   olderThanIso: string
 ): Promise<boolean> {
-  const result = await db.query<ExistsRow>(
-    `SELECT EXISTS (
+  const sql = `SELECT EXISTS (
        SELECT 1 FROM ${table}
         WHERE occurred_at < $1
-     ) AS present`,
-    [olderThanIso]
+     ) AS present`;
+  const result = await timeMaintenanceStatement(sql, async () =>
+    db.query<ExistsRow>(sql, [olderThanIso])
   );
   const present = result.rows[0]?.present;
   if (typeof present !== 'boolean') {
@@ -298,18 +315,18 @@ async function pruneByOccurredAtBounded(
   // oldest-first bounded shape (diagnostic-events-repository.ts): once the
   // eligible backlog exceeds `limit`, the oldest rows are evicted first
   // instead of an arbitrary subset.
-  const result = await db.query<CountRow>(
-    `WITH del AS (
+  const sql = `WITH del AS (
        DELETE FROM ${table}
         WHERE id IN (
           SELECT id FROM ${table}
            WHERE occurred_at < $1
            ORDER BY occurred_at ASC
            LIMIT $2
-        )
+       )
        RETURNING 1
-     ) SELECT COUNT(*)::text AS count FROM del`,
-    [olderThanIso, limit]
+     ) SELECT COUNT(*)::text AS count FROM del`;
+  const result = await timeMaintenanceStatement(sql, async () =>
+    db.query<CountRow>(sql, [olderThanIso, limit])
   );
   return normalizeCount(result.rows[0]?.count);
 }
@@ -345,8 +362,7 @@ async function runMaintenanceStatement(
   db: ScheduledDatabaseMaintenanceDb,
   sql: string
 ): Promise<void> {
-  const startedAt = Date.now();
-  try {
+  await timeMaintenanceStatement(sql, async () => {
     if (typeof db.maintenance?.exec === 'function') {
       await db.maintenance.exec(sql);
     } else if (typeof db.exec === 'function') {
@@ -354,15 +370,7 @@ async function runMaintenanceStatement(
     } else {
       await db.query(sql);
     }
-  } finally {
-    const durationMs = Math.max(0, Date.now() - startedAt);
-    if (durationMs >= DEFAULT_DATABASE_MAINTENANCE_SLOW_STATEMENT_MS) {
-      logger.warn('Slow scheduled database maintenance statement', {
-        durationMs,
-        statement: sql,
-      });
-    }
-  }
+  });
 }
 
 async function vacuumTables(

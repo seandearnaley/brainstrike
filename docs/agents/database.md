@@ -603,7 +603,8 @@ not also list `file_chunks` in the default plain-ANALYZE set. `file_chunks` is
 ordered last so a timeout or vacuum failure on the largest table cannot prevent
 the smaller retention-ledger vacuums from running first. Every maintenance
 statement taking at least one second emits a warning containing the exact SQL
-statement and duration, preserving one-glance attribution for single-host
+statement and duration; this includes queue reads, retention probes/deletes,
+plain ANALYZE, and VACUUM. That preserves one-glance attribution for single-host
 stalls. Failed or interrupted backfills leave maintenance to the same scheduled
 pass; index recovery is independent of heap reclamation and must not reacquire
 the host for an inline vacuum.
