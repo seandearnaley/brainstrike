@@ -305,7 +305,8 @@ there rather than hiding entries after the adapter has already read them.
   later import batches, logs one explicit terminal diagnostic per exhausted
   revision, and puts Workspace Index in its visible `error` state with the file
   paths and recovery instruction. It does not block unrelated embedding
-  backfill, and a healthy scan of another root cannot clear the terminal state.
+  backfill, and neither asynchronous backfill progress nor a healthy scan of
+  another root can clear the terminal state.
   Partial watcher scans preserve errors for paths they did not examine and
   clear only errors covered by that scoped scan; switching or disabling the
   managed collection discards errors owned by the retired collection. Full

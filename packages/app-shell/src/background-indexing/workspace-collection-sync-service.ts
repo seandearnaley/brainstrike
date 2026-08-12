@@ -810,6 +810,9 @@ export class WorkspaceCollectionSyncService {
           ...(progress.message ? { message: progress.message } : {}),
         })
       );
+      // Backfill is intentionally allowed to continue for healthy chunks, but
+      // its asynchronous progress must not hide a terminal chunking failure.
+      this.surfaceTerminalChunkingRedispatchError();
       if (progress.stage === 'complete') {
         terminalBackfillRequestId = progress.requestId;
         this.activeBackfill?.unsubscribe?.();

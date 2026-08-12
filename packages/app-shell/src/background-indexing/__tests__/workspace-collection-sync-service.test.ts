@@ -809,6 +809,10 @@ describe('WorkspaceCollectionSyncService', () => {
   });
 
   it('surfaces a terminal error after three incomplete chunking redispatches', async () => {
+    type BackfillProgressListener = Parameters<
+      WorkspaceCollectionSyncServiceDependencies['subscribeToBackfillProgress']
+    >[0];
+    let progressListener: BackfillProgressListener | undefined;
     const unchangedContent = 'export const value = 1;';
     const unchangedHash = await generateContentHash(unchangedContent);
     readFullTreeWithOptionsMock.mockResolvedValue([
@@ -848,6 +852,10 @@ describe('WorkspaceCollectionSyncService', () => {
         update: vi.fn(async () => undefined),
         updateStatMetadata: vi.fn(async () => undefined),
       },
+      subscribeToBackfillProgress: vi.fn((callback) => {
+        progressListener = callback;
+        return () => {};
+      }),
     });
     const service = new WorkspaceCollectionSyncService(deps);
     const request = {
@@ -878,6 +886,22 @@ describe('WorkspaceCollectionSyncService', () => {
       })
     );
     expect(deps.enqueueBackfill).toHaveBeenCalledOnce();
+    expect(progressListener).toBeDefined();
+
+    progressListener?.({
+      current: 1,
+      embeddingSetId: 'set-1',
+      message: 'chunk 1/2',
+      requestId: 'background-indexing-backfill:test',
+      stage: 'running',
+      total: 2,
+    });
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        lastError: expect.stringContaining('stopped re-dispatching "src/index.ts"'),
+        state: 'error',
+      })
+    );
 
     await service.sync({
       ...request,
