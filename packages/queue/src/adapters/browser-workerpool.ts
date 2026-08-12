@@ -75,6 +75,12 @@ function assertCurrentTaskWorkerEvent(workerEvent: WorkerEvent, taskId: string):
   }
 }
 
+function throwIfWorkerError(workerEvent: WorkerEvent): void {
+  if (workerEvent.type === 'error') {
+    throw new Error(workerEvent.message, { cause: workerEvent.cause });
+  }
+}
+
 function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDiagnostic | null {
   if (typeof value !== 'object' || value === null) {
     return null;
@@ -504,6 +510,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
           if (workerEvent) {
             assertCurrentTaskWorkerEvent(workerEvent, task.id);
             emitter.emit(workerEvent);
+            throwIfWorkerError(workerEvent);
             return;
           }
           throw new Error('Embedding worker request emitted an unsupported event.');

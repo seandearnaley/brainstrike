@@ -144,7 +144,9 @@ Embedding runtime telemetry (BST-402):
   unhandled-rejection events carry the affected request ID (never a global sentinel),
   preserving strict task correlation and the recoverable failure message. Active direct
   streams each receive their own request-scoped device-loss message. Idle global failures
-  retain the explicit `global` sentinel.
+  retain the explicit `global` sentinel. A validated request-scoped worker error is
+  terminal: the workerpool adapter emits it for diagnostics, cancels the RPC, and rejects
+  the task even if the worker later tries to return vectors.
   Controlled host restarts publish a metadata-free `starting`
   transition and retain the latest valid snapshot, while terminal `stopped` and `error`
   states clear it. The
