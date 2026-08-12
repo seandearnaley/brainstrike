@@ -1183,11 +1183,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
-  it('routes typed watcher incremental refreshes only to matching active root handles', async () => {
+  it('routes same-path watcher refreshes by durable root identity', async () => {
     const rootA = {
       kind: 'directory',
       name: 'root-a',
-      path: '/workspace/root-a',
+      path: '/workspace/shared',
       platform: 'electron',
       rootId: 'root-a-id',
     };
@@ -1197,17 +1197,18 @@ describe('WorkspaceCollectionSyncProvider', () => {
       {
         kind: 'directory',
         name: 'root-b',
-        path: '/workspace/root-b',
+        path: '/workspace/shared',
         platform: 'electron',
         rootId: 'root-b-id',
       },
     ];
-    fileSystemState.rootIdByPath = new Map([
-      ['/workspace/root-a', 'root-a-id'],
-      ['/workspace/root-b', 'root-b-id'],
-    ]);
+    fileSystemState.rootIdByPath = new Map([['/workspace/shared', 'root-b-id']]);
     resolveDbRootIdMock.mockImplementation(async (_rootPath: string, rootId?: string | null) =>
       rootId === 'root-b-id' ? 'db-root-b-id' : 'db-root-a-id'
+    );
+    const reconcileMountedRootsSpy = vi.spyOn(
+      WorkspaceCollectionSyncService.prototype,
+      'reconcileMountedRoots'
     );
     const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
 
@@ -1220,10 +1221,11 @@ describe('WorkspaceCollectionSyncProvider', () => {
 
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
       syncSpy.mockClear();
+      reconcileMountedRootsSpy.mockClear();
 
       const change = {
         kind: 'file' as const,
-        path: '/workspace/root-b/src/index.ts',
+        path: '/workspace/shared/src/index.ts',
         type: 'modified' as const,
       };
       act(() => {
@@ -1233,8 +1235,8 @@ describe('WorkspaceCollectionSyncProvider', () => {
               roots: [
                 {
                   changes: [change],
-                  rootId: 'root-b-id',
-                  rootPath: '/workspace/root-b',
+                  rootId: 'root-a-id',
+                  rootPath: '/workspace/shared',
                 },
               ],
               scope: 'incremental',
@@ -1247,10 +1249,10 @@ describe('WorkspaceCollectionSyncProvider', () => {
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
       expect(syncSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          dbRootId: 'db-root-b-id',
+          dbRootId: 'db-root-a-id',
           rootDirectoryHandle: expect.objectContaining({
-            path: '/workspace/root-b',
-            rootId: 'root-b-id',
+            path: '/workspace/shared',
+            rootId: 'root-a-id',
           }),
           scope: {
             changes: [change],
@@ -1258,7 +1260,56 @@ describe('WorkspaceCollectionSyncProvider', () => {
           },
         })
       );
-      expect(resolveDbRootIdMock).toHaveBeenLastCalledWith('/workspace/root-b', 'root-b-id');
+      expect(reconcileMountedRootsSpy).toHaveBeenLastCalledWith(
+        '00000000-0000-0000-0000-000000000101',
+        [
+          {
+            adapterRootId: 'root-a-id',
+            dbRootId: 'db-root-a-id',
+            rootPath: '/workspace/shared',
+          },
+          {
+            adapterRootId: 'root-b-id',
+            dbRootId: 'db-root-b-id',
+            rootPath: '/workspace/shared',
+          },
+        ]
+      );
+      expect(resolveDbRootIdMock).toHaveBeenLastCalledWith('/workspace/shared', 'root-b-id');
+    } finally {
+      reconcileMountedRootsSpy.mockRestore();
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('passes a path-mapped adapter identity for a legacy unstamped handle', async () => {
+    const legacyRoot = {
+      kind: 'directory',
+      name: 'legacy-root',
+      path: '/workspace/legacy',
+      platform: 'electron',
+    };
+    fileSystemState.rootDirectoryHandle = legacyRoot;
+    fileSystemState.rootDirectoryHandles = [legacyRoot];
+    fileSystemState.rootIdByPath = new Map([[legacyRoot.path, 'legacy-adapter-id']]);
+    resolveDbRootIdMock.mockResolvedValue('legacy-db-root-id');
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledOnce());
+      expect(syncSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapterRootId: 'legacy-adapter-id',
+          dbRootId: 'legacy-db-root-id',
+          rootDirectoryHandle: legacyRoot,
+        })
+      );
     } finally {
       syncSpy.mockRestore();
     }
@@ -2976,6 +3027,49 @@ describe('WorkspaceCollectionSyncProvider', () => {
         { backfillMode: 'defer', dbRootId: 'db:/workspace/root', path: root1.path },
         { backfillMode: 'enqueue', dbRootId: 'db:/workspace/root2', path: root2.path },
       ]);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
+  it('replaces a pruned terminal error when every remaining root is unresolved', async () => {
+    const unresolvedRoot = {
+      kind: 'directory',
+      name: 'unresolved',
+      path: '/workspace/unresolved',
+      platform: 'electron',
+      rootId: 'unresolved-root-id',
+    };
+    fileSystemState.rootDirectoryHandle = unresolvedRoot;
+    fileSystemState.rootDirectoryHandles = [unresolvedRoot];
+    fileSystemState.rootIdByPath = new Map([[unresolvedRoot.path, unresolvedRoot.rootId]]);
+    resolveDbRootIdMock.mockResolvedValue(null);
+    useWorkspaceCollectionSyncStatusStore.setState({
+      activeRootPath: '/workspace/removed',
+      lastError: 'Workspace Index stopped re-dispatching "src/stuck.ts" after 3 attempts.',
+      managedCollectionId: '00000000-0000-0000-0000-000000000101',
+      state: 'error',
+    });
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync');
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(resolveDbRootIdMock).toHaveBeenCalled());
+      expect(syncSpy).not.toHaveBeenCalled();
+      await waitFor(() =>
+        expect(useWorkspaceCollectionSyncStatusStore.getState()).toEqual(
+          expect.objectContaining({
+            activeRootPath: unresolvedRoot.path,
+            lastError: `Workspace Index coverage cannot be verified because root ${unresolvedRoot.path} has no resolved database root id.`,
+            state: 'waiting',
+          })
+        )
+      );
     } finally {
       syncSpy.mockRestore();
     }

@@ -294,6 +294,41 @@ there rather than hiding entries after the adapter has already read them.
   order. Do not replace it with recursion or array spreading: the paired tests
   require 100,000 levels of nesting and 100,000 files in one directory to
   flatten without call-stack or function-argument overflow.
+- **Chunking re-dispatch is bounded per service session (BST-1229).** A
+  hash-unchanged managed-cache row with no `chunks_processed_at` stamp may be
+  re-dispatched at most three times. The service-owned in-memory tracker keys
+  that budget by collection id, durable root/path, file-record id, and content hash; a
+  completed stamp, new record, or changed content resets it. Attempts are
+  consumed only at importer handoff, after access, worker startup, and import
+  QoS succeed; cancelled or failed pre-import scans do not spend the budget.
+  Exhaustion counts the row as scanned-but-unchanged, removes only that row from
+  later import batches, logs one explicit terminal diagnostic per exhausted
+  revision, and puts Workspace Index in its visible `error` state with the file
+  paths and recovery instruction. It does not block unrelated embedding
+  backfill, and neither asynchronous backfill progress nor a healthy scan of
+  another root can clear the terminal state.
+  Partial watcher scans preserve errors for paths they did not examine and
+  clear only errors covered by that scoped scan; an ignored root-self removal
+  preserves the existing errors. Inaccessible content reads preserve the
+  matching path errors during both scoped and full scans. Switching or disabling
+  the managed collection discards errors owned by the retired collection. Each
+  provider loop also reconciles the service against the complete mounted-root
+  identity set. The durable adapter root ID is retained through both DB routing
+  and terminal-scope reconciliation, including the `rootIdByPath` fallback for a
+  legacy mounted handle without a stamped `rootId` (never project down to path
+  plus nullable DB ID), so removing one root cannot leave its error attached to healthy sibling
+  roots and same-path web roots cannot exchange identities. Full
+  scans prune retry state for paths no longer present. If reconciliation leaves
+  only mounted roots without resolved database ids, the provider replaces any
+  retired root's terminal error with the explicit unresolved-root waiting status;
+  a zero-syncable-target loop must not leave stale status visible. Never replace
+  this with an unbounded retry. A redispatch attempt is recorded only when its
+  concrete import batch enters `processChunking`, the second content read selected
+  that file, and its managed-cache apply succeeded; unreadable files, failed
+  applies, post-base model/worker setup failures, and cancellation or failure in
+  an earlier batch must not spend untouched retry budgets. Never use a
+  quiet skip. This is intentionally not persistent sync state: restarting the
+  renderer grants a fresh bounded budget.
 
 The policy test owns the preset contract. The parallel-directory-walker test
 must also prove excluded directories are rejected before `readDirectory` is

@@ -357,6 +357,14 @@ function getActiveRootHandles(args: {
   return args.rootDirectoryHandle ? [args.rootDirectoryHandle] : [];
 }
 
+function createMountedRootIdentityKey(
+  handle: DirectoryHandle,
+  rootIdByPath: ReadonlyMap<string, string>
+): string {
+  const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path) ?? null;
+  return JSON.stringify([adapterRootId, handle.path]);
+}
+
 function createCoverageAuditKey(args: {
   collectionId: string;
   handles: readonly DirectoryHandle[];
@@ -404,6 +412,10 @@ function createCoverageStatusPatch(args: {
   };
 }
 
+function createUnresolvedRootCoverageMessage(rootPath: string): string {
+  return `Workspace Index coverage cannot be verified because root ${rootPath} has no resolved database root id.`;
+}
+
 async function buildCoverageAuditTargets(args: {
   fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
   handles: readonly DirectoryHandle[];
@@ -418,7 +430,7 @@ async function buildCoverageAuditTargets(args: {
       if (!dbRootId) {
         return {
           kind: 'unresolved-root',
-          message: `Workspace Index coverage cannot be verified because root ${handle.path} has no resolved database root id.`,
+          message: createUnresolvedRootCoverageMessage(handle.path),
           rootPath: handle.path,
         };
       }
@@ -817,7 +829,12 @@ interface SyncLoopTarget {
   };
 }
 
-type ResolvedSyncLoopTarget = SyncLoopTarget & { dbRootId: string };
+type ResolvedSyncLoopTargetCandidate = SyncLoopTarget & {
+  adapterRootId: string | null;
+  dbRootId: string | null;
+};
+
+type ResolvedSyncLoopTarget = ResolvedSyncLoopTargetCandidate & { dbRootId: string };
 
 function buildFullSyncTargets(handles: readonly DirectoryHandle[]): SyncLoopTarget[] {
   return handles.map((handle) => ({
@@ -827,7 +844,7 @@ function buildFullSyncTargets(handles: readonly DirectoryHandle[]): SyncLoopTarg
 }
 
 function hasResolvedDbRootId(
-  target: SyncLoopTarget & { dbRootId: string | null }
+  target: ResolvedSyncLoopTargetCandidate
 ): target is ResolvedSyncLoopTarget {
   return target.dbRootId !== null;
 }
@@ -847,6 +864,29 @@ function orderTargetsByIndexedCoverage(
     .map((target, index) => ({ count: indexedCounts.get(target.dbRootId) ?? 0, index, target }))
     .sort((a, b) => a.count - b.count || a.index - b.index)
     .map((entry) => entry.target);
+}
+
+function publishNoSyncableTargetStatus(args: {
+  collectionId: string;
+  orderedTargets: readonly ResolvedSyncLoopTarget[];
+  resolvedTargets: readonly ResolvedSyncLoopTargetCandidate[];
+  setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => void;
+}): void {
+  if (args.orderedTargets.length > 0) {
+    return;
+  }
+  const unresolvedTarget = args.resolvedTargets.find((target) => target.dbRootId === null);
+  if (!unresolvedTarget) {
+    return;
+  }
+  args.setStatus(
+    createCoverageStatusPatch({
+      activeRootPath: unresolvedTarget.handle.path,
+      collectionId: args.collectionId,
+      lastError: createUnresolvedRootCoverageMessage(unresolvedTarget.handle.path),
+      state: 'waiting',
+    })
+  );
 }
 
 // Read each root's actual indexed file count, then order least-covered-first.
@@ -1932,6 +1972,10 @@ export function WorkspaceCollectionSyncProvider({
         rootIdByPath,
         scope,
       });
+      const mountedHandles = getActiveRootHandles({
+        rootDirectoryHandle,
+        rootDirectoryHandles,
+      });
       if (
         handleActiveSyncLoopRequest({
           options,
@@ -1975,11 +2019,28 @@ export function WorkspaceCollectionSyncProvider({
           return;
         }
         // eslint-disable-next-line react-doctor/async-defer-await -- the post-await generation guard prevents stale loops from syncing after cancellation during root-id resolution.
-        const resolvedTargets = await Promise.all(
-          targets.map(async (target): Promise<SyncLoopTarget & { dbRootId: string | null }> => {
-            const adapterRootId = target.handle.rootId ?? rootIdByPath.get(target.handle.path);
-            const dbRootId = await resolveDbRootId(target.handle.path, adapterRootId);
-            return { ...target, dbRootId };
+        const resolvedMountedRoots = await Promise.all(
+          mountedHandles.map(async (handle) => {
+            const adapterRootId = handle.rootId ?? rootIdByPath.get(handle.path);
+            return {
+              adapterRootId: adapterRootId ?? null,
+              dbRootId: await resolveDbRootId(handle.path, adapterRootId),
+              identityKey: createMountedRootIdentityKey(handle, rootIdByPath),
+              rootPath: handle.path,
+            };
+          })
+        );
+        const mountedDbRootIdByIdentity = new Map(
+          resolvedMountedRoots.map((root) => [root.identityKey, root.dbRootId])
+        );
+        const resolvedTargets = targets.map(
+          (target): ResolvedSyncLoopTargetCandidate => ({
+            ...target,
+            adapterRootId: target.handle.rootId ?? rootIdByPath.get(target.handle.path) ?? null,
+            dbRootId:
+              mountedDbRootIdByIdentity.get(
+                createMountedRootIdentityKey(target.handle, rootIdByPath)
+              ) ?? null,
           })
         );
         if (syncLoopGenerationRef.current !== myGeneration) {
@@ -1998,6 +2059,14 @@ export function WorkspaceCollectionSyncProvider({
         }
 
         const syncableTargets = resolvedTargets.filter(hasResolvedDbRootId);
+        service.reconcileMountedRoots(
+          managedCollectionId,
+          resolvedMountedRoots.map(({ adapterRootId, dbRootId, rootPath }) => ({
+            adapterRootId,
+            dbRootId,
+            rootPath,
+          }))
+        );
         // Order by ACTUAL indexed coverage: least-indexed roots sync first. A
         // folder you just added (0 files), or one whose earlier pass imported
         // nothing, is processed before a giant repo that is only partway through
@@ -2027,6 +2096,13 @@ export function WorkspaceCollectionSyncProvider({
           updatedAt: new Date().toISOString(),
         };
 
+        publishNoSyncableTargetStatus({
+          collectionId: managedCollectionId,
+          orderedTargets,
+          resolvedTargets,
+          setStatus: setSyncStatus,
+        });
+
         for (const [targetIndex, target] of orderedTargets.entries()) {
           const targetPath = target.handle.path;
           // Stale-loop guard: a newer triggerSync has fired — stop immediately.
@@ -2052,6 +2128,7 @@ export function WorkspaceCollectionSyncProvider({
           // eslint-disable-next-line react-doctor/async-defer-await, react-doctor/async-await-in-loop -- root sync is intentionally serial so cancellation cannot overlap root mutations.
           await service
             .sync({
+              adapterRootId: target.adapterRootId,
               backfillMode: targetIndex === orderedTargets.length - 1 ? 'enqueue' : 'defer',
               dbRootId: target.dbRootId,
               enabled,

@@ -13,6 +13,7 @@ import {
   normalizeSelectionPathForFolder,
 } from '@brainstrike/utils/relative-file-path';
 import {
+  type ChunkingRedispatchTracker,
   collectPreparedChangesInBatches,
   flattenFileNodes,
   type PreparedChangesSummary,
@@ -50,6 +51,7 @@ interface ResolvedScanContext {
 }
 
 interface WorkspaceCollectionSyncScanDeps {
+  chunkingRedispatchTracker: ChunkingRedispatchTracker;
   fileContentProcessor?: FileContentProcessor;
   fileRecordRepository: {
     listManagedCacheEntryMetadata: (
@@ -86,7 +88,9 @@ function createEmptyPreparedSyncChanges(): PreparedSyncChanges {
     prepared: {
       changes: [],
       excludedEntries: 0,
+      inaccessiblePaths: [],
       statRefreshes: [],
+      terminalChunkingErrors: [],
       totalFiles: 0,
       unchangedCount: 0,
     },
@@ -686,12 +690,15 @@ async function collectPreparedFullChanges(args: {
 
     const prepared = await collectPreparedChangesInBatches({
       abortSignal: args.abortSignal,
+      chunkingRedispatchTracker: args.deps.chunkingRedispatchTracker,
+      collectionId: args.context.collectionId,
       existingEntries,
       fileNodes,
       fileSystemAdapter: args.deps.fileSystemAdapter,
       onCurrentFile: (path) => {
         statusReporter.report(path);
       },
+      pruneMissingRedispatchEntries: true,
       qosPolicy: args.qosPolicy,
       rootId,
       rootPath: args.context.activeRootPath,
@@ -769,6 +776,8 @@ async function collectPreparedScopedChanges(args: {
 
     const prepared = await collectPreparedChangesInBatches({
       abortSignal: args.abortSignal,
+      chunkingRedispatchTracker: args.deps.chunkingRedispatchTracker,
+      collectionId: args.context.collectionId,
       existingEntries,
       fileNodes: [...accumulator.changedFileNodesByPath.values()],
       fileSystemAdapter: args.deps.fileSystemAdapter,
