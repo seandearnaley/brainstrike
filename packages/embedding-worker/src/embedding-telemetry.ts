@@ -258,6 +258,9 @@ function readBatchTransferTelemetry(
   if (batchCount === 0 && (lastBytes !== 0 || peakBytes !== 0 || totalBytes !== 0)) {
     throw new Error('Embedding telemetry batchTransfer must be empty when batchCount is zero.');
   }
+  if (batchCount > 0 && lastBytes === 0) {
+    throw new Error('Embedding telemetry batchTransfer must report bytes when batches exist.');
+  }
   return { batchCount, lastBytes, peakBytes, totalBytes };
 }
 
@@ -465,11 +468,22 @@ export function recordEmbeddingPipelineCacheTelemetry(
 ): void {
   if (event.event === 'hit') {
     const source = sources.get(sourceId);
-    if (
-      !(event.entry && source?.cacheEntries.has(event.entry.cacheKey)) ||
-      event.cacheSize !== source.cacheEntries.size
-    ) {
+    const trackedEntry = event.entry ? source?.cacheEntries.get(event.entry.cacheKey) : undefined;
+    if (!(source && event.entry && trackedEntry) || event.cacheSize !== source.cacheEntries.size) {
       throw new Error('Embedding telemetry cache hit must reference tracked resident cache state.');
+    }
+    if (
+      event.entry.createdAt !== trackedEntry.createdAt ||
+      event.entry.device !== trackedEntry.device ||
+      event.entry.dtype !== trackedEntry.dtype ||
+      event.entry.model !== trackedEntry.model ||
+      event.entry.memory.gpuBytes !== trackedEntry.memory.gpuBytes ||
+      event.entry.memory.heapBytes !== trackedEntry.memory.heapBytes ||
+      event.entry.memory.reason !== trackedEntry.memory.reason
+    ) {
+      throw new Error(
+        'Embedding telemetry cache hit must preserve immutable resident cache identity.'
+      );
     }
     source.cacheEntries.set(event.entry.cacheKey, event.entry);
     markSnapshotDirty();

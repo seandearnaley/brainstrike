@@ -142,6 +142,20 @@ function assertNonNegativePipelineCacheDiagnosticNumber(
   }
 }
 
+function assertModelSizeEstimateAttribution(
+  device: EmbeddingDevice,
+  gpuBytes: unknown,
+  heapBytes: unknown,
+  path: string
+): void {
+  if (device === 'webgpu' && (!(typeof gpuBytes === 'number' && gpuBytes > 0) || heapBytes !== 0)) {
+    throw new Error(`${path} must attribute a WebGPU model-size estimate to GPU bytes.`);
+  }
+  if (device === 'wasm' && (!(typeof heapBytes === 'number' && heapBytes > 0) || gpuBytes !== 0)) {
+    throw new Error(`${path} must attribute a WASM model-size estimate to heap bytes.`);
+  }
+}
+
 export function assertEmbedWorkerPipelineCacheMemoryDiagnostic(
   value: unknown,
   device: EmbeddingDevice,
@@ -183,6 +197,9 @@ export function assertEmbedWorkerPipelineCacheMemoryDiagnostic(
   }
   if (device === 'wasm' && gpuBytes !== null && gpuBytes !== 0) {
     throw new Error(`${path}.gpuBytes must be null or zero for wasm.`);
+  }
+  if (reason === 'model-size-estimate') {
+    assertModelSizeEstimateAttribution(device, gpuBytes, heapBytes, path);
   }
 }
 

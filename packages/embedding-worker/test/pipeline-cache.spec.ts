@@ -437,6 +437,42 @@ describe('pipeline cache metadata and dispose', () => {
     );
   });
 
+  it('keeps unknown model-size attribution immutable across cache hits', async () => {
+    pipelineMock.mockResolvedValue(async () => new Float32Array([1, 0, 0]));
+    const runEmbedding = await loadWorker();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      id: 'size-unknown-first',
+      model: 'unknown-size-model',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    workerEmitMock.mockClear();
+
+    await runEmbedding({
+      deviceHint: 'wasm',
+      estimatedModelBytes: 1024,
+      id: 'size-known-later',
+      model: 'unknown-size-model',
+      texts: ['world'],
+      type: 'embed',
+    });
+
+    expect(workerEmitMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entry: expect.objectContaining({
+          memory: {
+            gpuBytes: null,
+            heapBytes: null,
+            reason: 'model-size-unknown',
+          },
+        }),
+        event: 'hit',
+      })
+    );
+  });
+
   it('loadPipeline removes entry on failure so retry works', async () => {
     pipelineMock.mockRejectedValueOnce(new Error('network error'));
     const runEmbedding = await loadWorker();

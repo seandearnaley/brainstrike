@@ -3,7 +3,13 @@ import {
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
 } from '@brainstrike/indexing-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { QueueResult, TaskPayload } from '../types.js';
+import type { QueueResult } from '../types.js';
+import {
+  createPipelineCacheDiagnostic,
+  createPipelineCacheEntry,
+  createResult,
+  createTask,
+} from './browser-workerpool-test-fixtures.js';
 
 const {
   emitQueueTelemetryMock,
@@ -98,64 +104,6 @@ function createCancelablePromise<T>(): {
     reject(new Error('canceled'));
   });
   return { promise, reject, resolve };
-}
-
-function createTask(id: string): TaskPayload {
-  return {
-    deviceHint: 'webgpu',
-    id,
-    kind: 'embed',
-    model: 'local:test',
-    texts: ['hello'],
-  };
-}
-
-function createResult(id: string): QueueResult {
-  return {
-    id,
-    metadata: {
-      batchSize: 1,
-      device: 'webgpu',
-      dimensions: 3,
-      dtype: 'fp16',
-      elapsedMs: 10,
-      fallbackApplied: false,
-      model: 'local:test',
-    },
-    type: 'result',
-    vectors: [new Float32Array([1, 2, 3])],
-  };
-}
-
-function createPipelineCacheEntry(cacheKey = 'local:test|webgpu|fp16') {
-  return {
-    cacheKey,
-    createdAt: 50,
-    device: 'webgpu' as const,
-    dtype: 'fp16' as const,
-    lastUsedAt: 100,
-    memory: { gpuBytes: 1024, heapBytes: null, reason: 'model-size-estimate' as const },
-    model: 'local:test',
-    residencyMs: 50,
-  };
-}
-
-function createPipelineCacheDiagnostic(
-  id: string,
-  workerInstanceId: string,
-  entry = createPipelineCacheEntry()
-) {
-  return {
-    cacheSize: 1,
-    diagnostic: 'pipeline-cache',
-    emittedAt: 100,
-    entries: [entry],
-    entry,
-    event: 'loaded',
-    id,
-    type: 'diagnostic',
-    workerInstanceId,
-  } as const;
 }
 
 function createWorkerOptions() {
@@ -255,8 +203,7 @@ describe('createWorkerpoolAdapter', () => {
         if (workerInstanceId === null) {
           throw new Error('Expected a managed worker identity.');
         }
-        options?.on?.({ completed: 1, id: 'task-1', total: 1, type: 'progress' });
-        options?.on?.({ completed: 99, type: 'ignored' });
+        options?.on?.({ id: 'task-1', phase: 'embedding', progress: 1, type: 'progress' });
         options?.on?.({
           cacheSize: 1,
           diagnostic: 'pipeline-cache',
@@ -283,9 +230,9 @@ describe('createWorkerpoolAdapter', () => {
     off();
 
     expect(progressListener).toHaveBeenCalledWith({
-      completed: 1,
       id: 'task-1',
-      total: 1,
+      phase: 'embedding',
+      progress: 1,
       type: 'progress',
     });
     expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
@@ -566,6 +513,38 @@ describe('createWorkerpoolAdapter', () => {
     resolve(createResult('current-task'));
     await expect(addPromise).rejects.toThrow(
       'Embedding worker request telemetry id must match the current task id.'
+    );
+    expect(promise.cancel).toHaveBeenCalledTimes(1);
+    expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['type', { diagnostic: 'pipeline-cache', type: 'unexpected' }],
+    ['diagnostic', { diagnostic: 'unexpected', type: 'diagnostic' }],
+  ])('rejects request telemetry with an invalid %s discriminator', async (_case, discriminators) => {
+    const { promise, resolve } = createCancelablePromise<QueueResult>();
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (event: unknown) => void }) => {
+        options?.on?.({
+          cacheSize: 0,
+          emittedAt: 100,
+          entries: [],
+          event: 'loaded',
+          id: 'task-malformed-discriminator',
+          workerInstanceId: 'worker-malformed-discriminator',
+          ...discriminators,
+        });
+        return promise;
+      }
+    );
+
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter(createWorkerOptions());
+    const addPromise = adapter.add(createTask('task-malformed-discriminator'));
+    resolve(createResult('task-malformed-discriminator'));
+
+    await expect(addPromise).rejects.toThrow(
+      'Embedding worker request event has invalid pipeline-cache discriminators.'
     );
     expect(promise.cancel).toHaveBeenCalledTimes(1);
     expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();

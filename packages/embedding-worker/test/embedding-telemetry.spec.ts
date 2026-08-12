@@ -130,6 +130,7 @@ describe('embedding telemetry store', () => {
 
   it.each([
     ['batch count', { batchCount: 1.5, lastBytes: 0, peakBytes: 0, totalBytes: 0 }],
+    ['nonempty zero-byte aggregate', { batchCount: 1, lastBytes: 0, peakBytes: 0, totalBytes: 0 }],
     ['last bytes', { batchCount: 1, lastBytes: 13, peakBytes: 12, totalBytes: 13 }],
     ['peak bytes', { batchCount: 1, lastBytes: 12, peakBytes: 14, totalBytes: 13 }],
     ['empty aggregate', { batchCount: 0, lastBytes: 0, peakBytes: 1, totalBytes: 1 }],
@@ -138,6 +139,7 @@ describe('embedding telemetry store', () => {
       assertEmbeddingTelemetrySnapshot({
         ...createEmptyEmbeddingTelemetrySnapshot(),
         batchTransfer,
+        lastUpdatedAt: 1,
       })
     ).toThrow('Embedding telemetry batchTransfer');
   });
@@ -302,6 +304,40 @@ describe('embedding telemetry store', () => {
     );
   });
 
+  it('rejects WebGPU model estimates attributed to heap memory', () => {
+    expect(() =>
+      assertEmbeddingTelemetrySnapshot({
+        ...createEmptyEmbeddingTelemetrySnapshot(),
+        cache: {
+          entries: [
+            {
+              cacheKey: 'model-a|webgpu|fp16',
+              createdAt: 100,
+              device: 'webgpu',
+              dtype: 'fp16',
+              lastUsedAt: 200,
+              memory: {
+                gpuBytes: 0,
+                heapBytes: 1024,
+                reason: 'model-size-estimate',
+              },
+              model: 'model-a',
+              residencyMs: 100,
+              sourceId: 'worker-a',
+            },
+          ],
+          estimatedGpuBytes: 0,
+          estimatedHeapBytes: 1024,
+          memoryEstimateUnavailableCount: 0,
+          residentCount: 1,
+        },
+        lastUpdatedAt: 200,
+      })
+    ).toThrow(
+      'Embedding telemetry cache.entries[0].memory must attribute a WebGPU model-size estimate to GPU bytes.'
+    );
+  });
+
   it.each([
     [
       'a transferred batch',
@@ -462,6 +498,24 @@ describe('embedding telemetry store', () => {
         workerInstanceId: 'worker-a',
       })
     ).toThrow('Embedding telemetry cache hit must reference tracked resident cache state.');
+    expect(() =>
+      recordEmbeddingPipelineCacheTelemetry('worker-a', {
+        cacheSize: 1,
+        diagnostic: 'pipeline-cache',
+        emittedAt: 300,
+        entry: {
+          ...residentEntry,
+          memory: {
+            ...residentEntry.memory,
+            gpuBytes: 2048,
+          },
+        },
+        event: 'hit',
+        id: 'embed-2',
+        type: 'diagnostic',
+        workerInstanceId: 'worker-a',
+      })
+    ).toThrow('Embedding telemetry cache hit must preserve immutable resident cache identity.');
     expect(getEmbeddingTelemetrySnapshot().cache.entries).toEqual([
       expect.objectContaining({ cacheKey: residentEntry.cacheKey, sourceId: 'worker-a' }),
     ]);

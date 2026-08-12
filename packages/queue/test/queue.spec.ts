@@ -88,7 +88,7 @@ const workerpoolMocks = vi.hoisted(() => {
         device: 'webgpu',
         dtype: 'fp16',
         lastUsedAt: 100,
-        memory: { gpuBytes: 1024, heapBytes: null, reason: 'model-size-estimate' },
+        memory: { gpuBytes: 1024, heapBytes: 0, reason: 'model-size-estimate' },
         model: 'local:test',
         residencyMs: 50,
       },

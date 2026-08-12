@@ -973,9 +973,6 @@ async function loadPipeline(
         }
       );
     }
-    if (existing.estimatedModelBytes === null && estimatedModelBytes !== null) {
-      existing.estimatedModelBytes = estimatedModelBytes;
-    }
     existing.lastUsedAt = now();
     emitPipelineCacheDiagnostic({
       entry: existing,

@@ -29,13 +29,44 @@ const logger = createLogger('BrowserWorkerpoolAdapter');
 
 type WorkerEvent = QueueProgressEvent | QueueErrorEvent;
 
-function isWorkerEvent(value: unknown): value is WorkerEvent {
-  if (typeof value !== 'object' || value === null) {
-    return false;
+function readWorkerEvent(value: unknown): WorkerEvent | null {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    return null;
   }
   const record = value as Record<string, unknown>;
   const typeValue = record['type'];
-  return typeValue === 'progress' || typeValue === 'error';
+  if (typeValue === 'progress') {
+    if (
+      !(typeof record['id'] === 'string' && record['id'].length > 0) ||
+      (record['phase'] !== 'initializing' &&
+        record['phase'] !== 'embedding' &&
+        record['phase'] !== 'complete') ||
+      !(
+        typeof record['progress'] === 'number' &&
+        Number.isFinite(record['progress']) &&
+        record['progress'] >= 0 &&
+        record['progress'] <= 1
+      )
+    ) {
+      throw new Error('Embedding worker request progress event is malformed.');
+    }
+    return value as QueueProgressEvent;
+  }
+  if (typeValue === 'error') {
+    if (
+      !(
+        typeof record['id'] === 'string' &&
+        record['id'].length > 0 &&
+        typeof record['message'] === 'string' &&
+        record['message'].length > 0 &&
+        (record['cause'] === undefined || typeof record['cause'] === 'string')
+      )
+    ) {
+      throw new Error('Embedding worker request error event is malformed.');
+    }
+    return value as QueueErrorEvent;
+  }
+  return null;
 }
 
 function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDiagnostic | null {
@@ -43,7 +74,12 @@ function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDi
     return null;
   }
   const record = value as Record<string, unknown>;
-  if (!(record['diagnostic'] === 'pipeline-cache' && record['type'] === 'diagnostic')) {
+  const hasPipelineCacheDiagnostic = record['diagnostic'] === 'pipeline-cache';
+  const hasDiagnosticType = record['type'] === 'diagnostic';
+  if (hasPipelineCacheDiagnostic !== hasDiagnosticType) {
+    throw new Error('Embedding worker request event has invalid pipeline-cache discriminators.');
+  }
+  if (!hasPipelineCacheDiagnostic) {
     return null;
   }
   assertEmbedWorkerPipelineCacheDiagnostic(value);
@@ -447,10 +483,6 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     let cancelable: WorkerPoolPromise<QueueResult> | null = null;
     cancelable = pool.exec('runEmbedding', [request], {
       on: (event: unknown) => {
-        if (isWorkerEvent(event)) {
-          emitter.emit(event);
-          return;
-        }
         try {
           const diagnostic = readPipelineCacheDiagnostic(event);
           if (diagnostic) {
@@ -460,7 +492,14 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
               );
             }
             telemetrySource.current = recordPipelineCacheDiagnostic(diagnostic);
+            return;
           }
+          const workerEvent = readWorkerEvent(event);
+          if (workerEvent) {
+            emitter.emit(workerEvent);
+            return;
+          }
+          throw new Error('Embedding worker request emitted an unsupported event.');
         } catch (error) {
           telemetryError.current =
             error instanceof Error
