@@ -128,8 +128,8 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
       __capacityReproPressure?: {
         failure: string | null;
         inFlight: number;
-        lastEnqueueAt: number | null;
-        maxGapMs: number;
+        lastAcceptedEnqueueAt: number | null;
+        maxUnpressuredGapMs: number;
         stop: () => void;
       };
       electronAPI?: {
@@ -156,8 +156,8 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     const pressure = {
       failure: null as string | null,
       inFlight: 0,
-      lastEnqueueAt: null as number | null,
-      maxGapMs: 0,
+      lastAcceptedEnqueueAt: null as number | null,
+      maxUnpressuredGapMs: 0,
       stop: () => {
         running = false;
         if (pressureTimer !== null) {
@@ -169,13 +169,16 @@ async function startForegroundDatabasePressure(page: Page): Promise<number> {
     targetWindow.__capacityReproPressure = pressure;
     const enqueuePressureQuery = (): void => {
       const observedAt = performance.now();
-      if (pressure.lastEnqueueAt !== null) {
-        pressure.maxGapMs = Math.max(pressure.maxGapMs, observedAt - pressure.lastEnqueueAt);
+      if (pressure.inFlight === 0 && pressure.lastAcceptedEnqueueAt !== null) {
+        pressure.maxUnpressuredGapMs = Math.max(
+          pressure.maxUnpressuredGapMs,
+          observedAt - pressure.lastAcceptedEnqueueAt
+        );
       }
       if (pressure.inFlight >= maxInFlight) {
         return;
       }
-      pressure.lastEnqueueAt = observedAt;
+      pressure.lastAcceptedEnqueueAt = observedAt;
       pressure.inFlight += 1;
       void query('SELECT COUNT(*)::int AS count FROM file_chunks')
         .then(
@@ -218,8 +221,9 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
       window as Window & {
         __capacityReproPressure?: {
           failure: string | null;
-          lastEnqueueAt: number | null;
-          maxGapMs: number;
+          inFlight: number;
+          lastAcceptedEnqueueAt: number | null;
+          maxUnpressuredGapMs: number;
         };
       }
     ).__capacityReproPressure;
@@ -229,13 +233,15 @@ async function assertForegroundDatabasePressureHealthy(page: Page): Promise<void
     if (pressure.failure) {
       throw new Error(pressure.failure);
     }
-    if (pressure.lastEnqueueAt === null) {
+    if (pressure.lastAcceptedEnqueueAt === null) {
       throw new Error('Foreground database pressure did not enqueue a query.');
     }
-    const maxGapMs = Math.max(pressure.maxGapMs, performance.now() - pressure.lastEnqueueAt);
-    if (maxGapMs >= 75) {
+    const currentUnpressuredGapMs =
+      pressure.inFlight === 0 ? performance.now() - pressure.lastAcceptedEnqueueAt : 0;
+    const maxUnpressuredGapMs = Math.max(pressure.maxUnpressuredGapMs, currentUnpressuredGapMs);
+    if (maxUnpressuredGapMs >= 75) {
       throw new Error(
-        `Foreground database pressure enqueue gap reached ${maxGapMs.toFixed(1)}ms; the scheduler quiet window is 75ms.`
+        `Foreground database pressure had no outstanding query for ${maxUnpressuredGapMs.toFixed(1)}ms; the scheduler quiet window is 75ms.`
       );
     }
   });

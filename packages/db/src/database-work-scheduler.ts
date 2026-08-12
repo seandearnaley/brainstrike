@@ -464,7 +464,7 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
     );
   }
 
-  #nextDelayMs(): number {
+  #nextDelayMs(now = this.#now()): number {
     if (this.#running || !hasQueuedWork(this.#queues)) {
       return 0;
     }
@@ -473,7 +473,6 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
       return 0;
     }
 
-    const now = this.#now();
     if (this.#isBackgroundStarved(now)) {
       return 0;
     }
@@ -508,13 +507,13 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
         this.#queues.background.length > 0 &&
         hasForegroundOrNormalWork(this.#queues)
       ) {
-        this.#markBackgroundWaiting(this.#now());
+        this.#markBackgroundWaiting(now);
       }
 
       if (priority === 'background') {
-        const delayMs = this.#nextDelayMs();
+        const delayMs = this.#nextDelayMs(now);
         if (delayMs > 0) {
-          this.#markBackgroundWaiting(this.#now());
+          this.#markBackgroundWaiting(now);
           this.#emit();
           this.#scheduleDrain(delayMs);
           return null;
@@ -523,10 +522,11 @@ class DefaultDatabaseWorkScheduler implements DatabaseWorkScheduler {
 
       const task = this.#queues[priority].shift();
       if (task) {
-        return this.#startTask(task, this.#now());
+        return this.#startTask(task, now);
       }
     }
 
+    this.#backgroundYieldRequiresForegroundTurn = false;
     if (this.#backgroundWaitingSince !== null) {
       this.#clearBackgroundWaiting();
     }
