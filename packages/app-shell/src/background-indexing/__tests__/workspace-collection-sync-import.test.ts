@@ -15,6 +15,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import { buildRootFolderCacheIdentityKey } from '../root-folder-cache-reconciliation';
 import {
+  ChunkingRedispatchTracker,
   collectPreparedChangesInBatches,
   flattenFileNodes,
   type PreparedCacheChange,
@@ -513,6 +514,65 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
         relativePath: 'unchunked.ts',
       }),
     ]);
+  });
+
+  it('caps hash-unchanged chunking redispatches and returns a terminal visible error', async () => {
+    const { processor } = createRecordingProcessor();
+    const tracker = new ChunkingRedispatchTracker(2);
+    const contentHash = await hashForRecordedContent('missing-row.ts');
+    const collect = async (chunksProcessedAt: string | null) =>
+      await collectPreparedChangesInBatches({
+        abortSignal: new AbortController().signal,
+        chunkingRedispatchTracker: tracker,
+        existingEntries: [
+          existingEntry('missing-row.ts', {
+            chunksProcessedAt,
+            contentHash,
+            mtimeMs: 1000,
+            size: 42,
+          }),
+        ],
+        fileContentProcessor: processor,
+        fileNodes: [makeFileNode('missing-row.ts', 42, 1000)],
+        fileSystemAdapter: {} as FileSystemAdapter,
+        onCurrentFile: () => {},
+        qosPolicy: {
+          allowNewWork: true,
+          contentReadBatchSize: 10,
+          contentReadConcurrency: 1,
+          importBatchSize: 10,
+        },
+        rootId: ROOT,
+        rootPath: ROOT,
+      });
+
+    expect((await collect(null)).changes).toHaveLength(1);
+    expect((await collect(null)).changes).toHaveLength(1);
+
+    const exhausted = await collect(null);
+    expect(exhausted.changes).toEqual([]);
+    expect(exhausted.terminalChunkingErrors).toEqual([
+      expect.objectContaining({
+        attempts: 2,
+        fileRecordId: 'rec-missing-row.ts',
+        message: expect.stringContaining('stopped re-dispatching "missing-row.ts" after 2'),
+        relativePath: 'missing-row.ts',
+      }),
+    ]);
+
+    expect((await collect('2026-08-11T00:00:00.000Z')).terminalChunkingErrors).toEqual([]);
+    expect((await collect(null)).changes).toHaveLength(1);
+  });
+
+  it.each([
+    0,
+    -1,
+    1.5,
+    Number.POSITIVE_INFINITY,
+  ])('rejects invalid chunking redispatch attempt cap %s', (attemptCap) => {
+    expect(() => new ChunkingRedispatchTracker(attemptCap)).toThrow(
+      'attempt cap must be a positive integer'
+    );
   });
 
   it('emits stat refreshes for hash-unchanged files whose stored stats are missing or stale', async () => {

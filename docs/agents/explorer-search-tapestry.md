@@ -294,6 +294,16 @@ there rather than hiding entries after the adapter has already read them.
   order. Do not replace it with recursion or array spreading: the paired tests
   require 100,000 levels of nesting and 100,000 files in one directory to
   flatten without call-stack or function-argument overflow.
+- **Chunking re-dispatch is bounded per service session (BST-1229).** A
+  hash-unchanged managed-cache row with no `chunks_processed_at` stamp may be
+  re-dispatched at most three times. The service-owned in-memory tracker keys
+  that budget by durable root/path plus file-record id and content hash; a
+  completed stamp, new record, or changed content resets it. Exhaustion removes
+  that row from later import batches, logs one explicit terminal diagnostic per
+  scan, and puts Workspace Index in its visible `error` state with the file path
+  and recovery instruction. Never replace this with an unbounded retry or a
+  quiet skip. This is intentionally not persistent sync state: restarting the
+  renderer grants a fresh bounded budget.
 
 The policy test owns the preset contract. The parallel-directory-walker test
 must also prove excluded directories are rejected before `readDirectory` is
