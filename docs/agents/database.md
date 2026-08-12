@@ -158,8 +158,9 @@ uuidv7-groundwork carve-out does not apply.
 days are pruned by the existing scheduled-database-maintenance mechanism —
 `runScheduledDatabaseMaintenance` in
 `packages/db/src/services/scheduled-database-maintenance.ts`, the same
-idle-triggered pass that runs the #1716 `ANALYZE`/`VACUUM` sweep for
-`file_chunks`/`file_records`/`embedding_cache` and the terminal-job prune. No
+idle-triggered pass that runs the #1716 plain `ANALYZE` sweep for
+`file_records`/`embedding_cache`, the `VACUUM (ANALYZE)` sweep that includes
+`file_chunks`, and the terminal-job prune. No
 new scheduler or timer was added, but retention did require one small
 migration:
 - `DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS` (60 days) is
@@ -595,12 +596,17 @@ queued or running jobs before admitting heavyweight maintenance.
 
 `file_chunks` and `job_queue` are both members of
 `DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES`; `VACUUM (ANALYZE)` reclaims their
-dead tuples and refreshes planner statistics in one idle pass. Do not also list
-`file_chunks` in the default plain-ANALYZE set. `file_chunks` is ordered last so
-a timeout or vacuum failure on the largest table cannot prevent the smaller
-retention-ledger vacuums from running first. Failed or interrupted backfills
-leave maintenance to the same scheduled pass; index recovery is independent of
-heap reclamation and must not reacquire the host for an inline vacuum.
+dead tuples and refreshes planner statistics in one idle pass. Plain `ANALYZE`
+runs before the VACUUM set so a slow or failing `file_chunks` vacuum cannot
+starve the cheap `file_records` and `embedding_cache` statistics refreshes. Do
+not also list `file_chunks` in the default plain-ANALYZE set. `file_chunks` is
+ordered last so a timeout or vacuum failure on the largest table cannot prevent
+the smaller retention-ledger vacuums from running first. Every maintenance
+statement taking at least one second emits a warning containing the exact SQL
+statement and duration, preserving one-glance attribution for single-host
+stalls. Failed or interrupted backfills leave maintenance to the same scheduled
+pass; index recovery is independent of heap reclamation and must not reacquire
+the host for an inline vacuum.
 
 ---
 

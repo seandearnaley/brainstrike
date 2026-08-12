@@ -11,7 +11,7 @@ import {
 
 const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   activeJobs: 0,
-  analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
+  analyzedTables: ['file_records', 'embedding_cache'],
   completedAt: '2026-05-01T12:00:00.100Z',
   durationMs: 100,
   prunedTerminalJobs: 2,
@@ -23,6 +23,7 @@ const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
     'job_queue',
     'brainstrike_tool_call_telemetry',
     'brainstrike_token_estimate_calibration',
+    'file_chunks',
   ],
 };
 
@@ -107,7 +108,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
     expect(runMaintenance).toHaveBeenCalledWith(db, expect.any(Object));
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
-        analyzedTables: ['file_chunks', 'file_records', 'embedding_cache'],
+        analyzedTables: ['file_records', 'embedding_cache'],
         prunedTerminalJobs: 2,
         prunedTokenEstimateCalibrationRows: 3,
         prunedToolCallTelemetryRows: 7,
@@ -115,6 +116,7 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
           'job_queue',
           'brainstrike_tool_call_telemetry',
           'brainstrike_token_estimate_calibration',
+          'file_chunks',
         ],
       }),
       'Scheduled database maintenance completed'

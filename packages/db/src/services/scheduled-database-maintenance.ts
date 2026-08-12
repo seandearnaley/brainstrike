@@ -1,4 +1,7 @@
+import { createLogger } from '@brainstrike/logging';
 import { buildPruneJobsStatement, type JobState } from '../queue/job-queue.js';
+
+const logger = createLogger('ScheduledDatabaseMaintenance');
 
 export const DEFAULT_DATABASE_MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
 export const DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS = 60 * 60 * 1000;
@@ -30,6 +33,7 @@ export const DEFAULT_DATABASE_MAINTENANCE_ANALYZE_TABLES = [
   'embedding_cache',
 ] as const;
 export const DEFAULT_DATABASE_MAINTENANCE_ACTIVE_PRUNE_LIMIT = 5000;
+export const DEFAULT_DATABASE_MAINTENANCE_SLOW_STATEMENT_MS = 1000;
 // BST-1198: brainstrike_tool_call_telemetry (migration 083) grows one row per
 // tool call with no other retention path. 60 days comfortably covers the
 // bounded before/after baseline windows the table exists for (BASELINE.md)
@@ -341,12 +345,23 @@ async function runMaintenanceStatement(
   db: ScheduledDatabaseMaintenanceDb,
   sql: string
 ): Promise<void> {
-  if (typeof db.maintenance?.exec === 'function') {
-    await db.maintenance.exec(sql);
-  } else if (typeof db.exec === 'function') {
-    await db.exec(sql);
-  } else {
-    await db.query(sql);
+  const startedAt = Date.now();
+  try {
+    if (typeof db.maintenance?.exec === 'function') {
+      await db.maintenance.exec(sql);
+    } else if (typeof db.exec === 'function') {
+      await db.exec(sql);
+    } else {
+      await db.query(sql);
+    }
+  } finally {
+    const durationMs = Math.max(0, Date.now() - startedAt);
+    if (durationMs >= DEFAULT_DATABASE_MAINTENANCE_SLOW_STATEMENT_MS) {
+      logger.warn('Slow scheduled database maintenance statement', {
+        durationMs,
+        statement: sql,
+      });
+    }
   }
 }
 
@@ -458,16 +473,17 @@ export async function runScheduledDatabaseMaintenance(
   // 2. There is a genuine data dependency: VACUUM (ANALYZE) on job_queue and
   //    both telemetry tables must observe the dead tuples their prune calls
   //    just created in THOSE SAME tables to reclaim them. Racing a prune and
-  //    its own table's VACUUM
-  //    via Promise.all would be a correctness regression, not just a missed
-  //    optimization — VACUUM/ANALYZE also cannot be wrapped in a normal
-  //    transaction. If VACUUM or ANALYZE fails after pruning, the next idle
-  //    maintenance pass retries them; deleted terminal rows stay deleted.
+  //    its own table's VACUUM via Promise.all would be a correctness regression,
+  //    not just a missed optimization — VACUUM/ANALYZE also cannot be wrapped
+  //    in a normal transaction. The unrelated plain-ANALYZE set runs first so
+  //    a slow or failing file_chunks vacuum cannot starve those cheap planner
+  //    statistics. If either phase fails after pruning, the next idle pass
+  //    retries it; deleted terminal rows stay deleted.
   const prunedTerminalJobs = await pruneTerminalJobs(db, olderThanIso);
   const { prunedTokenEstimateCalibrationRows, prunedToolCallTelemetryRows } =
     await pruneOccurredAtRetentionTables(db, occurredAtRetentionMs, startedAtMs);
-  const vacuumedTables = await vacuumTables(db, vacuumTableNames);
   const analyzedTables = await analyzeTables(db, analyzeTableNames);
+  const vacuumedTables = await vacuumTables(db, vacuumTableNames);
   const completedAtDate = resolveNow(options);
 
   return {

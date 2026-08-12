@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { coerceLensValues, parseLensFile } from '@brainstrike/assistant-contract';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
@@ -230,12 +231,12 @@ describe('scheduled database maintenance', () => {
     );
 
     expect(statements).toEqual([
+      'ANALYZE file_records',
+      'ANALYZE embedding_cache',
       'VACUUM (ANALYZE) job_queue',
       'VACUUM (ANALYZE) brainstrike_tool_call_telemetry',
       'VACUUM (ANALYZE) brainstrike_token_estimate_calibration',
       'VACUUM (ANALYZE) file_chunks',
-      'ANALYZE file_records',
-      'ANALYZE embedding_cache',
     ]);
     expect(result).toMatchObject({
       analyzedTables: ['file_records', 'embedding_cache'],
@@ -246,6 +247,52 @@ describe('scheduled database maintenance', () => {
         'brainstrike_token_estimate_calibration',
         'file_chunks',
       ],
+    });
+  });
+
+  it('warns with per-statement attribution when maintenance exceeds one second', async () => {
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (record.scope === 'ScheduledDatabaseMaintenance') {
+        records.push(record);
+      }
+    });
+    const dateNow = vi
+      .spyOn(Date, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(1501)
+      .mockReturnValueOnce(1501)
+      .mockReturnValueOnce(1502)
+      .mockReturnValue(1502);
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes('GROUP BY state')) {
+        return { rows: [] };
+      }
+      return { rows: [{ count: '0' }] };
+    });
+    const exec = vi.fn(async () => []);
+
+    try {
+      await runScheduledDatabaseMaintenance(
+        { exec, query },
+        {
+          analyzeTables: ['file_records'],
+          now: () => new Date(NOW_ISO),
+          vacuumTables: ['job_queue'],
+        }
+      );
+    } finally {
+      dateNow.mockRestore();
+      unsubscribe();
+    }
+
+    const warning = records.find(
+      (record) => record.message === 'Slow scheduled database maintenance statement'
+    );
+    expect(warning?.level).toBe('warn');
+    expect(warning?.args).toContainEqual({
+      durationMs: 1501,
+      statement: 'ANALYZE file_records',
     });
   });
 
@@ -305,9 +352,8 @@ describe('scheduled database maintenance', () => {
         }
       )
     ).rejects.toThrow('analyze exploded');
-    expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) job_queue');
-    expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) brainstrike_tool_call_telemetry');
-    expect(exec).toHaveBeenCalledWith('VACUUM (ANALYZE) brainstrike_token_estimate_calibration');
+    expect(exec).toHaveBeenCalledOnce();
+    expect(exec).toHaveBeenCalledWith('ANALYZE file_records');
   });
 
   it('routes VACUUM/ANALYZE through the maintenance exec channel when available', async () => {
