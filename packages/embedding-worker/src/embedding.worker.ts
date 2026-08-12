@@ -113,6 +113,12 @@ let activeWorkerpoolRequestId: string | null = null;
 // It cannot be tested in Node.js. Coverage is excluded via c8 ignore.
 /* c8 ignore next 36 -- Worker globals only exist in browser Web Worker context */
 if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
+  const terminateAfterGlobalFailure = (): void => {
+    if (typeof self.close === 'function') {
+      self.close();
+    }
+  };
+
   // Global error handler to catch any uncaught errors in the worker
   self.onerror = (event) => {
     const message = typeof event === 'string' ? event : (event as ErrorEvent).message;
@@ -125,6 +131,7 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
       message: `Worker uncaught error: ${message}`,
       type: 'error',
     });
+    terminateAfterGlobalFailure();
   };
 
   // Catch unhandled promise rejections
@@ -139,6 +146,7 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
       message: `Worker unhandled rejection: ${message}`,
       type: 'error',
     });
+    terminateAfterGlobalFailure();
   };
 
   // Log worker initialization at debug level (removed - too verbose)

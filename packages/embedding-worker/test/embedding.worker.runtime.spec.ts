@@ -233,7 +233,9 @@ describe('embedding worker runtime', () => {
     });
 
     it('scopes global failures to the active workerpool request', async () => {
+      const close = vi.fn();
       const mockSelf = {
+        close,
         onerror: null as ((event: ErrorEvent | string) => void) | null,
         onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
       };
@@ -264,6 +266,7 @@ describe('embedding worker runtime', () => {
         message: 'Worker uncaught error: active request failed globally',
         type: 'error',
       });
+      expect(close).toHaveBeenCalledTimes(1);
       mockSelf.onunhandledrejection?.({
         reason: new Error('active request rejected globally'),
       } as PromiseRejectionEvent);
@@ -274,6 +277,7 @@ describe('embedding worker runtime', () => {
           type: 'error',
         })
       );
+      expect(close).toHaveBeenCalledTimes(2);
       resolveInference(new Float32Array([1, 0, 0]));
       await embeddingPromise;
     });
