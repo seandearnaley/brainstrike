@@ -855,6 +855,10 @@ describe('embedding-backfill', () => {
           queryOrder.push('resume-index');
           return { rows: [] };
         }
+        if (sql.includes('INSERT INTO embedding_dimension_index_maintenance')) {
+          queryOrder.push('request-maintenance');
+          return { rows: [] };
+        }
         if (sql.startsWith('VACUUM')) {
           return { rows: [] };
         }
@@ -946,6 +950,10 @@ describe('embedding-backfill', () => {
           queryOrder.push('resume-index');
           return { rows: [] };
         }
+        if (sql.includes('INSERT INTO embedding_dimension_index_maintenance')) {
+          queryOrder.push('request-maintenance');
+          return { rows: [] };
+        }
         if (sql.startsWith('VACUUM')) {
           queryOrder.push(sql.includes('file_chunks') ? 'vacuum-chunks' : 'vacuum-jobs');
           return { rows: [] };
@@ -975,6 +983,7 @@ describe('embedding-backfill', () => {
             throw new Error(EMBEDDING_BACKFILL_CANCELED_MESSAGE);
           },
           backlogPollMs: 1,
+          dimensionIndexMaintenanceStrategy: 'regular',
           drainTimeoutMs: 10,
           maxQueueDepth: 64,
           rebuildDimensionIndexOnCompletion: false,
@@ -985,11 +994,11 @@ describe('embedding-backfill', () => {
     const pendingChecksBeforeDrain = queryOrder.filter((event) => event === 'pending').length;
     pendingJobs = 0;
     await vi.waitFor(() => {
-      expect(queryOrder.filter((event) => event === 'pending')).toHaveLength(
-        pendingChecksBeforeDrain + 1
-      );
+      expect(queryOrder).toContain('request-maintenance');
     });
-    expect(queryOrder).not.toContain('request-maintenance');
+    expect(queryOrder.filter((event) => event === 'pending')).toHaveLength(
+      pendingChecksBeforeDrain + 1
+    );
     expect(queryOrder).not.toContain('vacuum-chunks');
     expect(queryOrder).not.toContain('vacuum-jobs');
     expect(queryOrder).not.toContain('rebuild-index');

@@ -596,7 +596,9 @@ queued or running jobs before admitting heavyweight maintenance.
 `file_chunks` and `job_queue` are both members of
 `DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES`; `VACUUM (ANALYZE)` reclaims their
 dead tuples and refreshes planner statistics in one idle pass. Do not also list
-`file_chunks` in the default plain-ANALYZE set. Failed or interrupted backfills
+`file_chunks` in the default plain-ANALYZE set. `file_chunks` is ordered last so
+a timeout or vacuum failure on the largest table cannot prevent the smaller
+retention-ledger vacuums from running first. Failed or interrupted backfills
 leave maintenance to the same scheduled pass; index recovery is independent of
 heap reclamation and must not reacquire the host for an inline vacuum.
 

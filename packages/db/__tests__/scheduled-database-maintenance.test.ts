@@ -196,9 +196,9 @@ describe('scheduled database maintenance', () => {
       status: 'completed',
       vacuumedTables: [
         'job_queue',
-        'file_chunks',
         'brainstrike_tool_call_telemetry',
         'brainstrike_token_estimate_calibration',
+        'file_chunks',
       ],
     });
     expect(await countJobs(db)).toBe(1);
@@ -231,9 +231,9 @@ describe('scheduled database maintenance', () => {
 
     expect(statements).toEqual([
       'VACUUM (ANALYZE) job_queue',
-      'VACUUM (ANALYZE) file_chunks',
       'VACUUM (ANALYZE) brainstrike_tool_call_telemetry',
       'VACUUM (ANALYZE) brainstrike_token_estimate_calibration',
+      'VACUUM (ANALYZE) file_chunks',
       'ANALYZE file_records',
       'ANALYZE embedding_cache',
     ]);
@@ -242,9 +242,9 @@ describe('scheduled database maintenance', () => {
       status: 'completed',
       vacuumedTables: [
         'job_queue',
-        'file_chunks',
         'brainstrike_tool_call_telemetry',
         'brainstrike_token_estimate_calibration',
+        'file_chunks',
       ],
     });
   });
@@ -344,9 +344,9 @@ describe('scheduled database maintenance', () => {
     expect(exec).not.toHaveBeenCalled();
     expect(result.vacuumedTables).toEqual([
       'job_queue',
-      'file_chunks',
       'brainstrike_tool_call_telemetry',
       'brainstrike_token_estimate_calibration',
+      'file_chunks',
     ]);
     expect(result.analyzedTables).toEqual(['file_records', 'embedding_cache']);
   });

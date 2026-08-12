@@ -11,12 +11,13 @@ export const DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS = 60 * 60 * 
 // planner previously never got.
 export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = [
   'job_queue',
+  'brainstrike_tool_call_telemetry',
+  'brainstrike_token_estimate_calibration',
   // Embedding backfills create large numbers of dead file_chunks tuples.
   // Reclaim them here, after the desktop idle/busy gates, rather than inline
   // with backfill completion where a long PGlite VACUUM blocks every query.
+  // Ordered last because a vacuum failure aborts the remainder of the pass.
   'file_chunks',
-  'brainstrike_tool_call_telemetry',
-  'brainstrike_token_estimate_calibration',
 ] as const;
 // PGlite runs a single standalone backend with no autovacuum launcher, so
 // column statistics are never collected unless maintenance runs ANALYZE
