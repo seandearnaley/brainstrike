@@ -19,6 +19,11 @@ export type SecureReadResult =
 
 export class SecureRoot {
   constructor(canonicalAbsoluteRoot: string);
+  /**
+   * Canonical identity derived from the opened root handle (F_GETPATH /
+   * /proc/self/fd / GetFinalPathNameByHandle) — never from a pre-open
+   * path lookup. Fixed at construction.
+   */
   readonly canonicalPath: string;
   close(): void;
   listDir(relativePath: string, maxEntries: number): SecureListResult | null;

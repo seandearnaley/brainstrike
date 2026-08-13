@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <climits>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -229,71 +230,52 @@ NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name
   return result;
 }
 
-bool ParseWindowsAbsoluteRoot(const std::wstring& input, std::wstring* prefix,
-                              std::vector<std::wstring>* components) {
-  std::wstring path = input;
-  std::replace(path.begin(), path.end(), L'/', L'\\');
-  size_t cursor = 0;
-  if (path.rfind(L"\\\\?\\UNC\\", 0) == 0 || path.rfind(L"\\\\", 0) == 0) {
-    cursor = path.rfind(L"\\\\?\\UNC\\", 0) == 0 ? 8 : 2;
-    const size_t server_end = path.find(L'\\', cursor);
-    const size_t share_end = server_end == std::wstring::npos
-                                 ? std::wstring::npos
-                                 : path.find(L'\\', server_end + 1);
-    if (server_end == std::wstring::npos) {
-      return false;
-    }
-    const size_t root_end = share_end == std::wstring::npos ? path.size() : share_end + 1;
-    *prefix = path.substr(0, root_end);
-    cursor = root_end;
-  } else {
-    const size_t drive_offset = path.rfind(L"\\\\?\\", 0) == 0 ? 4 : 0;
-    if (path.size() < drive_offset + 3 || path[drive_offset + 1] != L':' ||
-        path[drive_offset + 2] != L'\\') {
-      return false;
-    }
-    cursor = drive_offset + 3;
-    *prefix = path.substr(0, cursor);
-  }
-
-  std::wstring current;
-  for (; cursor <= path.size(); ++cursor) {
-    if (cursor == path.size() || path[cursor] == L'\\') {
-      if (!current.empty()) {
-        components->push_back(current);
-        current.clear();
-      }
-      continue;
-    }
-    current.push_back(path[cursor]);
-  }
-  return true;
-}
-
 NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path) {
   const std::wstring path = Utf8ToWide(utf8_path);
-  std::wstring prefix;
-  std::vector<std::wstring> components;
-  if (path.empty() || !ParseWindowsAbsoluteRoot(path, &prefix, &components)) {
+  if (path.empty()) {
     return kInvalidHandle;
   }
-  NativeHandle current = CreateFileW(
-      prefix.c_str(), FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+  const NativeHandle handle = CreateFileW(
+      path.c_str(),
+      FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-  if (current == kInvalidHandle || IsReparsePoint(current)) {
-    CloseNativeHandle(current);
+      FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+  if (handle == kInvalidHandle) {
     return kInvalidHandle;
   }
-  for (const auto& component : components) {
-    NativeHandle next = OpenRelativeComponent(current, component, true);
-    CloseNativeHandle(current);
-    if (next == kInvalidHandle) {
-      return kInvalidHandle;
-    }
-    current = next;
+  // Without FILE_FLAG_OPEN_REPARSE_POINT the open resolved any reparse points;
+  // the final object must be a plain directory.
+  FILE_BASIC_INFO info{};
+  if (!GetFileInformationByHandleEx(handle, FileBasicInfo, &info, sizeof(info)) ||
+      (info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+      (info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+    CloseNativeHandle(handle);
+    return kInvalidHandle;
   }
-  return current;
+  return handle;
+}
+
+std::string DeriveCanonicalPath(NativeHandle handle) {
+  std::wstring buffer(512, L'\0');
+  for (;;) {
+    const DWORD length = GetFinalPathNameByHandleW(
+        handle, buffer.data(), static_cast<DWORD>(buffer.size()),
+        FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (length == 0) {
+      return {};
+    }
+    if (length < buffer.size()) {
+      buffer.resize(length);
+      break;
+    }
+    buffer.resize(static_cast<size_t>(length) + 1);
+  }
+  if (buffer.rfind(L"\\\\?\\UNC\\", 0) == 0) {
+    buffer = L"\\\\" + buffer.substr(8);
+  } else if (buffer.rfind(L"\\\\?\\", 0) == 0) {
+    buffer = buffer.substr(4);
+  }
+  return WideToUtf8(buffer.data(), buffer.size());
 }
 
 NativeHandle OpenRelativeDirectory(NativeHandle root,
@@ -455,29 +437,40 @@ void CloseNativeHandle(NativeHandle handle) {
 }
 
 NativeHandle OpenAbsoluteDirectory(const std::string& path) {
-  if (path.empty() || path.front() != '/') {
+  if (path.empty() || path.front() != '/' || path.find('\0') != std::string::npos) {
     return kInvalidHandle;
   }
-  bool valid = false;
-  const auto components = SplitRelativePath(path.substr(1), &valid);
-  if (!valid) {
-    return kInvalidHandle;
-  }
-  NativeHandle current = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if (current == kInvalidHandle) {
-    return kInvalidHandle;
-  }
-  for (const auto& component : components) {
-    const NativeHandle next =
-        openat(current, component.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-    CloseNativeHandle(current);
-    if (next == kInvalidHandle) {
-      return kInvalidHandle;
-    }
-    current = next;
-  }
-  return current;
+  // Root establishment follows symlinks by design: the path comes from the
+  // trusted folder picker or persisted store, never from repository content.
+  // Descendant resolution below this handle remains strictly no-follow.
+  return open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 }
+
+#ifdef __APPLE__
+std::string DeriveCanonicalPath(NativeHandle handle) {
+  char buffer[PATH_MAX];
+  if (fcntl(handle, F_GETPATH, buffer) == -1) {
+    return {};
+  }
+  return std::string(buffer);
+}
+#else
+std::string DeriveCanonicalPath(NativeHandle handle) {
+  const std::string link = "/proc/self/fd/" + std::to_string(handle);
+  std::string buffer(512, '\0');
+  for (;;) {
+    const ssize_t length = readlink(link.c_str(), buffer.data(), buffer.size());
+    if (length < 0) {
+      return {};
+    }
+    if (static_cast<size_t>(length) < buffer.size()) {
+      buffer.resize(static_cast<size_t>(length));
+      return buffer;
+    }
+    buffer.resize(buffer.size() * 2);
+  }
+}
+#endif
 
 NativeHandle OpenRelativeDirectory(NativeHandle root,
                                    const std::vector<std::string>& components,
@@ -750,7 +743,8 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
         {InstanceMethod("close", &SecureRoot::Close), InstanceMethod("listDir", &SecureRoot::ListDir),
          InstanceMethod("listDirAsync", &SecureRoot::ListDirAsync),
          InstanceMethod("readFile", &SecureRoot::ReadFile),
-         InstanceMethod("readFileAsync", &SecureRoot::ReadFileAsync)});
+         InstanceMethod("readFileAsync", &SecureRoot::ReadFileAsync),
+         InstanceMethod("canonicalPath", &SecureRoot::CanonicalPath)});
     exports.Set("SecureRoot", constructor);
     return exports;
   }
@@ -767,12 +761,24 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
           .ThrowAsJavaScriptException();
       return;
     }
+    canonical_path_ = DeriveCanonicalPath(root);
+    if (canonical_path_.empty()) {
+      CloseNativeHandle(root);
+      Napi::Error::New(info.Env(),
+                       "Failed to derive canonical identity from the opened root handle")
+          .ThrowAsJavaScriptException();
+      return;
+    }
     state_ = std::make_shared<RootState>(root);
   }
 
   ~SecureRoot() override = default;
 
  private:
+  Napi::Value CanonicalPath(const Napi::CallbackInfo& info) {
+    return Napi::String::New(info.Env(), canonical_path_);
+  }
+
   Napi::Value Close(const Napi::CallbackInfo& info) {
     if (state_) {
       state_->Close();
@@ -872,6 +878,7 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
   }
 
   std::shared_ptr<RootState> state_;
+  std::string canonical_path_;
 };
 
 Napi::Object InitModule(Napi::Env env, Napi::Object exports) {

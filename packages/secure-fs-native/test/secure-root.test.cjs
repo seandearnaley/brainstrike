@@ -17,11 +17,16 @@ const { afterEach, test } = require('node:test');
 const { SecureRoot } = require('..');
 
 let tempRoot;
+let cleanupPaths = [];
 afterEach(() => {
   if (tempRoot) {
     rmSync(tempRoot, { force: true, recursive: true });
     tempRoot = undefined;
   }
+  for (const cleanupPath of cleanupPaths) {
+    rmSync(cleanupPath, { force: true, recursive: true });
+  }
+  cleanupPaths = [];
 });
 
 function fixture() {
@@ -263,6 +268,24 @@ test('rejects non-finite and fractional bounds without entering native I/O', asy
     assert.deepEqual(await root.readFileAsync('.brainstrike/commands/review.md', Number.NaN), {
       status: 'unreadable',
     });
+  } finally {
+    root.close();
+  }
+});
+
+test('derives canonical identity from the opened handle for a symlinked root path', () => {
+  const { workspace } = fixture();
+  const alias = path.join(tmpdir(), `bst-secure-root-alias-${process.pid}-${Date.now()}`);
+  symlinkSync(workspace, alias, 'dir');
+  cleanupPaths.push(alias);
+  const root = new SecureRoot(alias);
+  try {
+    // Identity must come from the pinned handle: the symlink alias resolves
+    // to the workspace's canonical path, not to the alias string.
+    assert.equal(root.canonicalPath, realpathSync.native(workspace));
+    const listing = root.listDir('.', 100);
+    assert.ok(listing);
+    assert.ok(listing.entries.some((entry) => entry.name === '.brainstrike'));
   } finally {
     root.close();
   }
