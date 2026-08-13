@@ -16,7 +16,7 @@ worker.postMessage({ logPath: null, type: 'config' });
 await new Promise((resolve) => setTimeout(resolve, 50));
 
 const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
-Atomics.wait(waitBuffer, 0, 0, 350);
+Atomics.wait(waitBuffer, 0, 0, 750);
 fs.writeSync(2, 'PARENT_MAIN_THREAD_UNBLOCKED\n');
 
 await new Promise((resolve) => setTimeout(resolve, 100));

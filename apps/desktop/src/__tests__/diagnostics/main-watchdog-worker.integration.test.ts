@@ -11,6 +11,8 @@ import { describe, expect, it } from 'vitest';
 const execFileAsync = promisify(execFile);
 
 const PRODUCTION_CHECK_INTERVAL = 'export const MAIN_WATCHDOG_CHECK_INTERVAL_MS = 5000;';
+const PRODUCTION_CHECK_DISCONTINUITY =
+  'export const MAIN_WATCHDOG_CHECK_DISCONTINUITY_MS = MAIN_WATCHDOG_CHECK_INTERVAL_MS * 2;';
 const PRODUCTION_FROZEN_THRESHOLD = 'export const MAIN_WATCHDOG_FROZEN_THRESHOLD_MS = 20_000;';
 
 async function buildAcceleratedWatchdogWorker(outputPath: string): Promise<void> {
@@ -36,6 +38,7 @@ async function buildAcceleratedWatchdogWorker(outputPath: string): Promise<void>
             if (
               !(
                 productionSource.includes(PRODUCTION_CHECK_INTERVAL) &&
+                productionSource.includes(PRODUCTION_CHECK_DISCONTINUITY) &&
                 productionSource.includes(PRODUCTION_FROZEN_THRESHOLD)
               )
             ) {
@@ -49,6 +52,10 @@ async function buildAcceleratedWatchdogWorker(outputPath: string): Promise<void>
                 .replace(
                   PRODUCTION_CHECK_INTERVAL,
                   'export const MAIN_WATCHDOG_CHECK_INTERVAL_MS = 25;'
+                )
+                .replace(
+                  PRODUCTION_CHECK_DISCONTINUITY,
+                  'export const MAIN_WATCHDOG_CHECK_DISCONTINUITY_MS = 2_000;'
                 )
                 .replace(
                   PRODUCTION_FROZEN_THRESHOLD,
