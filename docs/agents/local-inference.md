@@ -41,7 +41,8 @@ Flow:
    - Does NOT run embeddings in-process.
    - Owns host-window lifecycle, IPC, DB init, and power lifecycle.
    - Visible window uses default background throttling; only the hidden host disables throttling.
-   - `powerSaveBlocker` is allowed only while the hidden host reports active embedding work.
+   - On macOS, `powerSaveBlocker` is allowed only while the hidden host reports active embedding
+     work. Non-Darwin platforms never start one.
 4. Job Queue
    - File: packages/db/src/queue/job-queue.ts
    - Backed by job_queue table.
