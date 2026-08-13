@@ -47,7 +47,7 @@ export interface EmbeddingHostManagerOptions {
 export class EmbeddingHostManager {
   private disposed = false;
   private readonly lifecycle: RendererHostLifecycle<EmbeddingHostStatus>;
-  private readonly powerSaveBlockerSupported: boolean;
+  private readonly powerSaveBlockerEnabled: boolean;
   private pendingInactiveStatusTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingInactiveStatusReport: EmbeddingHostStatusReport | null = null;
   private powerSaveBlockerId: number | null = null;
@@ -56,7 +56,7 @@ export class EmbeddingHostManager {
   private readonly pendingQueryEmbeddingRequests = new Map<string, PendingQueryEmbeddingRequest>();
 
   constructor(options: EmbeddingHostManagerOptions = {}) {
-    this.powerSaveBlockerSupported = (options.platform ?? process.platform) === 'darwin';
+    this.powerSaveBlockerEnabled = (options.platform ?? process.platform) === 'darwin';
     this.lifecycle = new RendererHostLifecycle<EmbeddingHostStatus>({
       createStatus: EMBEDDING_HOST_STATUS_ADAPTER.createStatus,
       createStoppedStatus: createStoppedEmbeddingHostStatus,
@@ -398,7 +398,7 @@ export class EmbeddingHostManager {
   }
 
   private syncPowerSaveBlocker(status: EmbeddingHostStatus): void {
-    if (!this.powerSaveBlockerSupported) {
+    if (!this.powerSaveBlockerEnabled) {
       return;
     }
 

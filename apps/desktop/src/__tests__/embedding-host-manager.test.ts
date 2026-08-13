@@ -170,6 +170,21 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(powerSaveBlockerStopMock).not.toHaveBeenCalled();
   });
 
+  it('defaults the blocker policy to the current process platform', () => {
+    const defaultManager = new EmbeddingHostManager() as unknown as TestableEmbeddingHostManager;
+    defaultManager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+    const defaultStartCount = powerSaveBlockerStartMock.mock.calls.length;
+
+    powerSaveBlockerStartMock.mockClear();
+
+    const explicitManager = new EmbeddingHostManager({
+      platform: process.platform,
+    }) as unknown as TestableEmbeddingHostManager;
+    explicitManager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+
+    expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(defaultStartCount);
+  });
+
   it('clears a stale id and can start a fresh blocker after stop throws on a dead blocker', async () => {
     const { addLogListener, LogLevel, setLogLevel } = await import('@brainstrike/logging');
     setLogLevel(LogLevel.WARN);
