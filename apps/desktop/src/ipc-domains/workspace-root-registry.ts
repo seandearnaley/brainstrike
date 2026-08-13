@@ -263,12 +263,19 @@ export class WorkspaceRootRegistry {
   addRoot(handle: DirectoryHandle): Promise<RootDescriptor> {
     return this.serializeMutation(async () => {
       const presentationPath = path.normalize(handle.path);
-      const [entries, probe] = await Promise.all([
-        this.readStoredRoots(),
-        this.createSecureRoot(presentationPath),
-      ]);
+      // Sequential, not Promise.all: addRoot already runs inside
+      // serializeMutation (no concurrent caller to race against), and
+      // sequencing means the try/finally below covers `probe` from the
+      // instant it exists — a rejected readStoredRoots() can no longer
+      // leak an already-opened probe capability.
+      const entries = await this.readStoredRoots();
+      const probe = await this.createSecureRoot(presentationPath);
       let probeAdopted = false;
       try {
+        // A dispose that lands while the probe was opening must fail this
+        // call the same way mount() does, rather than returning a granted
+        // descriptor for a registry that's already torn down.
+        this.assertActive();
         const canonicalPath = path.normalize(probe.canonicalPath);
         const mountedMatch = [...this.mounted.values()].find((candidate) =>
           pathsEqual(candidate.canonicalPath, canonicalPath)
@@ -282,7 +289,12 @@ export class WorkspaceRootRegistry {
           rootId,
         };
 
-        probeAdopted = this.reconcileAddMount(entry, mountedMatch, probe);
+        // reconcileAddMount always hands `probe` off to installMount, which
+        // unconditionally disposes of it (adopts it or closes it as
+        // redundant) — so once this resolves, the probe has been handled
+        // exactly once and the finally below must not touch it again.
+        await this.reconcileAddMount(entry, mountedMatch, probe);
+        probeAdopted = true;
 
         const persisted = await this.persistAddedRoot(entries, existing, entry);
         if (persisted) {
@@ -459,7 +471,7 @@ export class WorkspaceRootRegistry {
         }
         // A session mint of the same canonical path is superseded by the
         // persisted identity.
-        this.supersedeSessionMountsFor(entry, canonicalPath, retainedRootIds);
+        await this.supersedeSessionMountsFor(entry, canonicalPath, retainedRootIds);
         retainedCanonicalPaths.add(pathKey(canonicalPath));
         retainedRootIds.add(entry.rootId);
         storedSurvivors.push(entry);
@@ -527,10 +539,16 @@ export class WorkspaceRootRegistry {
     mountedMatch: MountedWorkspaceRoot | undefined,
     canonicalPath: string
   ): Promise<StoredWorkspaceRoot | undefined> {
-    for (const candidate of entries) {
-      if (mountedMatch && candidate.rootId === mountedMatch.rootId) {
-        return candidate;
+    // The mounted match's own persisted entry (if any) always wins over an
+    // incidental canonicalization match on some other stored alias — order
+    // in `entries` must never decide which stored root a live mount owns.
+    if (mountedMatch) {
+      const owned = entries.find((candidate) => candidate.rootId === mountedMatch.rootId);
+      if (owned) {
+        return owned;
       }
+    }
+    for (const candidate of entries) {
       if (this.mounted.has(candidate.rootId)) {
         continue;
       }
@@ -549,33 +567,37 @@ export class WorkspaceRootRegistry {
   }
 
   /**
-   * Reconciles the newly-opened probe capability against any existing mount
-   * for this root's canonical path, then installs it unless an identical
-   * mount is already pinned. Returns whether the probe was adopted as the
-   * live capability (vs. left for the caller to close as redundant).
+   * Retires a mount as the single, uniform teardown path: unmount its
+   * capability and evict every resource keyed on its rootId (LSP servers,
+   * command sessions) — the same cleanup every other retirement path
+   * (removeRoot, convergeDatabase) already performs.
    */
-  private reconcileAddMount(
+  private async retireMount(rootId: string): Promise<void> {
+    this.sessionRootIds.delete(rootId);
+    this.unmount(rootId);
+    await this.cleanupRootResources([rootId]);
+  }
+
+  /**
+   * Reconciles the newly-opened probe capability against any existing mount
+   * for this root's canonical path, then hands it to installMount, which
+   * unconditionally disposes of it — either adopting it as the live
+   * capability or closing it as redundant against an identical incumbent.
+   * Callers must not close `probe` again after this resolves.
+   */
+  private async reconcileAddMount(
     entry: StoredWorkspaceRoot,
     mountedMatch: MountedWorkspaceRoot | undefined,
     probe: SecureWorkspaceRoot
-  ): boolean {
+  ): Promise<void> {
     if (mountedMatch && mountedMatch.rootId !== entry.rootId) {
-      // A session mint of the same canonical path is superseded by the
-      // durable identity; exactly one capability may serve a root.
-      this.mounted.delete(mountedMatch.rootId);
-      this.sessionRootIds.delete(mountedMatch.rootId);
-      this.closeMountedRoot(mountedMatch);
-    }
-    const identicalMountPinned =
-      mountedMatch !== undefined &&
-      mountedMatch.rootId === entry.rootId &&
-      pathsEqual(mountedMatch.presentationPath, entry.path);
-    if (identicalMountPinned) {
-      // Identical mount already pinned — the probe is redundant.
-      return false;
+      // Any other mount of this canonical path is superseded — normally a
+      // session mint (the stored entry remounts on next restore). Retiring
+      // it runs the same LSP/command-session cleanup every other
+      // retirement path performs.
+      await this.retireMount(mountedMatch.rootId);
     }
     this.installMount(entry, probe);
-    return true;
   }
 
   private async persistAddedRoot(
@@ -609,14 +631,32 @@ export class WorkspaceRootRegistry {
 
   private installMount(entry: StoredWorkspaceRoot, secureRoot: SecureWorkspaceRoot): string {
     const canonicalPath = path.normalize(secureRoot.canonicalPath);
+    const presentationPath = path.normalize(entry.path);
     const current = this.mounted.get(entry.rootId);
+    if (
+      current &&
+      pathsEqual(current.canonicalPath, canonicalPath) &&
+      pathsEqual(current.presentationPath, presentationPath)
+    ) {
+      // Post-open incumbent check (not the deleted pre-claim check —
+      // identity still comes from the opened probe's own canonicalPath):
+      // the incumbent capability already serves this exact identity, so
+      // keep it live — its open readers/handles stay valid — and discard
+      // the redundant, freshly-opened probe instead of severing them.
+      try {
+        secureRoot.close();
+      } catch (error) {
+        logger.warn('Failed to close a redundant workspace root capability', { error });
+      }
+      return canonicalPath;
+    }
     this.mounted.set(entry.rootId, {
       canonicalPath,
-      presentationPath: path.normalize(entry.path),
+      presentationPath,
       root: secureRoot,
       rootId: entry.rootId,
     });
-    if (current && current.root !== secureRoot) {
+    if (current) {
       this.closeMountedRoot(current);
     }
     return canonicalPath;
@@ -659,20 +699,19 @@ export class WorkspaceRootRegistry {
     }
   }
 
-  private supersedeSessionMountsFor(
+  private async supersedeSessionMountsFor(
     entry: StoredWorkspaceRoot,
     canonicalPath: string,
     retainedRootIds: Set<string>
-  ): void {
+  ): Promise<void> {
     for (const candidate of [...this.mounted.values()]) {
       if (
         candidate.rootId !== entry.rootId &&
         this.sessionRootIds.has(candidate.rootId) &&
         pathsEqual(candidate.canonicalPath, canonicalPath)
       ) {
-        this.sessionRootIds.delete(candidate.rootId);
         retainedRootIds.delete(candidate.rootId);
-        this.unmount(candidate.rootId);
+        await this.retireMount(candidate.rootId);
       }
     }
   }

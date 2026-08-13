@@ -163,9 +163,32 @@ describe('WorkspaceRootRegistry', () => {
       releaseProbe = resolve;
     });
     const order: string[] = [];
+    // Seed one stored root so restoreRoots emits its own `probe:` marker —
+    // that marker must appear only after the blocked `probe:/first`,
+    // making the shared-queue ordering observable end-to-end rather than
+    // just at one microtask snapshot. Persistence is made to fail so
+    // addRoot('/first') never merges into this same list (which would
+    // otherwise make restoreRoots remount '/first' too and muddy the
+    // asserted order with an incidental, still-correct second probe).
+    const backing = new Map(
+      Object.entries({
+        rootsList: JSON.stringify([{ addedAt: 1, path: '/second', rootId: 'root-second' }]),
+      })
+    );
+    storage = {
+      clear: vi.fn(async () => backing.clear()),
+      getAllKeys: vi.fn(async () => [...backing.keys()]),
+      getItem: vi.fn(async (key: string) => backing.get(key) ?? null),
+      removeItem: vi.fn(async (key: string) => {
+        backing.delete(key);
+      }),
+      setItem: vi.fn(() => {
+        throw new Error('disk full');
+      }),
+    } as unknown as ElectronStorageAdapter;
     const registry = createRegistry({
-      // Mount-then-ask: addRoot's first (and only, with no stored entries)
-      // async dependency is the createSecureRoot probe, not
+      // Mount-then-ask: addRoot's first async dependency (once
+      // readStoredRoots resolves) is the createSecureRoot probe, not
       // resolveCanonicalRoot — that is what the queue serializes behind.
       createSecureRoot: async (rootPath) => {
         order.push(`probe:${rootPath}`);
@@ -180,11 +203,15 @@ describe('WorkspaceRootRegistry', () => {
     const restore = registry.restoreRoots().then(() => {
       order.push('restore-complete');
     });
-    await Promise.resolve();
+    // Flush a macrotask boundary (not a single microtask) so every pending
+    // microtask — including the sequential readStoredRoots()-then-probe
+    // chain inside addRoot — has run. restoreRoots is still queued behind
+    // addRoot's still-blocked probe, so its own probe cannot have fired yet.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(order).toEqual(['probe:/first']);
     releaseProbe();
     await Promise.all([first, restore]);
-    expect(order.at(-1)).toBe('restore-complete');
+    expect(order).toEqual(['probe:/first', 'probe:/second', 'restore-complete']);
   });
 
   it('re-adding a folder whose persist failed reuses the session capability', async () => {
@@ -266,6 +293,9 @@ describe('WorkspaceRootRegistry', () => {
           readFile: vi.fn(async () => ({ status: 'unreadable' as const })),
         };
       },
+      // Bypass real filesystem validation so a read-routing assertion below
+      // can exercise a fake, non-existent path.
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
     });
 
     const sessionResult = await registry.addRoot(rootHandle('/canon/project'));
@@ -281,5 +311,53 @@ describe('WorkspaceRootRegistry', () => {
     const descriptors = await registry.restoreRoots();
     expect(descriptors.map((descriptor) => descriptor.rootId)).toEqual(['persisted-id']);
     expect(minted - closes.length).toBe(1);
+
+    // Ownership, asserted for real: the stale session rootId no longer
+    // resolves to anything (its capability was retired), while the
+    // persisted rootId now answers reads for the same canonical path.
+    await expect(
+      registry.readDirectory({
+        kind: 'directory',
+        name: 'project',
+        path: '/canon/project',
+        platform: 'electron',
+        rootId: sessionResult.rootId,
+      })
+    ).rejects.toThrow('Workspace root is not mounted.');
+    await expect(
+      registry.readDirectory({
+        kind: 'directory',
+        name: 'project',
+        path: '/canon/project',
+        platform: 'electron',
+        rootId: 'persisted-id',
+      })
+    ).resolves.toEqual([]);
+  });
+
+  it('mounts a new root under its presentation path while canonical-path reads route to it', async () => {
+    const registry = createRegistry({
+      createSecureRoot: async () => secureRoot('/real/workspace'),
+      // Bypass real filesystem validation for the fake canonical path.
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+    });
+
+    const descriptor = await registry.addRoot(rootHandle('/alias/workspace'));
+    // The stored/returned identity is the presentation path the caller used...
+    expect(descriptor.handle.path).toBe('/alias/workspace');
+    expect(descriptor.persisted).toBe(true);
+
+    // ...but the mounted record also carries the capability's own canonical
+    // path: an absolute-path read with no rootId is resolved purely via
+    // findMountedRootForAbsolutePath, which only succeeds here if the
+    // mount's canonicalPath (not just its presentationPath) is on file.
+    await expect(
+      registry.readDirectory({
+        kind: 'directory',
+        name: 'workspace',
+        path: '/real/workspace',
+        platform: 'electron',
+      })
+    ).resolves.toEqual([]);
   });
 });
