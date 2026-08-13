@@ -54,6 +54,12 @@ function normalizeAbortError(error: unknown): Error {
   return error instanceof Error ? error : createAbortError();
 }
 
+function normalizeSchedulerError(error: unknown): Error {
+  return error instanceof Error
+    ? error
+    : new Error('File content queue scheduling failed.', { cause: error });
+}
+
 const logger = createLogger('FileContentWorker');
 
 function normalizeMaxFileSize(maxFileSize: unknown): number {
@@ -123,7 +129,9 @@ export function createFileContentWorker({
           finishResolve(results);
           return;
         }
-        void next();
+        void next().catch((error: unknown) => {
+          finishReject(normalizeSchedulerError(error));
+        });
       };
       const handleRequestSuccess = (
         request: FileReadRequest,
@@ -153,12 +161,17 @@ export function createFileContentWorker({
           finishReject(normalizeAbortError(error));
           return;
         }
-        processRequest(request)
-          .then(({ key, content }) => {
-            handleRequestSuccess(request, key, content);
-          })
-          .catch((error) => {
-            handleRequestFailure(request, error);
+        void processRequest(request)
+          .then(
+            ({ key, content }) => {
+              handleRequestSuccess(request, key, content);
+            },
+            (error: unknown) => {
+              handleRequestFailure(request, error);
+            }
+          )
+          .catch((error: unknown) => {
+            finishReject(normalizeSchedulerError(error));
           });
       };
       const next = async () => {
@@ -182,7 +195,9 @@ export function createFileContentWorker({
         finishResolve(results);
         return;
       }
-      void next();
+      void next().catch((error: unknown) => {
+        finishReject(normalizeSchedulerError(error));
+      });
     });
   }
 
