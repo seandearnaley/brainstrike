@@ -2071,6 +2071,14 @@ Rules (`hooks/run-verdict.ts`, strict — hook stdout is UNTRUSTED repo data):
 - **Stop-only by construction**: `captureRunVerdict` is set solely by
   `HookManager.runStop` — a Pre/PostToolUse hook printing the line is ignored
   (a post-tool hook on the last tool is NOT run-completion semantics).
+- **`assistant_message` stdin (BST-1251)**: `withStopHook` accumulates the
+  RUN's assistant text — every generation step's `text-delta` chunks, with a
+  `\n` inserted at step boundaries (any non-text chunk) so line-anchored
+  graders never see step N's tail glued onto step N+1 — and hands Stop hooks
+  a 64 KiB TAIL (`ASSISTANT_MESSAGE_TAIL_CHARS`; an acceptance hook grades
+  the END of the final answer). The trim is amortized (only past 2× the
+  bound; exact tail cut once at Stop), omitted entirely when the stream
+  produced no text, and never grows unbounded with the stream.
 - **Bounded scan**: only the trailing `RUN_VERDICT_STDOUT_SCAN_CHARS` (64 KiB)
   of raw stdout are scanned; a window that slices mid-line drops the partial
   first line. Candidate lines = lines containing the marker key. The LAST valid
@@ -2179,7 +2187,7 @@ recorder-fault, non-Stop guard, last-hook-wins), and
 unknown-run throws).
 
 **Deferred (documented follow-ups):** SessionStart/SessionEnd/Notification
-wiring; Stop auto-continue; Stop `assistant_message` accumulation; full hooks.json
+wiring; Stop auto-continue; full hooks.json
 editor UI; rendering the fetched `content` in-panel (approval is hash-only today);
 a refetch on approve/revoke/refocus (a disk edit after the fetch shows a stale
 badge until reopen — fail closed server-side); `<userData>` vs home-dotfile

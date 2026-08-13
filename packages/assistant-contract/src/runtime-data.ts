@@ -213,9 +213,10 @@ export interface SelfImprovementSignalPreferenceRequest {
  * record so control/intervention runs stay attributable; absent = un-enrolled.
  * The pair is atomic, so both fields are REQUIRED (review: optional fields
  * let a well-behaved producer typecheck its way into a warn loop); the
- * server-side strict parse remains the untrusted-wire guard. NOTE: no
- * renderer producer exists yet — enrollment plumbing ships with phase 2B,
- * so today every treatment row records the un-enrolled bucket.
+ * server-side strict parse remains the untrusted-wire guard. The renderer
+ * producer is the experiment-assignment preference store (BST-1251, phase
+ * 2B): the pair only rides the wire when both fields are set, and absent
+ * still means un-enrolled.
  */
 export interface ExperimentAssignmentRequest {
   readonly experimentId: string;

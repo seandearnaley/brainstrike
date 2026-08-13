@@ -748,6 +748,14 @@ describe('assistant runtime helpers', () => {
         'selfImprovementSignalPreference'
       ]
     ).toEqual(selfImprovementSignalPreference);
+
+    // Experiment enrollment (BST-1251) rides the same opt-in seam: absent →
+    // nothing attached (un-enrolled); present → the exact complete pair.
+    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('experimentAssignment');
+    const experimentAssignment = { experimentId: 'search-policy-v1', variant: 'control' };
+    expect(
+      buildAssistantRequestData({ ...baseArgs, experimentAssignment })['experimentAssignment']
+    ).toEqual(experimentAssignment);
   });
 
   it('attaches mainRootId/mainRootPath only when provided (multi-root main declaration)', () => {

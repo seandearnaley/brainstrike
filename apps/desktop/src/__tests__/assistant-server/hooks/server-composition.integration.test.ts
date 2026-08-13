@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
+import { createAssistantRunEvent } from '@brainstrike/agent';
 import { buildHookTrustRequest } from '@brainstrike/app-state/stores/hook-trust-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHookRunner } from '../../../assistant-server/hooks/hook-runner-impl';
@@ -344,6 +345,133 @@ describe('withStopHook', () => {
 
     const lines = readFileSync(marker, 'utf8').trim().split('\n');
     expect(lines).toHaveLength(1);
+  });
+
+  it('passes the accumulated assistant text as assistant_message (bounded tail)', async () => {
+    const marker = join(tmpRoot, 'stop-message.json');
+    const config = JSON.stringify({
+      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    // The tail bound must keep the END of an oversized answer — a Stop hook
+    // grades the final answer, and the verdict-bearing text is at the end.
+    const filler = 'x'.repeat(70 * 1024);
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield { type: 'text-delta', value: filler };
+      yield { type: 'text-delta', value: 'The answer is ' };
+      yield { type: 'text-delta', value: 'live-grep.ts' };
+      yield {
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      };
+    }
+
+    const controller = new AbortController();
+    for await (const _chunk of withStopHook(source(), manager, controller.signal, logger)) {
+      // drain
+    }
+
+    const stopPayload = JSON.parse(readFileSync(marker, 'utf8')) as {
+      assistant_message?: string;
+    };
+    expect(stopPayload.assistant_message).toBeDefined();
+    expect(stopPayload.assistant_message?.endsWith('The answer is live-grep.ts')).toBe(true);
+    expect(stopPayload.assistant_message?.length).toBeLessThanOrEqual(64 * 1024);
+  });
+
+  it('separates generation steps with a newline so line-anchored graders still match', async () => {
+    const marker = join(tmpRoot, 'stop-boundary.json');
+    const config = JSON.stringify({
+      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    // Step 1 text does NOT end in a newline; a non-text chunk (the step
+    // boundary) intervenes; step 2 opens with the verdict-bearing line. The
+    // accumulated assistant_message must not glue them together.
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield { type: 'text-delta', value: 'Let me search the workspace.' };
+      yield {
+        event: createAssistantRunEvent({
+          kind: 'run.started',
+          label: 'step boundary stand-in',
+          status: 'running',
+        }),
+        type: 'run-event',
+      };
+      yield { type: 'text-delta', value: 'ANSWER: live-grep.ts' };
+      yield {
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      };
+    }
+
+    const controller = new AbortController();
+    for await (const _chunk of withStopHook(source(), manager, controller.signal, logger)) {
+      // drain
+    }
+
+    const stopPayload = JSON.parse(readFileSync(marker, 'utf8')) as {
+      assistant_message?: string;
+    };
+    expect(stopPayload.assistant_message).toBe(
+      'Let me search the workspace.\nANSWER: live-grep.ts'
+    );
+    expect(/^ANSWER: live-grep\.ts$/m.test(stopPayload.assistant_message ?? '')).toBe(true);
+  });
+
+  it('omits assistant_message when the stream produced no text', async () => {
+    const marker = join(tmpRoot, 'stop-no-text.json');
+    const config = JSON.stringify({
+      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield {
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 0, promptTokens: 0 },
+      };
+    }
+
+    const controller = new AbortController();
+    for await (const _chunk of withStopHook(source(), manager, controller.signal, logger)) {
+      // drain
+    }
+
+    const stopPayload = JSON.parse(readFileSync(marker, 'utf8')) as Record<string, unknown>;
+    expect(Object.hasOwn(stopPayload, 'assistant_message')).toBe(false);
   });
 
   it('passes stop_reason "error" when the finish chunk is an error finish', async () => {

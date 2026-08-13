@@ -231,11 +231,22 @@ strictly parses it with malformed input failing safe to OFF.
   After a meaningful sample, remove the feature if truncation and zero-match
   rates do not improve.
 
+The companion experiment-enrollment preference (BST-1251, phase 2B) rides the
+same renderer seam: a persisted `{ experimentId, variant }` pair (defaults
+null = un-enrolled, factory-reset to null) attached as
+`experimentAssignment` only when BOTH fields are set — the contract requires
+the pair jointly, and the server strictly parses it onto the run's treatment
+row (see `docs/agents/assistant-persistence.md`). Enrollment is attribution
+metadata only; it never changes runtime behavior.
+
 Paired tests: `apps/desktop/src/__tests__/assistant-server/self-improvement-signal-context.test.ts`
 (preference, provider, query/column/row failure posture, exact prompt, size, and
 SQL parity),
 `packages/app-state/src/__tests__/factory-reset-self-improvement-signal-preferences.test.ts`,
+`packages/app-state/src/__tests__/experiment-assignment-preferences-store.test.ts`,
+`packages/app-state/src/__tests__/factory-reset-experiment-assignment.test.ts`,
 `packages/settings-ui/src/__tests__/self-improvement-signal-settings-section.test.tsx`,
+`packages/settings-ui/src/__tests__/experiment-assignment-settings-section.test.tsx`,
 and `packages/app-shell/src/__tests__/assistant-ui-panel-wrapper-runtime.test.ts`.
 
 ---

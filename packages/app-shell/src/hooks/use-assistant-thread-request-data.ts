@@ -16,6 +16,12 @@ interface UseAssistantThreadRequestDataArgs {
   readonly boundWorkspaceRootId?: string | undefined;
   readonly enabledNativeToolIds: readonly string[];
   /**
+   * Opt-in experiment enrollment (desktop data-stream only, BST-1251).
+   * Attribution metadata recorded on the run's treatment row; requires both
+   * fields, so callers pass a complete pair or nothing.
+   */
+  readonly experimentAssignment?: RuntimeData['experimentAssignment'];
+  /**
    * Opt-in hook-trust attestation; only set on the desktop data-stream
    * transport (web has no hook runner). The server re-hashes disk independently.
    */
@@ -86,6 +92,7 @@ export function useAssistantThreadRequestData({
   agentLoopSettings,
   boundWorkspaceRootId,
   enabledNativeToolIds,
+  experimentAssignment,
   hostedMemoryBackendAvailable,
   hookTrustRequest,
   mainRootId,
@@ -123,6 +130,7 @@ export function useAssistantThreadRequestData({
         agentLoopSettings,
         ...(boundWorkspaceRootId ? { boundWorkspaceRootId } : {}),
         enabledNativeToolIds,
+        ...(experimentAssignment ? { experimentAssignment } : {}),
         hookTrustRequest,
         hostedMemoryBackendAvailable,
         ...(mainRootId ? { mainRootId } : {}),
@@ -149,6 +157,7 @@ export function useAssistantThreadRequestData({
       agentLoopSettings,
       boundWorkspaceRootId,
       enabledNativeToolIds,
+      experimentAssignment,
       hookTrustRequest,
       hostedMemoryBackendAvailable,
       mainRootId,
