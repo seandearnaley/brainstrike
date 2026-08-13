@@ -337,7 +337,7 @@ export class WorkspaceRootRegistry {
       // storage I/O failure; corruption is quarantined rather than thrown)
       // can no longer leak an already-opened probe capability.
       const entries = await this.readStoredRootsOrQuarantine();
-      // eslint-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store read has succeeded, so the try/finally owns it from the instant it exists.
+      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store read has succeeded, so the try/finally owns it from the instant it exists.
       const probe = await this.createSecureRoot(presentationPath);
       let probeAdopted = false;
       try {
