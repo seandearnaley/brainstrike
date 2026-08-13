@@ -69,7 +69,12 @@ export function normalizeRootDir(dir: string): string {
 
 export function isPathInsideRoot(rootDir: string, candidate: string): boolean {
   const relative = path.relative(rootDir, candidate);
-  return relative === '' || !(relative.startsWith('..') || path.isAbsolute(relative));
+  // `startsWith('..')` alone would misclassify in-root children whose NAME
+  // starts with ".." (e.g. nyc's "..__..__var" coverage dirs) as outside.
+  return (
+    relative === '' ||
+    !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+  );
 }
 
 function containsNullByte(value: string): boolean {
@@ -77,11 +82,14 @@ function containsNullByte(value: string): boolean {
 }
 
 function countTraversalSegments(value: string): number {
+  // Only whole `..` path segments count as traversal. Names that merely
+  // contain ".." (nyc coverage dirs like "..__..__var", git ranges like
+  // "a1b2c3..d4e5f6.diff") are legal on every platform and must pass.
   let count = 0;
-  let idx = value.indexOf('..');
-  while (idx !== -1) {
-    count++;
-    idx = value.indexOf('..', idx + 2);
+  for (const segment of value.split(/[\\/]/)) {
+    if (segment === '..') {
+      count++;
+    }
   }
   return count;
 }
