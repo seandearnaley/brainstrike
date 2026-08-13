@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
   addLogListener,
@@ -75,6 +76,11 @@ import {
   listErrorLogFilePaths,
 } from './diagnostics/error-log-sink';
 import { resolveMainLogTransportPath } from './diagnostics/main-log-transport-path';
+import {
+  MAIN_WATCHDOG_CHECK_INTERVAL_MS,
+  type MainWatchdogMessage,
+} from './diagnostics/main-watchdog-core';
+import { resolveMainWatchdogWorkerPath } from './diagnostics/main-watchdog-path';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import {
   type DimensionIndexBuildStrategy,
@@ -1974,49 +1980,36 @@ if (singleInstanceLockAcquired) {
       // diagnostics directly to stderr and the log file.
       // ---------------------------------------------------------------
       {
-        const { Worker } = await import('node:worker_threads');
-        const watchdogSource = [
-          'const { parentPort } = require("node:worker_threads");',
-          'const fs = require("node:fs");',
-          'let lastHb = Date.now();',
-          'let logPath = null;',
-          'const CHECK_MS = 5000;',
-          'const FROZEN_MS = 20000;',
-          'parentPort.on("message", (m) => {',
-          '  if (m.type === "heartbeat") lastHb = Date.now();',
-          '  else if (m.type === "config") logPath = m.logPath;',
-          '});',
-          'setInterval(() => {',
-          '  const age = Date.now() - lastHb;',
-          '  if (age > FROZEN_MS) {',
-          '    const d = JSON.stringify({',
-          '      level: 50,',
-          '      time: new Date().toISOString(),',
-          '      scope: "MainWatchdog",',
-          '      msg: "MAIN_THREAD_UNRESPONSIVE",',
-          '      heartbeatAgeMs: age,',
-          '      cpuUser: process.cpuUsage().user,',
-          '      cpuSystem: process.cpuUsage().system,',
-          '      rssKb: Math.round(process.memoryUsage().rss / 1024),',
-          '      heapUsedKb: Math.round(process.memoryUsage().heapUsed / 1024),',
-          '    });',
-          '    process.stderr.write(d + "\\n");',
-          '    if (logPath) {',
-          '      try { fs.appendFileSync(logPath, d + "\\n"); } catch (_) {}',
-          '    }',
-          '  }',
-          '}, CHECK_MS);',
-        ].join('\n');
+        const workerPath = resolveMainWatchdogWorkerPath(app.getAppPath(), app.isPackaged);
+        const watchdog = new Worker(workerPath);
+        const postWatchdogMessage = (message: MainWatchdogMessage): void => {
+          watchdog.postMessage(message);
+        };
+        const heartbeatTimer = setInterval(() => {
+          postWatchdogMessage({ type: 'heartbeat' });
+        }, MAIN_WATCHDOG_CHECK_INTERVAL_MS);
 
-        const watchdog = new Worker(watchdogSource, { eval: true });
+        watchdog.on('error', (error) => {
+          logger.error(
+            { error: serializeDesktopError(error), workerPath },
+            'main-thread watchdog worker failed'
+          );
+        });
+        watchdog.on('messageerror', (error) => {
+          logger.error(
+            { error: serializeDesktopError(error), workerPath },
+            'main-thread watchdog worker message failed to deserialize'
+          );
+        });
+        watchdog.once('exit', (code) => {
+          clearInterval(heartbeatTimer);
+          logger.error({ code, workerPath }, 'main-thread watchdog worker exited unexpectedly');
+        });
         watchdog.unref();
-        watchdog.postMessage({ logPath: getLogFilePath(), type: 'config' });
+        heartbeatTimer.unref();
+        postWatchdogMessage({ logPath: getLogFilePath(), type: 'config' });
 
-        setInterval(() => {
-          watchdog.postMessage({ type: 'heartbeat' });
-        }, 5000).unref();
-
-        logger.debug('main-thread watchdog started');
+        logger.debug({ workerPath }, 'main-thread watchdog started');
       }
 
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake

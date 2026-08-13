@@ -10,6 +10,7 @@
  * - dist/db-host-entry.js   utilityProcess.fork target, resolved as a SIBLING
  * - dist/parser-host-entry.js  of the bundled main.js via module.filename
  * - dist/main-log-transport.js  Pino worker target, unpacked beside app.asar
+ * - dist/main-watchdog-worker.js  freeze watchdog, unpacked beside app.asar
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +22,7 @@ export const MAIN_PROCESS_ENTRY_POINTS = {
   'hidden-preload': 'src/hidden-preload.ts',
   main: 'src/main-bootstrap.ts',
   'main-log-transport': 'src/diagnostics/main-log-transport.ts',
+  'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
   'parser-host-entry': 'src/parser-host-entry.ts',
   preload: 'src/preload.ts',
 };
