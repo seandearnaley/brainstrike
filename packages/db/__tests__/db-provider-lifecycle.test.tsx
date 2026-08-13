@@ -5,13 +5,13 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DbProvider } from '../src/db-provider';
+import * as migrations from '../src/migrations/bootstrap';
 import {
-  DbProvider,
   useClearQueuesAndEmbeddingSets,
   useFileRecordRepository,
   usePGliteDatabase,
-} from '../src/db-provider';
-import * as migrations from '../src/migrations/bootstrap';
+} from '../src/use-db';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 type QueryMock = Mock<[string], Promise<{ rows: unknown[] } | undefined>>;

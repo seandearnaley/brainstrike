@@ -45,7 +45,8 @@ vi.mock('../src/browser-first-run-bootstrap', () => ({
   maybeBootstrapBrowserFirstRunStore: maybeBootstrap,
 }));
 
-import { DbProvider, useDbProviderError, useFileRecordRepository } from '../src/db-provider';
+import { DbProvider } from '../src/db-provider';
+import { useDbProviderError, useFileRecordRepository } from '../src/use-db';
 
 function makeWrapper(dbPath?: string) {
   return function wrapper({ children }: { children: React.ReactNode }) {
