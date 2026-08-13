@@ -1619,6 +1619,24 @@ describe('fail-soft domain projection', () => {
     expect(loggerMocks.error).not.toHaveBeenCalled();
   });
 
+  it('does not unwrap a validation-shaped output outside the full AI-SDK envelope', () => {
+    // A legitimate tool result that merely CONTAINS an `output` field
+    // satisfying the validation predicate (no input/toolCallId envelope
+    // discriminants) must keep its ordinary projection path — unwrapping
+    // would silently discard sibling fields like `summary` (Codex review).
+    const modelOutput = projectThroughDispatcher({
+      output: {
+        error: true,
+        message: 'looks like a validation error but is tool data',
+        validationErrors: { errors: [], fields: {} },
+      },
+      summary: 'important-sibling-data',
+    }) as { type?: string; value?: string };
+
+    expect(modelOutput.type).toBe('text');
+    expect(modelOutput.value).toContain('important-sibling-data');
+  });
+
   it('still projects contract-conforming values through the domain projector', () => {
     const modelOutput = projectThroughDispatcher({
       candidatesTruncated: false,

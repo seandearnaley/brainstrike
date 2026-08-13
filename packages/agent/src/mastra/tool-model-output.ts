@@ -199,7 +199,17 @@ function readMastraToolValidationError(value: unknown): unknown {
   if (isValidationError(value)) {
     return value;
   }
-  if (isRecord(value) && isValidationError(value['output'])) {
+  // Nested unwrap ONLY for the complete AI-SDK result envelope
+  // ({input, output, toolCallId}) — a legitimate tool result that merely
+  // CONTAINS an `output` field satisfying the validation predicate must keep
+  // its other fields and its ordinary projection (Codex review: unwrapping on
+  // `output` alone silently discarded sibling fields like `summary`).
+  if (
+    isRecord(value) &&
+    Object.hasOwn(value, 'input') &&
+    Object.hasOwn(value, 'toolCallId') &&
+    isValidationError(value['output'])
+  ) {
     return value['output'];
   }
   return;
