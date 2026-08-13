@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Mock } from 'vitest';
 import { vi } from 'vitest';
+import { useEventCallbackMock } from './use-event-callback-mock';
 
 interface MockComponentProps extends Record<string, unknown> {
   children?: React.ReactNode;
@@ -577,8 +578,7 @@ export const createHooksModuleMock = () => {
   const { useState } = reactModule;
 
   return {
-    useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
-      callback,
+    useEventCallback: useEventCallbackMock,
     usePagination: vi.fn((options: UsePaginationOptions) => {
       const pageSize = options.pageSize ?? 50;
       const totalPages = Math.ceil(options.totalItems / pageSize);

@@ -3,6 +3,16 @@ import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceFilterFn } from '../use-workspace-filter-fn';
 
+type UseEventCallbackMockModule =
+  typeof import('../../__tests__/__mocks__/use-event-callback-mock');
+
+const useEventCallbackMockModulePromise = vi.hoisted(
+  async () =>
+    (await import(
+      '../../__tests__/__mocks__/use-event-callback-mock'
+    )) as UseEventCallbackMockModule
+);
+
 const mocks = vi.hoisted(() => ({
   applyFileFilters: vi.fn(),
   state: {
@@ -12,13 +22,15 @@ const mocks = vi.hoisted(() => ({
   },
 }));
 
-vi.mock('@brainstrike/hooks', () => ({
-  useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
-    callback,
-  useFileFilters: () => ({
-    applyFileFilters: mocks.applyFileFilters,
-  }),
-}));
+vi.mock('@brainstrike/hooks', async () => {
+  const { useEventCallbackMock } = await useEventCallbackMockModulePromise;
+  return {
+    useEventCallback: useEventCallbackMock,
+    useFileFilters: () => ({
+      applyFileFilters: mocks.applyFileFilters,
+    }),
+  };
+});
 
 vi.mock('../../shell/file-explorer-provider', () => ({
   useFileExplorerStoreContext: () => (selector: (state: typeof mocks.state) => unknown) =>
