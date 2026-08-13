@@ -24,6 +24,11 @@ describe('file-explorer-ui index exports', () => {
     expect(indexSource).toContain("export * from './tree';");
   });
 
+  it('exports the preview summary without the stale footer component name', () => {
+    expect(index).toHaveProperty('PreviewPanelSummary');
+    expect(index).not.toHaveProperty('PreviewPanelFooter');
+  });
+
   it('documents ownership for each public slice barrel', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const publicSlices = ['indexing', 'preview', 'shell', 'tree'] as const;
@@ -116,7 +121,7 @@ describe('file-explorer-ui index exports', () => {
       ['hooks/use-preview-panel-preferences.ts', 'preview/use-preview-panel-preferences.ts'],
       ['hooks/use-preview-panel-report-actions.ts', 'preview/use-preview-panel-report-actions.ts'],
       ['preview-footer-layout.ts', 'preview/preview-footer-layout.ts'],
-      ['preview-panel-footer.tsx', 'preview/preview-panel-footer.tsx'],
+      ['preview-panel-footer.tsx', 'preview/preview-panel-summary.tsx'],
       ['preview-panel.tsx', 'preview/preview-panel.tsx'],
       ['use-preview-panel-state.ts', 'preview/use-preview-panel-state.ts'],
     ] as const;
@@ -127,9 +132,13 @@ describe('file-explorer-ui index exports', () => {
     const missingPreviewFiles = previewImplementationMoves
       .map(([, previewPath]) => previewPath)
       .filter((filePath) => !existsSync(path.join(sourceRoot, filePath)));
+    const stalePreviewFiles = ['preview/preview-panel-footer.tsx'].filter((filePath) =>
+      existsSync(path.join(sourceRoot, filePath))
+    );
 
     expect(legacyFiles).toEqual([]);
     expect(missingPreviewFiles).toEqual([]);
+    expect(stalePreviewFiles).toEqual([]);
   });
 
   it('keeps indexing implementation files inside the indexing slice', () => {
