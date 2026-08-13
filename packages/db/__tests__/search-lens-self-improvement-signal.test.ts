@@ -148,8 +148,33 @@ describe('self-improvement-signal lens', () => {
       params: coerce(['2026-08-07T13:00:00Z', '2026-08-07T13:30:00Z', '5']),
     });
 
-    // truncation_hit_rate = 1 clean truncated / 3 calls; zero_match_rate over
-    // the single clean call only; substrate rate = 2/3.
-    expect(result.rows).toEqual([['grepSearch', 3, 300, 1 / 3, 0, 2 / 3, 300 * (1 / 3)]]);
+    // Review fix: BOTH rates share the non-degraded denominator (1 clean
+    // call), so truncation_hit_rate = 1/1 — "model-controllable waste per
+    // model-controllable call" — and waste_score = 300 * (1 + 0). The
+    // substrate rate stays over ALL calls (2/3).
+    expect(result.rows).toEqual([['grepSearch', 3, 300, 1, 0, 2 / 3, 300]]);
+  });
+
+  it('reports NULL rates and zero waste for a fully-degraded tool, ranked after wasteful tools', async () => {
+    await db.query(
+      `INSERT INTO brainstrike_tool_call_telemetry
+        (id, thread_id, run_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup, engine, scan_limited, candidates_truncated)
+       VALUES
+        ('30', 'thread', 'run', 'globWorkspace', '2026-08-07T14:00:00Z', 100, true, true, false, 'js-walk', true, false),
+        ('31', 'thread', 'run', 'globWorkspace', '2026-08-07T14:05:00Z', 100, true, true, false, 'js-walk', true, false),
+        ('32', 'thread', 'run', 'grepSearch', '2026-08-07T14:10:00Z', 200, true, false, false, 'ripgrep', false, false)`
+    );
+    const sql = loadLensSql();
+    const result = await service.query(sql, {
+      params: coerce(['2026-08-07T14:00:00Z', '2026-08-07T14:30:00Z', '5']),
+    });
+
+    // The fully-degraded tool keeps NULL model-controllable rates and zero
+    // waste but still SURFACES (secondary ORDER BY substrate rate) so the
+    // injected signal can name a degraded substrate instead of hiding it.
+    expect(result.rows).toEqual([
+      ['grepSearch', 1, 200, 1, 0, 0, 200],
+      ['globWorkspace', 2, 200, null, null, 1, 0],
+    ]);
   });
 });

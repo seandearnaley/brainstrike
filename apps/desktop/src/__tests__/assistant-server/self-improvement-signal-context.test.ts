@@ -224,6 +224,26 @@ describe('injectSelfImprovementSignalContext', () => {
     expect(longLine).not.toContain('x'.repeat(41));
   });
 
+  it('renders a fully-degraded tool as an environment line instead of hiding it (BST-1247)', async () => {
+    const result = await injectSelfImprovementSignalContext(messages(), runtime(), {
+      now: () => NOW,
+      runSignalQuery: async () => ({
+        columns: [...EXPECTED_COLUMNS],
+        rows: [
+          ['grepSearch', 5, 1000, 0.4, null, 0, 400],
+          ['globWorkspace', 40, 14_000, null, null, 1, 0],
+        ],
+      }),
+    });
+
+    const text = systemText(result);
+    expect(text).toContain('- grepSearch: 5 calls, 40% truncated\n');
+    // Zero model-controllable waste, 100% degraded: pure environment signal.
+    expect(text).toContain(
+      '- globWorkspace: 40 calls, 100% substrate-degraded (environment; not your behavior)'
+    );
+  });
+
   it('excludes zero-waste rows and omits the zero-match clause for NULL', async () => {
     const input = messages();
     const result = await injectSelfImprovementSignalContext(input, runtime(), {

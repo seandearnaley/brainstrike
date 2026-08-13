@@ -275,6 +275,52 @@ function isSearchTelemetryTool(toolId: string): boolean {
  * The explicit parameter allowlist is the privacy boundary: no raw result,
  * input, pattern, path, file content, or command text reaches SQL.
  */
+/**
+ * Column-major arrays for the batched telemetry INSERT's `unnest()` parameters.
+ * BST-1247: the substrate columns are isSearch-gated like `zero_match`
+ * (defense-in-depth — `substrate_degraded` suppresses waste attribution, so a
+ * stray non-search writer must not be able to zero out a tool's waste_score).
+ */
+function marshalTelemetryBatchColumns(samples: readonly ToolCallTelemetrySample[]): {
+  candidatesTruncated: boolean[];
+  engines: (string | null)[];
+  ids: string[];
+  isPaginationFollowup: boolean[];
+  modelFacingChars: number[];
+  occurredAts: string[];
+  scanLimited: boolean[];
+  toolIds: string[];
+  truncated: boolean[];
+  zeroMatch: (boolean | null)[];
+} {
+  const columns = {
+    candidatesTruncated: [] as boolean[],
+    engines: [] as (string | null)[],
+    ids: [] as string[],
+    isPaginationFollowup: [] as boolean[],
+    modelFacingChars: [] as number[],
+    occurredAts: [] as string[],
+    scanLimited: [] as boolean[],
+    toolIds: [] as string[],
+    truncated: [] as boolean[],
+    zeroMatch: [] as (boolean | null)[],
+  };
+  for (const sample of samples) {
+    const isSearch = isSearchTelemetryTool(sample.toolId);
+    columns.ids.push(crypto.randomUUID());
+    columns.toolIds.push(sample.toolId);
+    columns.occurredAts.push(new Date(sample.occurredAt).toISOString());
+    columns.modelFacingChars.push(sample.modelFacingChars);
+    columns.truncated.push(sample.truncated);
+    columns.zeroMatch.push(isSearch ? (sample.zeroMatch ?? null) : null);
+    columns.isPaginationFollowup.push(isSearch ? sample.isPaginationFollowup : false);
+    columns.engines.push(isSearch ? (sample.engine ?? null) : null);
+    columns.scanLimited.push(isSearch && sample.scanLimited);
+    columns.candidatesTruncated.push(isSearch && sample.candidatesTruncated);
+  }
+  return columns;
+}
+
 export async function* persistDesktopToolCallTelemetry(
   stream: AsyncIterable<StreamChunk>,
   runId: string,
@@ -284,32 +330,18 @@ export async function* persistDesktopToolCallTelemetry(
     if (samples.length === 0) {
       return;
     }
-    const ids: string[] = [];
-    const toolIds: string[] = [];
-    const occurredAts: string[] = [];
-    const modelFacingChars: number[] = [];
-    const truncated: boolean[] = [];
-    const zeroMatch: (boolean | null)[] = [];
-    const isPaginationFollowup: boolean[] = [];
-    const engines: (string | null)[] = [];
-    const scanLimited: boolean[] = [];
-    const candidatesTruncated: boolean[] = [];
-    for (const sample of samples) {
-      const isSearch = isSearchTelemetryTool(sample.toolId);
-      ids.push(crypto.randomUUID());
-      toolIds.push(sample.toolId);
-      occurredAts.push(new Date(sample.occurredAt).toISOString());
-      modelFacingChars.push(sample.modelFacingChars);
-      truncated.push(sample.truncated);
-      zeroMatch.push(isSearch ? (sample.zeroMatch ?? null) : null);
-      isPaginationFollowup.push(isSearch ? sample.isPaginationFollowup : false);
-      // BST-1247: substrate flags land in their own columns so `truncated`
-      // stays "output clipped" and the waste lens can separate model behavior
-      // from substrate degradation.
-      engines.push(sample.engine ?? null);
-      scanLimited.push(sample.scanLimited);
-      candidatesTruncated.push(sample.candidatesTruncated);
-    }
+    const {
+      candidatesTruncated,
+      engines,
+      ids,
+      isPaginationFollowup,
+      modelFacingChars,
+      occurredAts,
+      scanLimited,
+      toolIds,
+      truncated,
+      zeroMatch,
+    } = marshalTelemetryBatchColumns(samples);
     try {
       const database = await getDatabase();
       const result = await database.query(

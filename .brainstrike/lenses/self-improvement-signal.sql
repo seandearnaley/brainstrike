@@ -15,11 +15,16 @@
 -- walk, the bounded scan hit its cap, or the candidate set was truncated —
 -- infrastructure failure the model cannot influence (BST-1246 showed rg
 -- degrading on ~80% of grep calls, which the pre-split score misread as
--- model misbehavior). Degraded calls are excluded from truncation_hit_rate
--- and zero_match_rate (a capped walk both flags "truncated" and misses
--- files) and reported separately as substrate_degraded_rate. Pre-092 rows
--- (engine IS NULL, substrate columns default false) keep their old OR-folded
--- `truncated` meaning and simply age out of the window.
+-- model misbehavior). BOTH rates use the SAME denominator — non-degraded
+-- calls (review fix: mixed denominators made the ranking a function of
+-- substrate health) — so they read as "model-controllable waste per
+-- model-controllable call"; a fully-degraded tool has NULL rates and a zero
+-- waste_score. substrate_degraded_rate is reported over ALL calls. The
+-- secondary ORDER BY substrate_degraded_rate lets a degraded-but-zero-waste
+-- tool surface inside the top N as environment signal instead of being
+-- silently filtered. Pre-092 rows (engine IS NULL, substrate columns default
+-- false) keep their old OR-folded `truncated` meaning and simply age out of
+-- the window.
 --
 -- tool_id is stored VERBATIM by the telemetry writer, so one logical tool
 -- can land under both bare and dotted spellings ('grepSearch' /
@@ -52,15 +57,17 @@ SELECT
   tool_id,
   count(*)::int AS calls,
   sum(model_facing_chars)::float8 AS total_model_facing_chars,
-  (count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8 / count(*)
+  (count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8
+    / NULLIF(count(*) FILTER (WHERE NOT substrate_degraded), 0)
     AS truncation_hit_rate,
   (avg(zero_match::int) FILTER (WHERE NOT substrate_degraded))::float8 AS zero_match_rate,
   avg(substrate_degraded::int)::float8 AS substrate_degraded_rate,
   sum(model_facing_chars)::float8
-    * ((count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8 / count(*)
+    * (COALESCE((count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8
+        / NULLIF(count(*) FILTER (WHERE NOT substrate_degraded), 0), 0)
       + COALESCE((avg(zero_match::int) FILTER (WHERE NOT substrate_degraded))::float8, 0))
     AS waste_score
 FROM normalized
 GROUP BY tool_id
-ORDER BY waste_score DESC, tool_id
+ORDER BY waste_score DESC, substrate_degraded_rate DESC, tool_id
 LIMIT $3;

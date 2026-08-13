@@ -290,7 +290,7 @@ describe('grepSearch hybrid — live caps surface in truncated (mode parity)', (
     return root;
   }
 
-  it('content mode ORs the live candidate cap into truncated with terminal guidance', async () => {
+  it('content mode surfaces the live candidate cap as candidatesTruncated with terminal guidance', async () => {
     const root = await makeCappedWorkspace();
 
     const result = await runGrepSearch(
@@ -301,19 +301,21 @@ describe('grepSearch hybrid — live caps surface in truncated (mode parity)', (
       throw new Error('expected content result');
     }
     // Only the capped candidate's match is counted, so pagination looks
-    // "complete" — but the live cap left an on-disk match unreached, and that
-    // MUST surface as truncated (same semantics as files mode), with terminal
-    // guidance instead of an offset (offsets cannot reach uncounted matches).
+    // "complete" — but the live cap left an on-disk match unreached. BST-1247:
+    // that is a SUBSTRATE condition, so it surfaces as candidatesTruncated
+    // (never folded into `truncated`, which now means output clipping only),
+    // with the SAME terminal guidance (the hint gate unions all three flags).
     expect(result.matches).toHaveLength(1);
     expect(result.totalMatches).toBe(1);
-    expect(result.truncated).toBe(true);
+    expect(result.truncated).toBe(false);
+    expect(result.candidatesTruncated).toBe(true);
     expect(result.liveNote).toMatch(/candidate-file cap/i);
     expect(result.hint).toMatch(/narrow|different|specific/i);
     expect(result.hint).not.toContain('Continue with offset:');
     expect(projectGrepSearchModelOutput(result).value).toContain('continue:');
   });
 
-  it('files mode reports the same truncated=true for the same capped live pass', async () => {
+  it('files mode reports the same candidatesTruncated for the same capped live pass', async () => {
     const root = await makeCappedWorkspace();
 
     const result = await runGrepSearch({ pattern: 'CAP_TOKEN' }, singleRoot(root));
@@ -321,7 +323,8 @@ describe('grepSearch hybrid — live caps surface in truncated (mode parity)', (
       throw new Error('expected files result');
     }
     expect(result.files).toHaveLength(1);
-    expect(result.truncated).toBe(true);
+    expect(result.truncated).toBe(false);
+    expect(result.candidatesTruncated).toBe(true);
     expect(result.liveNote).toMatch(/candidate-file cap/i);
     expect(result.hint).toBeDefined();
     expect(projectGrepSearchModelOutput(result).value).toContain('continue:');
