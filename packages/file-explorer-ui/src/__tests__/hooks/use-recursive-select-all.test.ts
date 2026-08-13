@@ -6,13 +6,15 @@ import { useRecursiveSelectAll } from '../../hooks/use-recursive-select-all';
 
 let mockStoreState: Record<string, unknown> | null = null;
 
-vi.mock('@brainstrike/hooks', () => ({
-  useEventCallback: <TArgs extends unknown[], TResult>(callback: (...args: TArgs) => TResult) =>
-    callback,
-  useFileFilters: () => ({
-    applyFileFilters: vi.fn((tree: IFileNode[]) => tree),
-  }),
-}));
+vi.mock('@brainstrike/hooks', async () => {
+  const { useEventCallbackMock } = await import('../__mocks__/use-event-callback-mock');
+  return {
+    useEventCallback: useEventCallbackMock,
+    useFileFilters: () => ({
+      applyFileFilters: vi.fn((tree: IFileNode[]) => tree),
+    }),
+  };
+});
 
 const showToastMock = vi.fn();
 
