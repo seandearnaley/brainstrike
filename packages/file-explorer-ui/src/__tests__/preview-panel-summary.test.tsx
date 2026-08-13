@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { TokenCountingState } from '../indexing/use-token-counting';
-import { PreviewPanelFooter, type TokenUsageMetrics } from '../preview/preview-panel-footer';
+import { PreviewPanelSummary, type TokenUsageMetrics } from '../preview/preview-panel-summary';
 
 const tokenCounting: TokenCountingState = {
   countTokens: async () => 0,
@@ -30,15 +30,15 @@ function createTokenUsage(overrides: Partial<TokenUsageMetrics> = {}): TokenUsag
   };
 }
 
-function createProps(overrides: Partial<Parameters<typeof PreviewPanelFooter>[0]> = {}) {
+function createProps(overrides: Partial<Parameters<typeof PreviewPanelSummary>[0]> = {}) {
   return {
     includeProjectTree: true,
     onCopyContext: vi.fn(),
     onDownloadContext: vi.fn(),
     onFolderSummaryThresholdChange: vi.fn(),
-    onFooterModeChange: vi.fn(),
     onIncludeProjectTreeChange: vi.fn(),
     onProjectTreeUsesViewFiltersChange: vi.fn(),
+    onSummaryModeChange: vi.fn(),
     onTokenBudgetChange: vi.fn(),
     projectTreeUsesViewFilters: true,
     selectedFilesCount: 4,
@@ -46,15 +46,15 @@ function createProps(overrides: Partial<Parameters<typeof PreviewPanelFooter>[0]
     tokenUsage: createTokenUsage(),
     totalFiles: 12,
     ...overrides,
-  } satisfies Parameters<typeof PreviewPanelFooter>[0];
+  } satisfies Parameters<typeof PreviewPanelSummary>[0];
 }
 
-describe('PreviewPanelFooter', () => {
-  it('renders detailed controls and dispatches footer actions', async () => {
+describe('PreviewPanelSummary', () => {
+  it('renders detailed controls and dispatches summary actions', async () => {
     const user = userEvent.setup();
     const props = createProps();
 
-    render(<PreviewPanelFooter {...props} />);
+    render(<PreviewPanelSummary {...props} />);
 
     await user.click(screen.getByRole('button', { name: 'Compact summary mode' }));
     await user.click(screen.getByRole('button', { name: 'Insights summary mode' }));
@@ -65,8 +65,8 @@ describe('PreviewPanelFooter', () => {
     const thresholdInput = screen.getByLabelText('Tree detail:');
     fireEvent.change(thresholdInput, { target: { value: '9' } });
 
-    expect(props.onFooterModeChange).toHaveBeenCalledWith('compact');
-    expect(props.onFooterModeChange).toHaveBeenCalledWith('expanded');
+    expect(props.onSummaryModeChange).toHaveBeenCalledWith('compact');
+    expect(props.onSummaryModeChange).toHaveBeenCalledWith('expanded');
     expect(props.onDownloadContext).toHaveBeenCalledTimes(1);
     expect(props.onCopyContext).toHaveBeenCalledTimes(1);
     expect(props.onProjectTreeUsesViewFiltersChange).toHaveBeenCalledWith(false);
@@ -74,7 +74,7 @@ describe('PreviewPanelFooter', () => {
   });
 
   it('never renders a "Use Tapestry Ranges" switch (the preference and switch were removed)', () => {
-    render(<PreviewPanelFooter {...createProps()} />);
+    render(<PreviewPanelSummary {...createProps()} />);
 
     expect(
       screen.queryByRole('switch', { name: 'Use tapestry ranges in context output' })
@@ -86,19 +86,19 @@ describe('PreviewPanelFooter', () => {
     const props = {
       ...createProps(),
       projectTreeValidationError: 'Invalid regular expression pattern: [abc',
-    } as Parameters<typeof PreviewPanelFooter>[0];
+    } as Parameters<typeof PreviewPanelSummary>[0];
 
-    render(<PreviewPanelFooter {...props} />);
+    render(<PreviewPanelSummary {...props} />);
 
     expect(screen.getByRole('alert')).toHaveTextContent('Invalid regular expression pattern: [abc');
   });
 
   it('disables context actions and shows over-budget compact status with no selected files', () => {
     render(
-      <PreviewPanelFooter
+      <PreviewPanelSummary
         {...createProps({
-          footerMode: 'compact',
           selectedFilesCount: 0,
+          summaryMode: 'compact',
           tokenUsage: createTokenUsage({
             budget: 1000,
             isOverBudget: true,
@@ -117,13 +117,13 @@ describe('PreviewPanelFooter', () => {
 
   it('renders expanded budget composition and usage trend history', () => {
     const props = createProps({
-      footerMode: 'expanded',
+      summaryMode: 'expanded',
       tokenUsage: createTokenUsage({ selectedTokens: 350, usedTokens: 600 }),
     });
-    const { rerender } = render(<PreviewPanelFooter {...props} />);
+    const { rerender } = render(<PreviewPanelSummary {...props} />);
 
     rerender(
-      <PreviewPanelFooter
+      <PreviewPanelSummary
         {...props}
         tokenUsage={createTokenUsage({
           includedTreeTokens: 200,

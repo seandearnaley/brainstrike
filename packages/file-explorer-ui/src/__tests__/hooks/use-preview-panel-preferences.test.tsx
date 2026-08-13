@@ -20,7 +20,6 @@ describe('usePreviewPanelPreferences', () => {
       'previewPanelPreferences.v1',
       JSON.stringify({
         collapsedGroups: ['keep', 12, null],
-        footerCollapsed: true,
         footerHeight: 9999,
         footerMode: 'not-a-mode',
         groupingConfig: 'folder',
@@ -59,6 +58,32 @@ describe('usePreviewPanelPreferences', () => {
     const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
 
     expect(result.current.footerMode).toBe('expanded');
+  });
+
+  it.each([
+    [193.49, 'compact'],
+    [193.5, 'compact'],
+    [194.49, 'compact'],
+    [194.5, 'default'],
+    [313.49, 'default'],
+    [313.5, 'expanded'],
+  ] as const)('rounds legacy footer height %s before inferring %s mode', (footerHeight, mode) => {
+    localStorage.setItem('previewPanelPreferences.v1', JSON.stringify({ footerHeight }));
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    expect(result.current.footerMode).toBe(mode);
+  });
+
+  it.each([
+    ['positive overflow', '{"footerHeight":1e400,"footerMode":"compact"}'],
+    ['negative overflow', '{"footerHeight":-1e400,"footerMode":"compact"}'],
+  ] as const)('ignores a non-finite legacy footer height from %s and preserves a valid stored mode', (_case, storedPreferences) => {
+    localStorage.setItem('previewPanelPreferences.v1', storedPreferences);
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    expect(result.current.footerMode).toBe('compact');
   });
 
   it('hydrates valid persisted values and saves preference updates after the debounce', async () => {

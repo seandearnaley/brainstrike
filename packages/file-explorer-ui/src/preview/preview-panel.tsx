@@ -40,7 +40,7 @@ import {
 import { getTokenUsageMetrics } from '../utils/token-usage-metrics';
 import { useWorkspaceContextCurationStore } from '../workspace-context-curation-store';
 import { tapestryLineRangeToToolRange } from '../workspace-context-line-ranges';
-import { PreviewPanelFooter } from './preview-panel-footer';
+import { PreviewPanelSummary } from './preview-panel-summary';
 import { usePreviewPanelPreferences } from './use-preview-panel-preferences';
 import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 
@@ -773,21 +773,21 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   if (selectedFiles.size === 0) {
     return (
       <div className="@container flex h-full flex-col overflow-hidden bg-panel-surface">
-        <PreviewPanelFooter
+        <PreviewPanelSummary
           folderSummaryThreshold={folderSummaryThreshold ?? 5}
-          footerMode={footerMode}
           includeProjectTree={includeProjectTree}
           onCopyContext={handleCopyContext}
           onDownloadContext={handleDownloadContext}
           onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
-          onFooterModeChange={setFooterMode}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
           onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
+          onSummaryModeChange={setFooterMode}
           onTokenBudgetChange={onTokenBudgetChange}
           projectTreeUsesViewFilters={projectTreeUsesViewFilters}
           projectTreeValidationError={projectTreeValidationError}
           selectedFilesCount={selectedFiles.size}
           selectedTokensPendingCount={0}
+          summaryMode={footerMode}
           tokenCounting={tokenCounting}
           tokenUsage={tokenUsage}
           totalFiles={0}
@@ -806,21 +806,21 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   return (
     <div className="@container flex h-full flex-col overflow-hidden bg-panel-surface">
-      <PreviewPanelFooter
+      <PreviewPanelSummary
         folderSummaryThreshold={folderSummaryThreshold ?? 5}
-        footerMode={footerMode}
         includeProjectTree={includeProjectTree}
         onCopyContext={handleCopyContext}
         onDownloadContext={handleDownloadContext}
         onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
-        onFooterModeChange={setFooterMode}
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
         onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
+        onSummaryModeChange={setFooterMode}
         onTokenBudgetChange={onTokenBudgetChange}
         projectTreeUsesViewFilters={projectTreeUsesViewFilters}
         projectTreeValidationError={projectTreeValidationError}
         selectedFilesCount={selectedFiles.size}
         selectedTokensPendingCount={contextSelectedTokenSummary.outputPendingCount}
+        summaryMode={footerMode}
         tokenCounting={tokenCounting}
         tokenUsage={tokenUsage}
         totalFiles={totalStats.totalFiles}

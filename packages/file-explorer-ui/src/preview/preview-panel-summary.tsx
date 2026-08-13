@@ -14,9 +14,9 @@ import { TokenBudgetControl } from '../indexing/token-budget-control';
 import { TokenMeter } from '../indexing/token-meter';
 import { TokenSummaryBar } from '../indexing/token-summary-bar';
 import type { TokenCountingState } from '../indexing/use-token-counting';
-import type { PreviewFooterMode } from './preview-footer-layout';
+import type { PreviewSummaryMode } from './preview-summary-mode';
 
-const FOOTER_INSIGHT_HISTORY_LIMIT = 24;
+const SUMMARY_INSIGHT_HISTORY_LIMIT = 24;
 const SVG_ID_INVALID_CHARACTERS = /[^a-zA-Z0-9_-]/g;
 const noop = (): void => {};
 
@@ -85,7 +85,7 @@ const TokenUsageSparkline = memo<TokenUsageSparklineProps>(function TokenUsageSp
 }) {
   const geometry = useMemo(() => buildSparklinePoints(history, budget), [history, budget]);
   const gradientId = useId();
-  const gradientFillId = `footer-usage-fill-${gradientId.replace(SVG_ID_INVALID_CHARACTERS, '') || 'usage'}`;
+  const gradientFillId = `summary-usage-fill-${gradientId.replace(SVG_ID_INVALID_CHARACTERS, '') || 'usage'}`;
   const latest = history.at(-1) ?? 0;
   const previous = history.at(-2) ?? latest;
   const delta = latest - previous;
@@ -162,36 +162,36 @@ export interface TokenUsageMetrics {
   usedTokens: number;
 }
 
-interface PreviewPanelFooterProps {
+interface PreviewPanelSummaryProps {
   folderSummaryThreshold?: number;
-  footerMode?: PreviewFooterMode;
   includeProjectTree: boolean;
   onCopyContext?: (() => void) | undefined;
   onDownloadContext?: (() => void) | undefined;
   onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
-  onFooterModeChange?: ((mode: PreviewFooterMode) => void) | undefined;
   onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
   onProjectTreeUsesViewFiltersChange?: ((checked: boolean) => void) | undefined;
+  onSummaryModeChange?: ((mode: PreviewSummaryMode) => void) | undefined;
   onTokenBudgetChange?: ((budget: number) => void) | undefined;
   projectTreeUsesViewFilters: boolean;
   projectTreeValidationError?: string | undefined;
   selectedFilesCount: number;
   /** BST-153: Number of files still being indexed (for "estimating..." state) */
   selectedTokensPendingCount?: number;
+  summaryMode?: PreviewSummaryMode;
   tokenCounting: TokenCountingState;
   tokenUsage: TokenUsageMetrics;
   totalFiles: number;
   treeLoading?: boolean;
 }
 
-interface FooterActionButtonsProps {
+interface SummaryActionButtonsProps {
   isCompact: boolean;
   onCopyContext?: (() => void) | undefined;
   onDownloadContext?: (() => void) | undefined;
   selectedFilesCount: number;
 }
 
-const FooterActionButtons = memo<FooterActionButtonsProps>(function FooterActionButtons({
+const SummaryActionButtons = memo<SummaryActionButtonsProps>(function SummaryActionButtons({
   isCompact,
   selectedFilesCount,
   onDownloadContext,
@@ -259,12 +259,12 @@ const FooterActionButtons = memo<FooterActionButtonsProps>(function FooterAction
   );
 });
 
-interface FooterModeButtonsProps {
-  mode: PreviewFooterMode;
-  onModeSelect: (mode: PreviewFooterMode) => void;
+interface SummaryModeButtonsProps {
+  mode: PreviewSummaryMode;
+  onModeSelect: (mode: PreviewSummaryMode) => void;
 }
 
-const FooterModeButtons = memo<FooterModeButtonsProps>(function FooterModeButtons({
+const SummaryModeButtons = memo<SummaryModeButtonsProps>(function SummaryModeButtons({
   mode,
   onModeSelect,
 }) {
@@ -301,104 +301,103 @@ const FooterModeButtons = memo<FooterModeButtonsProps>(function FooterModeButton
   );
 });
 
-interface ExpandedFooterInsightsProps {
+interface ExpandedSummaryInsightsProps {
   includeProjectTree: boolean;
   tokenUsage: TokenUsageMetrics;
   usageHistory: number[];
 }
 
-const ExpandedFooterInsights = memo<ExpandedFooterInsightsProps>(function ExpandedFooterInsights({
-  tokenUsage,
-  includeProjectTree,
-  usageHistory,
-}) {
-  const compositionSegments = useMemo(() => {
-    const treeTokens = includeProjectTree ? tokenUsage.includedTreeTokens : 0;
-    const totalUsedTokens = Math.max(0, tokenUsage.usedTokens);
-    const overBudgetTokens = Math.max(0, totalUsedTokens - tokenUsage.budget);
-    const remainingTokens = Math.max(0, tokenUsage.budget - totalUsedTokens);
-    const budgetRatio = totalUsedTokens > 0 ? Math.min(1, tokenUsage.budget / totalUsedTokens) : 1;
+const ExpandedSummaryInsights = memo<ExpandedSummaryInsightsProps>(
+  function ExpandedSummaryInsights({ tokenUsage, includeProjectTree, usageHistory }) {
+    const compositionSegments = useMemo(() => {
+      const treeTokens = includeProjectTree ? tokenUsage.includedTreeTokens : 0;
+      const totalUsedTokens = Math.max(0, tokenUsage.usedTokens);
+      const overBudgetTokens = Math.max(0, totalUsedTokens - tokenUsage.budget);
+      const remainingTokens = Math.max(0, tokenUsage.budget - totalUsedTokens);
+      const budgetRatio =
+        totalUsedTokens > 0 ? Math.min(1, tokenUsage.budget / totalUsedTokens) : 1;
 
-    const segments = [
-      {
-        className: 'bg-primary/80',
-        id: 'selected',
-        label: 'Output',
-        value: tokenUsage.selectedTokens,
-        visualValue: tokenUsage.selectedTokens * budgetRatio,
-      },
-      {
-        className: 'bg-[hsl(var(--chart-2))]/80',
-        id: 'tree',
-        label: 'Tree',
-        value: treeTokens,
-        visualValue: treeTokens * budgetRatio,
-      },
-      {
-        className: tokenUsage.isOverBudget ? 'bg-destructive/75' : 'bg-emerald-500/70',
-        id: 'remaining',
-        label: tokenUsage.isOverBudget ? 'Over budget' : 'Remaining',
-        value: tokenUsage.isOverBudget ? overBudgetTokens : remainingTokens,
-        visualValue: tokenUsage.isOverBudget ? overBudgetTokens : remainingTokens,
-      },
-    ];
-    const totalValue = Math.max(1, tokenUsage.isOverBudget ? totalUsedTokens : tokenUsage.budget);
+      const segments = [
+        {
+          className: 'bg-primary/80',
+          id: 'selected',
+          label: 'Output',
+          value: tokenUsage.selectedTokens,
+          visualValue: tokenUsage.selectedTokens * budgetRatio,
+        },
+        {
+          className: 'bg-[hsl(var(--chart-2))]/80',
+          id: 'tree',
+          label: 'Tree',
+          value: treeTokens,
+          visualValue: treeTokens * budgetRatio,
+        },
+        {
+          className: tokenUsage.isOverBudget ? 'bg-destructive/75' : 'bg-emerald-500/70',
+          id: 'remaining',
+          label: tokenUsage.isOverBudget ? 'Over budget' : 'Remaining',
+          value: tokenUsage.isOverBudget ? overBudgetTokens : remainingTokens,
+          visualValue: tokenUsage.isOverBudget ? overBudgetTokens : remainingTokens,
+        },
+      ];
+      const totalValue = Math.max(1, tokenUsage.isOverBudget ? totalUsedTokens : tokenUsage.budget);
 
-    return segments.map((segment) => ({
-      ...segment,
-      widthPercent: (segment.visualValue / totalValue) * 100,
-    }));
-  }, [includeProjectTree, tokenUsage]);
+      return segments.map((segment) => ({
+        ...segment,
+        widthPercent: (segment.visualValue / totalValue) * 100,
+      }));
+    }, [includeProjectTree, tokenUsage]);
 
-  return (
-    <div className="grid @[640px]:grid-cols-[1.2fr_0.8fr] gap-1.5">
-      <div className="rounded-md border bg-gradient-to-br from-muted/35 via-background to-background p-2">
-        <div className="mb-1.5 flex items-center justify-between gap-2">
-          <span className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
-            Budget composition
-          </span>
-          <span className="font-medium text-foreground text-xs tabular-nums">
-            {tokenUsage.usedTokens.toLocaleString()} / {tokenUsage.budget.toLocaleString()}
-          </span>
+    return (
+      <div className="grid @[640px]:grid-cols-[1.2fr_0.8fr] gap-1.5">
+        <div className="rounded-md border bg-gradient-to-br from-muted/35 via-background to-background p-2">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+              Budget composition
+            </span>
+            <span className="font-medium text-foreground text-xs tabular-nums">
+              {tokenUsage.usedTokens.toLocaleString()} / {tokenUsage.budget.toLocaleString()}
+            </span>
+          </div>
+          <div aria-hidden className="mb-1.5 flex h-2.5 overflow-hidden rounded-sm bg-muted">
+            {compositionSegments.map((segment) => (
+              <div
+                className={segment.className}
+                key={segment.id}
+                style={{
+                  minWidth: segment.value > 0 ? '4px' : undefined,
+                  width: `${segment.widthPercent}%`,
+                }}
+              />
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-1 text-[11px]">
+            {compositionSegments.map((segment) => (
+              <div className="flex items-center justify-between gap-2" key={segment.id}>
+                <span className="text-muted-foreground">{segment.label}</span>
+                <span className="font-medium tabular-nums">{segment.value.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div aria-hidden className="mb-1.5 flex h-2.5 overflow-hidden rounded-sm bg-muted">
-          {compositionSegments.map((segment) => (
-            <div
-              className={segment.className}
-              key={segment.id}
-              style={{
-                minWidth: segment.value > 0 ? '4px' : undefined,
-                width: `${segment.widthPercent}%`,
-              }}
-            />
-          ))}
-        </div>
-        <div className="grid grid-cols-3 gap-1 text-[11px]">
-          {compositionSegments.map((segment) => (
-            <div className="flex items-center justify-between gap-2" key={segment.id}>
-              <span className="text-muted-foreground">{segment.label}</span>
-              <span className="font-medium tabular-nums">{segment.value.toLocaleString()}</span>
-            </div>
-          ))}
-        </div>
+
+        <TokenUsageSparkline
+          budget={tokenUsage.budget}
+          history={usageHistory}
+          isOverBudget={tokenUsage.isOverBudget}
+        />
       </div>
+    );
+  }
+);
 
-      <TokenUsageSparkline
-        budget={tokenUsage.budget}
-        history={usageHistory}
-        isOverBudget={tokenUsage.isOverBudget}
-      />
-    </div>
-  );
-});
-
-interface CompactFooterControlsProps {
+interface CompactSummaryControlsProps {
   actions: ReactNode;
   onTokenBudgetChange?: ((budget: number) => void) | undefined;
   tokenUsage: TokenUsageMetrics;
 }
 
-const CompactFooterControls = memo<CompactFooterControlsProps>(function CompactFooterControls({
+const CompactSummaryControls = memo<CompactSummaryControlsProps>(function CompactSummaryControls({
   tokenUsage,
   onTokenBudgetChange,
   actions,
@@ -422,7 +421,7 @@ const CompactFooterControls = memo<CompactFooterControlsProps>(function CompactF
   );
 });
 
-interface DetailedFooterControlsProps {
+interface DetailedSummaryControlsProps {
   actions: ReactNode;
   folderSummaryThreshold: number;
   includeProjectTree: boolean;
@@ -434,107 +433,109 @@ interface DetailedFooterControlsProps {
   tokenUsage: TokenUsageMetrics;
 }
 
-const DetailedFooterControls = memo<DetailedFooterControlsProps>(function DetailedFooterControls({
-  includeProjectTree,
-  projectTreeUsesViewFilters,
-  tokenUsage,
-  folderSummaryThreshold,
-  onTokenBudgetChange,
-  onIncludeProjectTreeChange,
-  onProjectTreeUsesViewFiltersChange,
-  onFolderSummaryThresholdChange,
-  actions,
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-3 border-t pt-2.5">
-      <TokenBudgetControl budget={tokenUsage.budget} onBudgetChange={onTokenBudgetChange} />
+const DetailedSummaryControls = memo<DetailedSummaryControlsProps>(
+  function DetailedSummaryControls({
+    includeProjectTree,
+    projectTreeUsesViewFilters,
+    tokenUsage,
+    folderSummaryThreshold,
+    onTokenBudgetChange,
+    onIncludeProjectTreeChange,
+    onProjectTreeUsesViewFiltersChange,
+    onFolderSummaryThresholdChange,
+    actions,
+  }) {
+    return (
+      <div className="flex flex-wrap items-center gap-3 border-t pt-2.5">
+        <TokenBudgetControl budget={tokenUsage.budget} onBudgetChange={onTokenBudgetChange} />
 
-      {onIncludeProjectTreeChange && <div aria-hidden className="h-6 w-px bg-border" />}
+        {onIncludeProjectTreeChange && <div aria-hidden className="h-6 w-px bg-border" />}
 
-      {onIncludeProjectTreeChange && (
-        <div className="flex items-center gap-2">
-          <TooltipProvider delayDuration={400}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2">
-                  <IncludeProjectTreeSetting
-                    checked={includeProjectTree}
-                    onChange={onIncludeProjectTreeChange}
-                  />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>Include project tree in the context</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-      )}
-
-      {includeProjectTree && onProjectTreeUsesViewFiltersChange && (
-        <>
-          <div aria-hidden className="h-6 w-px bg-border" />
-          <TooltipProvider delayDuration={400}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    aria-label="Use filtered project tree"
-                    checked={projectTreeUsesViewFilters}
-                    id="project-tree-uses-view-filters"
-                    onCheckedChange={onProjectTreeUsesViewFiltersChange}
-                  />
-                  <Label
-                    className="cursor-pointer select-none text-muted-foreground text-xs"
-                    htmlFor="project-tree-uses-view-filters"
-                  >
-                    Use Filtered Tree
-                  </Label>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                Toggle filtered tree output. Applies when Include Project Tree is on.
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </>
-      )}
-
-      {includeProjectTree && onFolderSummaryThresholdChange && (
-        <>
-          <div aria-hidden className="h-6 w-px bg-border" />
+        {onIncludeProjectTreeChange && (
           <div className="flex items-center gap-2">
-            <label
-              className="whitespace-nowrap text-muted-foreground text-xs"
-              htmlFor="folder-summary-threshold-footer"
-              title="Number of files shown per folder in the project tree before summarizing. Set to 0 to show all."
-            >
-              Tree detail:
-            </label>
-            <input
-              className="h-7 w-14 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              id="folder-summary-threshold-footer"
-              min="0"
-              onChange={(event) => {
-                const value = Number.parseInt(event.target.value, 10);
-                if (!Number.isNaN(value) && value >= 0) {
-                  onFolderSummaryThresholdChange(value);
-                }
-              }}
-              title="Files per folder before summarizing (0 = show all)"
-              type="number"
-              value={folderSummaryThreshold}
-            />
+            <TooltipProvider delayDuration={400}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-2">
+                    <IncludeProjectTreeSetting
+                      checked={includeProjectTree}
+                      onChange={onIncludeProjectTreeChange}
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>Include project tree in the context</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
-        </>
-      )}
+        )}
 
-      <div className="flex-1" />
-      {actions}
-    </div>
-  );
-});
+        {includeProjectTree && onProjectTreeUsesViewFiltersChange && (
+          <>
+            <div aria-hidden className="h-6 w-px bg-border" />
+            <TooltipProvider delayDuration={400}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      aria-label="Use filtered project tree"
+                      checked={projectTreeUsesViewFilters}
+                      id="project-tree-uses-view-filters"
+                      onCheckedChange={onProjectTreeUsesViewFiltersChange}
+                    />
+                    <Label
+                      className="cursor-pointer select-none text-muted-foreground text-xs"
+                      htmlFor="project-tree-uses-view-filters"
+                    >
+                      Use Filtered Tree
+                    </Label>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Toggle filtered tree output. Applies when Include Project Tree is on.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </>
+        )}
 
-export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
-  function PreviewPanelFooterComponent(props) {
+        {includeProjectTree && onFolderSummaryThresholdChange && (
+          <>
+            <div aria-hidden className="h-6 w-px bg-border" />
+            <div className="flex items-center gap-2">
+              <label
+                className="whitespace-nowrap text-muted-foreground text-xs"
+                htmlFor="folder-summary-threshold-summary"
+                title="Number of files shown per folder in the project tree before summarizing. Set to 0 to show all."
+              >
+                Tree detail:
+              </label>
+              <input
+                className="h-7 w-14 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                id="folder-summary-threshold-summary"
+                min="0"
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isNaN(value) && value >= 0) {
+                    onFolderSummaryThresholdChange(value);
+                  }
+                }}
+                title="Files per folder before summarizing (0 = show all)"
+                type="number"
+                value={folderSummaryThreshold}
+              />
+            </div>
+          </>
+        )}
+
+        <div className="flex-1" />
+        {actions}
+      </div>
+    );
+  }
+);
+
+export const PreviewPanelSummary = memo<PreviewPanelSummaryProps>(
+  function PreviewPanelSummaryComponent(props) {
     const {
       totalFiles,
       tokenCounting,
@@ -552,14 +553,14 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       onCopyContext,
       folderSummaryThreshold = 5,
       onFolderSummaryThresholdChange,
-      footerMode = 'default',
-      onFooterModeChange,
+      summaryMode = 'default',
+      onSummaryModeChange,
     } = props;
 
     const [usageHistory, setUsageHistory] = useState<number[]>([]);
     const usageHistoryRef = useRef<number[]>([]);
-    const isCompact = footerMode === 'compact';
-    const isExpanded = footerMode === 'expanded';
+    const isCompact = summaryMode === 'compact';
+    const isExpanded = summaryMode === 'expanded';
     const isExpandedRef = useRef(isExpanded);
     isExpandedRef.current = isExpanded;
     const usedTokensRef = useRef(tokenUsage.usedTokens);
@@ -584,6 +585,17 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       averageTokensPerFile > 0 && remainingTokens > 0
         ? Math.floor(remainingTokens / averageTokensPerFile)
         : 0;
+    const summaryActions = useMemo(
+      () => (
+        <SummaryActionButtons
+          isCompact={isCompact}
+          onCopyContext={onCopyContext}
+          onDownloadContext={onDownloadContext}
+          selectedFilesCount={selectedFilesCount}
+        />
+      ),
+      [isCompact, onCopyContext, onDownloadContext, selectedFilesCount]
+    );
 
     useEffect(() => {
       const previousHistory = usageHistoryRef.current;
@@ -594,9 +606,9 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
 
       const nextHistory = [...previousHistory, tokenUsage.usedTokens];
       usageHistoryRef.current =
-        nextHistory.length <= FOOTER_INSIGHT_HISTORY_LIMIT
+        nextHistory.length <= SUMMARY_INSIGHT_HISTORY_LIMIT
           ? nextHistory
-          : nextHistory.slice(-FOOTER_INSIGHT_HISTORY_LIMIT);
+          : nextHistory.slice(-SUMMARY_INSIGHT_HISTORY_LIMIT);
 
       if (isExpandedRef.current) {
         setUsageHistory(usageHistoryRef.current);
@@ -617,7 +629,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     return (
       <div className="@container flex flex-shrink-0 flex-col border-b bg-background/95 supports-[backdrop-filter]:bg-background/80">
         <div className="flex flex-wrap items-center justify-end gap-2 border-b bg-muted/20 px-3 py-2">
-          <FooterModeButtons mode={footerMode} onModeSelect={onFooterModeChange ?? noop} />
+          <SummaryModeButtons mode={summaryMode} onModeSelect={onSummaryModeChange ?? noop} />
         </div>
 
         <div className="flex flex-col gap-2.5 p-3">
@@ -689,7 +701,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           </div>
 
           {isExpanded ? (
-            <ExpandedFooterInsights
+            <ExpandedSummaryInsights
               includeProjectTree={includeProjectTree}
               tokenUsage={tokenUsage}
               usageHistory={usageHistory}
@@ -697,28 +709,14 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           ) : null}
 
           {isCompact ? (
-            <CompactFooterControls
-              actions={
-                <FooterActionButtons
-                  isCompact
-                  onCopyContext={onCopyContext}
-                  onDownloadContext={onDownloadContext}
-                  selectedFilesCount={selectedFilesCount}
-                />
-              }
+            <CompactSummaryControls
+              actions={summaryActions}
               onTokenBudgetChange={onTokenBudgetChange}
               tokenUsage={tokenUsage}
             />
           ) : (
-            <DetailedFooterControls
-              actions={
-                <FooterActionButtons
-                  isCompact={false}
-                  onCopyContext={onCopyContext}
-                  onDownloadContext={onDownloadContext}
-                  selectedFilesCount={selectedFilesCount}
-                />
-              }
+            <DetailedSummaryControls
+              actions={summaryActions}
               folderSummaryThreshold={folderSummaryThreshold}
               includeProjectTree={includeProjectTree}
               onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
@@ -735,4 +733,4 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
   }
 );
 
-PreviewPanelFooter.displayName = 'PreviewPanelFooter';
+PreviewPanelSummary.displayName = 'PreviewPanelSummary';
