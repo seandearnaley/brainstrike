@@ -231,7 +231,7 @@ NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name
 
 NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path) {
   std::wstring path = Utf8ToWide(utf8_path);
-  if (path.empty()) {
+  if (path.empty() || path.find(L'\0') != std::wstring::npos) {
     return kInvalidHandle;
   }
   for (wchar_t& character : path) {
