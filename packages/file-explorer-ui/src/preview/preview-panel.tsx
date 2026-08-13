@@ -111,6 +111,27 @@ function compareByRootFolderId(a: TableRowData, b: TableRowData): number {
   return 0;
 }
 
+interface IndexedRowData {
+  order: number;
+  row: TableRowData;
+}
+
+function deriveSelectedRows(
+  rowDataByCompositeKey: ReadonlyMap<string, IndexedRowData>,
+  selectedFiles: ReadonlySet<string>
+): TableRowData[] {
+  const selectedRows: IndexedRowData[] = [];
+  for (const compositeKey of selectedFiles) {
+    const indexedRow = rowDataByCompositeKey.get(compositeKey);
+    if (indexedRow) {
+      selectedRows.push(indexedRow);
+    }
+  }
+
+  selectedRows.sort((a, b) => a.order - b.order);
+  return selectedRows.map(({ row }) => row);
+}
+
 export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelComponent(props) {
   const {
     selectedFiles,
@@ -198,8 +219,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   });
 
   const { totalStats, flatListItems } = state;
-  // Defer large list snapshots so expensive token summary work does not block UI updates.
-  const deferredFlatListItems = useDeferredValue(flatListItems);
+  // Defer row membership and its selection as one snapshot. Keeping them
+  // paired prevents the gallery pipeline from observing an old/new
+  // intersection while React advances the expensive row derivation.
+  const previewRowsInput = useMemo(
+    () => ({ flatListItems, selectedFiles }),
+    [flatListItems, selectedFiles]
+  );
+  const deferredPreviewRowsInput = useDeferredValue(previewRowsInput);
+  const deferredFlatListItems = deferredPreviewRowsInput.flatListItems;
+  const deferredSelectedFiles = deferredPreviewRowsInput.selectedFiles;
   // Compute the content snapshot for context-selected token summary.
   // Uses a pure useMemo — no ref access during render.
   const selectedFileContentSnapshot = useMemo(
@@ -211,25 +240,31 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       }),
     [fileContents, selectedFiles, deferredTapestryRangesByKey]
   );
+  // Build the O(N) token index only when the deferred snapshot advances, not
+  // when current selection changes while that snapshot is intentionally stale.
+  const deferredTokenCountByFile = useMemo(
+    () => createTokenCountByFile(deferredFlatListItems),
+    [deferredFlatListItems]
+  );
 
-  const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
-    const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);
-
-    return computeContextSelectedTokenSummary({
-      fileContents: selectedFileContentSnapshot,
+  const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(
+    () =>
+      computeContextSelectedTokenSummary({
+        fileContents: selectedFileContentSnapshot,
+        selectedFiles,
+        sourcePendingCount: totalStats.pendingCount,
+        sourceSelectedTokens: totalStats.totalTokens,
+        tapestryRangesByKey: deferredTapestryRangesByKey,
+        tokenCountByFile: deferredTokenCountByFile,
+      }),
+    [
+      deferredTokenCountByFile,
+      totalStats,
       selectedFiles,
-      sourcePendingCount: totalStats.pendingCount,
-      sourceSelectedTokens: totalStats.totalTokens,
-      tapestryRangesByKey: deferredTapestryRangesByKey,
-      tokenCountByFile,
-    });
-  }, [
-    deferredFlatListItems,
-    totalStats,
-    selectedFiles,
-    deferredTapestryRangesByKey,
-    selectedFileContentSnapshot,
-  ]);
+      deferredTapestryRangesByKey,
+      selectedFileContentSnapshot,
+    ]
+  );
 
   const tokenUsage = useMemo(
     () =>
@@ -302,29 +337,49 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, decodeFileSelection, resolveRootDisplayName, resolveRootPath]);
 
+  // Index the deferred snapshot once. When selection shrinks, React may briefly
+  // retain many old rows here; selection-dependent work below must not scan them.
+  const rowDataByCompositeKey = useMemo(
+    () => new Map(rowData.map((row, order) => [row.compositeKey, { order, row }] as const)),
+    [rowData]
+  );
+
+  // The context snapshot follows current membership immediately without
+  // scanning the potentially stale deferred rows.
+  const currentSelectedRowData = useMemo(
+    () => deriveSelectedRows(rowDataByCompositeKey, selectedFiles),
+    [rowDataByCompositeKey, selectedFiles]
+  );
+
+  // Expensive gallery work follows the paired deferred selection and rows, so
+  // it never observes an old/new intersection. Newly selected files appear as
+  // soon as the paired deferred snapshot advances.
+  const selectedRowData = useMemo(
+    () => deriveSelectedRows(rowDataByCompositeKey, deferredSelectedFiles),
+    [deferredSelectedFiles, rowDataByCompositeKey]
+  );
+
   useEffect(() => {
     const selectedFolderIds = new Set<string>();
-    const files = rowData
-      .filter((item) => selectedFiles.has(item.compositeKey))
-      .map((item) => {
-        selectedFolderIds.add(item.rootFolderId);
-        const ranges = (deferredTapestryRangesByKey[item.compositeKey] ?? []).map((range) => ({
-          ...tapestryLineRangeToToolRange(range),
-          isActive: range.isActive !== false,
-        }));
-        const hasRanges = ranges.length > 0;
-        const rootDisplayName = resolveRootDisplayName?.(item.rootFolderId);
-        return {
-          approxTokens: item.tokens ?? null,
-          outputApproxTokens: hasRanges ? null : (item.tokens ?? null),
-          path: item.path,
-          ranges,
-          // Multi-root (Phase 6): citations need the root identity to
-          // disambiguate the same relative path across roots.
-          rootId: item.rootFolderId,
-          ...(rootDisplayName !== undefined && { rootDisplayName }),
-        };
-      });
+    const files = currentSelectedRowData.map((item) => {
+      selectedFolderIds.add(item.rootFolderId);
+      const ranges = (deferredTapestryRangesByKey[item.compositeKey] ?? []).map((range) => ({
+        ...tapestryLineRangeToToolRange(range),
+        isActive: range.isActive !== false,
+      }));
+      const hasRanges = ranges.length > 0;
+      const rootDisplayName = resolveRootDisplayName?.(item.rootFolderId);
+      return {
+        approxTokens: item.tokens ?? null,
+        outputApproxTokens: hasRanges ? null : (item.tokens ?? null),
+        path: item.path,
+        ranges,
+        // Multi-root (Phase 6): citations need the root identity to
+        // disambiguate the same relative path across roots.
+        rootId: item.rootFolderId,
+        ...(rootDisplayName !== undefined && { rootDisplayName }),
+      };
+    });
     const selectionFolderId =
       selectedFolderIds.size === 1 ? (Array.from(selectedFolderIds)[0] ?? null) : null;
 
@@ -345,9 +400,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     projectTreeTokenCount,
     projectTreeTokenCountLoading,
     resolveRootDisplayName,
-    selectedFiles,
     setWorkspaceContextSnapshot,
-    rowData,
+    currentSelectedRowData,
     deferredTapestryRangesByKey,
     tokenBudget,
   ]);
@@ -357,7 +411,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     const cache = tapestryBaseCacheRef.current;
     const map = new Map<string, ReturnType<typeof buildTapestryFileBase>>();
 
-    for (const item of rowData) {
+    for (const item of selectedRowData) {
       const content = fileContents[item.compositeKey];
       const isLoading = loadingFiles.has(item.compositeKey);
       const cached = cache.get(item.compositeKey);
@@ -386,31 +440,38 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }
 
     return map;
-  }, [rowData, fileContents, loadingFiles]);
+  }, [selectedRowData, fileContents, loadingFiles]);
 
-  // Persist per-file cache after render — useEffect is a safe place for ref mutation.
+  // Prune only when the deferred row index advances. Selection-only updates
+  // must not scan or evict the larger deferred cache.
   // biome-ignore lint/plugin: Not fetching data — updating a local memoization cache ref.
   useEffect(() => {
-    const newCache = new Map<
-      string,
-      {
-        base: ReturnType<typeof buildTapestryFileBase>;
-        content: string | undefined;
-        isLoading: boolean;
+    const cache = tapestryBaseCacheRef.current;
+    for (const compositeKey of cache.keys()) {
+      if (!rowDataByCompositeKey.has(compositeKey)) {
+        cache.delete(compositeKey);
       }
-    >();
-    for (const item of rowData) {
+    }
+  }, [rowDataByCompositeKey]);
+
+  // Persist selected bases after render in O(S). Deselected bases remain warm
+  // until their row leaves the deferred snapshot in the pruning effect above.
+  // biome-ignore lint/plugin: Not fetching data — updating a local memoization cache ref.
+  useEffect(() => {
+    const cache = tapestryBaseCacheRef.current;
+    for (const item of selectedRowData) {
       const base = tapestryFileBaseByKey.get(item.compositeKey);
       if (base) {
-        newCache.set(item.compositeKey, {
+        cache.set(item.compositeKey, {
           base,
           content: fileContents[item.compositeKey],
           isLoading: loadingFiles.has(item.compositeKey),
         });
+      } else {
+        cache.delete(item.compositeKey);
       }
     }
-    tapestryBaseCacheRef.current = newCache;
-  }, [tapestryFileBaseByKey, rowData, fileContents, loadingFiles]);
+  }, [tapestryFileBaseByKey, selectedRowData, fileContents, loadingFiles]);
 
   useEffect(() => {
     // Capture pending totals outside the setState updater to avoid mutating the
@@ -452,14 +513,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Memoized sorted and grouped data
   const { sortedData, groupedData } = useMemo(() => {
-    const sorted = [...rowData].sort(compareByRootFolderId);
+    const sorted = [...selectedRowData].sort(compareByRootFolderId);
 
     const config =
       GROUPING_CONFIGS[groupingConfig as keyof typeof GROUPING_CONFIGS] ?? GROUPING_CONFIGS.none;
     const grouped = groupData(sorted, config);
 
     return { groupedData: grouped, sortedData: sorted };
-  }, [rowData, groupingConfig]);
+  }, [selectedRowData, groupingConfig]);
 
   // Calculate total items for pagination (including group headers)
   const totalItems = useMemo(() => {

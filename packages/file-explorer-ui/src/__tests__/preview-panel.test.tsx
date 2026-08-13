@@ -832,5 +832,100 @@ describe('PreviewPanel', () => {
       expect(screen.getByText('file0.txt')).toBeInTheDocument();
       expect(screen.queryByText('file24.txt')).not.toBeInTheDocument();
     });
+
+    it('touches only the current selection while deferred rows still contain a large prior selection', () => {
+      const staleItems = Array.from({ length: 1000 }, (_, index) =>
+        buildItem(index, { folderId: 'root' })
+      );
+      const loadingFiles = new Set<string>();
+      const loadingHasSpy = vi.spyOn(loadingFiles, 'has');
+      const fileContents = { file2: 'content2', file999: 'content999' };
+      mockUsePreviewPanelState.mockReturnValue(buildState(staleItems));
+      const decodeFileSelection = (key: string) => ({
+        folderId: key === 'file999' ? 'root-a' : 'root-z',
+        path: `path/to/${key}.txt`,
+      });
+
+      const { rerender } = render(
+        <PreviewPanel
+          {...baseProps}
+          decodeFileSelection={decodeFileSelection}
+          fileContents={fileContents}
+          loadingFiles={loadingFiles}
+          selectedFiles={new Set(staleItems.map((item) => item.compositeKey))}
+        />
+      );
+
+      // The first render populates the per-file cache from the large selection.
+      // Keep those deferred rows while shrinking current membership to two files.
+      loadingHasSpy.mockClear();
+      const selectedFiles = new Set(['file999', 'file2']);
+      rerender(
+        <PreviewPanel
+          {...baseProps}
+          decodeFileSelection={decodeFileSelection}
+          fileContents={fileContents}
+          loadingFiles={loadingFiles}
+          selectedFiles={selectedFiles}
+        />
+      );
+
+      const loadingProbeKeys = loadingHasSpy.mock.calls.map(([compositeKey]) => compositeKey);
+
+      // This is the actual no-N-scan regression instrumentation: base
+      // derivation and cache persistence probe selected rows at most twice.
+      expect(loadingProbeKeys.length).toBeGreaterThanOrEqual(selectedFiles.size);
+      expect(loadingProbeKeys.length).toBeLessThanOrEqual(selectedFiles.size * 2);
+      expect(new Set(loadingProbeKeys)).toEqual(selectedFiles);
+      expect(
+        screen
+          .getAllByTestId('tapestry-document-card')
+          .map((card) => within(card).getByText(/file\d+\.txt/).textContent)
+      ).toEqual(['file999.txt', 'file2.txt']);
+      // The context snapshot preserves deferred source order; the gallery above
+      // independently applies its fixed root-folder ordering.
+      expect(useWorkspaceContextCurationStore.getState().contextSnapshot?.files).toEqual([
+        expect.objectContaining({ path: 'path/to/file2.txt' }),
+        expect.objectContaining({ path: 'path/to/file999.txt' }),
+      ]);
+    });
+
+    it('adds a dynamically selected file when its deferred row arrives', () => {
+      const initialItems = [buildItem(1, { folderId: 'root' })];
+      mockUsePreviewPanelState.mockReturnValue(buildState(initialItems));
+      const { rerender } = render(
+        <PreviewPanel
+          {...baseProps}
+          fileContents={{ file1: 'content1', file2: 'content2' }}
+          selectedFiles={new Set(['file1'])}
+        />
+      );
+
+      rerender(
+        <PreviewPanel
+          {...baseProps}
+          fileContents={{ file1: 'content1', file2: 'content2' }}
+          selectedFiles={new Set(['file1', 'file2'])}
+        />
+      );
+      expect(screen.queryByText('file2.txt')).not.toBeInTheDocument();
+
+      mockUsePreviewPanelState.mockReturnValue(
+        buildState([buildItem(1, { folderId: 'root' }), buildItem(2, { folderId: 'root' })])
+      );
+      rerender(
+        <PreviewPanel
+          {...baseProps}
+          fileContents={{ file1: 'content1', file2: 'content2' }}
+          selectedFiles={new Set(['file1', 'file2'])}
+        />
+      );
+
+      expect(screen.getByText('file2.txt')).toBeInTheDocument();
+      expect(useWorkspaceContextCurationStore.getState().contextSnapshot?.files).toEqual([
+        expect.objectContaining({ path: 'path/to/file1.txt' }),
+        expect.objectContaining({ path: 'path/to/file2.txt' }),
+      ]);
+    });
   });
 });
