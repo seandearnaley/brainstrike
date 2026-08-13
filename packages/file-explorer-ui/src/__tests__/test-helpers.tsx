@@ -21,7 +21,9 @@ export function FileExplorerTestWrapper({
   mockStorageAdapter,
   actionRegistry,
 }: {
-  children: ReactNode;
+  // Optional so callers may nest children as createElement's third argument
+  // instead of a children prop (react-doctor/no-children-prop).
+  children?: ReactNode;
   mockFileSystemAdapter?: MockFileSystemAdapter;
   mockStorageAdapter?: MemoryStorageAdapter;
   actionRegistry?: ActionRegistry;
