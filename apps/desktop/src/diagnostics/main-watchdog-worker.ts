@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { performance } from 'node:perf_hooks';
 import { parentPort } from 'node:worker_threads';
 
 import {
@@ -14,9 +15,10 @@ const controller = createMainWatchdogController({
   appendFile: (logPath, record) => {
     fs.appendFileSync(logPath, record, 'utf8');
   },
+  elapsedNow: () => performance.now(),
   getCpuUsage: () => process.cpuUsage(),
   getMemoryUsage: () => process.memoryUsage(),
-  now: () => Date.now(),
+  wallNow: () => Date.now(),
   writeStderr: (record) => {
     process.stderr.write(record);
   },

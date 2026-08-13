@@ -76,11 +76,9 @@ import {
   listErrorLogFilePaths,
 } from './diagnostics/error-log-sink';
 import { resolveMainLogTransportPath } from './diagnostics/main-log-transport-path';
-import {
-  MAIN_WATCHDOG_CHECK_INTERVAL_MS,
-  type MainWatchdogMessage,
-} from './diagnostics/main-watchdog-core';
+import { MAIN_WATCHDOG_CHECK_INTERVAL_MS } from './diagnostics/main-watchdog-core';
 import { resolveMainWatchdogWorkerPath } from './diagnostics/main-watchdog-path';
+import { createMainWatchdogRuntime } from './diagnostics/main-watchdog-runtime';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import {
   type DimensionIndexBuildStrategy,
@@ -524,6 +522,7 @@ const loggingOptions: InitializeLoggingOptions = {
 };
 
 const logger = createLogger('DesktopMain');
+const mainWatchdogRuntime = createMainWatchdogRuntime();
 
 // Captured at module evaluation — BEFORE app.whenReady() and therefore before
 // any renderer (the only run-row minter) can exist. The thread-run startup
@@ -685,6 +684,7 @@ async function applyAndPersistLoggingPreferences(
     },
     fileTransport: createMainLogTransportConfig(),
   });
+  mainWatchdogRuntime.configureLogging(normalized.file);
   void verifyActiveLogFile('logging-preferences-updated');
   return getLoggingSettingsPayload();
 }
@@ -1982,12 +1982,7 @@ if (singleInstanceLockAcquired) {
       {
         const workerPath = resolveMainWatchdogWorkerPath(app.getAppPath(), app.isPackaged);
         const watchdog = new Worker(workerPath);
-        const postWatchdogMessage = (message: MainWatchdogMessage): void => {
-          watchdog.postMessage(message);
-        };
-        const heartbeatTimer = setInterval(() => {
-          postWatchdogMessage({ type: 'heartbeat' });
-        }, MAIN_WATCHDOG_CHECK_INTERVAL_MS);
+        let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
         watchdog.on('error', (error) => {
           logger.error(
@@ -2002,24 +1997,35 @@ if (singleInstanceLockAcquired) {
           );
         });
         watchdog.once('exit', (code) => {
-          clearInterval(heartbeatTimer);
+          if (heartbeatTimer !== null) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
+          }
+          mainWatchdogRuntime.detach();
           logger.error({ code, workerPath }, 'main-thread watchdog worker exited unexpectedly');
         });
+        mainWatchdogRuntime.attach((message) => {
+          watchdog.postMessage(message);
+        }, currentLoggingPreferences.file);
+        heartbeatTimer = setInterval(() => {
+          mainWatchdogRuntime.heartbeat();
+        }, MAIN_WATCHDOG_CHECK_INTERVAL_MS);
         watchdog.unref();
         heartbeatTimer.unref();
-        postWatchdogMessage({ logPath: getLogFilePath(), type: 'config' });
 
         logger.debug({ workerPath }, 'main-thread watchdog started');
       }
 
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
+        mainWatchdogRuntime.suspend();
         logger.info('power:suspend');
         clearPendingPowerResume();
         broadcastPowerState('suspend');
       });
 
       powerMonitor.on('resume', () => {
+        mainWatchdogRuntime.resume();
         logger.info('power:resume');
         // Delay to let OS settle (GPU re-init, network reconnect)
         schedulePowerResume();

@@ -3,7 +3,9 @@ export const MAIN_WATCHDOG_FROZEN_THRESHOLD_MS = 20_000;
 
 export type MainWatchdogMessage =
   | { logPath: string | null; type: 'config' }
-  | { type: 'heartbeat' };
+  | { type: 'heartbeat' }
+  | { type: 'resume' }
+  | { type: 'suspend' };
 
 interface CpuUsage {
   system: number;
@@ -29,9 +31,10 @@ export interface MainWatchdogDiagnostic {
 
 interface MainWatchdogDependencies {
   appendFile: (logPath: string, record: string) => void;
+  elapsedNow: () => number;
   getCpuUsage: () => CpuUsage;
   getMemoryUsage: () => MemoryUsage;
-  now: () => number;
+  wallNow: () => number;
   writeStderr: (record: string) => void;
 }
 
@@ -55,8 +58,8 @@ function readCpuUsage(getCpuUsage: () => CpuUsage): CpuUsage {
   };
 }
 
-function readNow(now: () => number): number {
-  return readNonNegativeFinite(now(), 'clock value');
+function readClock(clock: () => number, name: string): number {
+  return readNonNegativeFinite(clock(), name);
 }
 
 function errorMessage(error: unknown): string {
@@ -66,10 +69,21 @@ function errorMessage(error: unknown): string {
 export function createMainWatchdogController(
   dependencies: MainWatchdogDependencies
 ): MainWatchdogController {
-  let lastHeartbeatAt = readNow(dependencies.now);
+  const initialElapsedNow = readClock(dependencies.elapsedNow, 'elapsed clock value');
+  let lastCheckAt = initialElapsedNow;
+  let lastHeartbeatAt = initialElapsedNow;
   let previousCpuUsage = readCpuUsage(dependencies.getCpuUsage);
   let hasReceivedConfiguration = false;
   let logPath: string | null = null;
+  let suspended = false;
+
+  const resetObservationBaselines = (): void => {
+    const currentElapsedNow = readClock(dependencies.elapsedNow, 'elapsed clock value');
+    const currentCpuUsage = readCpuUsage(dependencies.getCpuUsage);
+    lastCheckAt = currentElapsedNow;
+    lastHeartbeatAt = currentElapsedNow;
+    previousCpuUsage = currentCpuUsage;
+  };
 
   const handleMessage = (message: unknown): void => {
     if (!(typeof message === 'object' && message !== null && 'type' in message)) {
@@ -77,7 +91,19 @@ export function createMainWatchdogController(
     }
 
     if (message.type === 'heartbeat') {
-      lastHeartbeatAt = readNow(dependencies.now);
+      lastHeartbeatAt = readClock(dependencies.elapsedNow, 'elapsed clock value');
+      return;
+    }
+
+    if (message.type === 'suspend') {
+      suspended = true;
+      resetObservationBaselines();
+      return;
+    }
+
+    if (message.type === 'resume') {
+      resetObservationBaselines();
+      suspended = false;
       return;
     }
 
@@ -96,7 +122,11 @@ export function createMainWatchdogController(
   };
 
   const check = (): MainWatchdogDiagnostic | null => {
-    const currentTime = readNow(dependencies.now);
+    const currentElapsedNow = readClock(dependencies.elapsedNow, 'elapsed clock value');
+    const elapsedSincePreviousCheck = currentElapsedNow - lastCheckAt;
+    readNonNegativeFinite(elapsedSincePreviousCheck, 'check interval');
+    lastCheckAt = currentElapsedNow;
+
     const currentCpuUsage = readCpuUsage(dependencies.getCpuUsage);
     const cpuSystemDeltaMicros = currentCpuUsage.system - previousCpuUsage.system;
     const cpuUserDeltaMicros = currentCpuUsage.user - previousCpuUsage.user;
@@ -105,16 +135,25 @@ export function createMainWatchdogController(
     readNonNegativeFinite(cpuSystemDeltaMicros, 'system CPU delta');
     readNonNegativeFinite(cpuUserDeltaMicros, 'user CPU delta');
 
-    const heartbeatAgeMs = currentTime - lastHeartbeatAt;
+    if (suspended) {
+      return null;
+    }
+
+    const heartbeatAgeMs = currentElapsedNow - lastHeartbeatAt;
     readNonNegativeFinite(heartbeatAgeMs, 'heartbeat age');
+    if (heartbeatAgeMs > MAIN_WATCHDOG_FROZEN_THRESHOLD_MS && !hasReceivedConfiguration) {
+      throw new Error('Main watchdog has not received its log path configuration');
+    }
+    if (elapsedSincePreviousCheck > MAIN_WATCHDOG_FROZEN_THRESHOLD_MS) {
+      lastHeartbeatAt = currentElapsedNow;
+      return null;
+    }
     if (heartbeatAgeMs <= MAIN_WATCHDOG_FROZEN_THRESHOLD_MS) {
       return null;
     }
-    if (!hasReceivedConfiguration) {
-      throw new Error('Main watchdog has not received its log path configuration');
-    }
 
     const memoryUsage = dependencies.getMemoryUsage();
+    const wallNow = readClock(dependencies.wallNow, 'wall clock value');
     const diagnostic: MainWatchdogDiagnostic = {
       cpuSystemDeltaMicros,
       cpuUserDeltaMicros,
@@ -124,7 +163,7 @@ export function createMainWatchdogController(
       msg: 'MAIN_THREAD_UNRESPONSIVE',
       rssKb: Math.round(readNonNegativeFinite(memoryUsage.rss, 'RSS usage') / 1024),
       scope: 'MainWatchdog',
-      time: new Date(currentTime).toISOString(),
+      time: new Date(wallNow).toISOString(),
     };
     const serializedDiagnostic = `${JSON.stringify(diagnostic)}\n`;
     dependencies.writeStderr(serializedDiagnostic);
