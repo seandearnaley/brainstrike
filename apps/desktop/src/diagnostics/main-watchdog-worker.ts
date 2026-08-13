@@ -6,6 +6,7 @@ import {
   createMainWatchdogController,
   MAIN_WATCHDOG_CHECK_INTERVAL_MS,
 } from './main-watchdog-core';
+import { writeMainWatchdogStderrRecord } from './main-watchdog-stderr';
 
 if (parentPort === null) {
   throw new Error('Main watchdog worker requires a worker-thread parent port');
@@ -20,7 +21,7 @@ const controller = createMainWatchdogController({
   getMemoryUsage: () => process.memoryUsage(),
   wallNow: () => Date.now(),
   writeStderr: (record) => {
-    fs.writeSync(2, record);
+    writeMainWatchdogStderrRecord(record);
   },
 });
 
@@ -32,8 +33,7 @@ function runWithVisibleFailure(task: () => void): void {
   try {
     task();
   } catch (error) {
-    fs.writeSync(
-      2,
+    writeMainWatchdogStderrRecord(
       `${JSON.stringify({
         error: errorMessage(error),
         level: 50,

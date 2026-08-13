@@ -1307,9 +1307,11 @@ phase-offset, expired-timer-before-resume, and missing-resume races.
 
 A missing config after an observable freeze window, malformed message, invalid
 counter, invalid enabled logging state, duplicate attach/detach, or invalid
-packaged path throws. Delivery to a worker that has exited or begun exiting is
-logged visibly and returns failure to the internal caller without throwing into
-unrelated power or logging-preference orchestration. Worker errors,
+packaged path throws. Once the worker's exit event detaches the runtime,
+subsequent delivery attempts are logged visibly and return failure to the
+internal caller without throwing into unrelated power or logging-preference
+orchestration. Node does not acknowledge `postMessage` receipt, so a send racing
+worker exit may report enqueue success before the exit event is observed. Worker errors,
 message-deserialization errors, and unexpected exits are logged by Electron
 main; an exit stops the heartbeat timer and detaches the runtime only after a
 confirmed successful initial config delivery. Failed initial attachment leaves
@@ -1322,8 +1324,8 @@ diagnostics-only subsystem a fatal dependency of app startup. There is no
 alternate watchdog implementation.
 
 On a freeze, the worker writes the structured diagnostic directly to file
-descriptor 2 with `fs.writeSync`, so delivery does not depend on Electron
-main's event loop draining a worker stdio message. It then synchronously appends
+descriptor 2 with a bounded retry for `EAGAIN`, so delivery does not depend on
+Electron main's event loop draining a worker stdio message. It then synchronously appends
 the identical NDJSON record when a log path is configured. An append failure
 emits a second structured
 `MAIN_WATCHDOG_LOG_WRITE_FAILED` record to stderr and keeps checking; the

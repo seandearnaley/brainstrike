@@ -205,5 +205,6 @@ describe('main watchdog source wiring', () => {
       mainSource.indexOf('const mainWindow = await createMainWindow()')
     );
     expect(mainSource).toContain('mainWatchdogAttachment.detachIfAttached()');
+    expect(mainSource.match(/runMainWatchdogPowerTransition\(/g)).toHaveLength(2);
   });
 });

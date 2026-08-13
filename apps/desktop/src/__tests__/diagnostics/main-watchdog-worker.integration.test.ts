@@ -90,8 +90,11 @@ describe('main watchdog worker stderr', () => {
         timeout: 5000,
       });
 
-      const diagnosticIndex = stderr.indexOf('"msg":"MAIN_THREAD_UNRESPONSIVE"');
       const parentBlockedIndex = stderr.indexOf('PARENT_MAIN_THREAD_BLOCKED');
+      const diagnosticIndex = stderr.indexOf(
+        '"msg":"MAIN_THREAD_UNRESPONSIVE"',
+        parentBlockedIndex
+      );
       const parentUnblockedIndex = stderr.indexOf('PARENT_MAIN_THREAD_UNBLOCKED');
 
       expect(diagnosticIndex).toBeGreaterThanOrEqual(0);
