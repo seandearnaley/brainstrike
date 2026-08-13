@@ -1,5 +1,6 @@
 import type { ToolsInput } from '@mastra/core/agent';
 import type { ToolPayloadTransform, ToolPayloadTransformTarget } from '@mastra/core/tools';
+import { isValidationError } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerMocks = vi.hoisted(() => ({
@@ -1591,13 +1592,22 @@ describe('fail-soft domain projection', () => {
     // as the tool result when the model mis-parameterizes a call. That is an
     // EXPECTED shape — it must project generically like a guarded tool error,
     // never reach the strict domain projector, and never log as fail-soft.
+    // Detection delegates to @mastra/core's own `isValidationError`, and this
+    // fixture is asserted against that predicate so the pinned carrier shape
+    // cannot silently drift from the real one (review finding).
+    const validationOutput = {
+      error: true as const,
+      message: 'Tool input validation failed for brainstrike.grepSearch',
+      validationErrors: { errors: [], fields: { pattern: { errors: ['expected string'] } } },
+    };
+    expect(isValidationError(validationOutput)).toBe(true);
+    // A large mis-parameterized input: serializing the whole envelope would
+    // put the input FIRST and truncate the validation message away, so the
+    // dispatcher must project the UNWRAPPED carrier (review finding).
+    const hugeInput = 'q'.repeat(60_000);
     const carrier = {
-      input: { pattern: 42 },
-      output: {
-        error: true,
-        message: 'Tool input validation failed for brainstrike.grepSearch',
-        validationErrors: { errors: [], fields: { pattern: { errors: ['expected string'] } } },
-      },
+      input: { content: hugeInput, pattern: 42 },
+      output: validationOutput,
       toolCallId: 'call-validation',
     };
 
@@ -1605,6 +1615,7 @@ describe('fail-soft domain projection', () => {
 
     expect(modelOutput.type).toBe('text');
     expect(modelOutput.value).toContain('validation failed');
+    expect(modelOutput.value).not.toContain('qqqqqqqq');
     expect(loggerMocks.error).not.toHaveBeenCalled();
   });
 

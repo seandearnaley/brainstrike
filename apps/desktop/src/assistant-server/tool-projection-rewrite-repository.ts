@@ -250,7 +250,19 @@ function measurePersistedProjectionChars(
   reprojectLegacy: () => string
 ): number {
   if (invocation.modelOutput !== undefined) {
-    return decodedPersistedModelOutputChars(invocation.modelOutput);
+    try {
+      return decodedPersistedModelOutputChars(invocation.modelOutput);
+    } catch (error) {
+      // A present-but-unreadable persisted projection (e.g. an explicitly
+      // persisted null — the store maps only a MISSING key to undefined) has
+      // a perfectly good raw result; branding it malformed would re-create
+      // the exact false label BST-1249 removes (review finding). Fall back to
+      // the ceiling-budget re-projection, visibly.
+      logger.debug('Unreadable persisted model output; re-projecting under the ceiling budget', {
+        error: redactToolErrorForLog(error),
+        toolCallId: invocation.toolCallId,
+      });
+    }
   }
   return decodedWorkspaceTextModelOutputChars([reprojectLegacy()]);
 }
@@ -299,26 +311,14 @@ function readCandidate(
 function grepCandidate(
   invocation: PersistedToolInvocation
 ): SupersessionRewriteCandidate | undefined {
+  // The try covers ONLY the parse (review finding): a measurement failure is
+  // not a malformed grep RESULT, and branding it
+  // tool_projection_rewrite_malformed_grep_history would point a future audit
+  // at the wrong cause. Measurement throws propagate to the outer post-success
+  // bookkeeping catch, exactly as before BST-1249.
+  let result: GrepToolResult;
   try {
-    const result = parseGrepToolResult(invocation.result);
-    const markerText = buildGrepSupersededMarker(result.outputMode);
-    const originalChars = measurePersistedProjectionChars(
-      invocation,
-      () =>
-        projectGrepSearchModelOutput(
-          invocation.result,
-          CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
-        ).value
-    );
-    const markerChars = decodedWorkspaceTextModelOutputChars([markerText]);
-    return {
-      kind: 'supersession',
-      markerText,
-      originalChars,
-      reclaimableChars: Math.max(0, originalChars - markerChars),
-      supersededByToolCallId: '',
-      toolCallId: invocation.toolCallId,
-    };
+    result = parseGrepToolResult(invocation.result);
   } catch (error) {
     if (shouldWarnMalformed(invocation.toolCallId)) {
       logger.warn('Skipping malformed persisted grep result during supersession detection', {
@@ -329,6 +329,24 @@ function grepCandidate(
     }
     return;
   }
+  const markerText = buildGrepSupersededMarker(result.outputMode);
+  const originalChars = measurePersistedProjectionChars(
+    invocation,
+    () =>
+      projectGrepSearchModelOutput(
+        invocation.result,
+        CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+      ).value
+  );
+  const markerChars = decodedWorkspaceTextModelOutputChars([markerText]);
+  return {
+    kind: 'supersession',
+    markerText,
+    originalChars,
+    reclaimableChars: Math.max(0, originalChars - markerChars),
+    supersededByToolCallId: '',
+    toolCallId: invocation.toolCallId,
+  };
 }
 
 function normalizeGrepKey(
