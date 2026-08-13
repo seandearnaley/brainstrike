@@ -29,6 +29,13 @@ describe('file-explorer-ui index exports', () => {
     expect(index).not.toHaveProperty('PreviewPanelFooter');
   });
 
+  it('does not expose retired preview footer-height helpers', () => {
+    expect(index).not.toHaveProperty('PREVIEW_FOOTER_HEIGHTS');
+    expect(index).not.toHaveProperty('clampPreviewFooterHeight');
+    expect(index).not.toHaveProperty('getPreviewFooterModeHeight');
+    expect(index).not.toHaveProperty('inferPreviewFooterMode');
+  });
+
   it('documents ownership for each public slice barrel', () => {
     const sourceRoot = path.resolve(process.cwd(), 'src');
     const publicSlices = ['indexing', 'preview', 'shell', 'tree'] as const;

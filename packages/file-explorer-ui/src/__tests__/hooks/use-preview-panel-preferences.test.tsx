@@ -61,6 +61,36 @@ describe('usePreviewPanelPreferences', () => {
     expect(result.current.footerMode).toBe('expanded');
   });
 
+  it.each([
+    [193.49, 'compact'],
+    [193.5, 'compact'],
+    [194.49, 'compact'],
+    [194.5, 'default'],
+    [313.49, 'default'],
+    [313.5, 'expanded'],
+  ] as const)('rounds legacy footer height %s before inferring %s mode', (footerHeight, mode) => {
+    localStorage.setItem('previewPanelPreferences.v1', JSON.stringify({ footerHeight }));
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    expect(result.current.footerMode).toBe(mode);
+  });
+
+  it.each([
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ])('ignores non-finite legacy footer height %s and preserves a valid stored mode', (footerHeight) => {
+    localStorage.setItem(
+      'previewPanelPreferences.v1',
+      JSON.stringify({ footerHeight, footerMode: 'compact' })
+    );
+
+    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+
+    expect(result.current.footerMode).toBe('compact');
+  });
+
   it('hydrates valid persisted values and saves preference updates after the debounce', async () => {
     vi.useFakeTimers();
     localStorage.setItem(
