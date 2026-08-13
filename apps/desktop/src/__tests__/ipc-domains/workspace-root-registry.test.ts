@@ -111,6 +111,7 @@ describe('WorkspaceRootRegistry', () => {
     // the not-found branch below must not be gated on sessionRootIds, since
     // a persisted (non-session) root was never added to that set.
     await storage.setItem('rootsList', '{not json');
+    dbQuery.mockClear();
 
     await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
     await expect(
@@ -122,6 +123,14 @@ describe('WorkspaceRootRegistry', () => {
         rootId: 'root-a',
       })
     ).rejects.toThrow('Workspace root is not mounted.');
+    // The not-found branch must also converge the DB (demote the
+    // now-unmounted path and run DB-id-keyed cleanup) — not just retire the
+    // in-memory mount — otherwise the roots row stays live and server-side
+    // consumers keep serving the folder until next boot.
+    expect(dbQuery).toHaveBeenCalledWith(
+      expect.stringContaining('UPDATE roots'),
+      expect.anything()
+    );
   });
 
   it('propagates a quarantine I/O failure instead of swallowing it', async () => {
@@ -462,6 +471,35 @@ describe('WorkspaceRootRegistry', () => {
         name: 'workspace',
         path: '/real/workspace',
         platform: 'electron',
+      })
+    ).resolves.toEqual([]);
+  });
+
+  it('reinstalling the same capability object for a rootId neither closes it nor unmounts it', async () => {
+    // A caller (test seams already do this) can hand installMount the exact
+    // same capability object as the incumbent for an identity-equal mount.
+    // That must not be treated as "redundant, close it" — the object IS the
+    // live mount, so closing it would sever the very capability being kept.
+    const capability = secureRoot('/canon/project');
+    const registry = createRegistry({
+      createSecureRoot: async () => capability,
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+    });
+    const handle = rootHandle('/canon/project');
+
+    const first = await registry.addRoot(handle);
+    const second = await registry.addRoot(handle);
+
+    expect(second.rootId).toBe(first.rootId);
+    expect(capability.close).not.toHaveBeenCalled();
+    // Still mounted and serving reads, not torn down as a side effect.
+    await expect(
+      registry.readDirectory({
+        kind: 'directory',
+        name: 'project',
+        path: '/canon/project',
+        platform: 'electron',
+        rootId: second.rootId,
       })
     ).resolves.toEqual([]);
   });

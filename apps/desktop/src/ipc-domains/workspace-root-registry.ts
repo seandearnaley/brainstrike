@@ -463,9 +463,11 @@ export class WorkspaceRootRegistry {
         // returns an empty entries list even for a persisted (non-session)
         // root, so this branch must retire any live mount for rootId
         // regardless of session/persisted status — retireMount is already a
-        // no-op for an id that isn't mounted.
-        this.sessionRootIds.delete(rootId);
+        // no-op for an id that isn't mounted. convergeDatabase then demotes
+        // the now-unmounted path in the DB and evicts DB-id-keyed resources,
+        // since retireMount alone cleans up only under the adapter rootId.
         await this.retireMount(rootId);
+        await this.convergeDatabase();
         return;
       }
 
@@ -722,10 +724,15 @@ export class WorkspaceRootRegistry {
       // the incumbent capability already serves this exact identity, so
       // keep it live — its open readers/handles stay valid — and discard
       // the redundant, freshly-opened probe instead of severing them.
-      try {
-        secureRoot.close();
-      } catch (error) {
-        logger.warn('Failed to close a redundant workspace root capability', { error });
+      // Guarded on object identity: if the caller handed us the SAME
+      // capability object as the incumbent, it is not redundant — closing
+      // it would sever the live mount.
+      if (secureRoot !== current.root) {
+        try {
+          secureRoot.close();
+        } catch (error) {
+          logger.warn('Failed to close a redundant workspace root capability', { error });
+        }
       }
       return canonicalPath;
     }
@@ -735,7 +742,7 @@ export class WorkspaceRootRegistry {
       root: secureRoot,
       rootId: entry.rootId,
     });
-    if (current) {
+    if (current && current.root !== secureRoot) {
       this.closeMountedRoot(current);
     }
     return canonicalPath;
