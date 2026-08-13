@@ -154,9 +154,10 @@ describe('resolveValidatedPath', () => {
   });
 
   it('rejects a real backslash ".." segment at maxTraversal 0', async () => {
+    // The separator split is platform-independent by design — no `platform`
+    // option here; backslash segments are counted on POSIX too.
     const result = await resolveValidatedPath({
       maxTraversal: 0,
-      platform: 'win32',
       requestedPath: '..\\sibling',
       rootDir: tempDir,
     });

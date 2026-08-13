@@ -91,6 +91,11 @@ function countTraversalSegments(value: string): number {
   // Only traversal segments count. Names that merely contain ".." (nyc
   // coverage dirs like "..__..__var", git ranges like "a1b2c3..d4e5f6.diff")
   // are legal on every platform and must pass.
+  //
+  // The split treats backslash as a separator on every platform, deliberately:
+  // a POSIX file literally named "x\..\y" is falsely counted, but the
+  // over-inclusive direction only ever over-counts (rejects), never lets a
+  // Windows-style traversal through a validator running on the wrong branch.
   let count = 0;
   for (const segment of value.split(/[\\/]/)) {
     if (TRAVERSAL_SEGMENT_PATTERN.test(segment)) {
