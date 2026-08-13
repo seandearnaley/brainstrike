@@ -2,13 +2,13 @@
 
 ## Ownership
 
-Owns the context preview surface: Tapestry composition and its grouping/pagination inputs, footer layout, token summary presentation, report actions, and workspace context curation.
+Owns the context preview surface: Tapestry composition and its grouping/pagination inputs, the natural-height summary, report actions, and workspace context curation.
 
 BST-1211 retired the Table View, so this slice owns exactly one preview surface. There is no tab strip, no column model and no sort state here — columns and per-directory sort belong to the Explorer grid (`../tree`).
 
 Top churn owned here:
 - `preview-panel.tsx`
-- `preview-panel-footer.tsx`
+- `preview-panel-summary.tsx`
 - `use-preview-panel-state.ts`
 
 ## Public surface

@@ -40,7 +40,7 @@ From `src/index.ts`:
 
   * `FileExplorerSidebar`, `FileExplorerLeftPanel`, `FileExplorerMiddlePanel`, `FileExplorerMiddlePanelTabbed`
   * `FileTree`, `OptimizedFileTree`
-  * `PreviewPanel`, `TabbedFileEditor`, `TabbedFileEditorPanel`
+  * `PreviewPanel`, `PreviewPanelSummary`, `TabbedFileEditor`, `TabbedFileEditorPanel`
   * `SelectionCounter`
   * Config/controls: `WorkspaceSettings`, `FileFilterBar`, `ViewFilterPresetDropdown`, `IncludeProjectTreeSetting`, `MaxSelectionCountSetting`, `FolderSummaryThresholdSetting`
 * Providers & hooks

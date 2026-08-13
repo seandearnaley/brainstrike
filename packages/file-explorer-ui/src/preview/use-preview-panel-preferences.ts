@@ -3,11 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_TAPESTRY_SCALE, MAX_TAPESTRY_SCALE, MIN_TAPESTRY_SCALE } from '../tapestry/utils';
 import { GROUPING_CONFIGS } from '../utils/grouping-configs';
-import {
-  inferPreviewFooterMode,
-  PREVIEW_FOOTER_MODES,
-  type PreviewFooterMode,
-} from './preview-footer-layout';
+import { PREVIEW_FOOTER_MODES, type PreviewFooterMode } from './preview-footer-layout';
 
 /**
  * Persisted preferences for the context preview surface.
@@ -26,6 +22,12 @@ const SAVE_DEBOUNCE_MS = 250;
 const logger = createLogger('PreviewPanelPreferences');
 const VALID_GROUPING_CONFIGS = new Set(Object.keys(GROUPING_CONFIGS));
 const VALID_FOOTER_MODES = new Set<PreviewFooterMode>(PREVIEW_FOOTER_MODES);
+// BST-504 replaced the resizable footer with a natural-height summary. These
+// historical midpoint thresholds remain only to migrate old `footerHeight`
+// values to the equivalent persisted mode. Round first to preserve the legacy
+// clamp helper's exact boundary behavior for fractional stored heights.
+const LEGACY_COMPACT_MODE_MAX_HEIGHT = 194;
+const LEGACY_EXPANDED_MODE_MIN_HEIGHT = 314;
 
 interface StoredPreferences {
   collapsedGroups?: string[];
@@ -123,13 +125,15 @@ function sanitizeFooterMode(
   return;
 }
 
-function sanitizeFooterHeight(
-  value: StoredPreferences['footerHeight']
-): StoredPreferences['footerHeight'] {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
+function inferPreviewFooterModeFromLegacyHeight(height: number): PreviewFooterMode {
+  const roundedHeight = Math.round(height);
+  if (roundedHeight <= LEGACY_COMPACT_MODE_MAX_HEIGHT) {
+    return 'compact';
   }
-  return;
+  if (roundedHeight >= LEGACY_EXPANDED_MODE_MIN_HEIGHT) {
+    return 'expanded';
+  }
+  return 'default';
 }
 
 function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPreferences | null {
@@ -151,9 +155,9 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
     sanitized.tapestryScale = tapestryScale;
   }
   const footerMode = sanitizeFooterMode(stored.footerMode);
-  const footerHeight = sanitizeFooterHeight(stored.footerHeight);
-  if (footerHeight !== undefined) {
-    sanitized.footerMode = inferPreviewFooterMode(footerHeight);
+  const footerHeight = stored.footerHeight;
+  if (typeof footerHeight === 'number' && Number.isFinite(footerHeight)) {
+    sanitized.footerMode = inferPreviewFooterModeFromLegacyHeight(footerHeight);
   } else if (footerMode !== undefined) {
     sanitized.footerMode = footerMode;
   }

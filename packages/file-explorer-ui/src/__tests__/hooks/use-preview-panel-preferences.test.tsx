@@ -77,14 +77,10 @@ describe('usePreviewPanelPreferences', () => {
   });
 
   it.each([
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-    Number.NEGATIVE_INFINITY,
-  ])('ignores non-finite legacy footer height %s and preserves a valid stored mode', (footerHeight) => {
-    localStorage.setItem(
-      'previewPanelPreferences.v1',
-      JSON.stringify({ footerHeight, footerMode: 'compact' })
-    );
+    ['positive overflow', '{"footerHeight":1e400,"footerMode":"compact"}'],
+    ['negative overflow', '{"footerHeight":-1e400,"footerMode":"compact"}'],
+  ] as const)('ignores a non-finite legacy footer height from %s and preserves a valid stored mode', (_case, storedPreferences) => {
+    localStorage.setItem('previewPanelPreferences.v1', storedPreferences);
 
     const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
 
