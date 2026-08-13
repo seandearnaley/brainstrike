@@ -837,15 +837,33 @@ describe('PreviewPanel', () => {
       const staleItems = Array.from({ length: 1000 }, (_, index) =>
         buildItem(index, { folderId: 'root' })
       );
-      const selectedFiles = new Set(['file999', 'file2']);
-      const selectionHasSpy = vi.spyOn(selectedFiles, 'has');
       const loadingFiles = new Set<string>();
       const loadingHasSpy = vi.spyOn(loadingFiles, 'has');
       mockUsePreviewPanelState.mockReturnValue(buildState(staleItems));
+      const decodeFileSelection = (key: string) => ({
+        folderId: key === 'file999' ? 'root-a' : 'root-z',
+        path: `path/to/${key}.txt`,
+      });
 
-      render(
+      const { rerender } = render(
         <PreviewPanel
           {...baseProps}
+          decodeFileSelection={decodeFileSelection}
+          fileContents={{ file2: 'content2', file999: 'content999' }}
+          loadingFiles={loadingFiles}
+          selectedFiles={new Set(staleItems.map((item) => item.compositeKey))}
+        />
+      );
+
+      // The first render populates the per-file cache from the large selection.
+      // Keep those deferred rows while shrinking current membership to two files.
+      loadingHasSpy.mockClear();
+      const selectedFiles = new Set(['file999', 'file2']);
+      const selectionHasSpy = vi.spyOn(selectedFiles, 'has');
+      rerender(
+        <PreviewPanel
+          {...baseProps}
+          decodeFileSelection={decodeFileSelection}
           fileContents={{ file2: 'content2', file999: 'content999' }}
           loadingFiles={loadingFiles}
           selectedFiles={selectedFiles}
@@ -853,12 +871,15 @@ describe('PreviewPanel', () => {
       );
 
       expect(selectionHasSpy.mock.calls.length).toBeLessThanOrEqual(selectedFiles.size);
+      // One lookup per selected file in both the base derivation and cache-pruning effect.
       expect(loadingHasSpy.mock.calls.length).toBeLessThanOrEqual(selectedFiles.size * 2);
       expect(
         screen
           .getAllByTestId('tapestry-document-card')
           .map((card) => within(card).getByText(/file\d+\.txt/).textContent)
-      ).toEqual(['file2.txt', 'file999.txt']);
+      ).toEqual(['file999.txt', 'file2.txt']);
+      // The context snapshot preserves deferred source order; the gallery above
+      // independently applies its fixed root-folder ordering.
       expect(useWorkspaceContextCurationStore.getState().contextSnapshot?.files).toEqual([
         expect.objectContaining({ path: 'path/to/file2.txt' }),
         expect.objectContaining({ path: 'path/to/file999.txt' }),

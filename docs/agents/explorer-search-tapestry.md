@@ -215,6 +215,17 @@ consumer (report generator, `listWorkspaceContext`, token meters).
   that mode using the historical rounded midpoint boundaries; retired fields
   are ignored on read and pruned on the next write. Do not reintroduce a second
   surface without re-reading this paragraph.
+- **Deferred rows are not current membership.** `usePreviewPanelState` derives
+  rows from selection, but `PreviewPanel` intentionally defers that large
+  snapshot. After a selection shrink, the deferred snapshot may therefore
+  retain many deselected rows for a render. The panel memoizes row and token
+  indexes for each deferred snapshot, looks up only the current selected keys,
+  and restores deferred-source order before producing the workspace context
+  snapshot, Tapestry bases/cache, grouping, and pagination. A newly selected
+  key stays absent until its deferred row arrives, then joins the slice
+  dynamically. Do not replace this selected-key lookup with a filter over all
+  deferred rows or rebuild the token index on current-selection changes; the
+  selection-bound and dynamic-add coverage live in `preview-panel.test.tsx`.
 - **Per-file rule, no global toggle.** "Files are membership, ranges are
   refinement, no ranges = whole file" — unconditional everywhere
   (`useTapestryRanges` retired). Selecting a file is membership ONLY; nothing
