@@ -385,13 +385,12 @@ describe('fs:restoreRoots canonical identity', () => {
       provider: 'openai',
       workspaceRoots: [durableRoot],
     } as RuntimeData;
-    await loadWorkspaceRootsFromDatabase({
-      query: vi.fn(async () => ({
-        rows: [
-          { displayName: durableRoot.displayName, id: durableRoot.rootId, path: durableRoot.path },
-        ],
-      })),
+    rootsDbQuery.mockResolvedValueOnce({
+      rows: [
+        { displayName: durableRoot.displayName, id: durableRoot.rootId, path: durableRoot.path },
+      ],
     });
+    await loadWorkspaceRootsFromDatabase(await getRootsDatabase());
     rootsDbQuery.mockRejectedValueOnce(new Error('db unavailable'));
     registerFileSystemIpcHandlers({
       disposeCommandSessionsForRoot,
