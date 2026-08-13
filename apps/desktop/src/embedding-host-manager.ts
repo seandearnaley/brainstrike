@@ -40,9 +40,14 @@ interface PendingQueryEmbeddingRequest {
   timeoutId: ReturnType<typeof setTimeout>;
 }
 
+export interface EmbeddingHostManagerOptions {
+  readonly platform?: NodeJS.Platform;
+}
+
 export class EmbeddingHostManager {
   private disposed = false;
   private readonly lifecycle: RendererHostLifecycle<EmbeddingHostStatus>;
+  private readonly powerSaveBlockerEnabled: boolean;
   private pendingInactiveStatusTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingInactiveStatusReport: EmbeddingHostStatusReport | null = null;
   private powerSaveBlockerId: number | null = null;
@@ -50,7 +55,8 @@ export class EmbeddingHostManager {
   private controlState: RuntimeHostControlState | null = null;
   private readonly pendingQueryEmbeddingRequests = new Map<string, PendingQueryEmbeddingRequest>();
 
-  constructor() {
+  constructor(options: EmbeddingHostManagerOptions = {}) {
+    this.powerSaveBlockerEnabled = (options.platform ?? process.platform) === 'darwin';
     this.lifecycle = new RendererHostLifecycle<EmbeddingHostStatus>({
       createStatus: EMBEDDING_HOST_STATUS_ADAPTER.createStatus,
       createStoppedStatus: createStoppedEmbeddingHostStatus,
@@ -392,6 +398,10 @@ export class EmbeddingHostManager {
   }
 
   private syncPowerSaveBlocker(status: EmbeddingHostStatus): void {
+    if (!this.powerSaveBlockerEnabled) {
+      return;
+    }
+
     const shouldBlock = status.state === 'running' && status.active;
     if (shouldBlock) {
       this.clearPendingIdleStop();
