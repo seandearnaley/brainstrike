@@ -5,7 +5,7 @@
  * make the metric computation independently testable.
  */
 
-import type { TokenUsageMetrics } from '../preview/preview-panel-footer';
+import type { TokenUsageMetrics } from '../preview/preview-panel-summary';
 
 interface TokenUsageMetricsInput {
   activeRangeFilesCount: number;
