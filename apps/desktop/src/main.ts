@@ -522,7 +522,17 @@ const loggingOptions: InitializeLoggingOptions = {
 };
 
 const logger = createLogger('DesktopMain');
-const mainWatchdogRuntime = createMainWatchdogRuntime();
+const mainWatchdogRuntime = createMainWatchdogRuntime({
+  onDeliveryError: ({ error, message }) => {
+    logger.error(
+      {
+        error: error instanceof Error ? error.message : String(error),
+        messageType: message.type,
+      },
+      'main-thread watchdog message delivery failed'
+    );
+  },
+});
 
 // Captured at module evaluation — BEFORE app.whenReady() and therefore before
 // any renderer (the only run-row minter) can exist. The thread-run startup
@@ -1912,10 +1922,6 @@ if (singleInstanceLockAcquired) {
         }, 2000);
       };
 
-      logger.debug('Creating main window...');
-      const mainWindow = await createMainWindow();
-      logger.debug('Main window created successfully');
-
       // ---------------------------------------------------------------
       // Event loop health diagnostics — logs CPU and loop lag every 30s.
       // Logs UNCONDITIONALLY so the absence of entries = freeze detected.
@@ -2015,6 +2021,10 @@ if (singleInstanceLockAcquired) {
 
         logger.debug({ workerPath }, 'main-thread watchdog started');
       }
+
+      logger.debug('Creating main window...');
+      const mainWindow = await createMainWindow();
+      logger.debug('Main window created successfully');
 
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {

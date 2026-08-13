@@ -10,13 +10,20 @@ const ENABLED_CUSTOM_LOGGING = {
 } as const;
 
 describe('main watchdog runtime', () => {
+  function createRuntime() {
+    return createMainWatchdogRuntime({ onDeliveryError: vi.fn() });
+  }
+
   it('sends the initial log destination and every successful live reconfiguration', () => {
     const postMessage = vi.fn();
-    const runtime = createMainWatchdogRuntime();
+    const runtime = createRuntime();
 
     expect(() =>
       runtime.configureLogging({ destination: '/before-attach.log', enabled: true })
-    ).toThrow('Main watchdog runtime is not attached');
+    ).not.toThrow();
+    expect(runtime.configureLogging({ destination: '/before-attach.log', enabled: true })).toBe(
+      false
+    );
 
     runtime.attach(postMessage, ENABLED_CUSTOM_LOGGING);
     runtime.configureLogging({ destination: '/retained-but-disabled.log', enabled: false });
@@ -31,7 +38,7 @@ describe('main watchdog runtime', () => {
 
   it('rejects enabled file logging without a destination instead of inventing one', () => {
     const postMessage = vi.fn();
-    const runtime = createMainWatchdogRuntime();
+    const runtime = createRuntime();
 
     expect(() => runtime.attach(postMessage, { destination: null, enabled: true })).toThrow(
       'Main watchdog file logging is enabled without a destination'
@@ -44,7 +51,7 @@ describe('main watchdog runtime', () => {
 
   it('preserves heartbeat and OS suspend/resume message ordering', () => {
     const postMessage = vi.fn();
-    const runtime = createMainWatchdogRuntime();
+    const runtime = createRuntime();
     runtime.attach(postMessage, ENABLED_CUSTOM_LOGGING);
     postMessage.mockClear();
 
@@ -62,14 +69,45 @@ describe('main watchdog runtime', () => {
   });
 
   it('makes use after worker exit visible', () => {
-    const runtime = createMainWatchdogRuntime();
+    const runtime = createRuntime();
     runtime.attach(vi.fn(), ENABLED_CUSTOM_LOGGING);
     runtime.detach();
 
-    expect(() => runtime.heartbeat()).toThrow('Main watchdog runtime is not attached');
-    expect(() => runtime.configureLogging(ENABLED_CUSTOM_LOGGING)).toThrow(
-      'Main watchdog runtime is not attached'
-    );
+    expect(runtime.heartbeat()).toBe(false);
+    expect(runtime.configureLogging(ENABLED_CUSTOM_LOGGING)).toBe(false);
+  });
+
+  it('reports lifecycle and configuration delivery failures without throwing into callers', () => {
+    const onDeliveryError = vi.fn();
+    const runtime = createMainWatchdogRuntime({ onDeliveryError });
+    const workerError = new Error('worker unavailable');
+    runtime.attach(vi.fn(), ENABLED_CUSTOM_LOGGING);
+    runtime.detach();
+
+    expect(runtime.suspend()).toBe(false);
+    expect(runtime.resume()).toBe(false);
+    expect(runtime.configureLogging(ENABLED_CUSTOM_LOGGING)).toBe(false);
+    expect(onDeliveryError.mock.calls).toEqual([
+      [expect.objectContaining({ message: { type: 'suspend' } })],
+      [expect.objectContaining({ message: { type: 'resume' } })],
+      [
+        expect.objectContaining({
+          message: { logPath: '/custom/brainstrike.log', type: 'config' },
+        }),
+      ],
+    ]);
+
+    const throwingRuntime = createMainWatchdogRuntime({ onDeliveryError });
+    throwingRuntime.attach((message) => {
+      if (message.type !== 'config') {
+        throw workerError;
+      }
+    }, ENABLED_CUSTOM_LOGGING);
+    expect(throwingRuntime.heartbeat()).toBe(false);
+    expect(onDeliveryError).toHaveBeenLastCalledWith({
+      error: workerError,
+      message: { type: 'heartbeat' },
+    });
   });
 });
 

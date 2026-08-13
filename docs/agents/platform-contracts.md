@@ -1278,17 +1278,37 @@ an inline string or with `eval`. Packaged builds explicitly put the entry in
 packaged layout instead of trying an ASAR path or another target. Development
 resolves the same emitted filename under the desktop `dist/` directory.
 
-The independently-tested `main-watchdog-core.ts` owns the heartbeat/config
-protocol and diagnostic calculation. The main process sends a typed config once
-and a heartbeat every 5 seconds. The worker checks on the same cadence and emits
-only when heartbeat age is greater than 20 seconds. CPU fields are per-check
-deltas (`cpuUserDeltaMicros` / `cpuSystemDeltaMicros`), never cumulative process
-totals, and the CPU baseline advances on every check (including healthy ones).
-The config's `logPath: null` is an explicit state used when file logging is
-disabled; it retains stderr diagnostics without inventing a file destination.
-A missing config, malformed message, invalid counter, or invalid packaged path
-throws. Worker errors, message-deserialization errors, and unexpected exits are
-logged by Electron main; an exit stops the heartbeat timer. There is no
+The independently-tested `main-watchdog-core.ts` owns the typed config,
+heartbeat, suspend/resume protocol and diagnostic calculation. The worker uses
+`performance.now()` as its monotonic elapsed clock for heartbeat/check aging;
+`Date.now()` is used only for the emitted wall-clock timestamp. The main process
+sends its current file-logging state during worker attachment, a heartbeat every
+5 seconds, and a new config after every successful runtime logging-preference
+change. Enabled file logging requires its configured destination; disabled file
+logging sends `logPath: null`, retaining stderr diagnostics without inventing a
+file destination.
+
+The worker checks on the same cadence and emits only when heartbeat age is
+greater than 20 seconds. CPU fields are per-check deltas
+(`cpuUserDeltaMicros` / `cpuSystemDeltaMicros`), never cumulative process totals,
+and the CPU baseline advances on every check (including healthy ones). The
+worker attaches before the renderer starts loading, so logging IPC cannot race
+its initial configuration. Electron main sends `suspend` before handling an OS
+suspend and `resume` before handling an OS resume; those messages pause checks
+and reset both heartbeat and CPU baselines. Lock/unlock does not pause the
+watchdog. If the worker's own elapsed check gap exceeds two check intervals (10
+seconds), it cannot independently account for the main thread during that gap,
+so it resets the observation baselines before enforcing configuration and
+requires a subsequent uninterrupted missed-heartbeat window before reporting.
+This closes phase-offset and expired-timer-before-resume races.
+
+A missing config after an observable freeze window, malformed message, invalid
+counter, invalid enabled logging state, duplicate attach/detach, or invalid
+packaged path throws. Delivery to a worker that has exited or begun exiting is
+logged visibly and returns failure to the internal caller without throwing into
+unrelated power or logging-preference orchestration. Worker errors,
+message-deserialization errors, and unexpected exits are logged by Electron
+main; an exit stops the heartbeat timer and detaches the runtime. There is no
 alternate watchdog implementation.
 
 On a freeze, the worker writes the structured diagnostic to stderr first and
@@ -1349,6 +1369,7 @@ rather than a swallowed failure rendering as a successful-but-empty file.
 `apps/desktop/src/__tests__/diagnostics/main-log-transport-worker.integration.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/main-watchdog-core.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/main-watchdog-path.test.ts`,
+`apps/desktop/src/__tests__/diagnostics/main-watchdog-runtime.test.ts`,
 `apps/desktop/src/__tests__/build-main-config.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/error-log-sink.test.ts`,
 `apps/desktop/src/__tests__/logging-durable-record.test.ts` (the

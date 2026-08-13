@@ -9,11 +9,20 @@ type PostMainWatchdogMessage = (message: MainWatchdogMessage) => void;
 
 export interface MainWatchdogRuntime {
   attach: (postMessage: PostMainWatchdogMessage, fileLogging: MainWatchdogFileLoggingState) => void;
-  configureLogging: (fileLogging: MainWatchdogFileLoggingState) => void;
+  configureLogging: (fileLogging: MainWatchdogFileLoggingState) => boolean;
   detach: () => void;
-  heartbeat: () => void;
-  resume: () => void;
-  suspend: () => void;
+  heartbeat: () => boolean;
+  resume: () => boolean;
+  suspend: () => boolean;
+}
+
+interface MainWatchdogDeliveryFailure {
+  error: unknown;
+  message: MainWatchdogMessage;
+}
+
+interface MainWatchdogRuntimeOptions {
+  onDeliveryError: (failure: MainWatchdogDeliveryFailure) => void;
 }
 
 function resolveLogPath(fileLogging: MainWatchdogFileLoggingState): string | null {
@@ -26,14 +35,26 @@ function resolveLogPath(fileLogging: MainWatchdogFileLoggingState): string | nul
   return fileLogging.destination;
 }
 
-export function createMainWatchdogRuntime(): MainWatchdogRuntime {
+export function createMainWatchdogRuntime(
+  options: MainWatchdogRuntimeOptions
+): MainWatchdogRuntime {
   let activePostMessage: PostMainWatchdogMessage | null = null;
 
-  const requirePostMessage = (): PostMainWatchdogMessage => {
+  const deliver = (message: MainWatchdogMessage): boolean => {
     if (activePostMessage === null) {
-      throw new Error('Main watchdog runtime is not attached');
+      options.onDeliveryError({
+        error: new Error('Main watchdog runtime is not attached'),
+        message,
+      });
+      return false;
     }
-    return activePostMessage;
+    try {
+      activePostMessage(message);
+      return true;
+    } catch (error) {
+      options.onDeliveryError({ error, message });
+      return false;
+    }
   };
 
   const attach = (
@@ -54,19 +75,18 @@ export function createMainWatchdogRuntime(): MainWatchdogRuntime {
     }
   };
 
-  const configureLogging = (fileLogging: MainWatchdogFileLoggingState): void => {
-    const postMessage = requirePostMessage();
-    postMessage({ logPath: resolveLogPath(fileLogging), type: 'config' });
-  };
+  const configureLogging = (fileLogging: MainWatchdogFileLoggingState): boolean =>
+    deliver({ logPath: resolveLogPath(fileLogging), type: 'config' });
 
   const detach = (): void => {
-    requirePostMessage();
+    if (activePostMessage === null) {
+      throw new Error('Main watchdog runtime is not attached');
+    }
     activePostMessage = null;
   };
 
-  const postLifecycleMessage = (type: 'heartbeat' | 'resume' | 'suspend'): void => {
-    requirePostMessage()({ type });
-  };
+  const postLifecycleMessage = (type: 'heartbeat' | 'resume' | 'suspend'): boolean =>
+    deliver({ type });
 
   return {
     attach,

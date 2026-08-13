@@ -61,9 +61,15 @@ describe('main watchdog controller', () => {
     expect(harness.controller.check()).toBeNull();
 
     harness.controller.handleMessage({ type: 'heartbeat' });
-    harness.setElapsedNow(MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 2);
-    harness.setCpuUsage({ system: 450, user: 1100 });
-    expect(harness.controller.check()).toBeNull();
+    for (
+      let elapsed = MAIN_WATCHDOG_FROZEN_THRESHOLD_MS + MAIN_WATCHDOG_CHECK_INTERVAL_MS;
+      elapsed <= MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 2;
+      elapsed += MAIN_WATCHDOG_CHECK_INTERVAL_MS
+    ) {
+      harness.setElapsedNow(elapsed);
+      harness.setCpuUsage({ system: 450, user: 1100 });
+      expect(harness.controller.check()).toBeNull();
+    }
 
     harness.setElapsedNow(MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 2 + 1);
     harness.setCpuUsage({ system: 470, user: 1130 });
@@ -204,6 +210,44 @@ describe('main watchdog controller', () => {
     });
   });
 
+  it('treats a phase-offset delayed check as an observation discontinuity', () => {
+    const harness = createHarness();
+    harness.controller.handleMessage({
+      logPath: '/tmp/brainstrike-main.log',
+      type: 'config',
+    });
+    harness.setElapsedNow(1000);
+    harness.controller.handleMessage({ type: 'heartbeat' });
+    harness.setElapsedNow(MAIN_WATCHDOG_CHECK_INTERVAL_MS);
+    harness.setCpuUsage({ system: 425, user: 1050 });
+    expect(harness.controller.check()).toBeNull();
+
+    harness.setElapsedNow(MAIN_WATCHDOG_FROZEN_THRESHOLD_MS + 1500);
+    harness.setCpuUsage({ system: 475, user: 1150 });
+    expect(harness.controller.check()).toBeNull();
+    expect(harness.writeStderr).not.toHaveBeenCalled();
+  });
+
+  it('resets an unconfigured discontinuity before enforcing a full observable window', () => {
+    const harness = createHarness();
+    harness.setElapsedNow(MAIN_WATCHDOG_FROZEN_THRESHOLD_MS + 1);
+    harness.setCpuUsage({ system: 475, user: 1150 });
+
+    expect(harness.controller.check()).toBeNull();
+    expect(harness.writeStderr).not.toHaveBeenCalled();
+
+    runHealthyChecksUntilThreshold({
+      ...harness,
+      setElapsedNow(value: number) {
+        harness.setElapsedNow(MAIN_WATCHDOG_FROZEN_THRESHOLD_MS + 1 + value);
+      },
+    });
+    harness.setElapsedNow(MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 2 + 2);
+    expect(() => harness.controller.check()).toThrow(
+      'Main watchdog has not received its log path configuration'
+    );
+  });
+
   it('pauses on suspend and resets heartbeat and CPU baselines on resume', () => {
     const harness = createHarness();
     harness.controller.handleMessage({
@@ -219,9 +263,15 @@ describe('main watchdog controller', () => {
     expect(harness.controller.check()).toBeNull();
 
     harness.controller.handleMessage({ type: 'resume' });
-    harness.setElapsedNow(MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 4);
-    harness.setCpuUsage({ system: 1020, user: 2030 });
-    expect(harness.controller.check()).toBeNull();
+    for (
+      let elapsed = MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 3 + MAIN_WATCHDOG_CHECK_INTERVAL_MS;
+      elapsed <= MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 4;
+      elapsed += MAIN_WATCHDOG_CHECK_INTERVAL_MS
+    ) {
+      harness.setElapsedNow(elapsed);
+      harness.setCpuUsage({ system: 1020, user: 2030 });
+      expect(harness.controller.check()).toBeNull();
+    }
 
     harness.setElapsedNow(MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 4 + 1);
     harness.setCpuUsage({ system: 1025, user: 2040 });

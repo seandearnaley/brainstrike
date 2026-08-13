@@ -1,4 +1,5 @@
 export const MAIN_WATCHDOG_CHECK_INTERVAL_MS = 5000;
+export const MAIN_WATCHDOG_CHECK_DISCONTINUITY_MS = MAIN_WATCHDOG_CHECK_INTERVAL_MS * 2;
 export const MAIN_WATCHDOG_FROZEN_THRESHOLD_MS = 20_000;
 
 export type MainWatchdogMessage =
@@ -141,15 +142,15 @@ export function createMainWatchdogController(
 
     const heartbeatAgeMs = currentElapsedNow - lastHeartbeatAt;
     readNonNegativeFinite(heartbeatAgeMs, 'heartbeat age');
-    if (heartbeatAgeMs > MAIN_WATCHDOG_FROZEN_THRESHOLD_MS && !hasReceivedConfiguration) {
-      throw new Error('Main watchdog has not received its log path configuration');
-    }
-    if (elapsedSincePreviousCheck > MAIN_WATCHDOG_FROZEN_THRESHOLD_MS) {
+    if (elapsedSincePreviousCheck > MAIN_WATCHDOG_CHECK_DISCONTINUITY_MS) {
       lastHeartbeatAt = currentElapsedNow;
       return null;
     }
     if (heartbeatAgeMs <= MAIN_WATCHDOG_FROZEN_THRESHOLD_MS) {
       return null;
+    }
+    if (!hasReceivedConfiguration) {
+      throw new Error('Main watchdog has not received its log path configuration');
     }
 
     const memoryUsage = dependencies.getMemoryUsage();
