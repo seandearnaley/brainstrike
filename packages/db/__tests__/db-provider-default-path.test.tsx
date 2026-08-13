@@ -35,7 +35,8 @@ vi.mock('../src/migrations/bootstrap', () => ({
 }));
 
 import { PGlite } from '@electric-sql/pglite';
-import { DbProvider, getDefaultDbPath, useFileRecordRepository } from '../src/db-provider';
+import { DbProvider, useFileRecordRepository } from '../src/db-provider';
+import { getDefaultDbPath } from '../src/default-db-path';
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return <DbProvider>{children}</DbProvider>;

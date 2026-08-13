@@ -1,7 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getDefaultDbPath } from '../src/db-provider';
+import { getDefaultDbPath } from '../src/default-db-path';
 
 describe('getDefaultDbPath additional coverage', () => {
   const originalWindow = global.window;

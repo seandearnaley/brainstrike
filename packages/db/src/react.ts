@@ -14,12 +14,13 @@
  * Guarded by `architecture-ownership.test.ts`: the root index must never
  * re-export these three modules again.
  */
+export type {
+  DbHandle,
+  DbInsertChunksAndEnqueueEmbeddingJobsOptions,
+} from './db-handle.js';
 export {
-  type DbHandle,
   type DbInitializationStatus,
-  type DbInsertChunksAndEnqueueEmbeddingJobsOptions,
   DbProvider,
-  getDefaultDbPath,
   useClearAllData,
   useClearQueuesAndEmbeddingSets,
   useDbInitializationStatus,
@@ -35,6 +36,7 @@ export {
   useVectorEnabled,
   useViewFilterPresetsRepository,
 } from './db-provider.js';
+export { getDefaultDbPath } from './default-db-path.js';
 export {
   type DrizzleLiveQueryOptions,
   type DrizzleQueryLike,
