@@ -1,15 +1,30 @@
-import { execFile } from 'node:child_process';
-import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import process from 'node:process';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { GrepMatch, LineMatcher } from '@brainstrike/db';
-import { collectGrepMatchesInContent, extractTrigramLiteral } from '@brainstrike/db';
+import { collectGrepMatchesInContent } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
+import {
+  PROBE_RIPGREP_TIMEOUT_MS,
+  RipgrepRunError,
+  resolveRipgrepPath,
+  resolveRipgrepPrefilterLiteral,
+  runRipgrep,
+} from './live-grep-ripgrep';
 import { walkWorkspaceRoot } from './workspace-file-walk';
 import { isWithinRoot } from './workspace-path';
+
+// The ripgrep execution layer lives in live-grep-ripgrep.ts (BST-1246 split);
+// its public surface is re-exported here so existing consumers keep importing
+// from './live-grep'.
+export {
+  discoverRipgrepPathForTests,
+  PROBE_RIPGREP_TIMEOUT_MS,
+  type RipgrepFailureMetadata,
+  RipgrepRunError,
+  resetRipgrepAvailabilityForTests,
+} from './live-grep-ripgrep';
 
 const logger = createLogger('AssistantLiveGrep');
 
@@ -35,39 +50,6 @@ function redactErrorForLog(error: unknown): {
   };
 }
 
-/**
- * ripgrep executable name(s) to look for. On Windows the binary is `rg.exe`; on
- * every other platform it is `rg`. We probe BOTH so a misconfigured PATHEXT or a
- * `.exe` on a POSIX-ish shell still resolves.
- */
-const RIPGREP_BINARY_NAMES =
-  process.platform === 'win32' ? (['rg.exe', 'rg'] as const) : (['rg'] as const);
-
-/**
- * Fallback install locations probed ONLY when ripgrep is not on `PATH`. Covers
- * Homebrew (Apple-silicon + Intel), the common `/usr/local` install, the distro
- * package location, and the Windows winget/scoop/choco shim dir. Order is
- * preference; the first executable hit wins.
- */
-const RIPGREP_FALLBACK_DIRS: readonly string[] =
-  process.platform === 'win32'
-    ? [
-        path.join(process.env['LOCALAPPDATA'] ?? '', 'Microsoft', 'WinGet', 'Links'),
-        path.join(process.env['USERPROFILE'] ?? '', 'scoop', 'shims'),
-        path.join(process.env['ProgramData'] ?? '', 'chocolatey', 'bin'),
-      ]
-    : ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'];
-
-/** Wall-clock bound for one ripgrep prefilter invocation (per root). */
-const RIPGREP_TIMEOUT_MS = 4000;
-/** Shorter per-root ripgrep ceiling for the optional excluded-path probe. */
-export const PROBE_RIPGREP_TIMEOUT_MS = 1500;
-/** Cap on ripgrep stdout (~bytes) so a pathological match set can't blow memory. */
-const RIPGREP_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
-/** Skip files larger than this in the prefilter (mirrors the indexer's intent). */
-const RIPGREP_MAX_FILESIZE = '2M';
-/** Per-file match cap in the prefilter — we only need candidacy, not every hit. */
-const RIPGREP_MAX_COUNT_PER_FILE = 200;
 /** Default hard cap on candidate files materialized from the live pass (per call, all roots). */
 const DEFAULT_MAX_LIVE_CANDIDATE_FILES = 1500;
 /** Maximum excluded files read by one count-only steering probe, per root. */
@@ -113,293 +95,6 @@ interface LiveCandidate {
   relativePath: string;
   rootId: string;
   rootName: string;
-}
-
-/**
- * Memoized ripgrep resolution. `undefined` = not probed yet; `null` = probed,
- * absent; a string = the resolved absolute path. Memoized so the (cheap) PATH
- * scan runs once per process, like the prior probe.
- */
-let resolvedRipgrepPath: string | null | undefined;
-
-/** True when `candidate` is an existing, executable regular file. */
-async function isExecutableFile(candidate: string): Promise<boolean> {
-  try {
-    const stat = await fsPromises.stat(candidate);
-    if (!stat.isFile()) {
-      return false;
-    }
-    // X_OK is advisory on Windows (always passes), which is fine: there the
-    // extension (.exe) is what makes it runnable, and we only probe rg.exe.
-    await fsPromises.access(candidate, fsConstants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Discover ripgrep on disk WITHOUT a hardcoded install path: scan every `PATH`
- * directory for an executable `rg` (`rg.exe` on Windows), then fall back to a
- * small list of common install dirs only if PATH has none. Returns the resolved
- * absolute path, or null when ripgrep is genuinely unavailable (→ JS-walk).
- */
-async function discoverRipgrepPath(): Promise<string | null> {
-  const pathDirs = (process.env['PATH'] ?? '')
-    .split(path.delimiter)
-    .filter((dir) => dir.length > 0);
-  // PATH first (respects the user's environment), then the fallback dirs.
-  for (const dir of [...pathDirs, ...RIPGREP_FALLBACK_DIRS]) {
-    for (const name of RIPGREP_BINARY_NAMES) {
-      const candidate = path.join(dir, name);
-      if (await isExecutableFile(candidate)) {
-        return candidate;
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Resolve (once, memoized) the absolute path to a runnable ripgrep, or null when
- * it is unavailable. A null result flips the live pass to the JS-walk fallback
- * rather than failing the grep.
- */
-async function resolveRipgrepPath(): Promise<string | null> {
-  if (resolvedRipgrepPath !== undefined) {
-    return resolvedRipgrepPath;
-  }
-  resolvedRipgrepPath = await discoverRipgrepPath();
-  return resolvedRipgrepPath;
-}
-
-/**
- * Test-only: run the (un-memoized) ripgrep discovery and return the resolved
- * absolute path (or null). Lets a test assert rg was resolved from a PATH entry
- * rather than a hardcoded location.
- */
-export function discoverRipgrepPathForTests(): Promise<string | null> {
-  return discoverRipgrepPath();
-}
-
-/** Test-only: reset the memoized ripgrep resolution between cases. */
-export function resetRipgrepAvailabilityForTests(): void {
-  resolvedRipgrepPath = undefined;
-}
-
-/**
- * The literal ripgrep prefilters on. ripgrep ONLY ever runs in `--fixed-strings`
- * mode (never on a raw regex) so its match set is always a guaranteed SUPERSET of
- * the authoritative JS matcher's:
- * - For a literal grep the prefilter literal IS the pattern.
- * - For a regex grep it is the longest guaranteed-present literal extracted by
- *   {@link extractTrigramLiteral} (the SAME extraction the indexed path uses to
- *   drive its trigram prefilter). A regex match must contain that literal, so
- *   prefiltering on it can never drop a file the JS regex would match.
- *
- * `null` means "no safe prefilter literal" (a regex with no extractable ≥3-char
- * literal — the indexed path's `scanLimited` case). The caller MUST NOT hand the
- * raw regex to ripgrep then (Rust's regex dialect can match a NARROWER set than
- * JS `RegExp`, silently dropping files); it falls back to the bounded JS walk.
- */
-function resolveRipgrepPrefilterLiteral(args: {
-  pattern: string;
-  isRegex: boolean;
-}): string | null {
-  return args.isRegex ? extractTrigramLiteral(args.pattern) : args.pattern;
-}
-
-/** Build the ripgrep argument list for a fixed-string (literal) prefilter. */
-function buildRipgrepArgs(args: {
-  prefilterLiteral: string;
-  caseSensitive: boolean;
-  /** The normal live pass prunes it; the excluded-path probe deliberately searches it. */
-  excludeNodeModules?: boolean;
-  filesOnly?: boolean;
-}): string[] {
-  const rgArgs = [
-    ...(args.filesOnly ? ['--files-with-matches', '--max-count=1'] : ['--json']),
-    '--no-config',
-    '--no-follow',
-    // The indexer policy (re-applied in resolveCandidate) is the SINGLE source of
-    // truth for exclusions, so disable ripgrep's own .gitignore/.ignore/.rgignore
-    // and hidden-file filtering. Otherwise rg drops files (gitignored-but-present,
-    // dotfiles like `.github/...`) that the JS-walk fallback keeps, so rg's
-    // candidate set would not be a SUPERSET of the JS walk's and the live pass
-    // would silently miss fresh content. `--no-ignore` already implies
-    // --no-ignore-global/--no-ignore-parent/--no-ignore-vcs. (`.git` is still
-    // hard-excluded and realpath-containment-checked in resolveCandidate.)
-    '--no-ignore',
-    '--hidden',
-    // Prune the two directories the indexer policy excludes UNCONDITIONALLY by
-    // name at ANY depth (`.git` is hard-excluded in resolveCandidate; both are in
-    // the 'balanced' policy's excluded directory segments). `--no-ignore --hidden`
-    // would otherwise make rg DESCEND into them — a pure regression vs the JS
-    // walk, which prunes at the directory boundary (`policy.shouldTraverseDirectory`).
-    // Two harms: (a) a populated node_modules can blow RIPGREP_TIMEOUT_MS → the
-    // whole pass degrades to the JS walk (defeating rg); (b) rg emits in traversal
-    // order and `node_modules` sorts before `src`, so the 32MB --max-buffer can
-    // fill with (policy-filtered-to-nothing) node_modules candidates while real
-    // fresh src/ matches fall off the end → genuinely MISSED. These globs prune
-    // ONLY dirs the policy already hard-excludes by name, so the candidate set
-    // stays a strict SUPERSET of policy-kept files (parity with the JS walk).
-    '--glob=!**/.git/',
-    // Treat EVERY file as text. By default rg's content heuristic skips any file
-    // with a NUL byte before the first match (no `begin` event → never a
-    // candidate), but brainstrike's exclusion authority (`isBinaryFile`, the
-    // indexer policy) is EXTENSION-based: a `.ts`/`.md`/`.json` file with a NUL
-    // byte (UTF-16 content, an embedded blob, a partial save) is INCLUDED by the
-    // policy and read as utf8 by the JS-walk + the authoritative matcher. Without
-    // `--text` rg would drop exactly those files, so its candidate set would not
-    // be a SUPERSET of the JS walk's and the live pass would silently miss them.
-    // Extension/size exclusions remain the single authority via resolveCandidate.
-    '--text',
-    `--max-filesize=${RIPGREP_MAX_FILESIZE}`,
-    ...(args.filesOnly ? [] : [`--max-count=${RIPGREP_MAX_COUNT_PER_FILE}`]),
-    // Always fixed-strings: rg is a literal SUPERSET prefilter only; the
-    // authoritative literal/regex match is re-derived by the shared JS matcher.
-    '--fixed-strings',
-  ];
-  if (args.excludeNodeModules ?? true) {
-    rgArgs.push('--glob=!**/node_modules/');
-  }
-  if (args.caseSensitive) {
-    rgArgs.push('--case-sensitive');
-  } else {
-    rgArgs.push('--ignore-case');
-  }
-  // `--` terminates options so a literal starting with `-` is not parsed as a flag.
-  rgArgs.push('--', args.prefilterLiteral, '.');
-  return rgArgs;
-}
-
-interface RipgrepRun {
-  /** Workspace-relative POSIX candidate paths (no leading slash) with ≥1 match. */
-  candidatePaths: Set<string>;
-  /** True when stdout was truncated (max-buffer hit) — candidate set is partial. */
-  truncated: boolean;
-}
-
-/**
- * Spawn ripgrep in `canonicalRootPath` and collect the set of candidate file
- * paths (those with ≥1 match). ripgrep is the FAST disk prefilter only, run on a
- * fixed-string SUPERSET literal (never a raw regex); the authoritative match (and
- * final ignore/containment filtering) is re-derived in JS, so ripgrep's match
- * dialect can never diverge the results. Bounded by timeout, max-filesize,
- * max-count, and max-buffer. Throws on spawn/exec failure so the caller can fall
- * back to the JS walk.
- */
-function runRipgrep(args: {
-  ripgrepPath: string;
-  canonicalRootPath: string;
-  prefilterLiteral: string;
-  caseSensitive: boolean;
-  excludeNodeModules?: boolean;
-  filesOnly?: boolean;
-  signal?: AbortSignal;
-  timeoutMs?: number;
-}): Promise<RipgrepRun> {
-  return new Promise<RipgrepRun>((resolve, reject) => {
-    execFile(
-      args.ripgrepPath,
-      buildRipgrepArgs(args),
-      {
-        cwd: args.canonicalRootPath,
-        maxBuffer: RIPGREP_MAX_BUFFER_BYTES,
-        timeout: args.timeoutMs ?? RIPGREP_TIMEOUT_MS,
-        windowsHide: true,
-        ...(args.signal === undefined ? {} : { signal: args.signal }),
-      },
-      (error, stdout) => {
-        // rg exit code 1 = "no matches" (not an error); 2 = a real error. The
-        // callback's `error` is set for both non-zero exits and for the timeout/
-        // max-buffer kills, so distinguish via the captured stdout we still have.
-        const execError = error as (NodeJS.ErrnoException & { killed?: boolean }) | null;
-        const truncated = execError?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
-        if (args.signal?.aborted) {
-          reject(execError ?? new Error('ripgrep aborted'));
-          return;
-        }
-        if (execError?.killed && !truncated) {
-          reject(execError);
-          return;
-        }
-        // Exit code 2 (genuine rg error) arrives as a numeric `code`; treat it
-        // as a failure so the caller falls back. Exit 1 / 0 yield usable stdout.
-        if (execError && typeof execError.code === 'number' && execError.code > 1) {
-          reject(execError);
-          return;
-        }
-        resolve({
-          candidatePaths: args.filesOnly
-            ? parseRipgrepFileCandidates(stdout)
-            : parseRipgrepCandidates(stdout),
-          truncated,
-        });
-      }
-    );
-  });
-}
-
-function normalizeRipgrepCandidatePath(value: string): string | null {
-  const normalized = value.replace(/^\.\//, '').replaceAll('\\', '/');
-  return normalized.length > 0 ? normalized : null;
-}
-
-/** Parse `rg --json` stdout into the set of workspace-relative candidate paths. */
-function parseRipgrepCandidates(stdout: string): Set<string> {
-  const paths = new Set<string>();
-  for (const rawLine of stdout.split('\n')) {
-    const line = rawLine.trim();
-    if (line.length === 0) {
-      continue;
-    }
-    let event: unknown;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!isRipgrepBeginEvent(event)) {
-      continue;
-    }
-    const normalized = normalizeRipgrepCandidatePath(event.data.path.text);
-    if (normalized !== null) {
-      paths.add(normalized);
-    }
-  }
-  return paths;
-}
-
-function parseRipgrepFileCandidates(stdout: string): Set<string> {
-  const paths = new Set<string>();
-  for (const rawLine of stdout.split('\n')) {
-    const normalized = normalizeRipgrepCandidatePath(rawLine.replace(/\r$/, ''));
-    if (normalized !== null) {
-      paths.add(normalized);
-    }
-  }
-  return paths;
-}
-
-interface RipgrepBeginEvent {
-  data: { path: { text: string } };
-  type: 'begin';
-}
-
-function isRipgrepBeginEvent(value: unknown): value is RipgrepBeginEvent {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const event = value as { type?: unknown; data?: unknown };
-  if (event.type !== 'begin' || typeof event.data !== 'object' || event.data === null) {
-    return false;
-  }
-  const data = event.data as { path?: unknown };
-  if (typeof data.path !== 'object' || data.path === null) {
-    return false;
-  }
-  return typeof (data.path as { text?: unknown }).text === 'string';
 }
 
 function hasDotGitSegment(relativePath: string): boolean {
@@ -551,7 +246,12 @@ async function collectRipgrepCandidates(args: {
    * dropped requested files and reported a false `truncated`).
    */
   filePathAllow: ReadonlySet<string> | null;
-}): Promise<{ candidates: LiveCandidate[]; prefilterTruncated: boolean; capHit: boolean }> {
+}): Promise<{
+  candidates: LiveCandidate[];
+  prefilterTruncated: boolean;
+  capHit: boolean;
+  partialReadErrors: boolean;
+}> {
   const run = await runRipgrep({
     canonicalRootPath: args.canonicalRootPath,
     caseSensitive: args.caseSensitive,
@@ -588,7 +288,12 @@ async function collectRipgrepCandidates(args: {
       candidates.push(candidate);
     }
   }
-  return { candidates, capHit, prefilterTruncated: run.truncated };
+  return {
+    candidates,
+    capHit,
+    partialReadErrors: run.partialReadErrors,
+    prefilterTruncated: run.truncated,
+  };
 }
 
 export interface LiveGrepOptions {
@@ -612,20 +317,33 @@ export interface ExcludedPathProbeOptions {
 interface ExcludedPathProbeRootResult {
   examplePaths?: readonly string[];
   matchCount: number;
+  /**
+   * BST-1246 review: the probe's bounded rg run hit its time budget for this
+   * root, so a zero count is "did not finish", NOT "no matches". Surfaced to
+   * the zero-match note builder — a silent zero here would be exactly the
+   * silent-degradation pattern this ticket removes, relocated to the probe.
+   */
+  timedOut?: boolean;
 }
 
 function mergeExcludedPathProbeResults(
   results: readonly ExcludedPathProbeRootResult[]
 ): ExcludedPathProbeRootResult {
   let matchCount = 0;
+  let timedOut = false;
   const examplePaths: string[] = [];
   for (const result of results) {
     matchCount += result.matchCount;
+    timedOut = timedOut || result.timedOut === true;
     if (result.examplePaths && examplePaths.length < 2) {
       examplePaths.push(...result.examplePaths.slice(0, 2 - examplePaths.length));
     }
   }
-  return { matchCount, ...(examplePaths.length === 0 ? {} : { examplePaths }) };
+  return {
+    matchCount,
+    ...(examplePaths.length === 0 ? {} : { examplePaths }),
+    ...(timedOut ? { timedOut } : {}),
+  };
 }
 
 function isExcludedPathProbeCandidate(args: {
@@ -717,9 +435,9 @@ async function probeExcludedRoot(args: {
   let candidatePaths: Set<string>;
   try {
     const run = await runRipgrep({
+      applyPolicyPrune: false,
       canonicalRootPath,
       caseSensitive: args.caseSensitive,
-      excludeNodeModules: false,
       filesOnly: true,
       prefilterLiteral: args.prefilterLiteral,
       ripgrepPath: args.ripgrepPath,
@@ -736,8 +454,25 @@ async function probeExcludedRoot(args: {
     if (args.signal.aborted) {
       return empty;
     }
+    // BST-1246: the probe is a bounded best-effort hint (1.5s budget over
+    // policy-EXCLUDED trees, node_modules included by design). Blowing that
+    // budget on a big repo is the expected bounded outcome, not an anomaly —
+    // it logs at debug with the timing metadata. Any other failure stays a
+    // warn, now with the non-sensitive metadata attached.
+    const metadata = error instanceof RipgrepRunError ? error.metadata : undefined;
+    if (metadata?.timedOut) {
+      logger.debug(
+        'excluded-path grep probe: ripgrep hit its bounded time budget; reporting as unfinished',
+        {
+          ripgrep: metadata,
+          rootId: args.root.rootId,
+        }
+      );
+      return { matchCount: 0, timedOut: true };
+    }
     logger.warn('excluded-path grep probe: ripgrep failed for a root', {
       error: redactErrorForLog(error),
+      ...(metadata ? { ripgrep: metadata } : {}),
       rootId: args.root.rootId,
     });
     return empty;
@@ -794,7 +529,7 @@ export async function probeExcludedPathMatches(
   options: ExcludedPathProbeOptions,
   matcher: LineMatcher,
   abortSignal?: AbortSignal
-): Promise<{ examplePaths?: readonly string[]; matchCount: number }> {
+): Promise<{ examplePaths?: readonly string[]; matchCount: number; timedOut?: boolean }> {
   const empty = { matchCount: 0 };
   if (options.roots.length === 0) {
     return empty;
@@ -894,6 +629,8 @@ interface CandidateGatherState {
   candidates: LiveCandidate[];
   degradedToWalk: boolean;
   degradeReason: string | null;
+  /** rg exited 2 with usable candidates: some files were unreadable (BST-1246). */
+  partialReadErrors: boolean;
   prefilterTruncated: boolean;
   scanLimited: boolean;
 }
@@ -933,27 +670,33 @@ async function gatherRootCandidates(args: {
   // then re-checks) so a narrower rg regex dialect can never silently miss it.
   if (ripgrepPath !== null && prefilterLiteral !== null && !state.degradedToWalk) {
     try {
-      const { candidates, prefilterTruncated, capHit } = await collectRipgrepCandidates({
-        canonicalRootPath,
-        caseSensitive,
-        filePathAllow,
-        // Remaining global budget so per-root resolve never overshoots the cap.
-        maxCandidates: Math.max(0, maxLiveCandidateFiles - state.candidates.length),
-        prefilterLiteral,
-        ripgrepPath,
-        root,
-      });
+      const { candidates, prefilterTruncated, capHit, partialReadErrors } =
+        await collectRipgrepCandidates({
+          canonicalRootPath,
+          caseSensitive,
+          filePathAllow,
+          // Remaining global budget so per-root resolve never overshoots the cap.
+          maxCandidates: Math.max(0, maxLiveCandidateFiles - state.candidates.length),
+          prefilterLiteral,
+          ripgrepPath,
+          root,
+        });
       state.candidates.push(...candidates);
       state.prefilterTruncated = state.prefilterTruncated || prefilterTruncated;
       state.candidateCapHit = state.candidateCapHit || capHit;
+      state.partialReadErrors = state.partialReadErrors || partialReadErrors;
       return;
     } catch (error) {
       // rg ran but failed/timed out — fall back to the JS walk for THIS and
-      // every remaining root, and surface the reason (never silent).
+      // every remaining root, and surface the reason (never silent). The
+      // RipgrepRunError message is pattern-free by construction, and its
+      // metadata (timeout vs exit code vs signal) is the non-sensitive half
+      // the BST-1246 audit was missing under full redaction.
       state.degradedToWalk = true;
       state.degradeReason = error instanceof Error ? error.message : String(error);
       logger.warn('live grep: ripgrep failed; falling back to JS file-walk', {
         error: redactErrorForLog(error),
+        ...(error instanceof RipgrepRunError ? { ripgrep: error.metadata } : {}),
       });
     }
   }
@@ -1008,6 +751,7 @@ export async function runLiveGrep(
     candidates: [],
     degradedToWalk: false,
     degradeReason: null,
+    partialReadErrors: false,
     prefilterTruncated: false,
     scanLimited: false,
   };
@@ -1057,6 +801,7 @@ export async function runLiveGrep(
     candidateTruncated,
     degradedToWalk: state.degradedToWalk,
     degradeReason: state.degradeReason,
+    partialReadErrors: state.partialReadErrors,
     prefilterTruncated: state.prefilterTruncated,
     regexNoLiteralPrefilter,
     rgPresent,
@@ -1079,11 +824,17 @@ function buildLiveNote(args: {
   regexNoLiteralPrefilter: boolean;
   degradedToWalk: boolean;
   degradeReason: string | null;
+  partialReadErrors: boolean;
   scanLimited: boolean;
   candidateTruncated: boolean;
   prefilterTruncated: boolean;
 }): string | undefined {
   const parts: string[] = [];
+  if (args.partialReadErrors) {
+    parts.push(
+      'ripgrep reported unreadable files during the live pass; matches inside unreadable files may be missing.'
+    );
+  }
   if (!args.rgPresent) {
     parts.push('ripgrep is unavailable; the live (on-disk) pass used a bounded file-walk instead.');
   } else if (args.degradedToWalk) {

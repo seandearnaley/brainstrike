@@ -117,7 +117,7 @@ describe('resolveZeroMatchProbeNote', () => {
     );
   });
 
-  it('times out a hanging probe, logs it, and treats it as a miss', async () => {
+  it('times out a hanging excluded-path probe, logs it, and says the probe did not finish', async () => {
     vi.useFakeTimers();
     const deps = makeDeps();
     let probeSignal: AbortSignal | undefined;
@@ -131,11 +131,24 @@ describe('resolveZeroMatchProbeNote', () => {
     const pending = resolveZeroMatchProbeNote({ caseSensitive: false, isRegex: false }, deps);
     await vi.advanceTimersByTimeAsync(ZERO_MATCH_PROBE_TIMEOUT_MS);
 
-    await expect(pending).resolves.toBeUndefined();
+    // BST-1246 review: an unfinished probe must NOT read as an honest
+    // "no matches in excluded paths" — the note says so explicitly.
+    await expect(pending).resolves.toBe(
+      'the excluded-path probe did not finish within its time budget, so matches may still exist in excluded or ignored paths — call globWorkspace with includeIgnored: true to check.'
+    );
     expect(probeSignal?.aborted).toBe(true);
     expect(loggerWarnMock).toHaveBeenCalledWith(
       expect.stringContaining('excludedPath'),
       expect.objectContaining({ error: expect.any(Error) })
     );
+  });
+
+  it('reports an unfinished probe from the probe result itself (timedOut flag)', async () => {
+    const deps = makeDeps();
+    vi.mocked(deps.runExcludedPathProbe).mockResolvedValue({ matchCount: 0, timedOut: true });
+
+    await expect(
+      resolveZeroMatchProbeNote({ caseSensitive: false, isRegex: false }, deps)
+    ).resolves.toMatch(/did not finish/);
   });
 });
