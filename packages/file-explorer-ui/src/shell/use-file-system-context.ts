@@ -261,7 +261,21 @@ export function useFileSystemInstance() {
     // The core hook performs the snapshot → focus-shift → store-purge sequence
     // internally; the reducer is the sole handle owner, so there is no store
     // handle to sync here (B3: the redundant second focus-write is dropped).
-    await coreApi.removeRootDirectory(rootId);
+    // The platform-authority adapter call (forgetRootInAdapter) runs BEFORE
+    // any renderer state change, so a rejection here means the root is still
+    // connected — mirror the deleteRootData pattern above: log + toast + a
+    // silent return, never letting the failure vanish uncaught (NO SILENT
+    // FALLBACKS — this makes the failure visible instead of losing it).
+    try {
+      await coreApi.removeRootDirectory(rootId);
+    } catch (error) {
+      logger.error('removeRootDirectory: adapter disconnect failed — root stays connected', {
+        error,
+        rootId,
+      });
+      showToast('Could not disconnect the folder. The folder stays connected.');
+      return;
+    }
     // Token cache: best-effort — a failure must not block the disconnect.
     if (tokenCacheContext) {
       try {

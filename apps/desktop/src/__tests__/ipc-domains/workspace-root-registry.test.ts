@@ -388,14 +388,17 @@ describe('WorkspaceRootRegistry', () => {
     expect(descriptors.map((descriptor) => descriptor.rootId)).toEqual(['persisted-id']);
     expect(minted - closes.length).toBe(1);
 
-    // Ownership, asserted for real: the stale session rootId no longer
-    // resolves to anything (its capability was retired), while the
-    // persisted rootId now answers reads for the same canonical path.
+    // Ownership, asserted for real: the stale session rootId's OWN mount
+    // entry is gone (its capability was retired) — proven with a RELATIVE
+    // path, which has no path-anchored fallback (that fallback is
+    // absolute-path-only; see the "stale rootId falls back" tests below), so
+    // this can only succeed by resolving `sessionResult.rootId` directly.
+    // The persisted rootId now answers reads for the same canonical path.
     await expect(
-      registry.readDirectory({
-        kind: 'directory',
-        name: 'project',
-        path: '/canon/project',
+      registry.readFile({
+        kind: 'file',
+        name: 'a.md',
+        path: 'a.md',
         platform: 'electron',
         rootId: sessionResult.rootId,
       })
@@ -524,5 +527,150 @@ describe('WorkspaceRootRegistry', () => {
     } finally {
       setFileSizeConfig(defaultFileSizeConfig);
     }
+  });
+
+  it('a symlink entry propagates isSymbolicLink on the returned file/directory nodes', async () => {
+    const registry = createRegistry({
+      createSecureRoot: async () => ({
+        canonicalPath: '/canon/project',
+        close: vi.fn(),
+        listDir: vi.fn(async () => ({
+          entries: [
+            { isDirectory: false, isFile: true, isSymbolicLink: true, name: 'link.txt' },
+            { isDirectory: false, isFile: true, isSymbolicLink: false, name: 'plain.txt' },
+            // A symlink to a directory is classified under the file branch
+            // (buildDirectoryNode: isDirectory && !isSymbolicLink) — still
+            // must carry the flag.
+            { isDirectory: true, isFile: false, isSymbolicLink: true, name: 'link-dir' },
+          ],
+          inspected: 3,
+          truncated: false,
+        })),
+        readFile: vi.fn(async () => ({ status: 'unreadable' as const })),
+      }),
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+    });
+    const descriptor = await registry.addRoot(rootHandle('/canon/project'));
+
+    const nodes = await registry.readDirectory({
+      kind: 'directory',
+      name: 'project',
+      path: descriptor.handle.path,
+      platform: 'electron',
+      rootId: descriptor.rootId,
+    });
+
+    expect(nodes.find((node) => node.name === 'link.txt')?.isSymbolicLink).toBe(true);
+    expect(nodes.find((node) => node.name === 'link-dir')?.isSymbolicLink).toBe(true);
+    expect(nodes.find((node) => node.name === 'plain.txt')?.isSymbolicLink).toBeUndefined();
+  });
+
+  it('readFile throws a precise symlink error when the realpath preflight resolves off the lexical target', async () => {
+    const registry = createRegistry({
+      createSecureRoot: async () => ({
+        canonicalPath: '/canon/project',
+        close: vi.fn(),
+        listDir: vi.fn(async () => ({ entries: [], inspected: 0, truncated: false })),
+        readFile: vi.fn(async () => ({ status: 'unreadable' as const })),
+      }),
+      // Simulate a symlinked leaf: the realpath preflight resolves the
+      // requested path to a DIFFERENT (but still in-root) target than its
+      // purely lexical join — exactly what a traversed/leaf symlink does.
+      resolveReadPath: async (requestedPath) =>
+        requestedPath.endsWith('link.txt')
+          ? '/canon/project/real-target.txt'
+          : path.normalize(requestedPath),
+    });
+    const descriptor = await registry.addRoot(rootHandle('/canon/project'));
+
+    await expect(
+      registry.readFile({
+        kind: 'file',
+        name: 'link.txt',
+        path: '/canon/project/link.txt',
+        platform: 'electron',
+        rootId: descriptor.rootId,
+      })
+    ).rejects.toThrow('File is a symbolic link. Links are not followed inside workspace roots.');
+  });
+
+  it('readFile keeps the generic error message for a genuinely unreadable non-symlink file', async () => {
+    const registry = createRegistry({
+      createSecureRoot: async () => ({
+        canonicalPath: '/canon/project',
+        close: vi.fn(),
+        listDir: vi.fn(async () => ({ entries: [], inspected: 0, truncated: false })),
+        readFile: vi.fn(async () => ({ status: 'unreadable' as const })),
+      }),
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+    });
+    const descriptor = await registry.addRoot(rootHandle('/canon/project'));
+
+    await expect(
+      registry.readFile({
+        kind: 'file',
+        name: 'locked.txt',
+        path: '/canon/project/locked.txt',
+        platform: 'electron',
+        rootId: descriptor.rootId,
+      })
+    ).rejects.toThrow('File is not accessible.');
+  });
+
+  it('a stale rootId falls back to path resolution for an in-root absolute path', async () => {
+    const registry = createRegistry({
+      createSecureRoot: async () => secureRoot('/canon/project'),
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+    });
+    const descriptor = await registry.addRoot(rootHandle('/canon/project'));
+    expect(descriptor.rootId).not.toBe('stale-root-id');
+
+    // Same containment + preflight as the no-rootId path — not a security
+    // delta, just a second, path-anchored way to find the same mounted root.
+    await expect(
+      registry.readDirectory({
+        kind: 'directory',
+        name: 'project',
+        path: descriptor.handle.path,
+        platform: 'electron',
+        rootId: 'stale-root-id',
+      })
+    ).resolves.toEqual([]);
+  });
+
+  it('a stale rootId with an out-of-root absolute path is still rejected', async () => {
+    const registry = createRegistry({
+      createSecureRoot: async () => secureRoot('/canon/project'),
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+    });
+    await registry.addRoot(rootHandle('/canon/project'));
+
+    await expect(
+      registry.readDirectory({
+        kind: 'directory',
+        name: 'elsewhere',
+        path: '/canon/elsewhere',
+        platform: 'electron',
+        rootId: 'stale-root-id',
+      })
+    ).rejects.toThrow('Workspace root is not mounted.');
+  });
+
+  it('a stale rootId with a relative path has no anchor and is still rejected', async () => {
+    const registry = createRegistry({
+      createSecureRoot: async () => secureRoot('/canon/project'),
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+    });
+    await registry.addRoot(rootHandle('/canon/project'));
+
+    await expect(
+      registry.readFile({
+        kind: 'file',
+        name: 'a.md',
+        path: 'a.md',
+        platform: 'electron',
+        rootId: 'stale-root-id',
+      })
+    ).rejects.toThrow('Workspace root is not mounted.');
   });
 });

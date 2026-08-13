@@ -211,6 +211,7 @@ function buildDirectoryNode(
         platform: 'electron',
         rootId: mounted.rootId,
       } as unknown as FileSystemDirectoryHandle,
+      ...(entry.isSymbolicLink ? { isSymbolicLink: true } : {}),
       isVisible: true,
       name: entry.name,
       path: entryPath,
@@ -228,6 +229,7 @@ function buildDirectoryNode(
       platform: 'electron',
       rootId: mounted.rootId,
     } as unknown as FileSystemFileHandle,
+    ...(entry.isSymbolicLink ? { isSymbolicLink: true } : {}),
     isVisible: true,
     ...(entry.lastModified === undefined ? {} : { lastModified: entry.lastModified }),
     name: entry.name,
@@ -450,6 +452,13 @@ export class WorkspaceRootRegistry {
     }
     if (result.status === 'not-found') {
       throw new AccessError('ENOENT: File not found', requestedPath, 'read');
+    }
+    if (resolved.traversedSymlink) {
+      throw new AccessError(
+        'File is a symbolic link. Links are not followed inside workspace roots.',
+        requestedPath,
+        'read'
+      );
     }
     throw new AccessError('File is not accessible.', requestedPath, 'read');
   }
@@ -861,7 +870,11 @@ export class WorkspaceRootRegistry {
   private async resolveRead(
     requestedPath: string,
     rootId?: string
-  ): Promise<{ mounted: MountedWorkspaceRoot; relativePath: string }> {
+  ): Promise<{
+    mounted: MountedWorkspaceRoot;
+    relativePath: string;
+    traversedSymlink: boolean;
+  }> {
     if (requestedPath.includes('\0')) {
       throw new AccessError('Requested path contains null bytes.', requestedPath, 'read');
     }
@@ -872,9 +885,7 @@ export class WorkspaceRootRegistry {
         'read'
       );
     }
-    const mounted = rootId
-      ? this.mounted.get(rootId)
-      : this.findMountedRootForAbsolutePath(requestedPath);
+    const mounted = this.resolveMountedRoot(requestedPath, rootId);
     if (!mounted) {
       throw new AccessError(
         rootId ? 'Workspace root is not mounted.' : 'Path is outside every mounted workspace root.',
@@ -891,10 +902,48 @@ export class WorkspaceRootRegistry {
     if (!isContained(mounted.canonicalPath, canonicalTarget)) {
       throw new AccessError('Path is outside the selected workspace root.', requestedPath, 'read');
     }
+    // A symlink was traversed or is the leaf itself when the realpath
+    // preflight resolved somewhere other than the purely lexical target —
+    // the native read below never follows it (see comment above), so this
+    // is reported to the caller as a precise, non-generic error instead.
+    const lexicalAbsoluteTarget = path.normalize(
+      path.join(mounted.canonicalPath, lexicalRelativePath)
+    );
+    const traversedSymlink = !pathsEqual(lexicalAbsoluteTarget, canonicalTarget);
     return {
       mounted,
       relativePath: lexicalRelativePath || '.',
+      traversedSymlink,
     };
+  }
+
+  /**
+   * Resolves the mounted root for a read, given an optional caller-supplied
+   * rootId. A stale/wrong rootId (e.g. held across a remount) still resolves
+   * when `requestedPath` is itself absolute: it falls back to the same
+   * path-anchored lookup the no-rootId path already uses
+   * (findMountedRootForAbsolutePath). This is NOT a security downgrade — the
+   * fallback still goes through the identical containment check and realpath
+   * preflight below; only the requested rootId's authority is treated as
+   * fungible with "an absolute path that resolves into some mounted root",
+   * never a relaxation of what paths are readable. A relative path with an
+   * unknown rootId has no other anchor and keeps throwing.
+   */
+  private resolveMountedRoot(
+    requestedPath: string,
+    rootId: string | undefined
+  ): MountedWorkspaceRoot | undefined {
+    if (rootId === undefined) {
+      return this.findMountedRootForAbsolutePath(requestedPath);
+    }
+    const mounted = this.mounted.get(rootId);
+    if (mounted) {
+      return mounted;
+    }
+    if (path.isAbsolute(requestedPath)) {
+      return this.findMountedRootForAbsolutePath(requestedPath);
+    }
+    return;
   }
 
   private findMountedRootForAbsolutePath(requestedPath: string): MountedWorkspaceRoot | undefined {
