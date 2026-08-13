@@ -1270,6 +1270,34 @@ the reset diagnostic table. Shutdown still owns no new main-thread sink handle:
 Pino's worker lifecycle is unchanged, while the warn+ NDJSON sink remains the
 explicit last graceful-shutdown writer described above.
 
+**Main-thread freeze watchdog (BST-342)**: the watchdog is a typed worker entry
+at `apps/desktop/src/diagnostics/main-watchdog-worker.ts`, bundled as the flat
+main-process output `dist/main-watchdog-worker.js`. It is never constructed from
+an inline string or with `eval`. Packaged builds explicitly put the entry in
+`app.asar.unpacked`, and `resolveMainWatchdogWorkerPath` rejects an unexpected
+packaged layout instead of trying an ASAR path or another target. Development
+resolves the same emitted filename under the desktop `dist/` directory.
+
+The independently-tested `main-watchdog-core.ts` owns the heartbeat/config
+protocol and diagnostic calculation. The main process sends a typed config once
+and a heartbeat every 5 seconds. The worker checks on the same cadence and emits
+only when heartbeat age is greater than 20 seconds. CPU fields are per-check
+deltas (`cpuUserDeltaMicros` / `cpuSystemDeltaMicros`), never cumulative process
+totals, and the CPU baseline advances on every check (including healthy ones).
+The config's `logPath: null` is an explicit state used when file logging is
+disabled; it retains stderr diagnostics without inventing a file destination.
+A missing config, malformed message, invalid counter, or invalid packaged path
+throws. Worker errors, message-deserialization errors, and unexpected exits are
+logged by Electron main; an exit stops the heartbeat timer. There is no
+alternate watchdog implementation.
+
+On a freeze, the worker writes the structured diagnostic to stderr first and
+then synchronously appends the identical NDJSON record when a log path is
+configured. An append failure emits a second structured
+`MAIN_WATCHDOG_LOG_WRITE_FAILED` record to stderr and keeps checking; the
+failure is visible while the independent stderr channel remains usable, rather
+than being swallowed or silently disabling the watchdog.
+
 **Log Viewer diagnostic controls**: the viewer exposes dedicated source and
 code selectors populated from the active adapter's records, plus inclusive
 local From/To timestamp inputs. Source prefers explicit `logSource` context
@@ -1319,6 +1347,9 @@ rather than a swallowed failure rendering as a successful-but-empty file.
 `apps/desktop/src/__tests__/diagnostics/main-log-transport.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/main-log-transport-path.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/main-log-transport-worker.integration.test.ts`,
+`apps/desktop/src/__tests__/diagnostics/main-watchdog-core.test.ts`,
+`apps/desktop/src/__tests__/diagnostics/main-watchdog-path.test.ts`,
+`apps/desktop/src/__tests__/build-main-config.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/error-log-sink.test.ts`,
 `apps/desktop/src/__tests__/logging-durable-record.test.ts` (the
 `recordDurableLog handler` describe block covers the two `logging-ipc.ts`
