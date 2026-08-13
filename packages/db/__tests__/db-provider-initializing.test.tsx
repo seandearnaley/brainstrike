@@ -4,15 +4,15 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { createPriorityDbHandle } from '../src/database-work-scheduler';
+import { DbProvider } from '../src/db-provider';
+import * as migrations from '../src/migrations/bootstrap';
 import {
-  DbProvider,
   useDbInitializationStatus,
   useDbInitializing,
   useFileChunkRepository,
   useFileRecordRepository,
   usePGliteDatabase,
-} from '../src/db-provider';
-import * as migrations from '../src/migrations/bootstrap';
+} from '../src/use-db';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 type QueryMock = Mock<[string, unknown?, unknown?], Promise<{ rows: unknown[] } | undefined>>;

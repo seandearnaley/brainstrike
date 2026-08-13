@@ -3,8 +3,9 @@ import type { PGlite } from '@electric-sql/pglite';
 import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DbProvider, useFileRecordRepository } from '../src/db-provider';
+import { DbProvider } from '../src/db-provider';
 import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from '../src/migrations/bootstrap';
+import { useFileRecordRepository } from '../src/use-db';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 vi.mock('../src/migrations/bootstrap', async (importOriginal) => {

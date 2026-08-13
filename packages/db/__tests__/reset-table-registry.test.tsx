@@ -17,12 +17,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  DbProvider,
-  useClearAllData,
-  useFactoryReset,
-  useFileRecordRepository,
-} from '../src/db-provider';
+import { DbProvider } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
 import {
   auditResetTableCoverage,
@@ -32,6 +27,7 @@ import {
   getResetTables,
   RESET_EXCLUDED_TABLES,
 } from '../src/reset-table-registry';
+import { useClearAllData, useFactoryReset, useFileRecordRepository } from '../src/use-db';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 function wrapper({ children }: { children: React.ReactNode }) {

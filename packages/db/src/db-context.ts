@@ -1,0 +1,45 @@
+/**
+ * The DbProvider context object and its value type, in a React-coupled but
+ * component-free module so both `db-provider.tsx` (the provider component)
+ * and `use-db.ts` (the consumer hooks) can share them without either file
+ * importing the other. Keeping `createContext` out of the component file also
+ * keeps the context identity stable across Fast Refresh: replacing the
+ * provider module must not mint a new context and orphan mounted consumers.
+ *
+ * React-coupled: this module must never become reachable from the root
+ * barrel (`src/index.ts`) — `architecture-ownership.test.ts` walks the root
+ * import graph and fails on any React import.
+ */
+import { createContext } from 'react';
+import type { DbHandle } from './db-handle.js';
+import type { DrizzleDb } from './drizzle/database.js';
+import type { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
+import type { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
+import type { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
+import type { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
+import type {
+  IEmbeddingSetsRepository,
+  IViewFilterPresetsRepository,
+} from './repositories/interfaces.js';
+
+export type DbInitializationStatus = 'idle' | 'initializing' | 'ready' | 'error';
+
+export interface DbContextValue {
+  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
+  clearQueuesAndEmbeddingSets: () => Promise<void>; // Helper to purge job_queue and embedding_sets
+  db: DbHandle | null;
+  drizzleDb: DrizzleDb | null; // Drizzle instance for direct access
+  embeddingSetsRepository: IEmbeddingSetsRepository | null;
+  error: Error | null;
+  factoryReset: () => Promise<void>; // Close DB, wipe state, reinitialize
+  fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  initializationStatus: DbInitializationStatus;
+  initializeDatabase: () => Promise<void>; // Lazy initialization trigger
+  initializing: boolean; // Whether database initialization is in progress
+  ready: boolean;
+  vectorEnabled: boolean; // Whether pgvector extension is available
+  viewFilterPresetsRepository: IViewFilterPresetsRepository | null;
+}
+
+export const DbContext = createContext<DbContextValue | undefined>(undefined);

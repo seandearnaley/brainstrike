@@ -5,8 +5,9 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DbProvider, useFactoryReset, useFileRecordRepository } from '../src/db-provider';
+import { DbProvider } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
+import { useFactoryReset, useFileRecordRepository } from '../src/use-db';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 // Mocks (not real PGlite) so jsdom doesn't hit PGlite 0.4's browser-only

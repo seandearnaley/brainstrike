@@ -14,11 +14,11 @@ import {
 } from '../src/use-live-query.js';
 
 // Mock the database provider
-vi.mock('../src/db-provider.js', () => ({
+vi.mock('../src/use-db.js', () => ({
   usePGliteDatabase: vi.fn(),
 }));
 
-import { usePGliteDatabase } from '../src/db-provider.js';
+import { usePGliteDatabase } from '../src/use-db.js';
 
 describe('usePGliteLiveQuery Performance', () => {
   let mockSubscribe: ReturnType<typeof vi.fn>;

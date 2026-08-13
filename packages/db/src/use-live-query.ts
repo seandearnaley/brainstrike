@@ -12,8 +12,8 @@ import {
   recordDatabaseLiveSubscriptionStarted,
   recordDatabaseLiveUpdate,
 } from './database-query-telemetry.js';
-import { usePGliteDatabase } from './db-provider.js';
 import { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
+import { usePGliteDatabase } from './use-db.js';
 
 const logger = createLogger('UsePGliteLiveQuery');
 
