@@ -330,7 +330,12 @@ describe('fs:restoreRoots canonical identity', () => {
       }
     });
     const capabilities = createAdapterBackedCapabilities(fileSystem);
+    const disposeCommandSessionsForRoot = vi.fn(async () => 1);
+    const evictLspServersForRoot = vi.fn(async () => undefined);
+    rootsDbQuery.mockResolvedValueOnce({ rows: [{ id: 'durable-root-revoked' }] });
     registerFileSystemIpcHandlers({
+      disposeCommandSessionsForRoot,
+      evictLspServersForRoot,
       fileSystem,
       getRootsDatabase,
       storage,
@@ -341,6 +346,8 @@ describe('fs:restoreRoots canonical identity', () => {
       handlers.get('fs:removeRoot')?.({} as IpcMainInvokeEvent, entry.rootId)
     ).rejects.toThrow('storage unavailable');
     expect(capabilities.unmountRoot).toHaveBeenCalledWith(entry.rootId);
+    expect(disposeCommandSessionsForRoot).toHaveBeenCalledWith('durable-root-revoked');
+    expect(evictLspServersForRoot).toHaveBeenCalledWith('durable-root-revoked');
     vi.mocked(capabilities.mountRoot).mockClear();
 
     await expect(handlers.get('fs:restoreRoots')?.({} as IpcMainInvokeEvent)).rejects.toThrow(

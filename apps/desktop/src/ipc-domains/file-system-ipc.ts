@@ -1024,6 +1024,7 @@ export function registerFileSystemIpcHandlers({
           await writeRootsList(storage, remaining);
         } catch (error) {
           revokeRootForSession(rootId);
+          await cleanupRootResources(disconnectedRootIds);
           throw error;
         }
         revokeRootForSession(rootId);
