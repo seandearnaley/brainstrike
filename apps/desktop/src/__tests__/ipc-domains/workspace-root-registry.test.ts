@@ -100,6 +100,11 @@ describe('WorkspaceRootRegistry', () => {
       ['/another-alias/workspace', '/canonical/workspace'],
     ]);
     const registry = createRegistry({
+      // Mount-then-ask: the probe's own canonicalPath is the identity
+      // authority for the path being added; resolveCanonicalRoot is only
+      // consulted for already-stored, unmounted entries during dedup.
+      createSecureRoot: async (rootPath) =>
+        secureRoot(canonicalByPath.get(rootPath) ?? path.normalize(rootPath)),
       resolveCanonicalRoot: async (rootPath) =>
         canonicalByPath.get(rootPath) ?? path.normalize(rootPath),
     });
@@ -153,18 +158,21 @@ describe('WorkspaceRootRegistry', () => {
   });
 
   it('serializes add and restore mutations behind one registry queue', async () => {
-    let releaseCanonical!: () => void;
-    const canonicalBlocked = new Promise<void>((resolve) => {
-      releaseCanonical = resolve;
+    let releaseProbe!: () => void;
+    const probeBlocked = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
     });
     const order: string[] = [];
     const registry = createRegistry({
-      resolveCanonicalRoot: async (rootPath) => {
-        order.push(`canonical:${rootPath}`);
+      // Mount-then-ask: addRoot's first (and only, with no stored entries)
+      // async dependency is the createSecureRoot probe, not
+      // resolveCanonicalRoot — that is what the queue serializes behind.
+      createSecureRoot: async (rootPath) => {
+        order.push(`probe:${rootPath}`);
         if (rootPath === '/first') {
-          await canonicalBlocked;
+          await probeBlocked;
         }
-        return rootPath;
+        return secureRoot(rootPath);
       },
     });
 
@@ -173,9 +181,105 @@ describe('WorkspaceRootRegistry', () => {
       order.push('restore-complete');
     });
     await Promise.resolve();
-    expect(order).toEqual(['canonical:/first']);
-    releaseCanonical();
+    expect(order).toEqual(['probe:/first']);
+    releaseProbe();
     await Promise.all([first, restore]);
     expect(order.at(-1)).toBe('restore-complete');
+  });
+
+  it('re-adding a folder whose persist failed reuses the session capability', async () => {
+    const closes: number[] = [];
+    let minted = 0;
+    let failPersist = true;
+    const backing = new Map<string, string>();
+    storage = {
+      clear: vi.fn(async () => backing.clear()),
+      getAllKeys: vi.fn(async () => [...backing.keys()]),
+      getItem: vi.fn(async (key: string) => backing.get(key) ?? null),
+      removeItem: vi.fn(async (key: string) => {
+        backing.delete(key);
+      }),
+      setItem: vi.fn(async (key: string, value: string) => {
+        if (key === 'rootsList' && failPersist) {
+          throw new Error('disk full');
+        }
+        backing.set(key, value);
+      }),
+    } as unknown as ElectronStorageAdapter;
+
+    const registry = createRegistry({
+      createSecureRoot: async () => {
+        minted += 1;
+        const id = minted;
+        return {
+          canonicalPath: '/canon/project',
+          close: vi.fn(() => {
+            closes.push(id);
+          }),
+          listDir: vi.fn(async () => ({ entries: [], inspected: 0, truncated: false })),
+          readFile: vi.fn(async () => ({ status: 'unreadable' as const })),
+        };
+      },
+    });
+    const handle = rootHandle('/canon/project');
+
+    const first = await registry.addRoot(handle);
+    expect(first.persisted).toBe(false);
+
+    failPersist = false;
+    const second = await registry.addRoot(handle);
+    expect(second.persisted).toBe(true);
+    // Same canonical path ⇒ same durable root, not a second capability:
+    expect(second.rootId).toBe(first.rootId);
+    // Exactly one live mount; every superseded/probe capability was closed.
+    expect(minted - closes.length).toBe(1);
+  });
+
+  it('restoreRoots adopts a persisted entry over a session mount of the same path', async () => {
+    // Arrange: session root mounted (persist failed), then rootsList written
+    // out-of-band with an entry whose path canonicalizes to the same root.
+    const closes: number[] = [];
+    let minted = 0;
+    const backing = new Map<string, string>();
+    storage = {
+      clear: vi.fn(async () => backing.clear()),
+      getAllKeys: vi.fn(async () => [...backing.keys()]),
+      getItem: vi.fn(async (key: string) => backing.get(key) ?? null),
+      removeItem: vi.fn(async (key: string) => {
+        backing.delete(key);
+      }),
+      setItem: vi.fn(() => {
+        throw new Error('disk full');
+      }),
+    } as unknown as ElectronStorageAdapter;
+
+    const registry = createRegistry({
+      createSecureRoot: async () => {
+        minted += 1;
+        const id = minted;
+        return {
+          canonicalPath: '/canon/project',
+          close: vi.fn(() => {
+            closes.push(id);
+          }),
+          listDir: vi.fn(async () => ({ entries: [], inspected: 0, truncated: false })),
+          readFile: vi.fn(async () => ({ status: 'unreadable' as const })),
+        };
+      },
+    });
+
+    const sessionResult = await registry.addRoot(rootHandle('/canon/project'));
+    expect(sessionResult.persisted).toBe(false);
+
+    backing.set(
+      'rootsList',
+      JSON.stringify([{ addedAt: 1, path: '/canon/project', rootId: 'persisted-id' }])
+    );
+
+    // Assert: after restoreRoots() there is one mount, owned by the persisted
+    // rootId, and the session capability was closed.
+    const descriptors = await registry.restoreRoots();
+    expect(descriptors.map((descriptor) => descriptor.rootId)).toEqual(['persisted-id']);
+    expect(minted - closes.length).toBe(1);
   });
 });

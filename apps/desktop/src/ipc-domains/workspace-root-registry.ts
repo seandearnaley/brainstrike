@@ -263,62 +263,45 @@ export class WorkspaceRootRegistry {
   addRoot(handle: DirectoryHandle): Promise<RootDescriptor> {
     return this.serializeMutation(async () => {
       const presentationPath = path.normalize(handle.path);
-      const canonicalPath = await this.resolveCanonicalRoot(presentationPath);
-      const entries = await this.readStoredRoots();
-      let existing: StoredWorkspaceRoot | undefined;
-      for (const entry of entries) {
-        try {
-          const entryCanonical =
-            this.mounted.get(entry.rootId)?.canonicalPath ??
-            (await this.resolveCanonicalRoot(entry.path));
-          if (pathsEqual(entryCanonical, canonicalPath)) {
-            existing = entry;
-            break;
-          }
-        } catch (error) {
-          logger.warn('Could not canonicalize a stored root while adding a folder', {
-            error,
-            rootId: entry.rootId,
-          });
-        }
-      }
-
-      const entry: StoredWorkspaceRoot = {
-        addedAt: Date.now(),
-        path: existing?.path ?? presentationPath,
-        rootId: existing?.rootId ?? crypto.randomUUID(),
-      };
-      await this.mount(entry, canonicalPath);
-
-      let persisted = true;
-      const nextEntries = existing
-        ? entries.map((candidate) => (candidate.rootId === existing.rootId ? entry : candidate))
-        : [...entries, entry];
+      const [entries, probe] = await Promise.all([
+        this.readStoredRoots(),
+        this.createSecureRoot(presentationPath),
+      ]);
+      let probeAdopted = false;
       try {
-        await this.writeStoredRoots(nextEntries);
-        this.sessionRootIds.delete(entry.rootId);
-      } catch (error) {
-        if (existing) {
-          logger.warn('Failed to refresh an already-persisted workspace root', {
-            error,
-            rootId: entry.rootId,
-          });
-        } else {
-          persisted = false;
-          this.sessionRootIds.add(entry.rootId);
-          logger.warn('Workspace root is mounted for this session but could not be persisted', {
-            error,
-            rootId: entry.rootId,
-          });
+        const canonicalPath = path.normalize(probe.canonicalPath);
+        const mountedMatch = [...this.mounted.values()].find((candidate) =>
+          pathsEqual(candidate.canonicalPath, canonicalPath)
+        );
+        const existing = await this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
+
+        const rootId = existing?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID();
+        const entry: StoredWorkspaceRoot = {
+          addedAt: Date.now(),
+          path: existing?.path ?? presentationPath,
+          rootId,
+        };
+
+        probeAdopted = this.reconcileAddMount(entry, mountedMatch, probe);
+
+        const persisted = await this.persistAddedRoot(entries, existing, entry);
+        if (persisted) {
+          await this.storage
+            .setItem(LAST_FOLDER_STORAGE_KEY, entry.path)
+            .catch((error: unknown) => {
+              logger.warn('Failed to update the last-folder presentation preference', { error });
+            });
+        }
+        return descriptorFor(entry, 'granted', persisted);
+      } finally {
+        if (!probeAdopted) {
+          try {
+            probe.close();
+          } catch (error) {
+            logger.warn('Failed to close a redundant workspace root probe', { error });
+          }
         }
       }
-
-      if (persisted) {
-        await this.storage.setItem(LAST_FOLDER_STORAGE_KEY, entry.path).catch((error: unknown) => {
-          logger.warn('Failed to update the last-folder presentation preference', { error });
-        });
-      }
-      return descriptorFor(entry, 'granted', persisted);
     });
   }
 
@@ -460,33 +443,23 @@ export class WorkspaceRootRegistry {
       const storedSurvivors: StoredWorkspaceRoot[] = [];
 
       for (const entry of entries) {
-        let canonicalPath: string;
-        try {
-          if (!(await this.pathExists(entry.path))) {
-            logger.warn('Workspace root is unavailable and will remain persisted for retry', {
-              rootId: entry.rootId,
-            });
-            descriptors.push(descriptorFor(entry, 'unknown'));
-            storedSurvivors.push(entry);
-            continue;
-          }
-          canonicalPath = await this.resolveCanonicalRoot(entry.path);
-          if (retainedCanonicalPaths.has(pathKey(canonicalPath))) {
-            logger.warn('Discarding a duplicate persisted alias for the same workspace root', {
-              rootId: entry.rootId,
-            });
-            continue;
-          }
-          await this.mount(entry, canonicalPath);
-        } catch (error) {
-          logger.error('Workspace root mount failed and remains persisted for retry', {
-            error,
-            rootId: entry.rootId,
-          });
+        const mountResult = await this.tryMountStoredEntry(entry);
+        if (!mountResult.ok) {
           descriptors.push(descriptorFor(entry, 'unknown'));
           storedSurvivors.push(entry);
           continue;
         }
+        const { canonicalPath } = mountResult;
+        if (retainedCanonicalPaths.has(pathKey(canonicalPath))) {
+          logger.warn('Discarding a duplicate persisted alias for the same workspace root', {
+            rootId: entry.rootId,
+          });
+          this.unmount(entry.rootId);
+          continue;
+        }
+        // A session mint of the same canonical path is superseded by the
+        // persisted identity.
+        this.supersedeSessionMountsFor(entry, canonicalPath, retainedRootIds);
         retainedCanonicalPaths.add(pathKey(canonicalPath));
         retainedRootIds.add(entry.rootId);
         storedSurvivors.push(entry);
@@ -549,17 +522,111 @@ export class WorkspaceRootRegistry {
     }
   }
 
-  private async mount(entry: StoredWorkspaceRoot, canonicalPath: string): Promise<void> {
-    this.assertActive();
-    const current = this.mounted.get(entry.rootId);
-    if (
-      current &&
-      pathsEqual(current.canonicalPath, canonicalPath) &&
-      pathsEqual(current.presentationPath, entry.path)
-    ) {
-      return;
+  private async findExistingStoredRoot(
+    entries: readonly StoredWorkspaceRoot[],
+    mountedMatch: MountedWorkspaceRoot | undefined,
+    canonicalPath: string
+  ): Promise<StoredWorkspaceRoot | undefined> {
+    for (const candidate of entries) {
+      if (mountedMatch && candidate.rootId === mountedMatch.rootId) {
+        return candidate;
+      }
+      if (this.mounted.has(candidate.rootId)) {
+        continue;
+      }
+      try {
+        if (pathsEqual(await this.resolveCanonicalRoot(candidate.path), canonicalPath)) {
+          return candidate;
+        }
+      } catch (error) {
+        logger.warn('Could not canonicalize a stored root while adding a folder', {
+          error,
+          rootId: candidate.rootId,
+        });
+      }
     }
-    const secureRoot = await this.createSecureRoot(canonicalPath);
+    return;
+  }
+
+  /**
+   * Reconciles the newly-opened probe capability against any existing mount
+   * for this root's canonical path, then installs it unless an identical
+   * mount is already pinned. Returns whether the probe was adopted as the
+   * live capability (vs. left for the caller to close as redundant).
+   */
+  private reconcileAddMount(
+    entry: StoredWorkspaceRoot,
+    mountedMatch: MountedWorkspaceRoot | undefined,
+    probe: SecureWorkspaceRoot
+  ): boolean {
+    if (mountedMatch && mountedMatch.rootId !== entry.rootId) {
+      // A session mint of the same canonical path is superseded by the
+      // durable identity; exactly one capability may serve a root.
+      this.mounted.delete(mountedMatch.rootId);
+      this.sessionRootIds.delete(mountedMatch.rootId);
+      this.closeMountedRoot(mountedMatch);
+    }
+    const identicalMountPinned =
+      mountedMatch !== undefined &&
+      mountedMatch.rootId === entry.rootId &&
+      pathsEqual(mountedMatch.presentationPath, entry.path);
+    if (identicalMountPinned) {
+      // Identical mount already pinned — the probe is redundant.
+      return false;
+    }
+    this.installMount(entry, probe);
+    return true;
+  }
+
+  private async persistAddedRoot(
+    entries: readonly StoredWorkspaceRoot[],
+    existing: StoredWorkspaceRoot | undefined,
+    entry: StoredWorkspaceRoot
+  ): Promise<boolean> {
+    const nextEntries = existing
+      ? entries.map((candidate) => (candidate.rootId === existing.rootId ? entry : candidate))
+      : [...entries, entry];
+    try {
+      await this.writeStoredRoots(nextEntries);
+      this.sessionRootIds.delete(entry.rootId);
+      return true;
+    } catch (error) {
+      if (existing) {
+        logger.warn('Failed to refresh an already-persisted workspace root', {
+          error,
+          rootId: entry.rootId,
+        });
+        return true;
+      }
+      this.sessionRootIds.add(entry.rootId);
+      logger.warn('Workspace root is mounted for this session but could not be persisted', {
+        error,
+        rootId: entry.rootId,
+      });
+      return false;
+    }
+  }
+
+  private installMount(entry: StoredWorkspaceRoot, secureRoot: SecureWorkspaceRoot): string {
+    const canonicalPath = path.normalize(secureRoot.canonicalPath);
+    const current = this.mounted.get(entry.rootId);
+    this.mounted.set(entry.rootId, {
+      canonicalPath,
+      presentationPath: path.normalize(entry.path),
+      root: secureRoot,
+      rootId: entry.rootId,
+    });
+    if (current && current.root !== secureRoot) {
+      this.closeMountedRoot(current);
+    }
+    return canonicalPath;
+  }
+
+  private async mount(entry: StoredWorkspaceRoot): Promise<string> {
+    this.assertActive();
+    // Mount-then-ask: the capability's handle-derived canonicalPath is the
+    // identity authority; no pre-open path lookup vouches for it.
+    const secureRoot = await this.createSecureRoot(entry.path);
     if (this.disposed) {
       try {
         secureRoot.close();
@@ -568,27 +635,45 @@ export class WorkspaceRootRegistry {
       }
       this.assertActive();
     }
-    if (!pathsEqual(secureRoot.canonicalPath, canonicalPath)) {
-      try {
-        secureRoot.close();
-      } catch (error) {
-        logger.warn('Failed to close a rejected workspace root capability', { error });
+    return this.installMount(entry, secureRoot);
+  }
+
+  private async tryMountStoredEntry(
+    entry: StoredWorkspaceRoot
+  ): Promise<{ canonicalPath: string; ok: true } | { ok: false }> {
+    try {
+      if (!(await this.pathExists(entry.path))) {
+        logger.warn('Workspace root is unavailable and will remain persisted for retry', {
+          rootId: entry.rootId,
+        });
+        return { ok: false };
       }
-      throw new AccessError(
-        'Workspace root changed while its filesystem capability was being mounted.',
-        entry.path,
-        'read'
-      );
+      const canonicalPath = await this.mount(entry);
+      return { canonicalPath, ok: true };
+    } catch (error) {
+      logger.error('Workspace root mount failed and remains persisted for retry', {
+        error,
+        rootId: entry.rootId,
+      });
+      return { ok: false };
     }
-    const mounted: MountedWorkspaceRoot = {
-      canonicalPath: path.normalize(secureRoot.canonicalPath),
-      presentationPath: path.normalize(entry.path),
-      root: secureRoot,
-      rootId: entry.rootId,
-    };
-    this.mounted.set(entry.rootId, mounted);
-    if (current) {
-      this.closeMountedRoot(current);
+  }
+
+  private supersedeSessionMountsFor(
+    entry: StoredWorkspaceRoot,
+    canonicalPath: string,
+    retainedRootIds: Set<string>
+  ): void {
+    for (const candidate of [...this.mounted.values()]) {
+      if (
+        candidate.rootId !== entry.rootId &&
+        this.sessionRootIds.has(candidate.rootId) &&
+        pathsEqual(candidate.canonicalPath, canonicalPath)
+      ) {
+        this.sessionRootIds.delete(candidate.rootId);
+        retainedRootIds.delete(candidate.rootId);
+        this.unmount(candidate.rootId);
+      }
     }
   }
 
