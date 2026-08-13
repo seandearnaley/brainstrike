@@ -21,4 +21,9 @@ unavailable, callers receive an error/null result and must fail closed.
 
 `listDir(relativePath, maxEntries)` bounds enumeration inside the native layer and returns
 `{ entries, inspected, truncated }`; callers must debit `inspected` from their traversal budget.
-`readFile(relativePath, maxBytes)` similarly applies its byte limit before returning content.
+Operations share one pinned root state and serialize per root; descendant
+directories are opened relative to that root, while root enumeration restarts
+the borrowed handle under the same lock. Concurrent calls therefore cannot
+share or corrupt a directory cursor. `readFile(relativePath, maxBytes)` similarly applies its byte limit
+before returning content and distinguishes `not-found`, `oversized`, and fail-closed `unreadable`
+results. The async methods preserve the same contracts on native workers.
