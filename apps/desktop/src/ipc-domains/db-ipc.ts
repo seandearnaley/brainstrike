@@ -757,6 +757,9 @@ export function registerDatabaseIpcHandlers(
             // so nothing cascades them — clear explicitly per the FACTORY RESET
             // CONTRACT so verdict history cannot survive a fresh start.
             await clearOptionalRelation(tx, 'brainstrike_assistant_run_outcomes');
+            // Per-run experiment treatment records (migration 093, BST-1250):
+            // FK-less experiment evidence must not survive a fresh start.
+            await clearOptionalRelation(tx, 'brainstrike_assistant_run_treatments');
             // Durable per-thread assistant task list (P0 task-list tool): a
             // factory reset must wipe the plan so it does not survive a "true
             // fresh start" (FACTORY RESET CONTRACT). No FK, so clear explicitly.

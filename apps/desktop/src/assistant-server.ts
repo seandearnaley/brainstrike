@@ -69,6 +69,7 @@ import {
   recordDesktopAssistantHookRunOutcome,
   recordDesktopAssistantThreadRunStatus,
 } from './assistant-server/run-persistence';
+import { recordDesktopContinuationRunTreatment } from './assistant-server/run-treatment-persistence';
 import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
 import type { AssistantServerOptions } from './assistant-server/server-options';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
@@ -180,6 +181,7 @@ export const desktopAgentStreamCapabilities: AgentStreamCapabilities<DesktopAgen
     persistChildRunUsage: persistDesktopChildRunUsage,
     persistTokenEstimateCalibration: persistDesktopTokenEstimateCalibration,
     persistToolCallTelemetry: persistDesktopToolCallTelemetry,
+    recordContinuationRunTreatment: recordDesktopContinuationRunTreatment,
     recordHookRunOutcome: recordDesktopAssistantHookRunOutcome,
   },
   skills: {

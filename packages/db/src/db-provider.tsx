@@ -885,6 +885,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // renderer repository (user verdicts), no FK cascades them — clear
       // explicitly per the FACTORY RESET CONTRACT (review #1693).
       await clearRelationIfPresent(tx, 'brainstrike_assistant_run_outcomes');
+      // Per-run experiment treatment records (migration 093, BST-1250):
+      // FK-less experiment evidence must not survive a fresh start.
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_run_treatments');
       // BST-992 drift fix: desktop `db:clearAll` cleared these three FK-less
       // stores but web missed them, so the assistant task list, edit-checkpoint
       // before-content, and assistant-ui branch topology survived a web clear.
@@ -982,6 +985,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // Task Ledger outcome labels: web-writable (user verdicts), no FK —
     // clear explicitly per the FACTORY RESET CONTRACT (review #1693).
     await clearRelationIfPresent(tx, 'brainstrike_assistant_run_outcomes');
+    // Per-run experiment treatment records (migration 093, BST-1250).
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_run_treatments');
     // BST-992 drift fix: FK-less desktop-parity stores web previously missed —
     // token/cost history, task lists, edit-checkpoint before-content, and
     // branch topology must not survive a web factory reset.

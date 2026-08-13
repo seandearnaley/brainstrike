@@ -523,6 +523,7 @@ file):
 | `estimator-calibration` | estimator-vs-provider prompt-token ratio distribution by model and budget tier (BST-1205/BST-1219) |
 | `run-outcome-tool-correlation` | tool usage × run-outcome verdict buckets with per-verdict run denominators (`verdict_total_runs`, `verdict_run_share`); unlabeled runs kept as their own bucket (BST-1240) |
 | `self-improvement-signal` | top-N tools by `waste_score` — a RANKING HEURISTIC (chars × (truncation rate + zero-match rate)), not a char count (BST-1240). BST-1247: rates count MODEL-CONTROLLABLE waste only — substrate-degraded calls (js-walk fallback, scan/candidate caps) are excluded and reported as `substrate_degraded_rate` |
+| `experiment-outcome-correlation` | run outcomes grouped by per-run experiment treatment (experiment, variant, signal injection + distinct content hashes); unlabeled runs kept visible (BST-1250) |
 
 The BST-1240 lenses normalize `tool_id` before grouping
 (`brainstrike.grepSearch` → `grepSearch`): the telemetry writer stores the id

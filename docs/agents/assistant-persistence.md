@@ -1670,6 +1670,38 @@ checked-in lens rather than an inlined copy.
 
 Per-run cost/outcome analytics over tables the assistant already writes.
 
+- **Experiment treatments (BST-1250, recursive self-improvement phase 2A):**
+  `brainstrike_assistant_run_treatments` (migration 093 + byte-identical
+  bootstrap mirror in `assistant-memory-repository.ts`; no FKs; retained on
+  thread delete like run_outcomes, cleared on factory reset via the db reset
+  registry; sole index is `(created_at)` — the lens's only predicate). One
+  row per hosted run, `run_id` PK. Normal legs record DETACHED (`void`) from
+  the injector seam (`self-improvement-signal-context.ts`) — the ONE place
+  that knows whether BST-1241 injection actually happened and its exact text
+  (`signal_content_hash` = SHA-256; null when nothing injected); the write
+  never blocks prompt assembly, and the recorder logs its own failures.
+  Approval/resume continuation legs mint their own runId but return BEFORE
+  the injectors, so `stream-init` fires the optional
+  `runPersistence.recordContinuationRunTreatment` capability for them —
+  without it those legs carry outcome labels with no treatment row, a
+  systematically biased gap. `injection_status`
+  (`injected | preference_off | no_waste | query_failed | continuation`)
+  keeps the non-injection reasons apart: an ENROLLED run whose signal query
+  failed is NOT control evidence; `signal_injected` is derived and
+  CHECK-pinned to `status = 'injected'`. `experiment_id`/`variant` come from
+  the strictly-parsed renderer `experimentAssignment` (both fields required
+  on the wire; malformed → warn + un-enrolled, never coerced) and stay NULL
+  when un-enrolled — NOTE: no renderer producer exists yet (enrollment
+  plumbing ships with phase 2B), so today every row is un-enrolled.
+  `ON CONFLICT (run_id) DO NOTHING` — the first treatment wins. Do NOT infer
+  treatment from date windows or the current preference value — this record
+  exists because both are unsound. Queryable via the
+  `experiment-outcome-correlation` lens (groups by injection_status; LEFT
+  JOINs outcomes so unlabeled runs stay visible). Paired tests:
+  `self-improvement-signal-context.test.ts` ("run treatment recording"),
+  `run-treatment-persistence.integration.test.ts`,
+  `search-lens-experiment-outcome-correlation.test.ts`.
+
 - **Outcome labels:** `brainstrike_assistant_run_outcomes` (migration 062 +
   byte-identical bootstrap in `ASSISTANT_THREAD_RUNS_SCHEMA_SQL`; no FKs, purged
   on factory reset via db-ipc `OptionalRelationTable`). At most ONE label per

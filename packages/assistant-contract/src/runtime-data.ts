@@ -208,6 +208,21 @@ export interface SelfImprovementSignalPreferenceRequest {
 }
 
 /**
+ * Renderer-attached experiment enrollment for this run (BST-1250, recursive
+ * self-improvement phase 2A). Persisted verbatim in the per-run treatment
+ * record so control/intervention runs stay attributable; absent = un-enrolled.
+ * The pair is atomic, so both fields are REQUIRED (review: optional fields
+ * let a well-behaved producer typecheck its way into a warn loop); the
+ * server-side strict parse remains the untrusted-wire guard. NOTE: no
+ * renderer producer exists yet — enrollment plumbing ships with phase 2B,
+ * so today every treatment row records the un-enrolled bucket.
+ */
+export interface ExperimentAssignmentRequest {
+  readonly experimentId: string;
+  readonly variant: string;
+}
+
+/**
  * Renderer preference for subagent persona availability (see the
  * subagent-personas preferences store). Presence-means-non-default: the
  * renderer attaches it only when something diverges from "delegation on,
@@ -260,6 +275,7 @@ export interface RuntimeData {
   contextTokenCount?: number;
   embeddingSetId?: string;
   enabledNativeToolIds?: readonly string[];
+  experimentAssignment?: ExperimentAssignmentRequest;
   includeFileReport?: boolean;
   includeProjectTree?: boolean;
   /**
