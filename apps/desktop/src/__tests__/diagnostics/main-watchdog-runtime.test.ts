@@ -88,6 +88,9 @@ describe('main watchdog source wiring', () => {
     expect(mainSource).toContain('mainWatchdogRuntime.attach(');
     expect(mainSource).toContain('currentLoggingPreferences.file');
     expect(mainSource).toContain('mainWatchdogRuntime.configureLogging(normalized.file)');
+    expect(mainSource.indexOf('mainWatchdogRuntime.attach(')).toBeLessThan(
+      mainSource.indexOf('const mainWindow = await createMainWindow()')
+    );
   });
 
   it('notifies the watchdog before OS suspend/resume work without pausing on lock-screen', () => {
