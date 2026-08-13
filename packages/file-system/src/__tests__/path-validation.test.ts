@@ -136,6 +136,23 @@ describe('resolveValidatedPath', () => {
     }
   });
 
+  it('rejects Win32 ".." aliases (trailing dots/spaces) at maxTraversal 0', async () => {
+    // Win32 strips trailing dots and spaces per path component, so ".. " and
+    // "..." open as "..". The lexical counter must treat them as traversal.
+    for (const requestedPath of ['.. \\sibling', 'foo/.. /bar', '...\\sibling', '.. ']) {
+      const result = await resolveValidatedPath({
+        maxTraversal: 0,
+        requestedPath,
+        rootDir: tempDir,
+      });
+
+      expect(result.ok, `expected rejection for ${JSON.stringify(requestedPath)}`).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('traversal');
+      }
+    }
+  });
+
   it('rejects a real backslash ".." segment at maxTraversal 0', async () => {
     const result = await resolveValidatedPath({
       maxTraversal: 0,

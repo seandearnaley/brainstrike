@@ -81,13 +81,19 @@ function containsNullByte(value: string): boolean {
   return value.includes('\0');
 }
 
+// Whole ".." segments, plus Win32 aliases: Windows strips trailing dots and
+// spaces per path component, so ".. " and "..." open as "..". Counted on every
+// platform — a POSIX file legitimately named ".. " is pathological enough to
+// reject from a security validator.
+const TRAVERSAL_SEGMENT_PATTERN = /^\.\.[. ]*$/;
+
 function countTraversalSegments(value: string): number {
-  // Only whole `..` path segments count as traversal. Names that merely
-  // contain ".." (nyc coverage dirs like "..__..__var", git ranges like
-  // "a1b2c3..d4e5f6.diff") are legal on every platform and must pass.
+  // Only traversal segments count. Names that merely contain ".." (nyc
+  // coverage dirs like "..__..__var", git ranges like "a1b2c3..d4e5f6.diff")
+  // are legal on every platform and must pass.
   let count = 0;
   for (const segment of value.split(/[\\/]/)) {
-    if (segment === '..') {
+    if (TRAVERSAL_SEGMENT_PATTERN.test(segment)) {
       count++;
     }
   }
