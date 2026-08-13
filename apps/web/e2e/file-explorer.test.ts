@@ -587,7 +587,7 @@ test.describe('File Explorer', () => {
 
       const compactModeButton = page.getByRole('button', { name: 'Compact summary mode' });
       // BST-1211: the tab strip is gone, so the dock is now the first thing
-      // below the footer. The invariant is unchanged — summary chrome on top.
+      // below the preview summary. The invariant is unchanged — summary chrome on top.
       const tapestryDock = page.getByTestId('tapestry-command-dock');
 
       await expect(compactModeButton).toBeVisible();
