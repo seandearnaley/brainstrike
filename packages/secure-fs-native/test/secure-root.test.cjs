@@ -58,20 +58,30 @@ test('lists metadata and reads regular files asynchronously beneath a pinned roo
     const pendingList = root.listDirAsync('.brainstrike/commands', 10);
     assert.equal(typeof pendingList.then, 'function');
     const listing = await pendingList;
-    assert.deepEqual(listing, {
-      entries: [
-        {
-          isDirectory: false,
-          isFile: true,
-          isSymbolicLink: false,
-          lastModified: expected.mtimeMs,
-          name: 'review.md',
-          size: expected.size,
-        },
-      ],
-      inspected: 1,
-      truncated: false,
-    });
+    // The native layer carries full 100ns FILETIME precision on Windows while
+    // Node's mtimeMs rounds differently in the sub-millisecond digits, so
+    // compare timestamps with a 1ms epsilon rather than exact doubles.
+    const { lastModified, ...entryRest } = listing.entries[0];
+    assert.ok(
+      Math.abs(lastModified - expected.mtimeMs) < 1,
+      `lastModified ${lastModified} differs from mtimeMs ${expected.mtimeMs} by >= 1ms`
+    );
+    assert.deepEqual(
+      { ...listing, entries: [entryRest] },
+      {
+        entries: [
+          {
+            isDirectory: false,
+            isFile: true,
+            isSymbolicLink: false,
+            name: 'review.md',
+            size: expected.size,
+          },
+        ],
+        inspected: 1,
+        truncated: false,
+      }
+    );
     const pendingRead = root.readFileAsync('.brainstrike/commands/review.md', 1024);
     assert.equal(typeof pendingRead.then, 'function');
     const result = await pendingRead;
