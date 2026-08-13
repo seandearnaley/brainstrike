@@ -162,6 +162,16 @@ interface IOptimizedFileTreeProps {
 }
 
 const logger = createLogger('OptimizedFileTree');
+
+/**
+ * Pseudo-nodes ('loadMore', 'truncated') are UI-only rows the tree renders
+ * for affordance/visibility — they never back a real file or directory and
+ * must never participate in selection.
+ */
+function isPseudoSelectionNodeType(type: FileTreeRowData['fileNode']['type']): boolean {
+  return type === 'loadMore' || type === 'truncated';
+}
+
 /**
  * A click on a FILE checkbox. Adding a single file at the cap is a genuine
  * no-op — the checkbox is disabled with a tooltip; the guard here is its
@@ -968,6 +978,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         }
 
         const node = rowData.fileNode;
+        // Pseudo-nodes never participate in selection — their checkbox is
+        // disabled, but a defensive guard here keeps a stray click from
+        // mutating selectedFilePaths with a synthetic marker path that has
+        // no backing file.
+        if (isPseudoSelectionNodeType(node.type)) {
+          return;
+        }
         const selectionState = getNodeSelectionState(rowData);
 
         if (node.type !== 'directory') {

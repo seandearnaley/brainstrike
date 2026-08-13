@@ -50,9 +50,9 @@ Plus four registry-side review findings: session-root double-mount leak, corrupt
 
 ### 3. Truncation plumbing to the explorer
 
-- The file-system adapter `readDirectory` contract returns nodes plus truncation metadata; the electron path threads `{inspected, truncated}` from the native result through IPC.
-- The parent directory's node carries `truncatedChildren: true`; the tree renders one non-selectable tail row ("Showing first 10,000 entries") for such directories.
-- Web/dev-fixture/mock adapters report `truncated: false`.
+- No IPC/adapter signature changes: `{inspected, truncated}` never crosses the IPC boundary as its own field. Instead the registry appends a trailing `IFileNode` of type `'truncated'` (named `` `Showing first ${inspected} entries` ``) to the listing it already returns — a pseudo-node, not a parent-level flag, mirroring the existing `'loadMore'` pseudo-node the tree already knows how to render, sort last, and exclude from selection/context-menu/worker transfer.
+- `FileNodeType` gains `'truncated'` (`packages/types/src/file-system.ts`). The tree's row builders, sort comparator, name-cell icon, context-target resolver, and worker-node filter all mirror their existing `'loadMore'` handling for the new type.
+- Web/dev-fixture/mock adapters report `truncated: false`, so they never emit the marker.
 - Read `docs/agents/explorer-search-tapestry.md` and `docs/agents/ui-conventions.md` before touching these surfaces; update both docs (and the file-system contract docs) in the same change.
 
 ### 4. Error handling

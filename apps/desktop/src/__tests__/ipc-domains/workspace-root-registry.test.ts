@@ -398,6 +398,41 @@ describe('WorkspaceRootRegistry', () => {
     ).resolves.toEqual([]);
   });
 
+  it('a truncated listing returns the partial entries plus a visible marker node', async () => {
+    const registry = createRegistry({
+      createSecureRoot: async () => ({
+        canonicalPath: '/canon/project',
+        close: vi.fn(),
+        listDir: vi.fn(async () => ({
+          entries: [
+            { isDirectory: false, isFile: true, isSymbolicLink: false, name: 'a.md', size: 1 },
+            { isDirectory: true, isFile: false, isSymbolicLink: false, name: 'sub' },
+          ],
+          inspected: 10_000,
+          truncated: true,
+        })),
+        readFile: vi.fn(async () => ({ status: 'unreadable' as const })),
+      }),
+      // Bypass real filesystem validation for the fake canonical path.
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+    });
+    const descriptor = await registry.addRoot(rootHandle('/canon/project'));
+
+    const nodes = await registry.readDirectory({
+      kind: 'directory',
+      name: 'project',
+      path: descriptor.handle.path,
+      platform: 'electron',
+      rootId: descriptor.rootId,
+    });
+
+    expect(nodes).toHaveLength(3);
+    const marker = nodes.at(-1);
+    expect(marker?.type).toBe('truncated');
+    expect(marker?.name).toBe('Showing first 10,000 entries');
+    expect(marker?.selectionState).toBe('unchecked');
+  });
+
   it('mounts a new root under its presentation path while canonical-path reads route to it', async () => {
     const registry = createRegistry({
       createSecureRoot: async () => secureRoot('/real/workspace'),

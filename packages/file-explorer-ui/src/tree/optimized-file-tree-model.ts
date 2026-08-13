@@ -137,6 +137,15 @@ function compareFileTreeSiblingsWithMetadata(
   bMetadata: FileTreeSortMetadata | null,
   state: ExplorerSortState
 ): number {
+  // The truncation marker is a trailing pseudo-node: it sorts last within
+  // its directory regardless of the active sort field, ahead of every other
+  // comparison (including directories-first).
+  if (a.type === 'truncated' || b.type === 'truncated') {
+    if (a.type === b.type) {
+      return 0;
+    }
+    return a.type === 'truncated' ? 1 : -1;
+  }
   const directoryKind = compareDirectoryKind(a, b);
   if (directoryKind !== 0) {
     return directoryKind;

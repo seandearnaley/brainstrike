@@ -71,6 +71,20 @@ function createDirectoryNode(
   };
 }
 
+function createTruncatedNode(path: string, overrides: Partial<IFileNode> = {}): IFileNode {
+  return {
+    depth: 0,
+    handle: {} as FileSystemFileHandle,
+    isVisible: true,
+    name: 'Showing first 10,000 entries',
+    path,
+    rootFolderId: 'root',
+    selectionState: 'unchecked',
+    type: 'truncated',
+    ...overrides,
+  };
+}
+
 function createFlattenedNode(path: string, depth: number): FlattenedNode {
   const name = path.split('/').at(-1) ?? path;
   return {
@@ -389,6 +403,27 @@ describe('optimized file tree model row builders', () => {
       ['/src/lazy', '/src', false],
       ['/src/index.ts', '/src', false],
     ]);
+  });
+
+  it('a truncated marker row sorts last within its directory and is not expandable', () => {
+    const rows = buildFileTreeRows(
+      [
+        createFileNode('/r/zzz.md'),
+        createTruncatedNode('/r/…truncated…'),
+        createDirectoryNode('/r/aaa'),
+      ],
+      {
+        ...defaultRowsOptions,
+        sort: {
+          getMetadata: () => ({ size: 'excluded', tokens: 'excluded', type: '' }),
+          state: { direction: 'asc', field: 'name' },
+        },
+      }
+    );
+
+    expect(rows.map((row) => row.id)).toEqual(['/r/aaa', '/r/zzz.md', '/r/…truncated…']);
+    expect(rows.at(-1)?.type).toBe('truncated');
+    expect(rows.at(-1)?.hasChildren).toBe(false);
   });
 });
 

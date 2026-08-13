@@ -285,8 +285,14 @@ cursor. Different roots can still run concurrently.
 
 Symlink/reparse entries remain explicit file-shaped Explorer rows so indexing
 attempts produce the existing visible inaccessible-file result; native reads
-never follow them. Listings fail visibly above 10,000 inspected entries, and
-file bytes are bounded before crossing into JavaScript. Paired coverage:
+never follow them. Listings are bounded at 10,000 inspected entries: the
+registry never throws on truncation — it appends a trailing `'truncated'`
+pseudo-node (`` `Showing first ${inspected} entries` ``) to the listing it
+already returns, no IPC/adapter signature change. The Explorer renders this
+node as a visible, non-selectable, non-expandable tail row (mirroring the
+existing `'loadMore'` pseudo-node) rather than silently dropping the partial
+result or hard-failing the directory. File bytes are bounded before crossing
+into JavaScript. Paired coverage:
 `workspace-root-registry{,.integration}.test.ts`,
 `file-system-ipc.test.ts`, and
 `packages/secure-fs-native/test/secure-root.test.cjs`.

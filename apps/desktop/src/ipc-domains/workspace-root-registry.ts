@@ -231,6 +231,32 @@ function buildDirectoryNode(
   };
 }
 
+const TRUNCATION_NODE_BASENAME = '…truncated…' as const;
+
+function buildTruncationNode(
+  mounted: MountedWorkspaceRoot,
+  parentPath: string,
+  inspected: number
+): IFileNode {
+  const entryPath = path.join(parentPath, TRUNCATION_NODE_BASENAME);
+  return {
+    depth: 0,
+    handle: {
+      kind: 'file',
+      name: TRUNCATION_NODE_BASENAME,
+      path: entryPath,
+      platform: 'electron',
+      rootId: mounted.rootId,
+    } as unknown as FileSystemFileHandle,
+    isVisible: true,
+    name: `Showing first ${inspected.toLocaleString('en-US')} entries`,
+    path: entryPath,
+    rootFolderId: mounted.rootId,
+    selectionState: 'unchecked',
+    type: 'truncated',
+  };
+}
+
 export class WorkspaceRootRegistry {
   private readonly createSecureRoot: (rootPath: string) => Promise<SecureWorkspaceRoot>;
   private disposed = false;
@@ -374,14 +400,7 @@ export class WorkspaceRootRegistry {
     if (!listing) {
       throw new AccessError('Directory is not accessible.', handle.path, 'read');
     }
-    if (listing.truncated) {
-      throw new AccessError(
-        `Directory exceeds the ${MAX_DIRECTORY_ENTRIES}-entry safety limit.`,
-        handle.path,
-        'read'
-      );
-    }
-    return listing.entries
+    const nodes = listing.entries
       .map((entry) => buildDirectoryNode(resolved.mounted, handle.path, entry))
       .sort((left, right) => {
         if (left.type !== right.type) {
@@ -389,6 +408,11 @@ export class WorkspaceRootRegistry {
         }
         return fileNodeCollator.compare(left.name, right.name);
       });
+    if (listing.truncated) {
+      // Partial result, surfaced: the native bound held, the caller sees it.
+      nodes.push(buildTruncationNode(resolved.mounted, handle.path, listing.inspected));
+    }
+    return nodes;
   }
 
   async readFile(request: FileHandle | string): Promise<string> {

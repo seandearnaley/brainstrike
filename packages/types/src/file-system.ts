@@ -1,7 +1,7 @@
 /**
  * File system node types
  */
-export type FileNodeType = 'file' | 'directory' | 'loadMore';
+export type FileNodeType = 'file' | 'directory' | 'loadMore' | 'truncated';
 
 /**
  * Selection state for a file node
