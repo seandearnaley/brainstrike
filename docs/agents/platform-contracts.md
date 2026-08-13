@@ -1313,9 +1313,11 @@ confirmed successful initial config delivery. Failed initial attachment leaves
 the runtime unattached, so the later worker exit cannot trigger a second strict
 detach error. There is no alternate watchdog implementation.
 
-On a freeze, the worker writes the structured diagnostic to stderr first and
-then synchronously appends the identical NDJSON record when a log path is
-configured. An append failure emits a second structured
+On a freeze, the worker writes the structured diagnostic directly to file
+descriptor 2 with `fs.writeSync`, so delivery does not depend on Electron
+main's event loop draining a worker stdio message. It then synchronously appends
+the identical NDJSON record when a log path is configured. An append failure
+emits a second structured
 `MAIN_WATCHDOG_LOG_WRITE_FAILED` record to stderr and keeps checking; the
 failure is visible while the independent stderr channel remains usable, rather
 than being swallowed or silently disabling the watchdog.
@@ -1372,6 +1374,7 @@ rather than a swallowed failure rendering as a successful-but-empty file.
 `apps/desktop/src/__tests__/diagnostics/main-watchdog-core.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/main-watchdog-path.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/main-watchdog-runtime.test.ts`,
+`apps/desktop/src/__tests__/diagnostics/main-watchdog-worker.integration.test.ts`,
 `apps/desktop/src/__tests__/build-main-config.test.ts`,
 `apps/desktop/src/__tests__/diagnostics/error-log-sink.test.ts`,
 `apps/desktop/src/__tests__/logging-durable-record.test.ts` (the

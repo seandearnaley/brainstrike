@@ -20,7 +20,7 @@ const controller = createMainWatchdogController({
   getMemoryUsage: () => process.memoryUsage(),
   wallNow: () => Date.now(),
   writeStderr: (record) => {
-    process.stderr.write(record);
+    fs.writeSync(2, record);
   },
 });
 
