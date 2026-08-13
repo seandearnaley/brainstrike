@@ -549,6 +549,7 @@ export function buildAssistantRequestData(args: {
    * boundary — it can only reduce the skill set.
    */
   skillsPreference?: RuntimeData['skillsPreference'];
+  experimentAssignment?: RuntimeData['experimentAssignment'];
   selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
@@ -637,6 +638,7 @@ export function buildAssistantRequestData(args: {
 }
 
 interface OptInRequestFields {
+  experimentAssignment?: RuntimeData['experimentAssignment'];
   hookTrustRequest?: HookTrustRequest | undefined;
   permissionPolicyRequest?: PermissionToolGateSnapshotInput | undefined;
   planMode?: boolean;
@@ -688,6 +690,12 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
   // Skills preference: absent => server default (master on, nothing disabled).
   if (fields.skillsPreference) {
     data['skillsPreference'] = fields.skillsPreference;
+  }
+  // Experiment enrollment (BST-1251): presence-means-enrolled attribution
+  // metadata; the caller only supplies a complete {experimentId, variant}
+  // pair, matching the contract's jointly-required fields.
+  if (fields.experimentAssignment) {
+    data['experimentAssignment'] = fields.experimentAssignment;
   }
 }
 

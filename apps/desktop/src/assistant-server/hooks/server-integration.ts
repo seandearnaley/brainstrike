@@ -23,6 +23,13 @@ import { createDesktopHookRunner } from './hook-runner-impl';
 import { HookManager, type HookRunEventInput } from './manager';
 import type { HookRunVerdict } from './run-verdict';
 
+/**
+ * Bound on the assistant text handed to Stop hooks as `assistant_message`.
+ * Tail, not head: an acceptance hook grades the final answer, which sits at
+ * the end of an oversized message. Matches the run-verdict stdout scan bound.
+ */
+const ASSISTANT_MESSAGE_TAIL_CHARS = 64 * 1024;
+
 /** Convert a manager run-event input into a full (unstamped) AssistantRunEvent. */
 export function hookRunEventToAssistant(input: HookRunEventInput): AssistantRunEvent {
   return {
@@ -222,6 +229,7 @@ export async function* withStopHook(
 ): AsyncIterable<StreamChunk> {
   let sawError = false;
   let stopRan = false;
+  let assistantText = '';
   const runStopOnce = async (): Promise<void> => {
     if (stopRan) {
       return;
@@ -234,7 +242,8 @@ export async function* withStopHook(
     // Stop-hook failure must degrade to a lost notice, never a lost finish.
     try {
       const result = await manager.runStop(
-        signal.aborted ? 'aborted' : sawError ? 'error' : 'complete'
+        signal.aborted ? 'aborted' : sawError ? 'error' : 'complete',
+        assistantText.length > 0 ? assistantText : undefined
       );
       // Task Ledger source 'hook': a Stop hook reported a verdict for this run.
       // AWAITED here, still in front of the finish yield, so the label lands
@@ -255,6 +264,13 @@ export async function* withStopHook(
   };
   try {
     for await (const chunk of stream) {
+      if (chunk.type === 'text-delta') {
+        // Feed the Stop hooks' `assistant_message` stdin field so acceptance
+        // hooks can grade the final answer. Bounded to the same 64 KiB tail
+        // as the verdict stdout scan: a grader cares about the END of an
+        // oversized answer, and the buffer must not grow with the stream.
+        assistantText = `${assistantText}${chunk.value}`.slice(-ASSISTANT_MESSAGE_TAIL_CHARS);
+      }
       if (chunk.type === 'message-finish') {
         if (chunk.finishReason === 'error') {
           sawError = true;

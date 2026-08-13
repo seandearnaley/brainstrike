@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "experimentId": "search-policy-v1",
+  "answerInstruction": "Search the mounted workspace to find the answer. End your reply with a single line in the exact form `ANSWER: <repo-relative-path>` naming the one file that answers the question.",
+  "tasks": [
+    {
+      "id": "t01",
+      "question": "Which file defines the constant RUN_VERDICT_KEY?",
+      "answerPatterns": ["apps/desktop/src/assistant-server/hooks/run-verdict\\.ts"]
+    },
+    {
+      "id": "t02",
+      "question": "Which file implements buildRipgrepArgs, the ripgrep argument builder used by live grep?",
+      "answerPatterns": ["apps/desktop/src/assistant-server/live-grep-ripgrep\\.ts"]
+    },
+    {
+      "id": "t03",
+      "question": "Which file defines the constant MALFORMED_WARN_MEMO_CAP?",
+      "answerPatterns": ["apps/desktop/src/assistant-server/tool-projection-rewrite-repository\\.ts"]
+    },
+    {
+      "id": "t04",
+      "question": "Which numbered database migration file creates the brainstrike_assistant_run_treatments table?",
+      "answerPatterns": ["packages/db/src/migrations/093-assistant-run-treatments\\.ts"]
+    },
+    {
+      "id": "t05",
+      "question": "Which file implements the store that persists per-root project-hook approvals?",
+      "answerPatterns": ["packages/app-state/src/stores/hook-trust-store\\.ts"]
+    },
+    {
+      "id": "t06",
+      "question": "Which file in packages/utils exports BALANCED_UNCONDITIONAL_EXCLUDED_DIRECTORY_SEGMENTS?",
+      "answerPatterns": ["packages/utils/src/background-indexing-policy\\.ts"]
+    },
+    {
+      "id": "t07",
+      "question": "Which file defines the constant SELF_IMPROVEMENT_SIGNAL_SQL?",
+      "answerPatterns": ["apps/desktop/src/assistant-server/self-improvement-signal-context\\.ts"]
+    },
+    {
+      "id": "t08",
+      "question": "Which file declares the SecretReadError class?",
+      "answerPatterns": ["apps/desktop/src/secrets\\.ts"]
+    },
+    {
+      "id": "t09",
+      "question": "Which component file renders the factory-reset section of the settings UI?",
+      "answerPatterns": ["packages/settings-ui/src/settings/system/factory-reset-settings-section\\.tsx"]
+    },
+    {
+      "id": "t10",
+      "question": "Which file assigns DEFAULT_HOOK_TIMEOUT_MS its value?",
+      "answerPatterns": ["apps/desktop/src/assistant-server/hooks/types\\.ts"]
+    },
+    {
+      "id": "t11",
+      "question": "Which file implements createSanitizedPersistMerge?",
+      "answerPatterns": ["packages/app-state/src/stores/sanitized-persist-merge\\.ts"]
+    },
+    {
+      "id": "t12",
+      "question": "Which shipped SQL lens file groups run outcomes by experiment treatment?",
+      "answerPatterns": ["\\.brainstrike/lenses/experiment-outcome-correlation\\.sql"]
+    },
+    {
+      "id": "t13",
+      "question": "Which desktop assistant-server file defines resolveProviderApiKey?",
+      "answerPatterns": ["apps/desktop/src/assistant-server/provider-credentials\\.ts"]
+    },
+    {
+      "id": "t14",
+      "question": "Which file declares the ExperimentAssignmentRequest interface?",
+      "answerPatterns": ["packages/assistant-contract/src/runtime-data\\.ts"]
+    },
+    {
+      "id": "t15",
+      "question": "Which script launches the disposable agent-devtools desktop session?",
+      "answerPatterns": ["apps/desktop/scripts/start-agent-devtools-session\\.mjs"]
+    },
+    {
+      "id": "t16",
+      "question": "Which file defines the helper marshalTelemetryBatchColumns?",
+      "answerPatterns": ["apps/desktop/src/assistant-server/run-persistence\\.ts"]
+    },
+    {
+      "id": "t17",
+      "question": "Which test file guards the recursive db unit-test discovery contract?",
+      "answerPatterns": ["scripts/__tests__/db-test-discovery-contract\\.test\\.mjs"]
+    },
+    {
+      "id": "t18",
+      "question": "Which file implements the shared TreeTable component's top-level component?",
+      "answerPatterns": ["packages/ui/src/tree-table/tree-table\\.tsx"]
+    },
+    {
+      "id": "t19",
+      "question": "Which file defines readMastraToolValidationError?",
+      "answerPatterns": ["packages/agent/src/mastra/tool-model-output\\.ts"]
+    },
+    {
+      "id": "t20",
+      "question": "Which tsconfig file is the base configuration that workspace packages extend?",
+      "answerPatterns": ["packages/config/tsconfig/base\\.json"]
+    }
+  ]
+}

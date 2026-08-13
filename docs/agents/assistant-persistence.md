@@ -1691,8 +1691,10 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   CHECK-pinned to `status = 'injected'`. `experiment_id`/`variant` come from
   the strictly-parsed renderer `experimentAssignment` (both fields required
   on the wire; malformed → warn + un-enrolled, never coerced) and stay NULL
-  when un-enrolled — NOTE: no renderer producer exists yet (enrollment
-  plumbing ships with phase 2B), so today every row is un-enrolled.
+  when un-enrolled. The renderer producer (BST-1251, phase 2B) is the
+  experiment-assignment preference store + settings section; it attaches the
+  pair only when both fields are set, so a half-filled preference stays
+  un-enrolled instead of tripping the strict parse.
   `ON CONFLICT (run_id) DO NOTHING` — the first treatment wins. Do NOT infer
   treatment from date windows or the current preference value — this record
   exists because both are unsound. Queryable via the

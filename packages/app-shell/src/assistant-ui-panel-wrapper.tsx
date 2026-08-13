@@ -3,6 +3,10 @@ import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/store
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import {
+  buildExperimentAssignmentRequest,
+  useExperimentAssignmentPreferencesStore,
+} from '@brainstrike/app-state/stores/experiment-assignment-preferences-store';
+import {
   buildHookTrustRequest,
   hookTrustSelectors,
   useHookTrustStore,
@@ -1005,6 +1009,20 @@ export function AssistantUiPanelWrapper({
     return { enabled: selfImprovementSignalEnabled };
   }, [localChatTransport, selfImprovementSignalEnabled]);
 
+  // Experiment enrollment (desktop data-stream only, BST-1251). Attribution
+  // metadata recorded on every run's treatment row; the pair only rides the
+  // wire when BOTH fields are set (the contract requires them together).
+  const enrolledExperimentId = useExperimentAssignmentPreferencesStore(
+    (state) => state.experimentId
+  );
+  const enrolledVariant = useExperimentAssignmentPreferencesStore((state) => state.variant);
+  const experimentAssignment = useMemo(() => {
+    if (localChatTransport !== 'data-stream') {
+      return;
+    }
+    return buildExperimentAssignmentRequest(enrolledExperimentId, enrolledVariant);
+  }, [localChatTransport, enrolledExperimentId, enrolledVariant]);
+
   // Agent Skills preference (desktop data-stream only — the server builds the
   // skills engine; web has no scan path). A plain-JSON snapshot the server
   // parses strictly; it can only REDUCE the skill set.
@@ -1056,6 +1074,7 @@ export function AssistantUiPanelWrapper({
       ? { boundWorkspaceRootId: threadRootBinding.rootId }
       : {}),
     enabledNativeToolIds,
+    experimentAssignment,
     hookTrustRequest,
     hostedMemoryBackendAvailable,
     mainRootId,

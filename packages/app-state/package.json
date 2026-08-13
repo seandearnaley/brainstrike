@@ -99,6 +99,10 @@
       "types": "./dist/stores/embedding-preferences-store.d.ts",
       "import": "./dist/stores/embedding-preferences-store.js"
     },
+    "./stores/experiment-assignment-preferences-store": {
+      "types": "./dist/stores/experiment-assignment-preferences-store.d.ts",
+      "import": "./dist/stores/experiment-assignment-preferences-store.js"
+    },
     "./stores/explorer-column-sizes-store": {
       "types": "./dist/stores/explorer-column-sizes-store.d.ts",
       "import": "./dist/stores/explorer-column-sizes-store.js"
