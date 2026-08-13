@@ -121,6 +121,38 @@ describe('runLiveGrep — BST-1246 ripgrep failure handling', () => {
     );
   });
 
+  it('degrades to the walk when rg is signal-terminated, instead of a clean zero-match', async () => {
+    if (process.platform === 'win32') {
+      return;
+    }
+    const workspace = await makeWorkspace({ 'a.ts': 'const needle = 1;\n' });
+
+    // Externally killed rg (OOM killer / supervisor): execFile reports
+    // code null + a signal + killed false, which used to slip past both
+    // rejection branches and resolve as a SUCCESSFUL empty search.
+    const result = await withFakeRipgrep('#!/bin/sh\nkill -9 $$\n', async () =>
+      runLiveGrep(
+        {
+          caseSensitive: false,
+          contextLines: 0,
+          isRegex: false,
+          pattern: 'needle',
+          roots: [root(workspace)],
+        },
+        literalMatcher('needle')
+      )
+    );
+
+    expect(result.engine).toBe('js-walk');
+    expect(result.matches.map((match) => match.path)).toEqual(['a.ts']);
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      'live grep: ripgrep failed; falling back to JS file-walk',
+      expect.objectContaining({
+        ripgrep: expect.objectContaining({ signal: 'SIGKILL', timedOut: false }),
+      })
+    );
+  });
+
   it('logs non-sensitive failure metadata when rg genuinely fails (exit 2, empty stdout)', async () => {
     if (process.platform === 'win32') {
       return;

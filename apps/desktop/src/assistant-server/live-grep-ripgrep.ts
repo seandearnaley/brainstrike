@@ -342,6 +342,22 @@ export function runRipgrep(args: {
           reject(buildError(`ripgrep timed out after ${timeoutMs}ms`));
           return;
         }
+        // Externally signal-terminated (OOM killer, process supervisor):
+        // execFile reports code null, a non-null signal, and killed FALSE, so
+        // neither branch above fires — without this check the kill resolved
+        // as a SUCCESSFUL search over partial/empty stdout and a clean
+        // zero-match could mask a dead rg (Codex review). Our own timeout
+        // kill carries killed === true and is handled above; max-buffer kills
+        // resolve with `truncated` as before.
+        if (
+          execError &&
+          typeof execError.signal === 'string' &&
+          execError.signal.length > 0 &&
+          !truncated
+        ) {
+          reject(buildError(`ripgrep terminated by ${execError.signal}`));
+          return;
+        }
         const parseCandidates = () =>
           args.filesOnly ? parseRipgrepFileCandidates(stdout) : parseRipgrepCandidates(stdout);
         // Exit code 2 arrives as a numeric `code`. rg exits 2 both for
