@@ -3,24 +3,18 @@ import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../preview/preview-panel';
 
-type PreviewPanelMocksModule = typeof import('./__mocks__/preview-panel-mocks');
-
-const previewPanelMocksPromise = vi.hoisted(
-  async () => (await import('./__mocks__/preview-panel-mocks')) as PreviewPanelMocksModule
-);
-
 vi.mock('../preview/use-preview-panel-state', async () => {
-  const { createUsePreviewPanelStateMock } = await previewPanelMocksPromise;
+  const { createUsePreviewPanelStateMock } = await import('./__mocks__/preview-panel-mocks');
   return createUsePreviewPanelStateMock();
 });
 
 vi.mock('@brainstrike/ui', async () => {
-  const { createUiModuleMock } = await previewPanelMocksPromise;
+  const { createUiModuleMock } = await import('./__mocks__/preview-panel-mocks');
   return createUiModuleMock();
 });
 
 vi.mock('@brainstrike/hooks', async () => {
-  const { createHooksModuleMock } = await previewPanelMocksPromise;
+  const { createHooksModuleMock } = await import('./__mocks__/preview-panel-mocks');
   return createHooksModuleMock();
 });
 
@@ -34,7 +28,7 @@ vi.mock('../tapestry/tapestry-adapter', async (importOriginal) => {
 });
 
 vi.mock('lucide-react', async () => {
-  const { createLucideModuleMock } = await previewPanelMocksPromise;
+  const { createLucideModuleMock } = await import('./__mocks__/preview-panel-mocks');
   return createLucideModuleMock();
 });
 
@@ -46,7 +40,7 @@ const mockBuildTapestryFileBase = vi.mocked(
   (await import('../tapestry/tapestry-adapter')).buildTapestryFileBase
 );
 
-const { resetPreviewPanelPaginationMockState } = await previewPanelMocksPromise;
+const { resetPreviewPanelPaginationMockState } = await import('./__mocks__/preview-panel-mocks');
 
 interface TestFileItem {
   compositeKey: string;
