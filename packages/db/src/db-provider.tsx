@@ -20,7 +20,7 @@ import {
   type DatabaseWorkPriority,
   type ScheduledDbHandle,
 } from './database-work-scheduler.js';
-import { DbContext, type DbInitializationStatus } from './db-context.js';
+import { DbContext, type DbContextValue, type DbInitializationStatus } from './db-context.js';
 import { createDbHandle, type DbHandle, type QueryExecutor } from './db-handle.js';
 import { getDefaultDbPath } from './default-db-path.js';
 import { type DrizzleDb, drizzle } from './drizzle/database.js';
@@ -1030,7 +1030,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     []
   );
 
-  const contextValue = useMemo(
+  const contextValue = useMemo<DbContextValue>(
     () => ({
       chunkRepository,
       clearAllData,
