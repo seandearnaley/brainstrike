@@ -3,10 +3,6 @@ import {
   MASTRA_VECTOR_TABLE,
   MASTRA_WORKFLOW_TABLE,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
-import type {
-  EmbeddingProviderType,
-  ProviderDimensionParameter,
-} from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { DatabaseDiagnosticsSnapshot, ElectronDatabaseAPI } from '@brainstrike/types';
 import { isDevEnv } from '@brainstrike/utils';
@@ -18,31 +14,28 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
-  useState,
 } from 'react';
-import type { TransactionStatement } from './atomic-transaction.js';
 import { maybeBootstrapBrowserFirstRunStore } from './browser-first-run-bootstrap.js';
 import {
-  getDefaultBrowserPGliteDataDir,
   isBrowserPersistentPGliteDataDir,
   isIndexedDbPGliteDataDir,
 } from './browser-pglite-storage.js';
 import {
   createDatabaseWorkScheduler,
   createScheduledDbHandle,
-  type DatabaseWorkOptions,
   type DatabaseWorkPriority,
   type ScheduledDbHandle,
 } from './database-work-scheduler.js';
+import { createDbHandle, type DbHandle, type QueryExecutor } from './db-handle.js';
+import { getDefaultDbPath } from './default-db-path.js';
 import { type DrizzleDb, drizzle } from './drizzle/database.js';
 import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
-import type { FileChunk } from './models/file-chunk.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
-import type { IDatabase } from './repositories/interfaces.js';
 import type { FactoryResetOnlyTable, ResetTable } from './reset-table-registry.js';
 import {
   type PGliteRuntimeClient,
@@ -207,54 +200,6 @@ async function loadDrizzleViewFilterPresetsRepository() {
   return mod.DrizzleViewFilterPresetsRepository;
 }
 
-export interface DbInsertChunksAndEnqueueEmbeddingJobsOptions {
-  readonly dimensionParameter?: ProviderDimensionParameter | null;
-  readonly model?: string | null;
-  readonly provider?: EmbeddingProviderType | null;
-  readonly signal?: AbortSignal | null;
-  readonly targetDimension?: number | null;
-  readonly targetEmbeddingSetId?: string | null;
-}
-
-export interface DbHandle extends IDatabase {
-  exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
-  insertChunksAndEnqueueEmbeddingJobs?: (
-    chunks: readonly FileChunk[],
-    fileRecordId: string,
-    options: DbInsertChunksAndEnqueueEmbeddingJobsOptions,
-    workOptions?: DatabaseWorkOptions
-  ) => Promise<void>;
-  readonly raw?: unknown;
-  runTransaction?: (
-    statements: TransactionStatement[],
-    resultIndex: number,
-    options?: DatabaseWorkOptions
-  ) => Promise<{ rows: unknown[] }>;
-  readonly syncToFs?: () => Promise<void>;
-}
-
-interface QueryExecutor {
-  exec?: (sql: string, params?: unknown[], options?: unknown) => Promise<unknown>;
-  insertChunksAndEnqueueEmbeddingJobs?: (
-    chunks: readonly FileChunk[],
-    fileRecordId: string,
-    options: DbInsertChunksAndEnqueueEmbeddingJobsOptions,
-    workOptions?: DatabaseWorkOptions
-  ) => Promise<void>;
-  query: <T = unknown>(
-    sql: string,
-    params?: unknown[],
-    options?: unknown
-  ) => Promise<{ rows: T[] }>;
-  runTransaction?: (
-    statements: TransactionStatement[],
-    resultIndex: number,
-    options?: DatabaseWorkOptions
-  ) => Promise<{ rows: unknown[] }>;
-  readonly syncToFs?: () => Promise<void>;
-  transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
-}
-
 // Forward declare for type reference (imported below)
 type EmbeddingSetsRepo = import('./repositories/interfaces.js').IEmbeddingSetsRepository;
 type ViewFilterPresetsRepo = import('./repositories/interfaces.js').IViewFilterPresetsRepository;
@@ -285,39 +230,6 @@ interface DbProviderProps {
   useElectronIPC?: boolean;
 }
 
-export function getDefaultDbPath() {
-  const isBrowser = typeof window !== 'undefined';
-  if (isBrowser) {
-    return getDefaultBrowserPGliteDataDir();
-  }
-
-  const { tmpdir } = requireNodeOs();
-  const { join } = requireNodePath();
-  return join(tmpdir(), 'app.db');
-}
-
-type NodeProcessWithBuiltins = NodeJS.Process & {
-  getBuiltinModule?: (name: string) => unknown;
-};
-
-function getNodeBuiltinModule<TModule>(name: string): TModule {
-  const runtimeProcess = globalThis.process as NodeProcessWithBuiltins | undefined;
-  const module = runtimeProcess?.getBuiltinModule?.(name);
-  if (!module) {
-    throw new Error(`Node builtin module is unavailable: ${name}`);
-  }
-  return module as TModule;
-}
-
-// Lazily access Node built-ins without creating static import/require edges in browser bundles.
-function requireNodeOs(): { tmpdir: () => string } {
-  return getNodeBuiltinModule<{ tmpdir: () => string }>('node:os');
-}
-
-function requireNodePath(): { join: (...parts: string[]) => string } {
-  return getNodeBuiltinModule<{ join: (...parts: string[]) => string }>('node:path');
-}
-
 const DbContext = createContext<DbContextValue | undefined>(undefined);
 
 /** Clear active embedding set ID from localStorage to prevent stale collection references */
@@ -333,88 +245,6 @@ function clearActiveEmbeddingSetIdFromStorage(): void {
   }
 }
 
-export function createDbHandle(executor: QueryExecutor): DbHandle {
-  const query: DbHandle['query'] = async <T = unknown>(
-    sql: string,
-    params?: unknown[],
-    options?: unknown,
-    workOptions?: unknown
-  ) => {
-    // A 4th argument only ever originates from a priority proxy stacked over a
-    // scheduler-backed handle: a native per-query config (drizzle's parser
-    // set, the sandbox's rowMode) occupies the 3rd slot, pushing the
-    // scheduler work options to the 4th (appendDatabaseWorkOptions THROWS on
-    // unscheduled stacks instead of emitting one). Forward it — the scheduled
-    // executor variadic-splits trailing work options. This wrapper's fixed
-    // 3-arg arity used to drop it, silently downgrading background embedding
-    // workers to foreground QoS (PR #2166 review P1).
-    if (workOptions !== undefined) {
-      const variadicQuery = executor.query as (...args: unknown[]) => Promise<{ rows: unknown[] }>;
-      const result = await variadicQuery.call(executor, sql, params, options, workOptions);
-      return { rows: result.rows as T[] };
-    }
-    const forwarded = splitExposedDatabaseWorkOptions(params, options);
-    const result = await executor.query(sql, forwarded.params, forwarded.options);
-    return { rows: result.rows as T[] };
-  };
-  const syncToFs =
-    typeof executor.syncToFs === 'function'
-      ? async () => {
-          await executor.syncToFs?.();
-        }
-      : undefined;
-  const handle: DbHandle = {
-    query,
-    ...(syncToFs ? { syncToFs } : {}),
-  };
-
-  if (typeof executor.exec === 'function') {
-    handle.exec = async (sql: string, params?: unknown[], options?: unknown) => {
-      const forwarded = splitExposedDatabaseWorkOptions(params, options);
-      return await executor.exec?.(sql, forwarded.params, forwarded.options);
-    };
-  }
-
-  if (typeof executor.insertChunksAndEnqueueEmbeddingJobs === 'function') {
-    handle.insertChunksAndEnqueueEmbeddingJobs = async (
-      chunks,
-      fileRecordId,
-      options,
-      workOptions
-    ) => {
-      const { signal: _signal, ...serializableOptions } = options;
-      await executor.insertChunksAndEnqueueEmbeddingJobs?.(
-        chunks,
-        fileRecordId,
-        serializableOptions,
-        workOptions
-      );
-    };
-  }
-
-  if (typeof executor.runTransaction === 'function') {
-    const runTransaction = executor.runTransaction;
-    handle.runTransaction = async (statements, resultIndex, options) =>
-      await runTransaction.call(executor, statements, resultIndex, options);
-  }
-
-  if (typeof executor.transaction === 'function') {
-    const tx = executor.transaction;
-    const transactionWrapper: DbHandle['transaction'] = async <T,>(
-      fn: (txHandle: DbHandle) => Promise<T>
-    ) => tx.call(executor, async (inner) => fn(createDbHandle(inner))) as Promise<T>;
-    handle.transaction = transactionWrapper;
-  }
-
-  Object.defineProperty(handle, 'raw', {
-    configurable: false,
-    enumerable: false,
-    value: executor,
-  });
-
-  return handle;
-}
-
 function getRendererDefaultDatabaseWorkPriority(): DatabaseWorkPriority {
   if (typeof window === 'undefined') {
     return 'foreground';
@@ -422,24 +252,6 @@ function getRendererDefaultDatabaseWorkPriority(): DatabaseWorkPriority {
   const search = window.location?.search ?? '';
   const mode = new URLSearchParams(search).get('mode');
   return mode === 'embedding-host' || mode === 'chunking-host' ? 'background' : 'foreground';
-}
-
-function isDatabaseWorkOptions(value: unknown): value is DatabaseWorkOptions {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const priority = (value as { readonly priority?: unknown }).priority;
-  return priority === 'foreground' || priority === 'normal' || priority === 'background';
-}
-
-function splitExposedDatabaseWorkOptions(
-  params: unknown[] | undefined,
-  options: unknown
-): { options: unknown; params: unknown[] | undefined } {
-  if (options !== undefined || !isDatabaseWorkOptions(params)) {
-    return { options, params };
-  }
-  return { options: params, params: undefined };
 }
 
 function formatDesktopDatabaseInitError(
@@ -542,27 +354,115 @@ async function getElectronDiagnostics(
   }
 }
 
+interface DbProviderState {
+  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  drizzleDb: DrizzleDb | null;
+  embeddingSetsRepository: EmbeddingSetsRepo | null;
+  error: Error | null;
+  exposedDb: DbHandle | null;
+  fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  initializationStatus: DbInitializationStatus;
+  initializing: boolean;
+  lazyInitialized: boolean;
+  ready: boolean;
+  vectorEnabled: boolean;
+  viewFilterPresetsRepository: ViewFilterPresetsRepo | null;
+}
+
+/** Everything a successful IPC or direct-PGlite connection publishes at once. */
+type DbConnectionSnapshot = Pick<
+  DbProviderState,
+  | 'chunkRepository'
+  | 'drizzleDb'
+  | 'embeddingSetsRepository'
+  | 'exposedDb'
+  | 'fileRecordRepository'
+  | 'vectorEnabled'
+  | 'viewFilterPresetsRepository'
+>;
+
+type DbProviderAction =
+  | { type: 'provider-mounted' }
+  | { type: 'initialize-started' }
+  | { type: 'connection-ready'; connection: DbConnectionSnapshot }
+  | { type: 'initialize-succeeded' }
+  | { type: 'initialize-failed'; error: Error }
+  | { type: 'initialize-settled' }
+  | { type: 'connection-closed' }
+  | { type: 'reset' };
+
+const INITIAL_DB_PROVIDER_STATE: DbProviderState = {
+  chunkRepository: null,
+  drizzleDb: null,
+  embeddingSetsRepository: null,
+  error: null,
+  exposedDb: null,
+  fileRecordRepository: null,
+  initializationStatus: 'idle',
+  initializing: false,
+  lazyInitialized: false,
+  ready: false,
+  vectorEnabled: false,
+  viewFilterPresetsRepository: null,
+};
+
+function dbProviderReducer(state: DbProviderState, action: DbProviderAction): DbProviderState {
+  switch (action.type) {
+    case 'provider-mounted':
+      return { ...state, ready: true };
+    case 'initialize-started':
+      return { ...state, initializationStatus: 'initializing', initializing: true };
+    case 'connection-ready':
+      return { ...state, ...action.connection, error: null, ready: true };
+    case 'initialize-succeeded':
+      return { ...state, initializationStatus: 'ready', lazyInitialized: true };
+    case 'initialize-failed':
+      // Connection-derived fields (drizzleDb, exposedDb, vectorEnabled) are
+      // deliberately left as-is: a failure before connection-ready never set
+      // them, and initializeDatabase's guards prevent re-entry afterwards.
+      return {
+        ...state,
+        chunkRepository: null,
+        embeddingSetsRepository: null,
+        error: action.error,
+        fileRecordRepository: null,
+        initializationStatus: 'error',
+        lazyInitialized: false,
+        ready: true,
+        viewFilterPresetsRepository: null,
+      };
+    case 'initialize-settled':
+      return { ...state, initializing: false };
+    case 'connection-closed':
+      return { ...state, exposedDb: null };
+    case 'reset':
+      // `error` survives a reset: the caller (factoryReset) reloads the page,
+      // and clearing it here would blank error UI during the teardown window.
+      return { ...INITIAL_DB_PROVIDER_STATE, error: state.error };
+    default: {
+      const exhaustive: never = action;
+      throw new Error(`Unhandled DbProvider action: ${JSON.stringify(exhaustive)}`);
+    }
+  }
+}
+
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
-  const [fileRecordRepository, setFileRecordRepository] = useState<
-    DrizzleFileRecordRepository | ElectronFileRecordRepository | null
-  >(null);
-  const [chunkRepository, setChunkRepository] = useState<
-    DrizzleFileChunkRepository | ElectronFileChunkRepository | null
-  >(null);
-  const [embeddingSetsRepository, setEmbeddingSetsRepository] = useState<EmbeddingSetsRepo | null>(
-    null
-  );
-  const [viewFilterPresetsRepository, setViewFilterPresetsRepository] =
-    useState<ViewFilterPresetsRepo | null>(null);
-  const [drizzleDb, setDrizzleDb] = useState<DrizzleDb | null>(null);
-  const [error, setError] = useState<Error | null>(null);
-  const [ready, setReady] = useState(false);
-  const [lazyInitialized, setLazyInitialized] = useState(false);
-  const [initializationStatus, setInitializationStatus] = useState<DbInitializationStatus>('idle');
-  const [initializing, setInitializing] = useState(false);
-  const [vectorEnabled, setVectorEnabled] = useState(false);
-  const [exposedDb, setExposedDb] = useState<DbHandle | null>(null);
+  const [state, dispatch] = useReducer(dbProviderReducer, INITIAL_DB_PROVIDER_STATE);
+  const {
+    chunkRepository,
+    drizzleDb,
+    embeddingSetsRepository,
+    error,
+    exposedDb,
+    fileRecordRepository,
+    initializationStatus,
+    initializing,
+    lazyInitialized,
+    ready,
+    vectorEnabled,
+    viewFilterPresetsRepository,
+  } = state;
 
   const connectionRef = useRef<DbConnection | null>(null);
   const initializingRef = useRef<boolean>(false);
@@ -648,14 +548,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       if (!cancelled.value) {
         connectionRef.current = { bridge: electronDB, kind: 'ipc' };
-        setExposedDb(createDbHandle(electronDB as unknown as QueryExecutor));
-        setFileRecordRepository(repository);
-        setChunkRepository(chunkRepo);
-        setEmbeddingSetsRepository(embeddingSetsRepo);
-        setViewFilterPresetsRepository(viewFilterPresetsRepo);
-        setVectorEnabled(hasVector);
-        setError(null);
-        setReady(true);
+        dispatch({
+          connection: {
+            chunkRepository: chunkRepo,
+            drizzleDb: null,
+            embeddingSetsRepository: embeddingSetsRepo,
+            exposedDb: createDbHandle(electronDB as unknown as QueryExecutor),
+            fileRecordRepository: repository,
+            vectorEnabled: hasVector,
+            viewFilterPresetsRepository: viewFilterPresetsRepo,
+          },
+          type: 'connection-ready',
+        });
       }
       return true;
     },
@@ -724,15 +628,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       const embeddingSetsRepo = new DrizzleEmbeddingSetsRepo(drizzleInstance);
       const viewFilterPresetsRepo = new DrizzleViewFilterPresetsRepo(drizzleInstance);
       if (!cancelled.value) {
-        setDrizzleDb(drizzleInstance);
-        setFileRecordRepository(repository);
-        setChunkRepository(chunkRepo);
-        setEmbeddingSetsRepository(embeddingSetsRepo);
-        setViewFilterPresetsRepository(viewFilterPresetsRepo);
-        setVectorEnabled(hasVector);
-        setError(null);
-        setReady(true);
-        setExposedDb(createDbHandle(scheduledDb as unknown as QueryExecutor));
+        dispatch({
+          connection: {
+            chunkRepository: chunkRepo,
+            drizzleDb: drizzleInstance,
+            embeddingSetsRepository: embeddingSetsRepo,
+            exposedDb: createDbHandle(scheduledDb as unknown as QueryExecutor),
+            fileRecordRepository: repository,
+            vectorEnabled: hasVector,
+            viewFilterPresetsRepository: viewFilterPresetsRepo,
+          },
+          type: 'connection-ready',
+        });
       }
     },
     [resolvedPath]
@@ -755,8 +662,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
 
     initializingRef.current = true;
-    setInitializationStatus('initializing');
-    setInitializing(true);
+    dispatch({ type: 'initialize-started' });
     logger.debug('Lazy-loading database (triggered by actual usage)');
 
     initializingPromiseRef.current = (async () => {
@@ -765,22 +671,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         if (!isElectronInitialized) {
           await initializeDirectPGlite({ value: false });
         }
-        setLazyInitialized(true);
-        setInitializationStatus('ready');
+        dispatch({ type: 'initialize-succeeded' });
       } catch (err) {
         logDatabaseError('Failed to initialize database', err);
-        setFileRecordRepository(null);
-        setChunkRepository(null);
-        setEmbeddingSetsRepository(null);
-        setViewFilterPresetsRepository(null);
-        setError(err as Error);
-        setReady(true);
-        setLazyInitialized(false);
-        setInitializationStatus('error');
+        dispatch({ error: err as Error, type: 'initialize-failed' });
       } finally {
         initializingRef.current = false;
         initializingPromiseRef.current = null;
-        setInitializing(false);
+        dispatch({ type: 'initialize-settled' });
       }
     })();
 
@@ -792,7 +690,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // No automatic initialization in prod/dev - only when explicitly requested.
     // In test environments, eagerly initialize to simplify test timing and ensure
     // constructor calls (e.g., default path detection) are observable.
-    setReady(true); // Provider is ready, but database is not yet loaded
+    dispatch({ type: 'provider-mounted' }); // Provider is ready, but database is not yet loaded
 
     if (process.env['NODE_ENV'] === 'test') {
       // Fire and forget; internal guards prevent duplicate initialization
@@ -1072,7 +970,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await purgeAndCloseDirectDb(conn.db, conn.dataDir, purgeTablesTx);
     }
     connectionRef.current = null;
-    setExposedDb(null);
+    dispatch({ type: 'connection-closed' });
   }, [purgeTablesTx]);
 
   const cleanupAndWaitForReset = useCallback(async () => {
@@ -1111,17 +1009,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
 
     connectionRef.current = null;
-    setExposedDb(null);
-    setDrizzleDb(null);
-    setFileRecordRepository(null);
-    setChunkRepository(null);
-    setEmbeddingSetsRepository(null);
-    setViewFilterPresetsRepository(null);
-    setVectorEnabled(false);
-    setReady(false);
-    setLazyInitialized(false);
-    setInitializationStatus('idle');
-    setInitializing(false);
+    dispatch({ type: 'reset' });
 
     // Clear active embedding set ID from localStorage to prevent stale collections
     clearActiveEmbeddingSetIdFromStorage();
