@@ -102,6 +102,12 @@ type TestableEmbeddingHostManager = Omit<EmbeddingHostManager, never> & {
   }) => void;
 };
 
+function createDarwinManager(): TestableEmbeddingHostManager {
+  return new EmbeddingHostManager({
+    platform: 'darwin',
+  }) as unknown as TestableEmbeddingHostManager;
+}
+
 describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -123,7 +129,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('keeps the blocker active across short idle gaps while the host remains running', () => {
-    const manager = new EmbeddingHostManager() as unknown as TestableEmbeddingHostManager;
+    const manager = createDarwinManager();
 
     manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
     manager.syncPowerSaveBlocker({ active: false, lastError: null, state: 'running' });
@@ -136,8 +142,8 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(powerSaveBlockerStopMock).not.toHaveBeenCalled();
   });
 
-  it('stops the blocker after sustained idle while the host remains running', () => {
-    const manager = new EmbeddingHostManager() as unknown as TestableEmbeddingHostManager;
+  it('stops the blocker after sustained idle while the host remains running on Darwin', () => {
+    const manager = createDarwinManager();
 
     manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
     manager.syncPowerSaveBlocker({ active: false, lastError: null, state: 'running' });
@@ -147,6 +153,21 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(powerSaveBlockerStartMock).toHaveBeenCalledTimes(1);
     expect(powerSaveBlockerStopMock).toHaveBeenCalledTimes(1);
     expect(powerSaveBlockerStopMock).toHaveBeenCalledWith(101);
+  });
+
+  it('never invokes the blocker lifecycle for active, idle, or error states off Darwin', () => {
+    const manager = new EmbeddingHostManager({
+      platform: 'linux',
+    }) as unknown as TestableEmbeddingHostManager;
+
+    manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
+    manager.syncPowerSaveBlocker({ active: false, lastError: null, state: 'running' });
+    vi.advanceTimersByTime(5001);
+    manager.syncPowerSaveBlocker({ active: false, lastError: 'fatal', state: 'error' });
+
+    expect(powerSaveBlockerStartMock).not.toHaveBeenCalled();
+    expect(powerSaveBlockerIsStartedMock).not.toHaveBeenCalled();
+    expect(powerSaveBlockerStopMock).not.toHaveBeenCalled();
   });
 
   it('clears a stale id and can start a fresh blocker after stop throws on a dead blocker', async () => {
@@ -166,7 +187,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       // Pre-stop check sees the blocker as started; the post-failure recheck
       // reports it dead — the id is stale, so clearing avoids the wedge.
       powerSaveBlockerIsStartedMock.mockReturnValueOnce(true).mockReturnValueOnce(false);
-      const manager = new EmbeddingHostManager() as unknown as TestableEmbeddingHostManager;
+      const manager = createDarwinManager();
 
       manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
       expect(() =>
@@ -203,7 +224,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       // isStarted stays true throughout: the OS block survived the failed stop.
       // Discarding the id here would leak an unstoppable blocker (machine never
       // sleeps); the manager must keep the handle and retry.
-      const manager = new EmbeddingHostManager() as unknown as TestableEmbeddingHostManager;
+      const manager = createDarwinManager();
 
       manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
       manager.syncPowerSaveBlocker({ active: false, lastError: 'fatal', state: 'error' });
@@ -227,7 +248,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('stops the blocker immediately when the host leaves the running state', () => {
-    const manager = new EmbeddingHostManager() as unknown as TestableEmbeddingHostManager;
+    const manager = createDarwinManager();
 
     manager.syncPowerSaveBlocker({ active: true, lastError: null, state: 'running' });
     manager.syncPowerSaveBlocker({ active: false, lastError: 'fatal', state: 'error' });
@@ -238,7 +259,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   });
 
   it('does not stop the blocker from an idle timer after the manager is disposed', () => {
-    const manager = new EmbeddingHostManager() as unknown as TestableEmbeddingHostManager & {
+    const manager = createDarwinManager() as TestableEmbeddingHostManager & {
       disposed: boolean;
     };
 
