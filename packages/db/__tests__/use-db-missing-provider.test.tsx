@@ -3,6 +3,7 @@ import type { LogRecord } from '@brainstrike/logging';
 import { addLogListener, LogLevel, resetLogger } from '@brainstrike/logging';
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import * as useDbModule from '../src/use-db';
 import {
   useClearAllData,
   useClearQueuesAndEmbeddingSets,
@@ -64,6 +65,17 @@ describe('use-db hooks outside a DbProvider', () => {
 
   afterEach(() => {
     unsubscribe();
+  });
+
+  it('classifies every exported hook', () => {
+    const exported = Object.keys(useDbModule)
+      .filter((name) => name.startsWith('use'))
+      .sort();
+    const classified: string[] = [...THROW_HOOKS, ...WARN_HOOKS]
+      .map(([name]) => name)
+      .concat('useOptionalPGliteDatabase')
+      .sort();
+    expect(exported).toEqual(classified);
   });
 
   it.each(THROW_HOOKS)('%s throws', (hookName, hook) => {

@@ -32,6 +32,17 @@ function logDatabaseError(message: string, error: unknown): void {
   logger.error({ err: error }, message);
 }
 
+/**
+ * The context fields whose non-null presence can signal "database already
+ * initialized". Restricting `watch` to these keys makes it a type error to
+ * watch an always-present function field (`clearAllData`, `factoryReset`,
+ * `clearQueuesAndEmbeddingSets`) — doing so would never observe an
+ * "uninitialized" state, so lazy init would silently never fire.
+ */
+type NullableDbField = {
+  [K in keyof DbContextValue]-?: null extends DbContextValue[K] ? K : never;
+}[keyof DbContextValue];
+
 interface DbSelectorConfig<T> {
   hookName: string;
   /**
@@ -42,15 +53,8 @@ interface DbSelectorConfig<T> {
    */
   onMissingProvider: 'silent' | 'warn';
   select: (ctx: DbContextValue) => T | null;
-  /**
-   * Field whose non-null presence means "database already initialized" for
-   * the lazy-init trigger. This must be one of the nullable context fields
-   * (`db`, the repositories, `drizzleDb`) — it cannot default to the
-   * selected value, because hooks selecting always-present function fields
-   * (`clearAllData`, `factoryReset`, `clearQueuesAndEmbeddingSets`) would
-   * then never see an "uninitialized" state and never trigger init.
-   */
-  watch: (ctx: DbContextValue) => unknown;
+  /** Nullable context field whose presence means "already initialized". */
+  watch: NullableDbField;
 }
 
 /**
@@ -68,7 +72,7 @@ function useDbSelector<T>({
 
   // Plain values (not ctx) in the dependency array, so the effect re-runs on
   // state transitions rather than on every provider render.
-  const watched = ctx ? watch(ctx) : undefined;
+  const watched = ctx?.[watch];
   const error = ctx?.error;
   const initializing = ctx?.initializing;
   const initializeDatabase = ctx?.initializeDatabase;
@@ -143,7 +147,7 @@ export function useFileRecordRepository():
     hookName: 'useFileRecordRepository',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.fileRecordRepository,
-    watch: (ctx) => ctx.fileRecordRepository,
+    watch: 'fileRecordRepository',
   });
 }
 
@@ -152,7 +156,7 @@ export function usePGliteDatabase(): DbHandle | null {
     hookName: 'usePGliteDatabase',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.db,
-    watch: (ctx) => ctx.db,
+    watch: 'db',
   });
 }
 
@@ -161,7 +165,7 @@ export function useOptionalPGliteDatabase(): DbHandle | null {
     hookName: 'useOptionalPGliteDatabase',
     onMissingProvider: 'silent',
     select: (ctx) => ctx.db,
-    watch: (ctx) => ctx.db,
+    watch: 'db',
   });
 }
 
@@ -173,7 +177,7 @@ export function useFileChunkRepository():
     hookName: 'useFileChunkRepository',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.chunkRepository,
-    watch: (ctx) => ctx.chunkRepository,
+    watch: 'chunkRepository',
   });
 }
 
@@ -185,7 +189,7 @@ export function useClearAllData():
     onMissingProvider: 'warn',
     select: (ctx) => ctx.clearAllData,
     // clearAllData is always present; the repository is the init signal.
-    watch: (ctx) => ctx.fileRecordRepository,
+    watch: 'fileRecordRepository',
   });
 }
 
@@ -195,7 +199,7 @@ export function useFactoryReset(): (() => Promise<void>) | null {
     onMissingProvider: 'warn',
     select: (ctx) => ctx.factoryReset,
     // factoryReset is always present; the db handle is the init signal.
-    watch: (ctx) => ctx.db,
+    watch: 'db',
   });
 }
 
@@ -205,7 +209,7 @@ export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
     onMissingProvider: 'warn',
     select: (ctx) => ctx.clearQueuesAndEmbeddingSets,
     // clearQueuesAndEmbeddingSets is always present; db is the init signal.
-    watch: (ctx) => ctx.db,
+    watch: 'db',
   });
 }
 
@@ -218,7 +222,7 @@ export function useDrizzleDb(): DrizzleDb | null {
     hookName: 'useDrizzleDb',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.drizzleDb,
-    watch: (ctx) => ctx.drizzleDb,
+    watch: 'drizzleDb',
   });
 }
 
@@ -231,7 +235,7 @@ export function useEmbeddingSetsRepository(): IEmbeddingSetsRepository | null {
     hookName: 'useEmbeddingSetsRepository',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.embeddingSetsRepository,
-    watch: (ctx) => ctx.embeddingSetsRepository,
+    watch: 'embeddingSetsRepository',
   });
 }
 
@@ -244,6 +248,6 @@ export function useViewFilterPresetsRepository(): IViewFilterPresetsRepository |
     hookName: 'useViewFilterPresetsRepository',
     onMissingProvider: 'warn',
     select: (ctx) => ctx.viewFilterPresetsRepository,
-    watch: (ctx) => ctx.viewFilterPresetsRepository,
+    watch: 'viewFilterPresetsRepository',
   });
 }
