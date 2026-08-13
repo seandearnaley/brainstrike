@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 
-const MAIN_WATCHDOG_STDERR_WRITE_ATTEMPTS = 3;
+const MAIN_WATCHDOG_STDERR_MAX_STALLED_ATTEMPTS = 3;
+const MAIN_WATCHDOG_STDERR_MAX_WRITE_CALLS = 64;
 const MAIN_WATCHDOG_STDERR_RETRY_DELAY_MS = 5;
 const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
 
@@ -24,8 +25,9 @@ export function writeMainWatchdogStderrRecord(
       Atomics.wait(waitBuffer, 0, 0, MAIN_WATCHDOG_STDERR_RETRY_DELAY_MS);
     });
   let remaining = Buffer.from(record);
+  let stalledAttempts = 0;
 
-  for (let attempt = 1; attempt <= MAIN_WATCHDOG_STDERR_WRITE_ATTEMPTS; attempt += 1) {
+  for (let writeCall = 1; writeCall <= MAIN_WATCHDOG_STDERR_MAX_WRITE_CALLS; writeCall += 1) {
     try {
       const bytesWritten = write(remaining);
       if (
@@ -36,18 +38,37 @@ export function writeMainWatchdogStderrRecord(
       if (bytesWritten === remaining.length) {
         return;
       }
-      remaining = remaining.subarray(bytesWritten);
+      if (bytesWritten > 0) {
+        remaining = remaining.subarray(bytesWritten);
+        stalledAttempts = 0;
+      } else {
+        stalledAttempts += 1;
+      }
     } catch (error) {
-      if (!(isAgainError(error) && attempt < MAIN_WATCHDOG_STDERR_WRITE_ATTEMPTS)) {
+      if (!isAgainError(error)) {
         throw error;
+      }
+      stalledAttempts += 1;
+      if (stalledAttempts >= MAIN_WATCHDOG_STDERR_MAX_STALLED_ATTEMPTS) {
+        throw error;
+      }
+      if (writeCall === MAIN_WATCHDOG_STDERR_MAX_WRITE_CALLS) {
+        throw new Error(
+          `Main watchdog stderr record exceeded ${MAIN_WATCHDOG_STDERR_MAX_WRITE_CALLS} write calls`
+        );
       }
       wait();
       continue;
     }
 
-    if (attempt === MAIN_WATCHDOG_STDERR_WRITE_ATTEMPTS) {
+    if (stalledAttempts >= MAIN_WATCHDOG_STDERR_MAX_STALLED_ATTEMPTS) {
       throw new Error(
-        `Main watchdog stderr record remained partially written after ${MAIN_WATCHDOG_STDERR_WRITE_ATTEMPTS} attempts`
+        `Main watchdog stderr record remained stalled after ${MAIN_WATCHDOG_STDERR_MAX_STALLED_ATTEMPTS} attempts`
+      );
+    }
+    if (writeCall === MAIN_WATCHDOG_STDERR_MAX_WRITE_CALLS) {
+      throw new Error(
+        `Main watchdog stderr record exceeded ${MAIN_WATCHDOG_STDERR_MAX_WRITE_CALLS} write calls`
       );
     }
     wait();

@@ -1306,8 +1306,9 @@ uninterrupted missed-heartbeat window before reporting. This closes
 phase-offset, expired-timer-before-resume, and missing-resume races.
 
 A missing config after an observable freeze window, malformed message, invalid
-counter, invalid enabled logging state, duplicate attach/detach, or invalid
-packaged path throws. Once the worker's exit event detaches the runtime,
+counter, invalid enabled logging state, duplicate attach/detach, invalid
+packaged path, or an fd-2 record that exhausts its bounded write policy throws.
+Once the worker's exit event detaches the runtime,
 subsequent delivery attempts are logged visibly and return failure to the
 internal caller without throwing into unrelated power or logging-preference
 orchestration. Node does not acknowledge `postMessage` receipt, so a send racing
