@@ -585,6 +585,17 @@ export const PreviewPanelSummary = memo<PreviewPanelSummaryProps>(
       averageTokensPerFile > 0 && remainingTokens > 0
         ? Math.floor(remainingTokens / averageTokensPerFile)
         : 0;
+    const summaryActions = useMemo(
+      () => (
+        <SummaryActionButtons
+          isCompact={isCompact}
+          onCopyContext={onCopyContext}
+          onDownloadContext={onDownloadContext}
+          selectedFilesCount={selectedFilesCount}
+        />
+      ),
+      [isCompact, onCopyContext, onDownloadContext, selectedFilesCount]
+    );
 
     useEffect(() => {
       const previousHistory = usageHistoryRef.current;
@@ -699,27 +710,13 @@ export const PreviewPanelSummary = memo<PreviewPanelSummaryProps>(
 
           {isCompact ? (
             <CompactSummaryControls
-              actions={
-                <SummaryActionButtons
-                  isCompact
-                  onCopyContext={onCopyContext}
-                  onDownloadContext={onDownloadContext}
-                  selectedFilesCount={selectedFilesCount}
-                />
-              }
+              actions={summaryActions}
               onTokenBudgetChange={onTokenBudgetChange}
               tokenUsage={tokenUsage}
             />
           ) : (
             <DetailedSummaryControls
-              actions={
-                <SummaryActionButtons
-                  isCompact={false}
-                  onCopyContext={onCopyContext}
-                  onDownloadContext={onDownloadContext}
-                  selectedFilesCount={selectedFilesCount}
-                />
-              }
+              actions={summaryActions}
               folderSummaryThreshold={folderSummaryThreshold}
               includeProjectTree={includeProjectTree}
               onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
