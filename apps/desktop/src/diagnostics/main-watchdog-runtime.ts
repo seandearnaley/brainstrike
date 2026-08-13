@@ -16,6 +16,11 @@ export interface MainWatchdogRuntime {
   suspend: () => boolean;
 }
 
+export interface MainWatchdogAttachmentLifecycle {
+  attach: (postMessage: PostMainWatchdogMessage, fileLogging: MainWatchdogFileLoggingState) => void;
+  detachIfAttached: () => boolean;
+}
+
 interface MainWatchdogDeliveryFailure {
   error: unknown;
   message: MainWatchdogMessage;
@@ -96,4 +101,34 @@ export function createMainWatchdogRuntime(
     resume: () => postLifecycleMessage('resume'),
     suspend: () => postLifecycleMessage('suspend'),
   };
+}
+
+export function createMainWatchdogAttachmentLifecycle(
+  runtime: MainWatchdogRuntime
+): MainWatchdogAttachmentLifecycle {
+  let attached = false;
+
+  const attach = (
+    postMessage: PostMainWatchdogMessage,
+    fileLogging: MainWatchdogFileLoggingState
+  ): void => {
+    if (attached) {
+      throw new Error('Main watchdog attachment lifecycle is already attached');
+    }
+
+    runtime.attach(postMessage, fileLogging);
+    attached = true;
+  };
+
+  const detachIfAttached = (): boolean => {
+    if (!attached) {
+      return false;
+    }
+
+    attached = false;
+    runtime.detach();
+    return true;
+  };
+
+  return { attach, detachIfAttached };
 }

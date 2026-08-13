@@ -1308,8 +1308,10 @@ packaged path throws. Delivery to a worker that has exited or begun exiting is
 logged visibly and returns failure to the internal caller without throwing into
 unrelated power or logging-preference orchestration. Worker errors,
 message-deserialization errors, and unexpected exits are logged by Electron
-main; an exit stops the heartbeat timer and detaches the runtime. There is no
-alternate watchdog implementation.
+main; an exit stops the heartbeat timer and detaches the runtime only after a
+confirmed successful initial config delivery. Failed initial attachment leaves
+the runtime unattached, so the later worker exit cannot trigger a second strict
+detach error. There is no alternate watchdog implementation.
 
 On a freeze, the worker writes the structured diagnostic to stderr first and
 then synchronously appends the identical NDJSON record when a log path is

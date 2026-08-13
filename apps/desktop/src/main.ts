@@ -78,7 +78,10 @@ import {
 import { resolveMainLogTransportPath } from './diagnostics/main-log-transport-path';
 import { MAIN_WATCHDOG_CHECK_INTERVAL_MS } from './diagnostics/main-watchdog-core';
 import { resolveMainWatchdogWorkerPath } from './diagnostics/main-watchdog-path';
-import { createMainWatchdogRuntime } from './diagnostics/main-watchdog-runtime';
+import {
+  createMainWatchdogAttachmentLifecycle,
+  createMainWatchdogRuntime,
+} from './diagnostics/main-watchdog-runtime';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import {
   type DimensionIndexBuildStrategy,
@@ -533,6 +536,7 @@ const mainWatchdogRuntime = createMainWatchdogRuntime({
     );
   },
 });
+const mainWatchdogAttachment = createMainWatchdogAttachmentLifecycle(mainWatchdogRuntime);
 
 // Captured at module evaluation — BEFORE app.whenReady() and therefore before
 // any renderer (the only run-row minter) can exist. The thread-run startup
@@ -2007,10 +2011,10 @@ if (singleInstanceLockAcquired) {
             clearInterval(heartbeatTimer);
             heartbeatTimer = null;
           }
-          mainWatchdogRuntime.detach();
+          mainWatchdogAttachment.detachIfAttached();
           logger.error({ code, workerPath }, 'main-thread watchdog worker exited unexpectedly');
         });
-        mainWatchdogRuntime.attach((message) => {
+        mainWatchdogAttachment.attach((message) => {
           watchdog.postMessage(message);
         }, currentLoggingPreferences.file);
         heartbeatTimer = setInterval(() => {

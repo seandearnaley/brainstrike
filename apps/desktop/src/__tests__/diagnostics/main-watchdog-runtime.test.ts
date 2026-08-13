@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
-import { createMainWatchdogRuntime } from '../../diagnostics/main-watchdog-runtime';
+import {
+  createMainWatchdogAttachmentLifecycle,
+  createMainWatchdogRuntime,
+} from '../../diagnostics/main-watchdog-runtime';
 
 const ENABLED_CUSTOM_LOGGING = {
   destination: '/custom/brainstrike.log',
@@ -111,6 +114,46 @@ describe('main watchdog runtime', () => {
   });
 });
 
+describe('main watchdog attachment lifecycle', () => {
+  it('does not detach after initial configuration delivery makes attachment fail', () => {
+    const runtime = createMainWatchdogRuntime({ onDeliveryError: vi.fn() });
+    const lifecycle = createMainWatchdogAttachmentLifecycle(runtime);
+    const configurationError = new Error('initial config delivery failed');
+
+    expect(() =>
+      lifecycle.attach(() => {
+        throw configurationError;
+      }, ENABLED_CUSTOM_LOGGING)
+    ).toThrow(configurationError);
+    expect(lifecycle.detachIfAttached()).toBe(false);
+    expect(() => runtime.detach()).toThrow('Main watchdog runtime is not attached');
+  });
+
+  it('detaches exactly once after successful attachment', () => {
+    const runtime = createMainWatchdogRuntime({ onDeliveryError: vi.fn() });
+    const lifecycle = createMainWatchdogAttachmentLifecycle(runtime);
+
+    lifecycle.attach(vi.fn(), ENABLED_CUSTOM_LOGGING);
+
+    expect(lifecycle.detachIfAttached()).toBe(true);
+    expect(lifecycle.detachIfAttached()).toBe(false);
+    expect(() => runtime.detach()).toThrow('Main watchdog runtime is not attached');
+  });
+
+  it('retains the original attachment after rejecting a duplicate attach', () => {
+    const runtime = createMainWatchdogRuntime({ onDeliveryError: vi.fn() });
+    const lifecycle = createMainWatchdogAttachmentLifecycle(runtime);
+
+    lifecycle.attach(vi.fn(), ENABLED_CUSTOM_LOGGING);
+    expect(() => lifecycle.attach(vi.fn(), ENABLED_CUSTOM_LOGGING)).toThrow(
+      'Main watchdog attachment lifecycle is already attached'
+    );
+
+    expect(lifecycle.detachIfAttached()).toBe(true);
+    expect(lifecycle.detachIfAttached()).toBe(false);
+  });
+});
+
 describe('main watchdog source wiring', () => {
   const mainSource = fs.readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
 
@@ -123,12 +166,13 @@ describe('main watchdog source wiring', () => {
   }
 
   it('attaches with current logging and applies successful runtime preference changes', () => {
-    expect(mainSource).toContain('mainWatchdogRuntime.attach(');
+    expect(mainSource).toContain('mainWatchdogAttachment.attach(');
     expect(mainSource).toContain('currentLoggingPreferences.file');
     expect(mainSource).toContain('mainWatchdogRuntime.configureLogging(normalized.file)');
-    expect(mainSource.indexOf('mainWatchdogRuntime.attach(')).toBeLessThan(
+    expect(mainSource.indexOf('mainWatchdogAttachment.attach(')).toBeLessThan(
       mainSource.indexOf('const mainWindow = await createMainWindow()')
     );
+    expect(mainSource).toContain('mainWatchdogAttachment.detachIfAttached()');
   });
 
   it('notifies the watchdog before OS suspend/resume work without pausing on lock-screen', () => {
