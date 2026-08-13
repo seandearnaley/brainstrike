@@ -1324,9 +1324,10 @@ diagnostics-only subsystem a fatal dependency of app startup. There is no
 alternate watchdog implementation.
 
 On a freeze, the worker writes the structured diagnostic directly to file
-descriptor 2 with a bounded retry for `EAGAIN`, so delivery does not depend on
-Electron main's event loop draining a worker stdio message. It then synchronously appends
-the identical NDJSON record when a log path is configured. An append failure
+descriptor 2 with bounded completion of partial writes and retry for `EAGAIN`,
+so delivery does not depend on Electron main's event loop draining a worker
+stdio message. It then synchronously appends the identical NDJSON record when a
+log path is configured. An append failure
 emits a second structured
 `MAIN_WATCHDOG_LOG_WRITE_FAILED` record to stderr and keeps checking; the
 failure is visible while the independent stderr channel remains usable, rather
