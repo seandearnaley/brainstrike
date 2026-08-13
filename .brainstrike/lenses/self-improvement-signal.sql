@@ -12,7 +12,9 @@
 --
 -- BST-1247: the score counts MODEL-CONTROLLABLE waste only. A call is
 -- substrate_degraded when the live search engine fell back to the capped JS
--- walk, the bounded scan hit its cap, or the candidate set was truncated —
+-- walk, could not run at all ('skipped' — the result is index-only and
+-- blind to fresh edits), the bounded scan hit its cap, or the candidate set
+-- was truncated —
 -- infrastructure failure the model cannot influence (BST-1246 showed rg
 -- degrading on ~80% of grep calls, which the pre-split score misread as
 -- model misbehavior). BOTH rates use the SAME denominator — non-degraded
@@ -24,7 +26,9 @@
 -- tool surface inside the top N as environment signal instead of being
 -- silently filtered. Pre-092 rows (engine IS NULL, substrate columns default
 -- false) keep their old OR-folded `truncated` meaning and simply age out of
--- the window.
+-- the window; COALESCE keeps their NULL engine classified as non-degraded
+-- (a bare IN would yield NULL and silently drop them from the non-degraded
+-- denominators).
 --
 -- tool_id is stored VERBATIM by the telemetry writer, so one logical tool
 -- can land under both bare and dotted spellings ('grepSearch' /
@@ -47,7 +51,7 @@ WITH normalized AS (
     model_facing_chars,
     truncated,
     zero_match,
-    (engine IS NOT DISTINCT FROM 'js-walk' OR scan_limited OR candidates_truncated)
+    (COALESCE(engine IN ('js-walk', 'skipped'), false) OR scan_limited OR candidates_truncated)
       AS substrate_degraded
   FROM brainstrike_tool_call_telemetry
   WHERE occurred_at >= $1::timestamptz

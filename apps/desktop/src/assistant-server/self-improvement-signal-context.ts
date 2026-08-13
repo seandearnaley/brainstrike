@@ -21,7 +21,7 @@ export const SELF_IMPROVEMENT_SIGNAL_SQL = `WITH normalized AS (
     model_facing_chars,
     truncated,
     zero_match,
-    (engine IS NOT DISTINCT FROM 'js-walk' OR scan_limited OR candidates_truncated)
+    (COALESCE(engine IN ('js-walk', 'skipped'), false) OR scan_limited OR candidates_truncated)
       AS substrate_degraded
   FROM brainstrike_tool_call_telemetry
   WHERE occurred_at >= $1::timestamptz
