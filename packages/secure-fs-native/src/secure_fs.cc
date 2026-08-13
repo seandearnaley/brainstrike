@@ -330,11 +330,42 @@ NativeHandle OpenRelativeDirectory(NativeHandle root,
   return current;
 }
 
+// Reopens the directory that `root` refers to via a handle-relative open with
+// an empty name, yielding an independent open (and enumeration cursor) on the
+// same directory object. Never resolves through a path.
+NativeHandle ReopenDirectory(NativeHandle root) {
+  const auto nt_create_file = ResolveNtCreateFile();
+  if (nt_create_file == nullptr) {
+    return kInvalidHandle;
+  }
+  UNICODE_STRING empty_name{};
+  static wchar_t kEmpty[] = L"";
+  empty_name.Buffer = kEmpty;
+  empty_name.Length = 0;
+  empty_name.MaximumLength = 0;
+  OBJECT_ATTRIBUTES attributes{};
+  InitializeObjectAttributes(&attributes, &empty_name,
+                             OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE, root, nullptr);
+  IO_STATUS_BLOCK status_block{};
+  HANDLE result = kInvalidHandle;
+  const NTSTATUS status = nt_create_file(
+      &result,
+      FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+      &attributes, &status_block, nullptr, FILE_ATTRIBUTE_NORMAL,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+      FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_REPARSE_POINT | FILE_DIRECTORY_FILE,
+      nullptr, 0);
+  if (status < 0 || result == kInvalidHandle) {
+    return kInvalidHandle;
+  }
+  return result;
+}
+
 bool ListDirectory(NativeHandle root, const std::vector<std::string>& components,
                    size_t max_entries, std::vector<DirEntry>* entries, size_t* inspected,
                    bool* truncated) {
-  const bool borrowed_root = components.empty();
-  NativeHandle directory = borrowed_root ? root : OpenRelativeDirectory(root, components);
+  NativeHandle directory =
+      components.empty() ? ReopenDirectory(root) : OpenRelativeDirectory(root, components);
   if (directory == kInvalidHandle) {
     return false;
   }
@@ -348,9 +379,7 @@ bool ListDirectory(NativeHandle root, const std::vector<std::string>& components
     if (!GetFileInformationByHandleEx(directory, information_class, buffer.data(),
                                       static_cast<DWORD>(buffer.size()))) {
       const DWORD error = GetLastError();
-      if (!borrowed_root) {
-        CloseNativeHandle(directory);
-      }
+      CloseNativeHandle(directory);
       return error == ERROR_NO_MORE_FILES;
     }
     restart = false;
@@ -362,9 +391,7 @@ bool ListDirectory(NativeHandle root, const std::vector<std::string>& components
       if (name != L"." && name != L"..") {
         if (*inspected >= max_entries) {
           *truncated = true;
-          if (!borrowed_root) {
-            CloseNativeHandle(directory);
-          }
+          CloseNativeHandle(directory);
           return true;
         }
         *inspected += 1;
@@ -680,19 +707,34 @@ Napi::Object BuildReadResult(Napi::Env env, ReadStatus status,
   return result;
 }
 
+struct RootHandle {
+  explicit RootHandle(NativeHandle opened) : handle(opened) {}
+  RootHandle(const RootHandle&) = delete;
+  RootHandle& operator=(const RootHandle&) = delete;
+  ~RootHandle() { CloseNativeHandle(handle); }
+  const NativeHandle handle;
+};
+
 struct RootState {
-  explicit RootState(NativeHandle opened_root) : root(opened_root) {}
+  explicit RootState(NativeHandle opened_root)
+      : handle_(std::make_shared<const RootHandle>(opened_root)) {}
 
-  ~RootState() { CloseNativeHandle(root); }
-
-  void Close() {
-    std::lock_guard<std::mutex> lock(mutex);
-    CloseNativeHandle(root);
-    root = kInvalidHandle;
+  // Snapshot the pinned handle. Null after Close(). The descriptor stays open
+  // until the last snapshot is released, so in-flight operations drain against
+  // the pinned object instead of racing a close.
+  std::shared_ptr<const RootHandle> Acquire() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return handle_;
   }
 
-  NativeHandle root;
-  std::mutex mutex;
+  void Close() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    handle_.reset();
+  }
+
+ private:
+  std::shared_ptr<const RootHandle> handle_;
+  std::mutex mutex_;  // guards the pointer slot only; never held across I/O
 };
 
 class ListDirWorker final : public Napi::AsyncWorker {
@@ -707,9 +749,9 @@ class ListDirWorker final : public Napi::AsyncWorker {
         max_entries_(max_entries) {}
 
   void Execute() override {
-    std::lock_guard<std::mutex> lock(state_->mutex);
-    if (state_->root != kInvalidHandle) {
-      succeeded_ = ListDirectory(state_->root, components_, max_entries_, &entries_, &inspected_,
+    const auto root = state_->Acquire();
+    if (root) {
+      succeeded_ = ListDirectory(root->handle, components_, max_entries_, &entries_, &inspected_,
                                  &truncated_);
     }
   }
@@ -747,9 +789,9 @@ class ReadFileWorker final : public Napi::AsyncWorker {
         max_bytes_(max_bytes) {}
 
   void Execute() override {
-    std::lock_guard<std::mutex> lock(state_->mutex);
-    if (state_->root != kInvalidHandle) {
-      status_ = ReadRelativeFile(state_->root, components_, max_bytes_, &content_);
+    const auto root = state_->Acquire();
+    if (root) {
+      status_ = ReadRelativeFile(root->handle, components_, max_bytes_, &content_);
     }
   }
 
@@ -832,9 +874,9 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
     std::vector<DirEntry> entries;
     size_t inspected = 0;
     bool truncated = false;
-    std::lock_guard<std::mutex> lock(state_->mutex);
-    if (!valid || state_->root == kInvalidHandle ||
-        !ListDirectory(state_->root, components, static_cast<size_t>(requested_limit), &entries,
+    const auto root = state_->Acquire();
+    if (!valid || !root ||
+        !ListDirectory(root->handle, components, static_cast<size_t>(requested_limit), &entries,
                        &inspected, &truncated)) {
       return env.Null();
     }
@@ -878,10 +920,10 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
     bool valid = false;
     const auto components = SplitRelativePath(info[0].As<Napi::String>().Utf8Value(), &valid);
     std::vector<uint8_t> content;
-    std::lock_guard<std::mutex> lock(state_->mutex);
+    const auto root = state_->Acquire();
     const ReadStatus status =
-        valid && state_->root != kInvalidHandle
-            ? ReadRelativeFile(state_->root, components, static_cast<size_t>(requested_max),
+        valid && root
+            ? ReadRelativeFile(root->handle, components, static_cast<size_t>(requested_max),
                                &content)
             : ReadStatus::kUnreadable;
     return BuildReadResult(env, status, content);

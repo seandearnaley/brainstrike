@@ -303,3 +303,41 @@ test('throws when the root path does not exist', () => {
     message: 'Failed to open secure filesystem root',
   });
 });
+
+test('close never blocks on in-flight reads and fails new operations closed', async () => {
+  const { commands, workspace } = fixture();
+  for (let index = 0; index < 50; index += 1) {
+    writeFileSync(path.join(commands, `bulk-${index}.md`), 'x'.repeat(4096));
+  }
+  const root = new SecureRoot(workspace);
+  const inflight = [
+    root.listDirAsync('.brainstrike/commands', 10_000),
+    root.readFileAsync('.brainstrike/commands/bulk-0.md', 1024 * 1024),
+    root.listDirAsync('.', 10_000),
+  ];
+  const before = process.hrtime.bigint();
+  root.close();
+  const closeMs = Number(process.hrtime.bigint() - before) / 1e6;
+  // Drain semantics: close() only swaps the state pointer; it must not wait
+  // for the queued/blocking I/O above (generous bound to avoid CI flake).
+  assert.ok(closeMs < 250, `close() took ${closeMs}ms`);
+
+  // New operations after close fail closed immediately.
+  assert.equal(root.listDir('.', 10), null);
+  assert.deepEqual(root.readFile('.brainstrike/commands/bulk-0.md', 1024), {
+    status: 'unreadable',
+  });
+  const [lateList, lateRead] = [
+    await root.listDirAsync('.', 10),
+    await root.readFileAsync('.brainstrike/commands/bulk-0.md', 1024),
+  ];
+  assert.equal(lateList, null);
+  assert.equal(lateRead.status, 'unreadable');
+
+  // In-flight operations settle without rejection or crash; each either
+  // completed against the pinned object or observed the revocation.
+  const settled = await Promise.all(inflight);
+  for (const result of settled) {
+    assert.notEqual(result, undefined);
+  }
+});
