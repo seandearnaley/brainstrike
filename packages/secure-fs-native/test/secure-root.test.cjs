@@ -275,7 +275,8 @@ test('rejects non-finite and fractional bounds without entering native I/O', asy
 
 test('derives canonical identity from the opened handle for a symlinked root path', () => {
   const { workspace } = fixture();
-  const alias = path.join(tmpdir(), `bst-secure-root-alias-${process.pid}-${Date.now()}`);
+  const alias = mkdtempSync(path.join(tmpdir(), 'brainstrike-secure-fs-alias-'));
+  rmSync(alias, { force: true, recursive: true });
   symlinkSync(workspace, alias, 'dir');
   cleanupPaths.push(alias);
   const root = new SecureRoot(alias);
@@ -286,7 +287,19 @@ test('derives canonical identity from the opened handle for a symlinked root pat
     const listing = root.listDir('.', 100);
     assert.ok(listing);
     assert.ok(listing.entries.some((entry) => entry.name === '.brainstrike'));
+    // canonicalPath is a getter with no setter: the module runs in strict
+    // mode, so assigning to it must throw rather than silently no-op.
+    assert.throws(() => {
+      root.canonicalPath = '/tmp/hijacked';
+    }, TypeError);
+    assert.equal(root.canonicalPath, realpathSync.native(workspace));
   } finally {
     root.close();
   }
+});
+
+test('throws when the root path does not exist', () => {
+  assert.throws(() => new SecureRoot('/nonexistent/path/xyz'), {
+    message: 'Failed to open secure filesystem root',
+  });
 });

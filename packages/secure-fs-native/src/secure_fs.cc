@@ -1,6 +1,5 @@
 #include <napi.h>
 
-#include <algorithm>
 #include <cerrno>
 #include <climits>
 #include <cmath>
@@ -231,8 +230,30 @@ NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name
 }
 
 NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path) {
-  const std::wstring path = Utf8ToWide(utf8_path);
+  std::wstring path = Utf8ToWide(utf8_path);
   if (path.empty()) {
+    return kInvalidHandle;
+  }
+  for (wchar_t& character : path) {
+    if (character == L'/') {
+      character = L'\\';
+    }
+  }
+  // Reject anything that is not drive-absolute (X:\..., optionally with the
+  // \\?\ extended-length prefix) or UNC (\\server\share\...): CreateFileW
+  // resolves a relative path against the process CWD, which would silently
+  // widen the trusted root beyond what the caller requested.
+  bool is_absolute;
+  if (path.rfind(L"\\\\?\\UNC\\", 0) == 0) {
+    is_absolute = true;
+  } else if (path.rfind(L"\\\\?\\", 0) == 0) {
+    is_absolute = path.size() >= 7 && path[5] == L':' && path[6] == L'\\';
+  } else if (path.rfind(L"\\\\", 0) == 0) {
+    is_absolute = true;
+  } else {
+    is_absolute = path.size() >= 3 && path[1] == L':' && path[2] == L'\\';
+  }
+  if (!is_absolute) {
     return kInvalidHandle;
   }
   const NativeHandle handle = CreateFileW(
@@ -465,10 +486,20 @@ std::string DeriveCanonicalPath(NativeHandle handle) {
     }
     if (static_cast<size_t>(length) < buffer.size()) {
       buffer.resize(static_cast<size_t>(length));
-      return buffer;
+      break;
     }
     buffer.resize(buffer.size() * 2);
   }
+  // The kernel appends this suffix when the target was unlinked between open
+  // and readlink; the string is no longer a real path, so fail closed rather
+  // than key identity off a corrupted value.
+  constexpr std::string_view kDeletedSuffix = " (deleted)";
+  if (buffer.size() >= kDeletedSuffix.size() &&
+      buffer.compare(buffer.size() - kDeletedSuffix.size(), kDeletedSuffix.size(),
+                     kDeletedSuffix) == 0) {
+    return {};
+  }
+  return buffer;
 }
 #endif
 
