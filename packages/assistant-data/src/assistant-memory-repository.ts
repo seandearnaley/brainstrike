@@ -1193,31 +1193,35 @@ CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_outcomes_resource_idx
 
 -- Per-run experiment treatment record (BST-1250, recursive self-improvement
 -- phase 2A). One row per hosted run, written by desktop main at prompt
--- assembly — the ONE seam that knows whether self-improvement signal
+-- assembly (injection_status 'continuation' for approval/resume legs, which
+-- never reach it) — the ONE seam that knows whether self-improvement signal
 -- injection actually happened and what exact text was injected
 -- (signal_content_hash = SHA-256 of the injected system message). Without it
 -- treatment could only be inferred from date windows or the CURRENT
 -- preference value, both unsound. experiment_id/variant stay NULL for
--- un-enrolled runs. FK-less and bootstrap-only like the sibling run_outcomes
--- (no numbered migration exists or may be added for the run-scoped family);
--- retained on thread delete like run_outcomes (experiment evidence), cleared
--- on factory reset via the db reset registry.
+-- un-enrolled runs. Bootstrapped here AND created by migration 093 — keep
+-- the shape byte-identical to 093. NO FK (the numbered runner executes on a
+-- bare PGlite without the run/thread parents); retained on thread delete
+-- like run_outcomes (experiment evidence), cleared on factory reset via the
+-- db reset registry.
 CREATE TABLE IF NOT EXISTS ${ASSISTANT_RUN_TREATMENTS_TABLE} (
   run_id text PRIMARY KEY,
   thread_id text NOT NULL,
   resource_id text NOT NULL,
   experiment_id text,
   variant text,
+  injection_status text NOT NULL CHECK (
+    injection_status IN ('continuation', 'injected', 'no_waste', 'preference_off', 'query_failed')
+  ),
   signal_injected boolean NOT NULL,
   signal_content_hash text,
-  created_at timestamptz NOT NULL DEFAULT NOW()
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  CONSTRAINT brainstrike_assistant_run_treatments_injected_consistency
+    CHECK (signal_injected = (injection_status = 'injected'))
 );
 
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_treatments_thread_idx
-  ON ${ASSISTANT_RUN_TREATMENTS_TABLE} (thread_id, resource_id);
-
-CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_treatments_experiment_idx
-  ON ${ASSISTANT_RUN_TREATMENTS_TABLE} (experiment_id, variant);
+CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_treatments_created_at_idx
+  ON ${ASSISTANT_RUN_TREATMENTS_TABLE} (created_at);
 
 -- Thread placements are Brainstrike presentation state (migrations 054+056).
 -- Bootstrapped here because the thread-delete cascade now owns the placements

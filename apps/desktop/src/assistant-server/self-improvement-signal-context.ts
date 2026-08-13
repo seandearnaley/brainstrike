@@ -5,6 +5,8 @@ import { getDatabase } from '../db-main';
 import {
   hashSignalContent,
   type RecordRunTreatment,
+  type RunInjectionStatus,
+  readExperimentAssignment,
   recordDesktopRunTreatment,
 } from './run-treatment-persistence';
 
@@ -152,48 +154,6 @@ export interface SelfImprovementSignalContextDeps {
   readonly runSignalQuery?: (sql: string, params: readonly unknown[]) => Promise<SignalQueryResult>;
 }
 
-interface NormalizedExperimentAssignment {
-  readonly experimentId: string | null;
-  readonly variant: string | null;
-}
-
-/**
- * BST-1250: strictly parse the renderer's experiment enrollment. Malformed
- * values warn and are treated as un-enrolled — never coerced (both fields
- * must be non-empty strings together).
- */
-export function readExperimentAssignment(
-  runtimeData: RuntimeData | undefined
-): NormalizedExperimentAssignment {
-  const raw: unknown = runtimeData?.experimentAssignment;
-  if (raw === undefined) {
-    return { experimentId: null, variant: null };
-  }
-  if (raw === null || typeof raw !== 'object') {
-    logger.warn('Ignoring malformed experimentAssignment (not an object)', {
-      received: raw === null ? 'null' : typeof raw,
-    });
-    return { experimentId: null, variant: null };
-  }
-  const experimentId = (raw as Record<string, unknown>)['experimentId'];
-  const variant = (raw as Record<string, unknown>)['variant'];
-  if (
-    !(
-      typeof experimentId === 'string' &&
-      experimentId.length > 0 &&
-      typeof variant === 'string' &&
-      variant.length > 0
-    )
-  ) {
-    logger.warn('Ignoring malformed experimentAssignment; treating the run as un-enrolled', {
-      experimentIdType: typeof experimentId,
-      variantType: typeof variant,
-    });
-    return { experimentId: null, variant: null };
-  }
-  return { experimentId, variant };
-}
-
 interface SignalRow {
   readonly calls: number;
   readonly substrateDegradedRate: number;
@@ -329,15 +289,23 @@ async function loadAndMemoizeSignalRows(
   return collected;
 }
 
+interface ResolvedSignalContent {
+  readonly hourKey?: number;
+  readonly status: Extract<RunInjectionStatus, 'injected' | 'no_waste' | 'query_failed'>;
+  readonly text?: string;
+}
+
 /**
  * BST-1250: persist the per-run treatment record from the ONE seam that knows
  * whether injection actually happened and what exact text was injected. Runs
- * without a runId (older callers, ad-hoc invocations) are skipped at debug —
- * recording is best-effort relative to the turn, never blocking.
+ * without a runId (older callers, ad-hoc invocations) are skipped at debug.
+ * Callers fire this DETACHED (`void`) — the write must never block prompt
+ * assembly on the single-connection PGlite (review), and the recorder logs
+ * its own failures.
  */
 async function recordTreatmentForRun(
   runtimeData: RuntimeData | undefined,
-  injectedText: string | null,
+  resolved: { status: RunInjectionStatus; text?: string },
   deps: SelfImprovementSignalContextDeps
 ): Promise<void> {
   const memory = runtimeData?.memory;
@@ -350,10 +318,10 @@ async function recordTreatmentForRun(
   const recordTreatment = deps.recordTreatment ?? recordDesktopRunTreatment;
   await recordTreatment({
     experimentId: assignment.experimentId,
+    injectionStatus: resolved.status,
     resourceId: memory.resourceId,
     runId,
-    signalContentHash: injectedText === null ? null : hashSignalContent(injectedText),
-    signalInjected: injectedText !== null,
+    signalContentHash: resolved.text === undefined ? null : hashSignalContent(resolved.text),
     threadId: memory.threadId,
     variant: assignment.variant,
   });
@@ -362,9 +330,10 @@ async function recordTreatmentForRun(
 /**
  * Prepend one telemetry-derived system message for opted-in hosted-provider
  * runs. Every no-op returns the original message array identity. Hosted runs
- * ALWAYS record a treatment row (BST-1250) — preference-off and no-waste runs
- * are the control evidence; only local-provider runs skip entirely (they are
- * outside the experiment surface, like the injection itself).
+ * ALWAYS record a treatment row (BST-1250) with the injection STATUS —
+ * preference-off, no-waste, and query-failed are distinct states (an enrolled
+ * run whose signal query failed is NOT control evidence); only local-provider
+ * runs skip entirely (outside the experiment surface, like injection itself).
  */
 export async function injectSelfImprovementSignalContext(
   messages: AgentMessage[],
@@ -374,28 +343,33 @@ export async function injectSelfImprovementSignalContext(
   if (isLocalProvider(runtimeData)) {
     return messages;
   }
-  const injectedText = readSelfImprovementSignalPreference(runtimeData).enabled
-    ? await resolveSignalContent(deps)
-    : null;
-  await recordTreatmentForRun(runtimeData, injectedText?.text ?? null, deps);
-  if (injectedText === null) {
+  const resolved: ResolvedSignalContent | { status: 'preference_off' } =
+    readSelfImprovementSignalPreference(runtimeData).enabled
+      ? await resolveSignalContent(deps)
+      : { status: 'preference_off' };
+  // Detached on purpose: the treatment write is evidence bookkeeping, not a
+  // prompt dependency, and it must not add a serialized DB round-trip to
+  // every hosted run's latency path (the recorder logs its own failures).
+  void recordTreatmentForRun(runtimeData, resolved, deps);
+  if (!('text' in resolved) || resolved.text === undefined) {
     return messages;
   }
   const contextMessage: AgentMessage = {
-    id: `self-improvement-signal-${injectedText.hourKey}`,
-    parts: [{ text: injectedText.text, type: 'text' }],
+    id: `self-improvement-signal-${resolved.hourKey}`,
+    parts: [{ text: resolved.text, type: 'text' }],
     role: 'system',
   };
   return [contextMessage, ...messages];
 }
 
 /**
- * Resolve the hour's injected signal text, or null when nothing injects
- * (query failure, unexpected columns, or a no-waste hour).
+ * Resolve the hour's injected signal text, distinguishing the three
+ * non-injection outcomes the treatment record must keep apart (review):
+ * a failed/malformed lens query is NOT the same evidence as a no-waste hour.
  */
 async function resolveSignalContent(
   deps: SelfImprovementSignalContextDeps
-): Promise<{ hourKey: number; text: string } | null> {
+): Promise<ResolvedSignalContent> {
   const now = deps.now ?? (() => new Date());
   // Anchor the window to the top of the hour: consecutive runs inside one hour
   // render byte-identical text (prefix-cache stability) and share the memo.
@@ -407,11 +381,11 @@ async function resolveSignalContent(
       ? signalMemo.rows
       : await loadAndMemoizeSignalRows(hourKey, until, deps);
   if (parsedRows === null) {
-    return null;
+    return { status: 'query_failed' };
   }
   if (parsedRows.length === 0) {
     logger.debug('self_improvement_signal_no_positive_waste');
-    return null;
+    return { status: 'no_waste' };
   }
-  return { hourKey, text: buildSignalContent(parsedRows) };
+  return { hourKey, status: 'injected', text: buildSignalContent(parsedRows) };
 }

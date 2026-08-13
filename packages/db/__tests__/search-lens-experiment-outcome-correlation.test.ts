@@ -53,20 +53,22 @@ describe('experiment-outcome-correlation lens (BST-1250)', () => {
     // run per arm, one unlabeled intervention run, one row outside the window.
     await db.query(
       `INSERT INTO brainstrike_assistant_run_treatments
-        (run_id, thread_id, resource_id, experiment_id, variant, signal_injected, signal_content_hash, created_at)
+        (run_id, thread_id, resource_id, experiment_id, variant, injection_status, signal_injected, signal_content_hash, created_at)
        VALUES
-        ('run-c1', 'thread', 'resource', 'search-policy-2026-08', 'control', false, NULL, '2026-08-07T10:00:00Z'),
-        ('run-i1', 'thread', 'resource', 'search-policy-2026-08', 'signal-on', true, 'hash-a', '2026-08-07T10:05:00Z'),
-        ('run-i2', 'thread', 'resource', 'search-policy-2026-08', 'signal-on', true, 'hash-b', '2026-08-07T10:10:00Z'),
-        ('run-plain', 'thread', 'resource', NULL, NULL, false, NULL, '2026-08-07T10:15:00Z'),
-        ('run-late', 'thread', 'resource', 'search-policy-2026-08', 'control', false, NULL, '2026-08-08T10:00:00Z')`
+        ('run-c1', 'thread', 'resource', 'search-policy-2026-08', 'control', 'preference_off', false, NULL, '2026-08-07T10:00:00Z'),
+        ('run-i1', 'thread', 'resource', 'search-policy-2026-08', 'signal-on', 'injected', true, 'hash-a', '2026-08-07T10:05:00Z'),
+        ('run-i2', 'thread', 'resource', 'search-policy-2026-08', 'signal-on', 'injected', true, 'hash-b', '2026-08-07T10:10:00Z'),
+        ('run-cont', 'thread', 'resource', 'search-policy-2026-08', 'signal-on', 'continuation', false, NULL, '2026-08-07T10:12:00Z'),
+        ('run-plain', 'thread', 'resource', NULL, NULL, 'preference_off', false, NULL, '2026-08-07T10:15:00Z'),
+        ('run-late', 'thread', 'resource', 'search-policy-2026-08', 'control', 'preference_off', false, NULL, '2026-08-08T10:00:00Z')`
     );
     await db.query(
       `INSERT INTO brainstrike_assistant_run_outcomes
         (run_id, thread_id, resource_id, verdict, source, labeled_at)
        VALUES
         ('run-c1', 'thread', 'resource', 'failed', 'hook', '2026-08-07T12:00:00Z'),
-        ('run-i1', 'thread', 'resource', 'succeeded', 'hook', '2026-08-07T12:00:00Z')`
+        ('run-i1', 'thread', 'resource', 'succeeded', 'hook', '2026-08-07T12:00:00Z'),
+        ('run-cont', 'thread', 'resource', 'succeeded', 'hook', '2026-08-07T12:00:00Z')`
     );
   });
 
@@ -80,7 +82,7 @@ describe('experiment-outcome-correlation lens (BST-1250)', () => {
     expect(result.columns).toEqual([
       'experiment_id',
       'variant',
-      'signal_injected',
+      'injection_status',
       'runs',
       'labeled_runs',
       'succeeded',
@@ -89,12 +91,15 @@ describe('experiment-outcome-correlation lens (BST-1250)', () => {
       'signal_content_hashes',
     ]);
     // The intervention arm shifted signal content mid-window: two distinct
-    // hashes must be visible, not silently pooled. run-late is outside the
-    // window; the un-enrolled row sorts last (NULLS LAST).
+    // hashes must be visible, not silently pooled. The labeled continuation
+    // leg (approval/resume) stays visible as its own bucket instead of being
+    // silently dropped (review). run-late is outside the window; the
+    // un-enrolled row sorts last (NULLS LAST).
     expect(result.rows).toEqual([
-      ['search-policy-2026-08', 'control', false, 1, 1, 0, 0, 1, 0],
-      ['search-policy-2026-08', 'signal-on', true, 2, 1, 1, 0, 0, 2],
-      [null, null, false, 1, 0, 0, 0, 0, 0],
+      ['search-policy-2026-08', 'control', 'preference_off', 1, 1, 0, 0, 1, 0],
+      ['search-policy-2026-08', 'signal-on', 'continuation', 1, 1, 1, 0, 0, 0],
+      ['search-policy-2026-08', 'signal-on', 'injected', 2, 1, 1, 0, 0, 2],
+      [null, null, 'preference_off', 1, 0, 0, 0, 0, 0],
     ]);
   });
 });

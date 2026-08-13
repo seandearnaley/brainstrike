@@ -12,8 +12,16 @@ import type { Migration } from './migration-runner';
  * unsound; the 2026-08 audit's evaluation gap (17 runs, 1 outcome label, no
  * attribution) is what this closes alongside hook-sourced verdicts.
  *
- * experiment_id/variant stay NULL for un-enrolled runs; preference-off runs
- * still get a row (signal_injected = false) — they are the control evidence.
+ * experiment_id/variant stay NULL for un-enrolled runs. injection_status
+ * keeps the non-injection reasons apart (review): 'preference_off' is
+ * control evidence, 'query_failed' is an enrolled arm whose signal was
+ * unavailable, 'no_waste' is an empty hour, and 'continuation' marks
+ * approval/resume legs that never reach prompt assembly. signal_injected is
+ * derived (status = 'injected') and CHECK-pinned to stay consistent. The
+ * only shipped reader (the experiment-outcome-correlation lens) filters on
+ * created_at alone, so that is the ONLY index (review: the run_outcomes-
+ * style thread/experiment indexes served no reader and left the lens a
+ * seq scan that outgrows the sandbox's EXPLAIN cost ceiling).
  *
  * NO foreign keys (the numbered runner has no renderer-lazy
  * brainstrike_assistant_thread_runs parent), mirroring migration 062's
@@ -32,16 +40,18 @@ export const migration093AssistantRunTreatments: Migration = {
       resource_id text NOT NULL,
       experiment_id text,
       variant text,
+      injection_status text NOT NULL CHECK (
+        injection_status IN ('continuation', 'injected', 'no_waste', 'preference_off', 'query_failed')
+      ),
       signal_injected boolean NOT NULL,
       signal_content_hash text,
-      created_at timestamptz NOT NULL DEFAULT NOW()
+      created_at timestamptz NOT NULL DEFAULT NOW(),
+      CONSTRAINT brainstrike_assistant_run_treatments_injected_consistency
+        CHECK (signal_injected = (injection_status = 'injected'))
     );
 
-    CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_treatments_thread_idx
-      ON brainstrike_assistant_run_treatments (thread_id, resource_id);
-
-    CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_treatments_experiment_idx
-      ON brainstrike_assistant_run_treatments (experiment_id, variant);
+    CREATE INDEX IF NOT EXISTS brainstrike_assistant_run_treatments_created_at_idx
+      ON brainstrike_assistant_run_treatments (created_at);
   `,
   version: 93,
 };

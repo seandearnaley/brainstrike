@@ -210,6 +210,7 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     toolResumeAction,
   } = args;
   if (toolApprovalAction) {
+    capabilities.runPersistence.recordContinuationRunTreatment?.(runtime);
     return streamMastraToolApprovalAction(toolApprovalAction, {
       ...memoryOptions,
       requireToolApproval: true,
@@ -217,6 +218,7 @@ async function resolveInitialAgentStream<K extends AgentStreamCapabilityKinds>(a
     });
   }
   if (toolResumeAction) {
+    capabilities.runPersistence.recordContinuationRunTreatment?.(runtime);
     return streamMastraToolResumeAction(toolResumeAction, { ...memoryOptions, runtime });
   }
   // Prepend the turn's `@file` references (referenced-files), then any explicit
@@ -667,6 +669,15 @@ export interface AgentStreamCapabilities<
       runId: string,
       verdict: K['hookVerdict']
     ) => Promise<void>;
+    /**
+     * BST-1250 (optional): record the per-run experiment treatment for
+     * approval/resume continuation legs. Those legs mint their own runId and
+     * run row but return BEFORE the context injectors (where normal legs
+     * record), so without this they get outcome labels with no treatment row
+     * — a systematically biased gap (they correlate with tool-heavy,
+     * permission-gated runs). Fire-and-forget; never blocks the stream.
+     */
+    readonly recordContinuationRunTreatment?: (runtime: RuntimeData) => void;
   };
   readonly skills: {
     readonly createFs: (candidateRoots: readonly string[]) => K['skillsFilesystem'];

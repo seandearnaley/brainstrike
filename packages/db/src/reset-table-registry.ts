@@ -64,9 +64,9 @@ const BRAINSTRIKE_RESET_TABLES = [
   'brainstrike_assistant_tool_projection_rewrites',
   'brainstrike_assistant_run_errors',
   'brainstrike_assistant_run_outcomes',
-  // Per-run experiment treatment records (bootstrap-only DDL, BST-1250).
-  // Treatment evidence survives thread deletion like run_outcomes, but never
-  // a true fresh start.
+  // Per-run experiment treatment records (migration 093 + assistant-data
+  // bootstrap mirror, BST-1250). Treatment evidence survives thread deletion
+  // like run_outcomes, but never a true fresh start.
   'brainstrike_assistant_run_treatments',
   'brainstrike_assistant_run_usage',
   'brainstrike_assistant_task_lists',

@@ -28,10 +28,10 @@ describe('recordDesktopRunTreatment against real PGlite', () => {
       await recordDesktopRunTreatment(
         {
           experimentId: 'search-policy-2026-08',
+          injectionStatus: 'injected',
           resourceId: 'workspace-a',
           runId: 'run-1',
           signalContentHash: hashSignalContent('## Self-assessment signal'),
-          signalInjected: true,
           threadId: 'thread-1',
           variant: 'signal-on',
         },
@@ -41,10 +41,10 @@ describe('recordDesktopRunTreatment against real PGlite', () => {
       await recordDesktopRunTreatment(
         {
           experimentId: null,
+          injectionStatus: 'preference_off',
           resourceId: 'workspace-a',
           runId: 'run-1',
           signalContentHash: null,
-          signalInjected: false,
           threadId: 'thread-1',
           variant: null,
         },
@@ -52,12 +52,13 @@ describe('recordDesktopRunTreatment against real PGlite', () => {
       );
 
       const result = await db.query(
-        `SELECT run_id, thread_id, resource_id, experiment_id, variant, signal_injected, signal_content_hash
+        `SELECT run_id, thread_id, resource_id, experiment_id, variant, injection_status, signal_injected, signal_content_hash
          FROM brainstrike_assistant_run_treatments`
       );
       expect(result.rows).toEqual([
         {
           experiment_id: 'search-policy-2026-08',
+          injection_status: 'injected',
           resource_id: 'workspace-a',
           run_id: 'run-1',
           signal_content_hash: hashSignalContent('## Self-assessment signal'),

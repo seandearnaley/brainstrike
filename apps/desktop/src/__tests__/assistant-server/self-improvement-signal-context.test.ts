@@ -389,10 +389,10 @@ describe('run treatment recording (BST-1250)', () => {
     expect(injectedText.length).toBeGreaterThan(0);
     expect(recordTreatment).toHaveBeenCalledExactlyOnceWith({
       experimentId: null,
+      injectionStatus: 'injected',
       resourceId: 'workspace-a',
       runId: 'run-1',
       signalContentHash: createHash('sha256').update(injectedText, 'utf8').digest('hex'),
-      signalInjected: true,
       threadId: 'thread-1',
       variant: null,
     });
@@ -413,13 +413,43 @@ describe('run treatment recording (BST-1250)', () => {
     expect(runSignalQuery).not.toHaveBeenCalled();
     expect(recordTreatment).toHaveBeenCalledExactlyOnceWith({
       experimentId: null,
+      injectionStatus: 'preference_off',
       resourceId: 'workspace-a',
       runId: 'run-1',
       signalContentHash: null,
-      signalInjected: false,
       threadId: 'thread-1',
       variant: null,
     });
+  });
+
+  it('records query_failed for an enabled run whose signal query rejected — never a control row', async () => {
+    const recordTreatment = vi.fn(async () => {});
+    const input = messages();
+    const result = await injectSelfImprovementSignalContext(input, runtimeWithRun(), {
+      now: () => NOW,
+      recordTreatment,
+      runSignalQuery: async () => Promise.reject(new Error('database unavailable')),
+    });
+
+    expect(result).toBe(input);
+    // Review: an ENROLLED run whose signal was unavailable must not read as
+    // "assigned to treatment, preference off" — the status keeps them apart.
+    expect(recordTreatment).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ injectionStatus: 'query_failed', signalContentHash: null })
+    );
+  });
+
+  it('records no_waste for an enabled run in an empty hour', async () => {
+    const recordTreatment = vi.fn(async () => {});
+    await injectSelfImprovementSignalContext(messages(), runtimeWithRun(), {
+      now: () => NOW,
+      recordTreatment,
+      runSignalQuery: async () => ({ columns: [...EXPECTED_COLUMNS], rows: [] }),
+    });
+
+    expect(recordTreatment).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ injectionStatus: 'no_waste' })
+    );
   });
 
   it('persists a strictly-parsed experiment assignment verbatim', async () => {

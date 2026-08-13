@@ -211,12 +211,15 @@ export interface SelfImprovementSignalPreferenceRequest {
  * Renderer-attached experiment enrollment for this run (BST-1250, recursive
  * self-improvement phase 2A). Persisted verbatim in the per-run treatment
  * record so control/intervention runs stay attributable; absent = un-enrolled.
- * Strictly parsed server-side — a malformed value warns and is treated as
- * un-enrolled, never coerced.
+ * The pair is atomic, so both fields are REQUIRED (review: optional fields
+ * let a well-behaved producer typecheck its way into a warn loop); the
+ * server-side strict parse remains the untrusted-wire guard. NOTE: no
+ * renderer producer exists yet — enrollment plumbing ships with phase 2B,
+ * so today every treatment row records the un-enrolled bucket.
  */
 export interface ExperimentAssignmentRequest {
-  readonly experimentId?: string;
-  readonly variant?: string;
+  readonly experimentId: string;
+  readonly variant: string;
 }
 
 /**
