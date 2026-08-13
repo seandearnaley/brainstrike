@@ -1009,9 +1009,8 @@ export function AssistantUiPanelWrapper({
     return { enabled: selfImprovementSignalEnabled };
   }, [localChatTransport, selfImprovementSignalEnabled]);
 
-  // Experiment enrollment (desktop data-stream only, BST-1251). Attribution
-  // metadata recorded on every run's treatment row; the pair only rides the
-  // wire when BOTH fields are set (the contract requires them together).
+  // Experiment enrollment (desktop data-stream only, BST-1251): attribution
+  // metadata on the treatment row; only a COMPLETE pair rides the wire.
   const enrolledExperimentId = useExperimentAssignmentPreferencesStore(
     (state) => state.experimentId
   );
