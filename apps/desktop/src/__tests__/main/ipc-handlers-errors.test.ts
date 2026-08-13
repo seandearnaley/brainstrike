@@ -33,21 +33,26 @@ describe('ipc-handlers error branches', () => {
       exists: vi.fn(async () => true),
       readDirectory: vi.fn(),
       readFile: vi.fn(),
-      requestDirectoryAccess: vi.fn(),
+      requestDirectoryAccess: vi.fn(async () => ({
+        kind: 'directory',
+        name: 'workspace',
+        path: '/test/workspace',
+        platform: 'electron',
+      })),
       watchDirectory: vi.fn(),
     } as unknown as ElectronFileSystemAdapter;
 
     storage = {
       clear: vi.fn(),
       getAllKeys: vi.fn(),
-      getItem: vi.fn(),
+      getItem: vi.fn(async () => null),
       removeItem: vi.fn(),
-      setItem: vi.fn(),
+      setItem: vi.fn(async () => undefined),
     } as unknown as ElectronStorageAdapter;
 
     store = {};
 
-    registerIpcHandlers(fsAdapter, storage, store as never);
+    registerIpcHandlers(fsAdapter, storage, () => store as never);
   });
 
   it('fs:restoreLastFolder propagates storage errors', async () => {
@@ -59,11 +64,12 @@ describe('ipc-handlers error branches', () => {
   });
 
   it('fs:saveLastFolder propagates storage.setItem errors', async () => {
+    await handlers.get('fs:addRoot')?.({} as unknown as IpcMainInvokeEvent);
     const handler = handlers.get('fs:saveLastFolder');
     (storage.setItem as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('boom')
     );
-    await expect(handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/folder')).rejects.toThrow(
+    await expect(handler?.({} as unknown as IpcMainInvokeEvent, '/test/workspace')).rejects.toThrow(
       'boom'
     );
     expect(storage.setItem).toHaveBeenCalled();

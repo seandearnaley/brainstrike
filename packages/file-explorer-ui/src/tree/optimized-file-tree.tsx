@@ -10,7 +10,7 @@ import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import { useEventCallback } from '@brainstrike/hooks';
 import { createLogger } from '@brainstrike/logging';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import { createEmptySelectionModel } from '@brainstrike/types';
+import { createEmptySelectionModel, isPseudoFileNodeType } from '@brainstrike/types';
 import {
   ActionContextMenu,
   type TreeNode,
@@ -162,6 +162,7 @@ interface IOptimizedFileTreeProps {
 }
 
 const logger = createLogger('OptimizedFileTree');
+
 /**
  * A click on a FILE checkbox. Adding a single file at the cap is a genuine
  * no-op — the checkbox is disabled with a tooltip; the guard here is its
@@ -968,6 +969,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         }
 
         const node = rowData.fileNode;
+        // Pseudo-nodes never participate in selection — their checkbox is
+        // disabled, but a defensive guard here keeps a stray click from
+        // mutating selectedFilePaths with a synthetic marker path that has
+        // no backing file.
+        if (isPseudoFileNodeType(node.type)) {
+          return;
+        }
         const selectionState = getNodeSelectionState(rowData);
 
         if (node.type !== 'directory') {

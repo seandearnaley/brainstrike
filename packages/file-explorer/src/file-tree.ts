@@ -1,4 +1,4 @@
-import type { IFileNode } from '@brainstrike/types';
+import { type IFileNode, isPseudoFileNodeType } from '@brainstrike/types';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import { getFileExtension as getNormalizedFileExtension } from '@brainstrike/utils/file-utils';
 import { fileFilter } from '@brainstrike/utils/path-filter';
@@ -150,6 +150,13 @@ export const fileExplorer = {
     let isComplete = selfComplete;
 
     for (const child of node.children) {
+      // Pseudo-node rows ('loadMore', 'truncated') are UI-only affordances,
+      // not real files or directories: they have no loadState, so treating
+      // them like an ordinary child would permanently poison isComplete to
+      // false via a manufactured "unloaded directory" signal.
+      if (isPseudoFileNodeType(child.type)) {
+        continue;
+      }
       const result = this.getFolderFileCount(child);
       totalCount += result.count;
       isComplete = isComplete && result.isComplete;

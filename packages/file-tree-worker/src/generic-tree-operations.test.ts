@@ -37,6 +37,15 @@ function createDirectoryNode(overrides: Partial<TestTreeNode> = {}): TestTreeNod
   };
 }
 
+function createTruncatedNode(overrides: Partial<TestTreeNode> = {}): TestTreeNode {
+  return {
+    name: 'Showing first 10,000 entries',
+    path: '/root/…truncated…',
+    type: 'truncated',
+    ...overrides,
+  };
+}
+
 describe('tree-operations', () => {
   describe('isDescendantPath', () => {
     it('requires an exact path-segment boundary', () => {
@@ -100,6 +109,20 @@ describe('tree-operations', () => {
         'file10.ts',
       ]);
       expect(sortTreeNodes(nodes)).not.toBe(nodes);
+    });
+
+    it('pins a truncated marker last regardless of name or directories-first ordering', () => {
+      const nodes = [
+        createTruncatedNode(),
+        createFileNode({ name: 'aaa.ts', path: '/root/aaa.ts' }),
+        createDirectoryNode({ name: 'zzz-dir', path: '/root/zzz-dir' }),
+      ];
+
+      expect(sortTreeNodes(nodes).map((node) => node.type)).toEqual([
+        'directory',
+        'file',
+        'truncated',
+      ]);
     });
   });
 

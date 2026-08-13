@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { DirectoryHandle, FileHandle, SerializableFileNode } from '@brainstrike/file-system';
 import {
@@ -13,11 +14,7 @@ import type { RootDescriptor } from '@brainstrike/types';
 import { ipcMain } from 'electron';
 import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/command-session-manager';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
-import {
-  markRootDisconnectedByPath,
-  markRootsDisconnectedExcept,
-  type WorkspaceRootsQueryable,
-} from '../assistant-server/workspace-roots';
+import type { WorkspaceRootsQueryable } from '../assistant-server/workspace-roots';
 import {
   createFileReadErrorPayload,
   FILE_READ_ERROR_CODE_NOT_FOUND,
@@ -26,6 +23,7 @@ import {
 } from '../file-read-errors';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from '../platform/desktop-ipc-registry';
+import { type SecureWorkspaceRoot, WorkspaceRootRegistry } from './workspace-root-registry';
 
 interface RegisterFileSystemIpcHandlersOptions {
   readonly disposeCommandSessionsForRoot?: (rootId: string) => Promise<number>;
@@ -64,89 +62,10 @@ interface ElectronE2eFileSystemFixture {
   };
 }
 
-const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
-const ROOTS_LIST_STORAGE_KEY = 'rootsList' as const;
 const MOCK_PATH_PREFIX = '/mock/' as const;
 const E2E_REAL_ROOT_PATH_ENV = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH' as const;
 const E2E_FILE_SYSTEM_FIXTURE_KEY = '__brainstrike_e2e_file_system_fixture__' as const;
 const logger = createLogger('FileSystemIpc');
-
-interface StoredRootEntry {
-  addedAt: number;
-  path: string;
-  rootId: string;
-}
-
-function isStoredRootEntry(value: unknown): value is StoredRootEntry {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate['addedAt'] === 'number' &&
-    typeof candidate['path'] === 'string' &&
-    typeof candidate['rootId'] === 'string'
-  );
-}
-
-interface RootsListReadResult {
-  readonly entries: StoredRootEntry[];
-  /**
-   * True when a stored value EXISTED but could not be fully understood
-   * (unparseable, wrong shape, or individual entries dropped) — i.e. `entries`
-   * is a degraded guess, not the user's real mount list.
-   *
-   * An ABSENT or legitimately empty list is NOT malformed: that is an
-   * authoritative "no folders open". The distinction matters because callers
-   * that treat the list as authoritative (root-status convergence) would
-   * otherwise turn a corrupt storage value into a destructive write.
-   */
-  readonly malformed: boolean;
-}
-
-async function readRootsListResult(storage: ElectronStorageAdapter): Promise<RootsListReadResult> {
-  const raw = await storage.getItem(ROOTS_LIST_STORAGE_KEY);
-  if (!raw) {
-    return { entries: [], malformed: false };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    logger.warn('Failed to parse rootsList — treating as empty', { error });
-    return { entries: [], malformed: true };
-  }
-
-  if (!Array.isArray(parsed)) {
-    logger.warn('rootsList storage value is not an array — treating as empty', {
-      key: ROOTS_LIST_STORAGE_KEY,
-    });
-    return { entries: [], malformed: true };
-  }
-  const valid = parsed.filter(isStoredRootEntry);
-  if (valid.length !== parsed.length) {
-    logger.warn('rootsList contained malformed entries — discarding invalid items', {
-      total: parsed.length,
-      valid: valid.length,
-    });
-    // A dropped entry means the surviving list is a SUBSET of the real mount
-    // set, which is just as unsafe to converge against as a total parse failure.
-    return { entries: valid, malformed: true };
-  }
-  return { entries: valid, malformed: false };
-}
-
-async function readRootsList(storage: ElectronStorageAdapter): Promise<StoredRootEntry[]> {
-  return (await readRootsListResult(storage)).entries;
-}
-
-async function writeRootsList(
-  storage: ElectronStorageAdapter,
-  entries: StoredRootEntry[]
-): Promise<void> {
-  await storage.setItem(ROOTS_LIST_STORAGE_KEY, JSON.stringify(entries));
-}
 
 function isWindowsAbsolutePath(value: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
@@ -247,6 +166,10 @@ function isE2eTestMode(): boolean {
     process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
     process.env['NODE_ENV'] === 'test'
   );
+}
+
+function usesSyntheticFileSystem(rootPath: string): boolean {
+  return isMockFileSystemIpcPath(rootPath) || process.env['VITEST'] === 'true';
 }
 
 async function resolveE2eRealRootDirectoryHandle(
@@ -371,9 +294,103 @@ export function registerFileSystemIpcHandlers({
 }: RegisterFileSystemIpcHandlersOptions): () => void {
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
+  const roots = new WorkspaceRootRegistry({
+    createSecureRoot: async (rootPath): Promise<SecureWorkspaceRoot> => {
+      if (usesSyntheticFileSystem(rootPath)) {
+        return {
+          canonicalPath: path.normalize(rootPath),
+          close: () => undefined,
+          listDir: async (relativePath, maxEntries) => {
+            const directoryPath =
+              relativePath === '.' ? rootPath : path.join(rootPath, relativePath);
+            const nodes = await fileSystem.readDirectory({
+              kind: 'directory',
+              name: path.basename(directoryPath),
+              path: directoryPath,
+              platform: 'electron',
+            });
+            return {
+              entries: nodes.slice(0, maxEntries).map((node) => ({
+                isDirectory: node.type === 'directory',
+                isFile: node.type === 'file',
+                isSymbolicLink: false,
+                ...(node.lastModified === undefined ? {} : { lastModified: node.lastModified }),
+                name: node.name,
+                ...(node.size === undefined ? {} : { size: node.size }),
+              })),
+              inspected: Math.min(nodes.length, maxEntries),
+              truncated: nodes.length > maxEntries,
+            };
+          },
+          readFile: async (relativePath) => {
+            const filePath = path.join(rootPath, relativePath);
+            const content = await fileSystem.readFile({
+              kind: 'file',
+              name: path.basename(filePath),
+              path: filePath,
+              platform: 'electron',
+            });
+            return { content: Buffer.from(content), status: 'ok' };
+          },
+        };
+      }
+      const { SecureRoot } = await import('@brainstrike/secure-fs-native');
+      const secureRoot = new SecureRoot(rootPath);
+      return {
+        canonicalPath: secureRoot.canonicalPath,
+        close: () => secureRoot.close(),
+        listDir: (relativePath, maxEntries) => secureRoot.listDirAsync(relativePath, maxEntries),
+        readFile: (relativePath, maxBytes) => secureRoot.readFileAsync(relativePath, maxBytes),
+      };
+    },
+    disposeCommandSessionsForRoot,
+    evictLspServersForRoot: evictLspServerForRoot,
+    getRootsDatabase,
+    pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
+    resolveCanonicalRoot: async (rootPath) =>
+      usesSyntheticFileSystem(rootPath)
+        ? path.normalize(rootPath)
+        : path.normalize(await realpath(rootPath)),
+    resolveReadPath: async (requestedPath, canonicalRoot) => {
+      if (!usesSyntheticFileSystem(canonicalRoot)) {
+        const result = await resolveValidatedPath({
+          allowMissing: false,
+          maxTraversal: 0,
+          requestedPath,
+          rootDir: canonicalRoot,
+        });
+        if (!result.ok) {
+          throw new AccessError(
+            `Path validation failed: ${result.error.message}`,
+            requestedPath,
+            'read'
+          );
+        }
+        return result.path;
+      }
+      const candidate = path.isAbsolute(requestedPath)
+        ? path.normalize(requestedPath)
+        : path.resolve(canonicalRoot, requestedPath);
+      const relative = path.relative(canonicalRoot, candidate);
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new AccessError(
+          'Path is outside the selected workspace root.',
+          requestedPath,
+          'read'
+        );
+      }
+      return candidate;
+    },
+    storage,
+  });
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess, async () =>
-    resolveRequestedDirectoryHandle(fileSystem)
+  const addSelectedRoot = async (): Promise<RootDescriptor> =>
+    roots.addRoot(await resolveRequestedDirectoryHandle(fileSystem));
+
+  registry.registerInvoke(
+    'files',
+    DESKTOP_IPC_CHANNELS.files.requestDirectoryAccess,
+    async () => (await addSelectedRoot()).handle
   );
 
   registry.registerInvoke(
@@ -395,16 +412,11 @@ export function registerFileSystemIpcHandlers({
         return entries;
       }
 
-      if (
-        handle &&
-        typeof handle === 'object' &&
-        'id' in handle &&
-        handle.id === 'mock-directory-handle'
-      ) {
+      if (isMockFileSystemIpcPath(handle.path)) {
         const rootPath = '/mock/test/directory';
         return getTestDirectoryStructure(rootPath);
       }
-      return fileSystem.readDirectory(await resolveDirectoryHandle(handle));
+      return roots.readDirectory(await resolveDirectoryHandle(handle));
     }
   );
 
@@ -426,17 +438,12 @@ export function registerFileSystemIpcHandlers({
         return content;
       }
 
-      if (
-        handle &&
-        typeof handle === 'object' &&
-        'id' in handle &&
-        String(handle.id).includes('mock-')
-      ) {
+      if (isMockFileSystemIpcPath(handle.path)) {
         return 'Mock file content for testing purposes\nThis is a test file.\n';
       }
       try {
         const resolvedHandle = await resolveFileHandle(handle);
-        return await fileSystem.readFile(resolvedHandle);
+        return await roots.readFile(resolvedHandle);
       } catch (error) {
         const payload = toFileReadErrorPayload(error, handle?.path ?? '');
         if (payload) {
@@ -469,15 +476,10 @@ export function registerFileSystemIpcHandlers({
         return 'Mock file content for testing purposes\nThis is a test file.\n';
       }
 
-      const resolved = await resolveValidatedPath({ requestedPath: absolutePath });
-      if (!resolved.ok) {
-        throw new Error(`Invalid path: ${resolved.error}`);
-      }
-
       try {
-        return await fileSystem.readFileByPath(resolved.path);
+        return await roots.readFile(absolutePath);
       } catch (error) {
-        const payload = toFileReadErrorPayload(error, resolved.path);
+        const payload = toFileReadErrorPayload(error, absolutePath);
         if (payload) {
           return payload;
         }
@@ -492,329 +494,31 @@ export function registerFileSystemIpcHandlers({
     async (_event, requestedPath: string) => ipcPathExists(fileSystem, requestedPath)
   );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreLastFolder, async () => {
-    const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
-    if (!lastFolderPath) {
-      return null;
-    }
-
-    let resolvedPath: string;
-    try {
-      resolvedPath = await resolveFileSystemIpcPath(lastFolderPath, 'stored folder');
-    } catch (error) {
-      if (process.env['NODE_ENV'] === 'development') {
-        logger.debug('Auto-restore failed', { error });
-      }
-      return null;
-    }
-
-    let exists: boolean;
-    try {
-      // Mock-aware existence (same class as restoreRoots — see ipcPathExists).
-      exists = await ipcPathExists(fileSystem, resolvedPath);
-    } catch (error) {
-      if (process.env['NODE_ENV'] === 'development') {
-        logger.debug('Auto-restore failed', { error });
-      }
-      return null;
-    }
-
-    if (!exists) {
-      await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
-      return null;
-    }
-
-    const handle: DirectoryHandle = {
-      kind: 'directory',
-      name: path.basename(resolvedPath),
-      path: resolvedPath,
-      platform: 'electron',
-    };
-    return handle;
-  });
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreLastFolder, async () =>
+    roots.restoreLastFolder()
+  );
 
   registry.registerInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.saveLastFolder,
-    async (_event, folderPath: string) => {
-      let resolvedPath: string;
-      try {
-        resolvedPath = await resolveFileSystemIpcPath(folderPath, 'last folder');
-      } catch (error) {
-        if (process.env['NODE_ENV'] === 'development') {
-          logger.debug('Failed to save last folder', { error });
-        }
-        return;
-      }
-
-      await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
-      const entries = await readRootsList(storage);
-      const existing = entries.find((entry) => entry.path === resolvedPath);
-      if (!existing) {
-        const newEntry: StoredRootEntry = {
-          addedAt: Date.now(),
-          path: resolvedPath,
-          rootId: crypto.randomUUID(),
-        };
-        await writeRootsList(storage, [...entries, newEntry]);
-      }
-    }
+    async (_event, folderPath: string) => roots.setLastFolder(folderPath)
   );
 
-  /**
-   * Converge DB roots status on the just-restored mount set. rootsList is the
-   * authoritative record of which folders the Explorer shows, so any 'live' row
-   * outside it is a leak (see markRootsDisconnectedExcept for how they arise).
-   *
-   * Deliberately NOT fail-closed, unlike the fs:removeRoot transition: this runs
-   * on the boot path, and rejecting the restore because the DB is briefly
-   * unavailable would leave the app with no roots at all — strictly worse than a
-   * stale row. The failure is logged at ERROR (never silent) and the next boot
-   * retries. fs:removeRoot remains the fail-closed primary; this is convergence.
-   */
-  const convergeRootStatuses = async (restoredPaths: readonly string[]): Promise<void> => {
-    try {
-      const rootsDatabase = await getRootsDatabase();
-      // Re-read rootsList HERE rather than reusing the entries this handler
-      // opened with. restoreRoots awaits per-entry path resolution, so an
-      // fs:addRoot CAN interleave mid-restore (boot is not user-gesture-driven,
-      // unlike the handlers the addRoot no-mutex note covers). That add writes
-      // its rootsList entry BEFORE returning, and the renderer's reconcileRoots
-      // inserts the DB row only after the IPC resolves — so a live row can only
-      // exist for a path already in this list. Reading it immediately before the
-      // UPDATE therefore makes the mount set a strict SUPERSET of every path
-      // that could own a live row. Over-inclusion is the safe direction: at
-      // worst a genuinely stale row survives to the next boot, whereas
-      // under-inclusion would silently drop a just-mounted root.
-      const current = await readRootsListResult(storage);
-      if (current.malformed) {
-        // NO SILENT FALLBACKS: `readRootsList` coerces an unreadable store to
-        // [], which is fine for the RESTORE (it just mounts nothing) but must
-        // never reach convergence — an empty mount set demotes every live root,
-        // so a corrupt storage value would silently disconnect the whole
-        // workspace. A degraded read is "mount set UNKNOWN", not "authoritative
-        // zero". Skip, surface at ERROR, and let the next boot converge once the
-        // store parses again.
-        logger.error(
-          'restoreRoots: rootsList is unreadable; skipping root-status convergence rather than demoting every live root',
-          { key: ROOTS_LIST_STORAGE_KEY }
-        );
-        return;
-      }
-      const mountedPaths = [
-        ...new Set([...restoredPaths, ...current.entries.map((entry) => entry.path)]),
-      ];
-      const demoted = await markRootsDisconnectedExcept(rootsDatabase, mountedPaths);
-      if (demoted.length > 0) {
-        logger.warn('restoreRoots: disconnected DB roots that are no longer mounted', {
-          paths: demoted.map((row) => row.path),
-        });
-      }
-    } catch (error) {
-      logger.error(
-        'restoreRoots: failed to converge DB root statuses; stale roots may remain live',
-        {
-          error,
-        }
-      );
-    }
-  };
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () =>
+    roots.restoreRoots()
+  );
 
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.restoreRoots, async () => {
-    const entries = await readRootsList(storage);
-    if (entries.length === 0) {
-      // Not an early return: zero mounted folders is exactly the state in which
-      // every remaining 'live' row is stale and must be demoted.
-      await convergeRootStatuses([]);
-      return [];
-    }
-
-    const survivors: StoredRootEntry[] = [];
-    const descriptors: RootDescriptor[] = [];
-
-    for (const entry of entries) {
-      try {
-        const resolvedPath = await resolveFileSystemIpcPath(entry.path, 'stored root');
-        // Mock-aware existence: a raw fileSystem.exists would stat the real
-        // disk and prune e2e-seeded mock roots (see ipcPathExists).
-        const exists = await ipcPathExists(fileSystem, resolvedPath);
-        if (!exists) {
-          logger.debug('Pruning stale root from rootsList', { path: entry.path });
-          continue;
-        }
-        const basename = path.basename(resolvedPath);
-        survivors.push(entry);
-        descriptors.push({
-          displayName: basename,
-          handle: {
-            kind: 'directory',
-            name: basename,
-            path: resolvedPath,
-            platform: 'electron',
-          },
-          kind: 'path',
-          permissionState: 'granted',
-          persisted: true,
-          rootId: entry.rootId,
-        });
-      } catch (error) {
-        logger.debug('Skipping invalid root entry during restore', { error, path: entry.path });
-      }
-    }
-
-    if (survivors.length !== entries.length) {
-      await writeRootsList(storage, survivors);
-    }
-
-    // Compare on the RESOLVED path: that is what addRoot/reconcileRoots store on
-    // the DB row, whereas a rootsList entry may hold the unresolved form.
-    await convergeRootStatuses(descriptors.map((descriptor) => descriptor.handle.path));
-
-    return descriptors;
-  });
-
-  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () => {
-    // Test-mode aware (same contract as fs:requestDirectoryAccess): the real
-    // adapter stats the picked path, which ENOENTs on e2e mock paths.
-    const handle = await resolveRequestedDirectoryHandle(fileSystem);
-    const resolvedPath = await resolveFileSystemIpcPath(handle.path, 'added root');
-    const basename = path.basename(resolvedPath);
-
-    // Upsert into rootsList keyed by resolved path.
-    // No mutex: these handlers are user-gesture-driven (single dialog at a time).
-    // Concurrent RMW is only possible across multiple renderer windows, which is
-    // not yet a use case. Revisit if programmatic addRoot calls are introduced.
-    const entries = await readRootsList(storage);
-    const existing = entries.find((e) => e.path === resolvedPath);
-
-    let rootId: string;
-    let persisted = true;
-
-    if (existing) {
-      rootId = existing.rootId;
-      const updated: StoredRootEntry[] = entries.map((e) =>
-        e.path === resolvedPath ? { ...e, addedAt: Date.now() } : e
-      );
-      try {
-        await writeRootsList(storage, updated);
-      } catch (error) {
-        // The root is ALREADY durably stored — a failed addedAt bump does not
-        // change that. Per the RootDescriptor.persisted contract, persisted
-        // stays true: reporting false here would make callers skip DB
-        // registration for a perfectly durable root.
-        logger.warn('addRoot: failed to bump addedAt on existing rootsList entry', { error });
-      }
-    } else {
-      rootId = crypto.randomUUID();
-      const newEntry: StoredRootEntry = { addedAt: Date.now(), path: resolvedPath, rootId };
-      try {
-        await writeRootsList(storage, [...entries, newEntry]);
-      } catch (error) {
-        logger.warn('addRoot: failed to write rootsList', { error });
-        persisted = false;
-      }
-    }
-
-    // Shim parity: keep writing lastFolderPath
-    try {
-      await storage.setItem(LAST_FOLDER_STORAGE_KEY, resolvedPath);
-    } catch (error) {
-      logger.warn('addRoot: failed to write lastFolderPath', { error });
-    }
-
-    const descriptor: RootDescriptor = {
-      displayName: basename,
-      handle: {
-        kind: 'directory',
-        name: basename,
-        path: resolvedPath,
-        platform: 'electron',
-      },
-      kind: 'path',
-      permissionState: 'granted',
-      persisted,
-      rootId,
-    };
-    return descriptor;
-  });
+  registry.registerInvoke('files', DESKTOP_IPC_CHANNELS.files.addRoot, async () =>
+    addSelectedRoot()
+  );
 
   registry.registerInvoke(
     'files',
     DESKTOP_IPC_CHANNELS.files.removeRoot,
-    async (_event, rootId: string) => {
-      // Disconnect ≠ delete: this forgets the stored rootsList entry (and a
-      // matching lastFolderPath) and transitions the DB roots row to
-      // status='disconnected'. It never DELETEs — all roots/file_records/
-      // file_chunks rows are deliberately KEPT, and reconcileRoots restores
-      // status='live' on re-add, so remounting the same folder reuses its
-      // rootId and resumes without re-indexing.
-      const entries = await readRootsList(storage);
-      const removed = entries.find((entry) => entry.rootId === rootId);
-      if (!removed) {
-        logger.debug('removeRoot: rootId not found in rootsList — nothing to remove', { rootId });
-        return;
-      }
-
-      // Status transition FIRST, fail-closed: if it throws, the invoke rejects
-      // and the root stays fully mounted (rootsList untouched). The DB row is
-      // keyed by path (unique idx_roots_path) — the adapter rootId can diverge
-      // from roots.id for path-matched legacy rows. The inverse ordering
-      // (rootsList written, then a failed UPDATE) would leave the assistant
-      // server serving a folder the UI no longer shows.
-      const rootsDatabase = await getRootsDatabase();
-      const disconnectedRootIds = await markRootDisconnectedByPath(rootsDatabase, removed.path);
-      if (disconnectedRootIds.length === 0) {
-        // A rootsList entry is a persisted root, so it SHOULD own a DB row. Zero
-        // rows matched means the row's stored `path` diverged from this entry's
-        // (normalization/case) or the row was never created — surface it (NO
-        // SILENT FALLBACKS) instead of clearing rootsList while a possibly-live
-        // row keeps being served to the assistant tools.
-        logger.warn('removeRoot: no roots row matched the disconnected path; DB status unchanged', {
-          path: removed.path,
-          rootId,
-        });
-      }
-
-      const remaining = entries.filter((entry) => entry.rootId !== rootId);
-      await writeRootsList(storage, remaining);
-
-      // Tear down any pooled LSP language server for this root (report R2): the
-      // folder is leaving the workspace, so its server child process must not
-      // linger. Non-fatal — a stray server would otherwise idle until quit.
-      await Promise.all(
-        disconnectedRootIds.map(async (disconnectedRootId) => {
-          await evictLspServerForRoot(disconnectedRootId).catch((error: unknown) => {
-            logger.debug('removeRoot: LSP server eviction failed (non-fatal)', {
-              error,
-              rootId: disconnectedRootId,
-            });
-          });
-        })
-      );
-
-      // A command session is owned by the workspace root, not by a renderer.
-      // Disconnecting that root therefore ends and forgets every session before
-      // the UI can move on. Failure is visible, but does not roll back the DB +
-      // rootsList transition that has already committed.
-      await Promise.all(
-        disconnectedRootIds.map(async (disconnectedRootId) => {
-          await disposeCommandSessionsForRoot(disconnectedRootId).catch((error: unknown) => {
-            logger.warn('removeRoot: command session disposal failed', {
-              error,
-              rootId: disconnectedRootId,
-            });
-          });
-        })
-      );
-
-      // Keep the dual stores coherent: clear lastFolderPath only when it points
-      // at the removed root's path.
-      const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
-      if (lastFolderPath === removed.path) {
-        await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
-      }
-    }
+    async (_event, rootId: string) => roots.removeRoot(rootId)
   );
-
-  return () => registry.unregisterAll();
+  return () => {
+    registry.unregisterAll();
+    roots.dispose();
+  };
 }

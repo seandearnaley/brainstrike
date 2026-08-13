@@ -4,7 +4,7 @@ import { memoizedFileExplorer as fileExplorer } from '@brainstrike/file-explorer
 import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/file-explorer/selection';
 import type { FlattenedNode } from '@brainstrike/file-tree-worker';
 import { isDescendantPath } from '@brainstrike/file-tree-worker';
-import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { type FileExplorerState, type IFileNode, isPseudoFileNodeType } from '@brainstrike/types';
 import type { TreeNode } from '@brainstrike/ui';
 import { fileNodeCollator } from '@brainstrike/utils/collator';
 import {
@@ -137,6 +137,15 @@ function compareFileTreeSiblingsWithMetadata(
   bMetadata: FileTreeSortMetadata | null,
   state: ExplorerSortState
 ): number {
+  // The truncation marker is a trailing pseudo-node: it sorts last within
+  // its directory regardless of the active sort field, ahead of every other
+  // comparison (including directories-first).
+  if (a.type === 'truncated' || b.type === 'truncated') {
+    if (a.type === b.type) {
+      return 0;
+    }
+    return a.type === 'truncated' ? 1 : -1;
+  }
   const directoryKind = compareDirectoryKind(a, b);
   if (directoryKind !== 0) {
     return directoryKind;
@@ -653,6 +662,68 @@ function shouldIgnoreLoadedQueryChildDirectory(args: {
   );
 }
 
+function shouldSkipLoadedChild(args: {
+  child: IFileNode;
+  directoryTraversalContext: DirectorySelectionTraversalContext;
+  folderId: string;
+  parentDirectoryPath: string;
+  querySelectionManifest: FileExplorerState['querySelectionManifest'];
+  selectedDirectoryCounts: Map<string, number>;
+  selectionModel: FileExplorerState['selectionModel'];
+}): boolean {
+  const {
+    child,
+    directoryTraversalContext,
+    folderId,
+    parentDirectoryPath,
+    querySelectionManifest,
+    selectedDirectoryCounts,
+    selectionModel,
+  } = args;
+
+  // Pseudo-node rows ('loadMore', 'truncated') are UI-only affordances, not
+  // real files or directories: they must contribute nothing to the parent's
+  // tri-state rollup. Left unguarded, computeLoadedChildCheckboxState treats
+  // a non-file child as a directory and evaluates it — a truncated marker
+  // resolves to `false` (never selected), which permanently blocks
+  // `allSelected` and renders an otherwise-fully-selected parent
+  // indeterminate instead of checked.
+  if (isPseudoFileNodeType(child.type)) {
+    return true;
+  }
+
+  if (
+    selectionModel.mode === 'query' &&
+    child.type === 'directory' &&
+    shouldIgnoreLoadedQueryChildDirectory({
+      child,
+      folderId,
+      parentDirectoryPath,
+      querySelectionManifest,
+      selectionModel,
+    })
+  ) {
+    return true;
+  }
+
+  // A child directory contributing NOTHING selectable to the visible
+  // universe (zero visible files, nothing selected under it, fully loaded)
+  // must not drag the parent's summary — e.g. a directory the active view
+  // filter emptied while its raw contents remain on disk (spike B5).
+  if (child.type === 'directory') {
+    const childMetadata = directoryTraversalContext.getDirectoryMetadata(child);
+    if (
+      childMetadata.directoryTotalFiles === 0 &&
+      !childMetadata.hasIncompleteDescendants &&
+      (selectedDirectoryCounts.get(child.path) ?? 0) === 0
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function summarizeLoadedChildSelection(args: {
   children: IFileNode[];
   directoryTraversalContext: DirectorySelectionTraversalContext;
@@ -684,32 +755,17 @@ function summarizeLoadedChildSelection(args: {
 
   for (const child of children) {
     if (
-      selectionModel.mode === 'query' &&
-      child.type === 'directory' &&
-      shouldIgnoreLoadedQueryChildDirectory({
+      shouldSkipLoadedChild({
         child,
+        directoryTraversalContext,
         folderId,
         parentDirectoryPath,
         querySelectionManifest,
+        selectedDirectoryCounts,
         selectionModel,
       })
     ) {
       continue;
-    }
-
-    // A child directory contributing NOTHING selectable to the visible
-    // universe (zero visible files, nothing selected under it, fully loaded)
-    // must not drag the parent's summary — e.g. a directory the active view
-    // filter emptied while its raw contents remain on disk (spike B5).
-    if (child.type === 'directory') {
-      const childMetadata = directoryTraversalContext.getDirectoryMetadata(child);
-      if (
-        childMetadata.directoryTotalFiles === 0 &&
-        !childMetadata.hasIncompleteDescendants &&
-        (selectedDirectoryCounts.get(child.path) ?? 0) === 0
-      ) {
-        continue;
-      }
     }
 
     consideredChildren += 1;

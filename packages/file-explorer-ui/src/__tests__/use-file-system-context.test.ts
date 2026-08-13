@@ -1321,3 +1321,59 @@ describe('useFileSystem — cascade delete (Phase 6)', () => {
     expect(result.current.fs.rootDirectoryHandles).toHaveLength(1);
   });
 });
+
+describe('useFileSystem — removeRootDirectory adapter disconnect failures (Fix A)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('a rejected adapter.removeRoot surfaces a toast, logs, and leaves the root connected', async () => {
+    const removeRootFn = vi.fn().mockRejectedValue(new Error('registry disconnect failed'));
+    const adapter = Object.assign(new MockFileSystemAdapter(), { removeRoot: removeRootFn });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        FileExplorerTestWrapper,
+        {
+          mockFileSystemAdapter: adapter,
+          mockStorageAdapter: new MemoryStorageAdapter(),
+        },
+        children
+      );
+    const rendered = renderHook(() => ({ ...useExposed(), toastState: useToast() }), { wrapper });
+
+    const mockHandle: DirectoryHandle = {
+      kind: 'directory',
+      name: 'mock-root',
+      path: 'mock-root',
+      platform: 'web',
+    } as DirectoryHandle;
+    vi.spyOn(MockFileSystemAdapter.prototype, 'requestDirectoryAccess').mockResolvedValue(
+      mockHandle
+    );
+    await act(async () => {
+      await rendered.result.current.fs.selectRootDirectory();
+    });
+    const rootId = rendered.result.current.store.getState().currentFolderId;
+    if (!rootId) {
+      throw new Error('Root was not added');
+    }
+
+    // The registry rejection must not propagate out of removeRootDirectory —
+    // it is caught, toasted, and logged instead (mirrors the deleteRootData
+    // failure path immediately above it).
+    await act(async () => {
+      await rendered.result.current.fs.removeRootDirectory(rootId);
+    });
+
+    expect(removeRootFn).toHaveBeenCalledExactlyOnceWith(rootId);
+    // The root was never removed from local state — the adapter call failed
+    // before the reducer's removeHandle dispatch ever ran.
+    expect(rendered.result.current.fs.rootDirectoryHandles).toHaveLength(1);
+    expect(rendered.result.current.store.getState().activeRootIds).toContain(rootId);
+    const errorToast = rendered.result.current.toastState.toasts.find(
+      (toast) => toast.title === 'Disconnect failed'
+    );
+    expect(errorToast).toBeDefined();
+    expect(errorToast?.variant).toBe('destructive');
+  });
+});

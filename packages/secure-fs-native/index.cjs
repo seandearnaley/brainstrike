@@ -1,7 +1,6 @@
 'use strict';
 
 const bindings = require('bindings');
-const { realpathSync } = require('node:fs');
 
 const { SecureRoot: NativeSecureRoot } = bindings({
   bindings: 'secure_fs_native',
@@ -9,10 +8,19 @@ const { SecureRoot: NativeSecureRoot } = bindings({
 });
 
 class SecureRoot {
+  #canonicalPath;
   #native;
 
   constructor(rootPath) {
-    this.#native = new NativeSecureRoot(realpathSync.native(rootPath));
+    // The native layer is the only resolver: it opens the root (following
+    // symlinks for root establishment only) and derives canonical identity
+    // from the opened handle. No path-based pre-resolution happens here.
+    this.#native = new NativeSecureRoot(rootPath);
+    this.#canonicalPath = this.#native.canonicalPath();
+  }
+
+  get canonicalPath() {
+    return this.#canonicalPath;
   }
 
   close() {
@@ -23,9 +31,17 @@ class SecureRoot {
     return this.#native.listDir(relativePath, maxEntries);
   }
 
+  listDirAsync(relativePath, maxEntries) {
+    return this.#native.listDirAsync(relativePath, maxEntries);
+  }
+
   readFile(relativePath, maxBytes) {
     return this.#native.readFile(relativePath, maxBytes);
   }
+
+  readFileAsync(relativePath, maxBytes) {
+    return this.#native.readFileAsync(relativePath, maxBytes);
+  }
 }
 
-module.exports = { ['SecureRoot']: SecureRoot };
+exports.SecureRoot = SecureRoot;

@@ -140,6 +140,27 @@ describe('file-explorer-utils', () => {
     expect(fileExplorer.getFolderFileCount(root)).toEqual({ count: 2, isComplete: true });
   });
 
+  it('getFolderFileCount ignores a truncated marker child (does not poison isComplete or count)', () => {
+    const file = createFileNode({ name: 'a.ts', path: '/root/a.ts' });
+    const marker = {
+      ...createFileNode({
+        name: 'Showing first 10,000 entries',
+        path: '/root/…truncated…',
+      }),
+      type: 'truncated' as const,
+    };
+    const root = {
+      ...createDirectoryNode({
+        children: [file, marker],
+        name: 'root',
+        path: '/root',
+      }),
+      loadState: 'loaded' as const,
+    };
+
+    expect(fileExplorer.getFolderFileCount(root)).toEqual({ count: 1, isComplete: true });
+  });
+
   it('memoizes file explorer results by node identity', () => {
     const tree = buildSampleTree();
 

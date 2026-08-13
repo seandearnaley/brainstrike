@@ -14,6 +14,7 @@ import {
   File as FileIcon,
   Folder,
   FolderOpen,
+  Info as InfoIcon,
   Link2 as Link2Icon,
   Loader2,
   MoreHorizontal as MoreHorizontalIcon,
@@ -38,6 +39,9 @@ function TreeNodeIcon({ isLoading, nodeType, nodeName, isExpanded }: TreeNodeIco
         size={16}
       />
     );
+  }
+  if (nodeType === 'truncated') {
+    return <InfoIcon className="text-gray-400 dark:text-gray-500" size={16} />;
   }
   if (nodeType === 'file' || nodeType === 'loadMore') {
     return <FileIcon className="text-gray-500 dark:text-gray-400" size={16} />;
@@ -149,7 +153,9 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
             className="h-4 w-4"
             disabled={
               isDirectorySelectionLocked ||
-              (fileNode.type === 'file' && selectionState.wouldExceedLimit)
+              (fileNode.type === 'file' && selectionState.wouldExceedLimit) ||
+              fileNode.type === 'loadMore' ||
+              fileNode.type === 'truncated'
             }
             onCheckedChange={() => onSelectionChange(rowData)}
           />
@@ -180,7 +186,13 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
         {fileNode.isSymbolicLink && (
           <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
         )}
-        <span className="truncate text-sm leading-4 group-hover/file-row:underline">
+        <span
+          className={
+            fileNode.type === 'truncated'
+              ? 'truncate text-gray-400 text-sm italic leading-4 dark:text-gray-500'
+              : 'truncate text-sm leading-4 group-hover/file-row:underline'
+          }
+        >
           {fileNode.name}
         </span>
         {fileNode.type === 'directory' && fileNode.isDepthTruncated && (

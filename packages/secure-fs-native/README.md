@@ -1,24 +1,45 @@
 # `@brainstrike/secure-fs-native`
 
-This package provides a synchronous, read-only filesystem capability for Electron main-process
-code. A `SecureRoot` pins one canonical directory handle. Every descendant directory and file is
-then opened component-by-component relative to that handle; symbolic links/reparse points and
-`..` traversal fail closed.
+A read-only filesystem *capability* for Electron main-process code. A
+`SecureRoot` pins one directory handle; the contract has three dimensions:
 
-The implementation follows the operating-system primitives intended for race-free relative
-resolution:
+**Identity.** The constructor is the only resolver. It opens the requested
+root directly — following symlinks for root establishment only, because root
+paths come from the trusted folder picker or persisted store, never from
+repository content — and derives `canonicalPath` from the opened handle
+(`fcntl(F_GETPATH)` on macOS, `readlink /proc/self/fd` on Linux,
+`GetFinalPathNameByHandle` on Windows). No pre-open path lookup vouches for
+the capability; the pinned object is the authority for its own identity.
 
-- POSIX [`openat`](https://pubs.opengroup.org/onlinepubs/9799919799/functions/open.html) with
-  `O_NOFOLLOW`, plus descriptor-relative `fstatat` enumeration.
-- Windows [`NtCreateFile`](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile)
-  with `OBJECT_ATTRIBUTES.RootDirectory`, `OBJ_DONT_REPARSE`, and
-  `FILE_OPEN_REPARSE_POINT`.
-- Stable [Node-API](https://nodejs.org/api/n-api.html), built with the
-  [Electron native-module workflow](https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules/).
+**Traversal.** Every descendant directory and file is opened
+component-by-component relative to the pinned handle: POSIX
+[`openat`](https://pubs.opengroup.org/onlinepubs/9799919799/functions/open.html)
+with `O_NOFOLLOW`, Windows
+[`NtCreateFile`](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile)
+with `OBJECT_ATTRIBUTES.RootDirectory`, `OBJ_DONT_REPARSE`, and
+`FILE_OPEN_REPARSE_POINT`. Symbolic links/reparse points, `..`, separators
+inside components, and NUL bytes fail closed. Built on stable
+[Node-API](https://nodejs.org/api/n-api.html) via the
+[Electron native-module workflow](https://www.electronjs.org/docs/latest/tutorial/using-native-node-modules/).
 
-There is deliberately no path-based fallback. If the native binding or secure traversal is
-unavailable, callers receive an error/null result and must fail closed.
+**Revocation.** `close()` never blocks: it revokes the capability for *new*
+operations (which fail closed with `null` / `unreadable`) while in-flight
+operations drain against the pinned object; the descriptor is released when
+the last one finishes.
 
-`listDir(relativePath, maxEntries)` bounds enumeration inside the native layer and returns
-`{ entries, inspected, truncated }`; callers must debit `inspected` from their traversal budget.
-`readFile(relativePath, maxBytes)` similarly applies its byte limit before returning content.
+**Concurrency.** Operations do not serialize. Each enumeration owns an
+independent directory cursor (POSIX opens a fresh `.` descriptor relative to
+the root; Windows reopens the root handle-relatively), so concurrent calls
+cannot share or corrupt a cursor, and no lock is held across blocking I/O.
+
+`listDir(relativePath, maxEntries)` bounds enumeration natively and returns
+`{ entries, inspected, truncated }` — `truncated` is a partial-result signal,
+not an error; callers must debit `inspected` from their traversal budget and
+surface truncation visibly. `readFile(relativePath, maxBytes)` applies its
+byte limit before returning content and distinguishes `not-found`,
+`oversized`, and fail-closed `unreadable`. The async methods preserve the
+same contracts on native workers.
+
+There is deliberately no path-based fallback. If the native binding or secure
+traversal is unavailable, callers receive an error/null result and must fail
+closed.

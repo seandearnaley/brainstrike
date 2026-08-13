@@ -1,12 +1,16 @@
 #include <napi.h>
 
-#include <algorithm>
 #include <cerrno>
+#include <climits>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -55,7 +59,15 @@ struct DirEntry {
   std::string name;
   bool is_directory;
   bool is_file;
+  bool is_symbolic_link;
+  uint64_t size;
+  double last_modified;
 };
+
+bool IsWholeNumberInRange(double value, double minimum, double maximum) {
+  return std::isfinite(value) && value >= minimum && value <= maximum &&
+         std::floor(value) == value;
+}
 
 std::vector<std::string> SplitRelativePath(const std::string& path, bool* valid) {
   *valid = false;
@@ -153,6 +165,11 @@ void CloseNativeHandle(NativeHandle handle) {
   }
 }
 
+double WindowsTimeToUnixMilliseconds(const LARGE_INTEGER& value) {
+  constexpr int64_t kWindowsToUnixEpoch100Nanoseconds = 116'444'736'000'000'000LL;
+  return static_cast<double>(value.QuadPart - kWindowsToUnixEpoch100Nanoseconds) / 10'000.0;
+}
+
 bool IsReparsePoint(NativeHandle handle) {
   FILE_ATTRIBUTE_TAG_INFO attributes{};
   return !GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &attributes,
@@ -171,7 +188,10 @@ NtCreateFileFn ResolveNtCreateFile() {
 }
 
 NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name,
-                                   bool directory) {
+                                   bool directory, bool* not_found = nullptr) {
+  if (not_found != nullptr) {
+    *not_found = false;
+  }
   const auto nt_create_file = ResolveNtCreateFile();
   if (nt_create_file == nullptr || name.empty() || name.size() > 32767) {
     return kInvalidHandle;
@@ -196,102 +216,160 @@ NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name
       &result, access, &attributes, &status_block, nullptr, FILE_ATTRIBUTE_NORMAL,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN, options, nullptr, 0);
   if (status < 0 || result == kInvalidHandle || IsReparsePoint(result)) {
+    if (not_found != nullptr) {
+      constexpr NTSTATUS kStatusNoSuchFile = static_cast<NTSTATUS>(0xC000000FUL);
+      constexpr NTSTATUS kStatusObjectNameNotFound = static_cast<NTSTATUS>(0xC0000034UL);
+      constexpr NTSTATUS kStatusObjectPathNotFound = static_cast<NTSTATUS>(0xC000003AUL);
+      *not_found = status == kStatusNoSuchFile || status == kStatusObjectNameNotFound ||
+                   status == kStatusObjectPathNotFound;
+    }
     CloseNativeHandle(result);
     return kInvalidHandle;
   }
   return result;
 }
 
-bool ParseWindowsAbsoluteRoot(const std::wstring& input, std::wstring* prefix,
-                              std::vector<std::wstring>* components) {
-  std::wstring path = input;
-  std::replace(path.begin(), path.end(), L'/', L'\\');
-  size_t cursor = 0;
-  if (path.rfind(L"\\\\?\\UNC\\", 0) == 0 || path.rfind(L"\\\\", 0) == 0) {
-    cursor = path.rfind(L"\\\\?\\UNC\\", 0) == 0 ? 8 : 2;
-    const size_t server_end = path.find(L'\\', cursor);
-    const size_t share_end = server_end == std::wstring::npos
-                                 ? std::wstring::npos
-                                 : path.find(L'\\', server_end + 1);
-    if (server_end == std::wstring::npos) {
-      return false;
+NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path) {
+  std::wstring path = Utf8ToWide(utf8_path);
+  if (path.empty() || path.find(L'\0') != std::wstring::npos) {
+    return kInvalidHandle;
+  }
+  for (wchar_t& character : path) {
+    if (character == L'/') {
+      character = L'\\';
     }
-    const size_t root_end = share_end == std::wstring::npos ? path.size() : share_end + 1;
-    *prefix = path.substr(0, root_end);
-    cursor = root_end;
+  }
+  // Reject anything that is not drive-absolute (X:\..., optionally with the
+  // \\?\ extended-length prefix) or UNC (\\server\share\...): CreateFileW
+  // resolves a relative path against the process CWD, which would silently
+  // widen the trusted root beyond what the caller requested.
+  bool is_absolute;
+  if (path.rfind(L"\\\\?\\UNC\\", 0) == 0) {
+    is_absolute = true;
+  } else if (path.rfind(L"\\\\?\\", 0) == 0) {
+    is_absolute = path.size() >= 7 && path[5] == L':' && path[6] == L'\\';
+  } else if (path.rfind(L"\\\\", 0) == 0) {
+    is_absolute = true;
   } else {
-    const size_t drive_offset = path.rfind(L"\\\\?\\", 0) == 0 ? 4 : 0;
-    if (path.size() < drive_offset + 3 || path[drive_offset + 1] != L':' ||
-        path[drive_offset + 2] != L'\\') {
-      return false;
-    }
-    cursor = drive_offset + 3;
-    *prefix = path.substr(0, cursor);
+    is_absolute = path.size() >= 3 && path[1] == L':' && path[2] == L'\\';
   }
-
-  std::wstring current;
-  for (; cursor <= path.size(); ++cursor) {
-    if (cursor == path.size() || path[cursor] == L'\\') {
-      if (!current.empty()) {
-        components->push_back(current);
-        current.clear();
-      }
-      continue;
-    }
-    current.push_back(path[cursor]);
+  if (!is_absolute) {
+    return kInvalidHandle;
   }
-  return true;
+  const NativeHandle handle = CreateFileW(
+      path.c_str(),
+      FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+      FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+  if (handle == kInvalidHandle) {
+    return kInvalidHandle;
+  }
+  // Without FILE_FLAG_OPEN_REPARSE_POINT the open resolved any reparse points;
+  // the final object must be a plain directory.
+  FILE_BASIC_INFO info{};
+  if (!GetFileInformationByHandleEx(handle, FileBasicInfo, &info, sizeof(info)) ||
+      (info.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+      (info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+    CloseNativeHandle(handle);
+    return kInvalidHandle;
+  }
+  return handle;
 }
 
-NativeHandle OpenAbsoluteDirectory(const std::string& utf8_path) {
-  const std::wstring path = Utf8ToWide(utf8_path);
-  std::wstring prefix;
-  std::vector<std::wstring> components;
-  if (path.empty() || !ParseWindowsAbsoluteRoot(path, &prefix, &components)) {
-    return kInvalidHandle;
-  }
-  NativeHandle current = CreateFileW(
-      prefix.c_str(), FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-  if (current == kInvalidHandle || IsReparsePoint(current)) {
-    CloseNativeHandle(current);
-    return kInvalidHandle;
-  }
-  for (const auto& component : components) {
-    NativeHandle next = OpenRelativeComponent(current, component, true);
-    CloseNativeHandle(current);
-    if (next == kInvalidHandle) {
-      return kInvalidHandle;
+std::string DeriveCanonicalPath(NativeHandle handle) {
+  std::wstring buffer(512, L'\0');
+  for (;;) {
+    const DWORD length = GetFinalPathNameByHandleW(
+        handle, buffer.data(), static_cast<DWORD>(buffer.size()),
+        FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (length == 0) {
+      return {};
     }
-    current = next;
+    if (length < buffer.size()) {
+      buffer.resize(length);
+      break;
+    }
+    buffer.resize(static_cast<size_t>(length) + 1);
   }
-  return current;
+  if (buffer.rfind(L"\\\\?\\UNC\\", 0) == 0) {
+    buffer = L"\\\\" + buffer.substr(8);
+  } else if (buffer.rfind(L"\\\\?\\", 0) == 0) {
+    buffer = buffer.substr(4);
+  }
+  return WideToUtf8(buffer.data(), buffer.size());
 }
 
 NativeHandle OpenRelativeDirectory(NativeHandle root,
-                                   const std::vector<std::string>& components) {
-  NativeHandle current = kInvalidHandle;
-  if (!DuplicateHandle(GetCurrentProcess(), root, GetCurrentProcess(), &current, 0, FALSE,
-                       DUPLICATE_SAME_ACCESS)) {
+                                   const std::vector<std::string>& components,
+                                   bool* not_found = nullptr) {
+  if (not_found != nullptr) {
+    *not_found = false;
+  }
+  if (components.empty()) {
     return kInvalidHandle;
   }
+  bool component_not_found = false;
+  NativeHandle current = root;
+  bool owns_current = false;
   for (const auto& component : components) {
     const std::wstring wide_component = Utf8ToWide(component);
-    NativeHandle next = OpenRelativeComponent(current, wide_component, true);
-    CloseNativeHandle(current);
+    NativeHandle next =
+        OpenRelativeComponent(current, wide_component, true, &component_not_found);
+    if (owns_current) {
+      CloseNativeHandle(current);
+    }
     if (next == kInvalidHandle) {
+      if (not_found != nullptr) {
+        *not_found = component_not_found;
+      }
       return kInvalidHandle;
     }
     current = next;
+    owns_current = true;
   }
   return current;
+}
+
+// Reopens the directory that `root` refers to via a handle-relative open with
+// an empty name, yielding an independent open (and enumeration cursor) on the
+// same directory object. Never resolves through a path. No post-open reparse
+// re-check is needed here: the constructor already rejected a reparse-point
+// root, and a by-handle reopen with an empty name resolves no path component
+// (nothing to re-traverse or re-reparse) — it can only ever hand back the
+// same underlying directory object `root` already refers to.
+NativeHandle ReopenDirectory(NativeHandle root) {
+  const auto nt_create_file = ResolveNtCreateFile();
+  if (nt_create_file == nullptr) {
+    return kInvalidHandle;
+  }
+  UNICODE_STRING empty_name{};
+  static wchar_t kEmpty[] = L"";
+  empty_name.Buffer = kEmpty;
+  empty_name.Length = 0;
+  empty_name.MaximumLength = sizeof(kEmpty);
+  OBJECT_ATTRIBUTES attributes{};
+  InitializeObjectAttributes(&attributes, &empty_name,
+                             OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE, root, nullptr);
+  IO_STATUS_BLOCK status_block{};
+  HANDLE result = kInvalidHandle;
+  const NTSTATUS status = nt_create_file(
+      &result,
+      FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+      &attributes, &status_block, nullptr, FILE_ATTRIBUTE_NORMAL,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+      FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_REPARSE_POINT | FILE_DIRECTORY_FILE,
+      nullptr, 0);
+  if (status < 0 || result == kInvalidHandle) {
+    return kInvalidHandle;
+  }
+  return result;
 }
 
 bool ListDirectory(NativeHandle root, const std::vector<std::string>& components,
                    size_t max_entries, std::vector<DirEntry>* entries, size_t* inspected,
                    bool* truncated) {
-  NativeHandle directory = OpenRelativeDirectory(root, components);
+  NativeHandle directory =
+      components.empty() ? ReopenDirectory(root) : OpenRelativeDirectory(root, components);
   if (directory == kInvalidHandle) {
     return false;
   }
@@ -322,13 +400,19 @@ bool ListDirectory(NativeHandle root, const std::vector<std::string>& components
         }
         *inspected += 1;
       }
-      if (name != L"." && name != L".." &&
-          (information->FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0) {
+      if (name != L"." && name != L"..") {
         const std::string utf8_name = WideToUtf8(name.data(), name.size());
         if (!utf8_name.empty()) {
-          const bool is_directory =
+          const bool is_symbolic_link =
+              (information->FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+          const bool is_directory = !is_symbolic_link &&
               (information->FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-          entries->push_back({utf8_name, is_directory, !is_directory});
+          const bool is_file = !is_symbolic_link && !is_directory;
+          entries->push_back({utf8_name, is_directory, is_file, is_symbolic_link,
+                              is_file ? static_cast<uint64_t>(information->EndOfFile.QuadPart) : 0,
+                              is_file
+                                  ? WindowsTimeToUnixMilliseconds(information->LastWriteTime)
+                                  : 0.0});
         }
       }
       if (information->NextEntryOffset == 0) {
@@ -339,7 +423,7 @@ bool ListDirectory(NativeHandle root, const std::vector<std::string>& components
   }
 }
 
-enum class ReadStatus { kOk, kOversized, kUnreadable };
+enum class ReadStatus { kNotFound, kOk, kOversized, kUnreadable };
 
 ReadStatus ReadRelativeFile(NativeHandle root, const std::vector<std::string>& components,
                             size_t max_bytes, std::vector<uint8_t>* content) {
@@ -347,14 +431,20 @@ ReadStatus ReadRelativeFile(NativeHandle root, const std::vector<std::string>& c
     return ReadStatus::kUnreadable;
   }
   std::vector<std::string> parent_components(components.begin(), components.end() - 1);
-  NativeHandle parent = OpenRelativeDirectory(root, parent_components);
+  bool not_found = false;
+  const bool borrowed_root = parent_components.empty();
+  NativeHandle parent =
+      borrowed_root ? root : OpenRelativeDirectory(root, parent_components, &not_found);
   if (parent == kInvalidHandle) {
-    return ReadStatus::kUnreadable;
+    return not_found ? ReadStatus::kNotFound : ReadStatus::kUnreadable;
   }
-  NativeHandle file = OpenRelativeComponent(parent, Utf8ToWide(components.back()), false);
-  CloseNativeHandle(parent);
+  NativeHandle file =
+      OpenRelativeComponent(parent, Utf8ToWide(components.back()), false, &not_found);
+  if (!borrowed_root) {
+    CloseNativeHandle(parent);
+  }
   if (file == kInvalidHandle) {
-    return ReadStatus::kUnreadable;
+    return not_found ? ReadStatus::kNotFound : ReadStatus::kUnreadable;
   }
   FILE_STANDARD_INFO information{};
   if (!GetFileInformationByHandleEx(file, FileStandardInfo, &information, sizeof(information))) {
@@ -399,41 +489,75 @@ void CloseNativeHandle(NativeHandle handle) {
 }
 
 NativeHandle OpenAbsoluteDirectory(const std::string& path) {
-  if (path.empty() || path.front() != '/') {
+  if (path.empty() || path.front() != '/' || path.find('\0') != std::string::npos) {
     return kInvalidHandle;
   }
-  bool valid = false;
-  const auto components = SplitRelativePath(path.substr(1), &valid);
-  if (!valid) {
-    return kInvalidHandle;
-  }
-  NativeHandle current = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-  if (current == kInvalidHandle) {
-    return kInvalidHandle;
-  }
-  for (const auto& component : components) {
-    const NativeHandle next =
-        openat(current, component.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
-    CloseNativeHandle(current);
-    if (next == kInvalidHandle) {
-      return kInvalidHandle;
-    }
-    current = next;
-  }
-  return current;
+  // Root establishment follows symlinks by design: the path comes from the
+  // trusted folder picker or persisted store, never from repository content.
+  // Descendant resolution below this handle remains strictly no-follow.
+  return open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 }
 
+#ifdef __APPLE__
+std::string DeriveCanonicalPath(NativeHandle handle) {
+  char buffer[PATH_MAX];
+  if (fcntl(handle, F_GETPATH, buffer) == -1) {
+    return {};
+  }
+  return std::string(buffer);
+}
+#else
+std::string DeriveCanonicalPath(NativeHandle handle) {
+  const std::string link = "/proc/self/fd/" + std::to_string(handle);
+  std::string buffer(512, '\0');
+  for (;;) {
+    const ssize_t length = readlink(link.c_str(), buffer.data(), buffer.size());
+    if (length < 0) {
+      return {};
+    }
+    if (static_cast<size_t>(length) < buffer.size()) {
+      buffer.resize(static_cast<size_t>(length));
+      break;
+    }
+    buffer.resize(buffer.size() * 2);
+  }
+  // The kernel appends this suffix when the target was unlinked between open
+  // and readlink; the string is no longer a real path, so fail closed rather
+  // than key identity off a corrupted value.
+  constexpr std::string_view kDeletedSuffix = " (deleted)";
+  if (buffer.size() >= kDeletedSuffix.size() &&
+      buffer.compare(buffer.size() - kDeletedSuffix.size(), kDeletedSuffix.size(),
+                     kDeletedSuffix) == 0) {
+    return {};
+  }
+  return buffer;
+}
+#endif
+
 NativeHandle OpenRelativeDirectory(NativeHandle root,
-                                   const std::vector<std::string>& components) {
-  NativeHandle current = dup(root);
+                                   const std::vector<std::string>& components,
+                                   bool* not_found = nullptr) {
+  if (not_found != nullptr) {
+    *not_found = false;
+  }
+  // `dup` would share the directory offset with the pinned root's open-file
+  // description. Opening `.` relative to the pinned descriptor creates an
+  // independent description so concurrent/repeated listings cannot consume
+  // one another's readdir position.
+  NativeHandle current =
+      openat(root, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
   if (current == kInvalidHandle) {
     return kInvalidHandle;
   }
   for (const auto& component : components) {
     const NativeHandle next =
         openat(current, component.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    const int open_error = errno;
     CloseNativeHandle(current);
     if (next == kInvalidHandle) {
+      if (not_found != nullptr) {
+        *not_found = open_error == ENOENT;
+      }
       return kInvalidHandle;
     }
     current = next;
@@ -475,14 +599,25 @@ bool ListDirectory(NativeHandle root, const std::vector<std::string>& components
     if (fstatat(dirfd(directory), entry->d_name, &information, AT_SYMLINK_NOFOLLOW) != 0) {
       continue;
     }
-    entries->push_back(
-        {entry->d_name, S_ISDIR(information.st_mode), S_ISREG(information.st_mode)});
+    const bool is_directory = S_ISDIR(information.st_mode);
+    const bool is_file = S_ISREG(information.st_mode);
+    const bool is_symbolic_link = S_ISLNK(information.st_mode);
+#ifdef __APPLE__
+    const double last_modified = static_cast<double>(information.st_mtimespec.tv_sec) * 1000.0 +
+                                 static_cast<double>(information.st_mtimespec.tv_nsec) / 1'000'000.0;
+#else
+    const double last_modified = static_cast<double>(information.st_mtim.tv_sec) * 1000.0 +
+                                 static_cast<double>(information.st_mtim.tv_nsec) / 1'000'000.0;
+#endif
+    entries->push_back({entry->d_name, is_directory, is_file, is_symbolic_link,
+                        is_file ? static_cast<uint64_t>(information.st_size) : 0,
+                        is_file ? last_modified : 0.0});
   }
   closedir(directory);
   return succeeded;
 }
 
-enum class ReadStatus { kOk, kOversized, kUnreadable };
+enum class ReadStatus { kNotFound, kOk, kOversized, kUnreadable };
 
 ReadStatus ReadRelativeFile(NativeHandle root, const std::vector<std::string>& components,
                             size_t max_bytes, std::vector<uint8_t>* content) {
@@ -490,15 +625,17 @@ ReadStatus ReadRelativeFile(NativeHandle root, const std::vector<std::string>& c
     return ReadStatus::kUnreadable;
   }
   std::vector<std::string> parent_components(components.begin(), components.end() - 1);
-  NativeHandle parent = OpenRelativeDirectory(root, parent_components);
+  bool not_found = false;
+  NativeHandle parent = OpenRelativeDirectory(root, parent_components, &not_found);
   if (parent == kInvalidHandle) {
-    return ReadStatus::kUnreadable;
+    return not_found ? ReadStatus::kNotFound : ReadStatus::kUnreadable;
   }
   const NativeHandle file =
       openat(parent, components.back().c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  const int open_error = errno;
   CloseNativeHandle(parent);
   if (file == kInvalidHandle) {
-    return ReadStatus::kUnreadable;
+    return open_error == ENOENT ? ReadStatus::kNotFound : ReadStatus::kUnreadable;
   }
   struct stat information {};
   if (fstat(file, &information) != 0 || !S_ISREG(information.st_mode)) {
@@ -535,53 +672,208 @@ ReadStatus ReadRelativeFile(NativeHandle root, const std::vector<std::string>& c
 
 #endif
 
+Napi::Object BuildListResult(Napi::Env env, const std::vector<DirEntry>& entries,
+                             size_t inspected, bool truncated) {
+  const Napi::Object result = Napi::Object::New(env);
+  const Napi::Array result_entries = Napi::Array::New(env, entries.size());
+  for (size_t index = 0; index < entries.size(); ++index) {
+    const DirEntry& source = entries[index];
+    Napi::Object entry = Napi::Object::New(env);
+    entry.Set("name", source.name);
+    entry.Set("isDirectory", source.is_directory);
+    entry.Set("isFile", source.is_file);
+    entry.Set("isSymbolicLink", source.is_symbolic_link);
+    if (source.is_file) {
+      entry.Set("size", Napi::Number::New(env, static_cast<double>(source.size)));
+      entry.Set("lastModified", Napi::Number::New(env, source.last_modified));
+    }
+    result_entries.Set(index, entry);
+  }
+  result.Set("entries", result_entries);
+  result.Set("inspected", inspected);
+  result.Set("truncated", truncated);
+  return result;
+}
+
+Napi::Object BuildReadResult(Napi::Env env, ReadStatus status,
+                             const std::vector<uint8_t>& content) {
+  Napi::Object result = Napi::Object::New(env);
+  if (status == ReadStatus::kOversized) {
+    result.Set("status", "oversized");
+  } else if (status == ReadStatus::kNotFound) {
+    result.Set("status", "not-found");
+  } else if (status == ReadStatus::kOk) {
+    result.Set("status", "ok");
+    result.Set("content", Napi::Buffer<uint8_t>::Copy(env, content.data(), content.size()));
+  } else {
+    result.Set("status", "unreadable");
+  }
+  return result;
+}
+
+struct RootHandle {
+  explicit RootHandle(NativeHandle opened) : handle(opened) {}
+  RootHandle(const RootHandle&) = delete;
+  RootHandle& operator=(const RootHandle&) = delete;
+  ~RootHandle() { CloseNativeHandle(handle); }
+  const NativeHandle handle;
+};
+
+struct RootState {
+  explicit RootState(NativeHandle opened_root)
+      : handle_(std::make_shared<const RootHandle>(opened_root)) {}
+
+  // Snapshot the pinned handle. Null after Close(). The descriptor stays open
+  // until the last snapshot is released, so in-flight operations drain against
+  // the pinned object instead of racing a close.
+  std::shared_ptr<const RootHandle> Acquire() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return handle_;
+  }
+
+  void Close() {
+    std::shared_ptr<const RootHandle> released;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      released.swap(handle_);
+    }  // ~RootHandle (and the close syscall) runs here, outside the lock
+  }
+
+ private:
+  std::shared_ptr<const RootHandle> handle_;
+  std::mutex mutex_;  // guards the pointer slot only; never held across I/O
+};
+
+class ListDirWorker final : public Napi::AsyncWorker {
+ public:
+  ListDirWorker(Napi::Env env, Napi::Promise::Deferred deferred,
+                std::shared_ptr<RootState> state,
+                std::vector<std::string> components, size_t max_entries)
+      : Napi::AsyncWorker(env, "brainstrike:secure-fs:list-dir"),
+        deferred_(deferred),
+        state_(std::move(state)),
+        components_(std::move(components)),
+        max_entries_(max_entries) {}
+
+  void Execute() override {
+    const auto root = state_->Acquire();
+    if (root) {
+      succeeded_ = ListDirectory(root->handle, components_, max_entries_, &entries_, &inspected_,
+                                 &truncated_);
+    }
+  }
+
+  void OnOK() override {
+    if (!succeeded_) {
+      deferred_.Resolve(Env().Null());
+      return;
+    }
+    deferred_.Resolve(BuildListResult(Env(), entries_, inspected_, truncated_));
+  }
+
+  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+
+ private:
+  Napi::Promise::Deferred deferred_;
+  std::shared_ptr<RootState> state_;
+  std::vector<std::string> components_;
+  size_t max_entries_;
+  std::vector<DirEntry> entries_;
+  size_t inspected_ = 0;
+  bool truncated_ = false;
+  bool succeeded_ = false;
+};
+
+class ReadFileWorker final : public Napi::AsyncWorker {
+ public:
+  ReadFileWorker(Napi::Env env, Napi::Promise::Deferred deferred,
+                 std::shared_ptr<RootState> state,
+                 std::vector<std::string> components, size_t max_bytes)
+      : Napi::AsyncWorker(env, "brainstrike:secure-fs:read-file"),
+        deferred_(deferred),
+        state_(std::move(state)),
+        components_(std::move(components)),
+        max_bytes_(max_bytes) {}
+
+  void Execute() override {
+    const auto root = state_->Acquire();
+    if (root) {
+      status_ = ReadRelativeFile(root->handle, components_, max_bytes_, &content_);
+    }
+  }
+
+  void OnOK() override { deferred_.Resolve(BuildReadResult(Env(), status_, content_)); }
+
+  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+
+ private:
+  Napi::Promise::Deferred deferred_;
+  std::shared_ptr<RootState> state_;
+  std::vector<std::string> components_;
+  size_t max_bytes_;
+  std::vector<uint8_t> content_;
+  ReadStatus status_ = ReadStatus::kUnreadable;
+};
+
 class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
  public:
   static Napi::Object Init(Napi::Env env, Napi::Object exports) {
     const Napi::Function constructor = DefineClass(
         env, "SecureRoot",
         {InstanceMethod("close", &SecureRoot::Close), InstanceMethod("listDir", &SecureRoot::ListDir),
-         InstanceMethod("readFile", &SecureRoot::ReadFile)});
+         InstanceMethod("listDirAsync", &SecureRoot::ListDirAsync),
+         InstanceMethod("readFile", &SecureRoot::ReadFile),
+         InstanceMethod("readFileAsync", &SecureRoot::ReadFileAsync),
+         InstanceMethod("canonicalPath", &SecureRoot::CanonicalPath)});
     exports.Set("SecureRoot", constructor);
     return exports;
   }
 
-  explicit SecureRoot(const Napi::CallbackInfo& info)
-      : Napi::ObjectWrap<SecureRoot>(info), root_(kInvalidHandle) {
+  explicit SecureRoot(const Napi::CallbackInfo& info) : Napi::ObjectWrap<SecureRoot>(info) {
     if (info.Length() != 1 || !info[0].IsString()) {
       Napi::TypeError::New(info.Env(), "SecureRoot requires one absolute root path")
           .ThrowAsJavaScriptException();
       return;
     }
-    root_ = OpenAbsoluteDirectory(info[0].As<Napi::String>().Utf8Value());
-    if (root_ == kInvalidHandle) {
+    const NativeHandle root = OpenAbsoluteDirectory(info[0].As<Napi::String>().Utf8Value());
+    if (root == kInvalidHandle) {
       Napi::Error::New(info.Env(), "Failed to open secure filesystem root")
           .ThrowAsJavaScriptException();
+      return;
     }
+    canonical_path_ = DeriveCanonicalPath(root);
+    if (canonical_path_.empty()) {
+      CloseNativeHandle(root);
+      Napi::Error::New(info.Env(),
+                       "Failed to derive canonical identity from the opened root handle")
+          .ThrowAsJavaScriptException();
+      return;
+    }
+    state_ = std::make_shared<RootState>(root);
   }
 
-  ~SecureRoot() override { CloseHandleIfOpen(); }
+  ~SecureRoot() override = default;
 
  private:
-  void CloseHandleIfOpen() {
-    CloseNativeHandle(root_);
-    root_ = kInvalidHandle;
+  Napi::Value CanonicalPath(const Napi::CallbackInfo& info) {
+    return Napi::String::New(info.Env(), canonical_path_);
   }
 
   Napi::Value Close(const Napi::CallbackInfo& info) {
-    CloseHandleIfOpen();
+    if (state_) {
+      state_->Close();
+    }
     return info.Env().Undefined();
   }
 
   Napi::Value ListDir(const Napi::CallbackInfo& info) {
     const Napi::Env env = info.Env();
-    if (root_ == kInvalidHandle || info.Length() != 2 || !info[0].IsString() ||
+    if (!state_ || info.Length() != 2 || !info[0].IsString() ||
         !info[1].IsNumber()) {
       return env.Null();
     }
     const double requested_limit = info[1].As<Napi::Number>().DoubleValue();
-    if (requested_limit < 1 || requested_limit > 10'000 ||
-        requested_limit != static_cast<size_t>(requested_limit)) {
+    if (!IsWholeNumberInRange(requested_limit, 1, 10'000)) {
       return env.Null();
     }
     bool valid = false;
@@ -589,59 +881,84 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
     std::vector<DirEntry> entries;
     size_t inspected = 0;
     bool truncated = false;
-    if (!valid || !ListDirectory(root_, components, static_cast<size_t>(requested_limit), &entries,
-                                 &inspected, &truncated)) {
+    const auto root = state_->Acquire();
+    if (!valid || !root ||
+        !ListDirectory(root->handle, components, static_cast<size_t>(requested_limit), &entries,
+                       &inspected, &truncated)) {
       return env.Null();
     }
-    const Napi::Object result = Napi::Object::New(env);
-    const Napi::Array result_entries = Napi::Array::New(env, entries.size());
-    for (size_t index = 0; index < entries.size(); ++index) {
-      Napi::Object entry = Napi::Object::New(env);
-      entry.Set("name", entries[index].name);
-      entry.Set("isDirectory", entries[index].is_directory);
-      entry.Set("isFile", entries[index].is_file);
-      result_entries.Set(index, entry);
+    return BuildListResult(env, entries, inspected, truncated);
+  }
+
+  Napi::Value ListDirAsync(const Napi::CallbackInfo& info) {
+    const Napi::Env env = info.Env();
+    const auto deferred = Napi::Promise::Deferred::New(env);
+    if (!state_ || info.Length() != 2 || !info[0].IsString() ||
+        !info[1].IsNumber()) {
+      deferred.Resolve(env.Null());
+      return deferred.Promise();
     }
-    result.Set("entries", result_entries);
-    result.Set("inspected", inspected);
-    result.Set("truncated", truncated);
-    return result;
+    const double requested_limit = info[1].As<Napi::Number>().DoubleValue();
+    bool valid = false;
+    auto components = SplitRelativePath(info[0].As<Napi::String>().Utf8Value(), &valid);
+    if (!valid || !IsWholeNumberInRange(requested_limit, 1, 10'000)) {
+      deferred.Resolve(env.Null());
+      return deferred.Promise();
+    }
+    (new ListDirWorker(env, deferred, state_, std::move(components),
+                       static_cast<size_t>(requested_limit)))
+        ->Queue();
+    return deferred.Promise();
   }
 
   Napi::Value ReadFile(const Napi::CallbackInfo& info) {
     const Napi::Env env = info.Env();
     Napi::Object result = Napi::Object::New(env);
-    if (root_ == kInvalidHandle || info.Length() != 2 || !info[0].IsString() ||
+    if (!state_ || info.Length() != 2 || !info[0].IsString() ||
         !info[1].IsNumber()) {
       result.Set("status", "unreadable");
       return result;
     }
     const double requested_max = info[1].As<Napi::Number>().DoubleValue();
-    if (requested_max < 0 || requested_max > 16 * 1024 * 1024 ||
-        requested_max != static_cast<size_t>(requested_max)) {
+    if (!IsWholeNumberInRange(requested_max, 0, 16 * 1024 * 1024)) {
       result.Set("status", "unreadable");
       return result;
     }
     bool valid = false;
     const auto components = SplitRelativePath(info[0].As<Napi::String>().Utf8Value(), &valid);
     std::vector<uint8_t> content;
+    const auto root = state_->Acquire();
     const ReadStatus status =
-        valid ? ReadRelativeFile(root_, components, static_cast<size_t>(requested_max), &content)
-              : ReadStatus::kUnreadable;
-    if (status == ReadStatus::kOversized) {
-      result.Set("status", "oversized");
-      return result;
-    }
-    if (status != ReadStatus::kOk) {
-      result.Set("status", "unreadable");
-      return result;
-    }
-    result.Set("status", "ok");
-    result.Set("content", Napi::Buffer<uint8_t>::Copy(env, content.data(), content.size()));
-    return result;
+        valid && root
+            ? ReadRelativeFile(root->handle, components, static_cast<size_t>(requested_max),
+                               &content)
+            : ReadStatus::kUnreadable;
+    return BuildReadResult(env, status, content);
   }
 
-  NativeHandle root_;
+  Napi::Value ReadFileAsync(const Napi::CallbackInfo& info) {
+    const Napi::Env env = info.Env();
+    const auto deferred = Napi::Promise::Deferred::New(env);
+    if (!state_ || info.Length() != 2 || !info[0].IsString() ||
+        !info[1].IsNumber()) {
+      deferred.Resolve(BuildReadResult(env, ReadStatus::kUnreadable, {}));
+      return deferred.Promise();
+    }
+    const double requested_max = info[1].As<Napi::Number>().DoubleValue();
+    bool valid = false;
+    auto components = SplitRelativePath(info[0].As<Napi::String>().Utf8Value(), &valid);
+    if (!valid || !IsWholeNumberInRange(requested_max, 0, 16 * 1024 * 1024)) {
+      deferred.Resolve(BuildReadResult(env, ReadStatus::kUnreadable, {}));
+      return deferred.Promise();
+    }
+    (new ReadFileWorker(env, deferred, state_, std::move(components),
+                        static_cast<size_t>(requested_max)))
+        ->Queue();
+    return deferred.Promise();
+  }
+
+  std::shared_ptr<RootState> state_;
+  std::string canonical_path_;
 };
 
 Napi::Object InitModule(Napi::Env env, Napi::Object exports) {

@@ -807,12 +807,21 @@ one" comment):
     the desktop boot restore (`runMultiRootRestore` in
     `packages/file-explorer-hooks/src/use-file-system.ts`) rebuilds
     `activeRootIds`/`rootDescriptors` from a SEPARATE main-process-persisted
-    `rootsList` (`apps/desktop/src/ipc-domains/file-system-ipc.ts`), which is
-    plain add-order and has NO notion of Main. `setActiveRoots` is therefore
+    `rootsList`, owned only by
+    `apps/desktop/src/ipc-domains/workspace-root-registry.ts`, which is plain
+    add-order and has NO notion of Main. IPC and the renderer are projections:
+    add/restore/disconnect complete in that registry before renderer state
+    changes. A rejected disconnect leaves renderer state intact. Unavailable or
+    transiently unmountable entries remain persisted with
+    `permissionState:'unknown'`; they are retried later and excluded from the
+    mounted capability set and DB live-root convergence. The legacy
+    `lastFolderPath` is presentation-only and may reference only an
+    already-persisted mounted root; it never inserts or removes roots.
+    `setActiveRoots` is therefore
     ORDER-PRESERVING, not a blind overwrite: ids still reported keep their
     existing relative order from the already-rehydrated store (the Main slot
     survives), a newly-reported id not previously known appends at the END,
-    and an id no longer reported (pruned as missing-on-disk) drops out. This
+    and an id no longer reported as granted drops out. This
     is what makes the storage-v5 "persisting the order persists the choice"
     claim above actually hold across a restart — without it, `runMultiRootRestore`
     calling `setActiveRoots(storedDescriptors)` after hydration would silently

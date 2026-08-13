@@ -692,6 +692,10 @@ const RootSectionInner = ({
       setIsDisconnectDialogOpen(false);
       // Legacy roots without a RootId use their path AS the id (matches
       // removeRootDirectory's path-doubles-as-id resolution).
+      // Fire-and-forget is safe here: removeRootDirectory (use-file-system-
+      // context.ts) catches every failure path internally (deletion AND
+      // adapter disconnect) and surfaces a toast instead of rejecting, so
+      // there is no unhandled-rejection path to `.catch` here.
       void onRemoveRoot?.(rootIdentity, options);
     },
     [onRemoveRoot, rootIdentity]

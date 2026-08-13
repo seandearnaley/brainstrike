@@ -1,18 +1,15 @@
 import path from 'node:path';
-import { AccessError, type DirectoryHandle, type FileHandle } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Capture registered handlers
 type IpcHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 const handlers = new Map<string, IpcHandler>();
 
 vi.mock('electron', () => ({
-  app: {
-    getPath: vi.fn(() => '/Users/test/Documents'),
-  },
+  app: { getPath: vi.fn(() => '/Users/test/Documents') },
   ipcMain: {
     handle: vi.fn((channel: string, listener: IpcHandler) => {
       handlers.set(channel, listener);
@@ -22,281 +19,134 @@ vi.mock('electron', () => ({
 
 import { registerIpcHandlers } from '../../ipc-handlers';
 
-describe('ipc-handlers filesystem endpoints', () => {
-  let fsAdapter: ElectronFileSystemAdapter;
+describe('ipc-handlers filesystem composition', () => {
+  let fileSystem: ElectronFileSystemAdapter;
   let storage: ElectronStorageAdapter;
-  let store: Record<string, unknown>;
+  let storedValues: Map<string, string>;
 
   beforeEach(() => {
     handlers.clear();
-    vi.resetModules();
     vi.clearAllMocks();
-
-    fsAdapter = {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('ELECTRON_IS_E2E_TEST', '');
+    storedValues = new Map();
+    fileSystem = {
       exists: vi.fn(async () => true),
       readDirectory: vi.fn(async () => []),
-      readFile: vi.fn(async () => 'ok'),
-      readFileByPath: vi.fn(async () => 'file content by path'),
-      requestDirectoryAccess: vi.fn(
-        async () =>
-          ({
-            id: 'real-dir',
-            kind: 'directory',
-            name: 'real',
-            path: '/real',
-            type: 'directory',
-          }) as unknown as DirectoryHandle
-      ),
+      readFile: vi.fn(async () => 'file content'),
+      readFileByPath: vi.fn(async () => 'unsafe raw content'),
+      requestDirectoryAccess: vi.fn(async () => ({
+        kind: 'directory',
+        name: 'docs',
+        path: '/users/test/docs',
+        platform: 'electron',
+      })),
       watchDirectory: vi.fn(),
     } as unknown as ElectronFileSystemAdapter;
-
     storage = {
-      clear: vi.fn(),
-      getAllKeys: vi.fn(),
-      getItem: vi.fn(),
-      removeItem: vi.fn(),
-      setItem: vi.fn(),
+      clear: vi.fn(async () => storedValues.clear()),
+      getAllKeys: vi.fn(async () => [...storedValues.keys()]),
+      getItem: vi.fn(async (key: string) => storedValues.get(key) ?? null),
+      removeItem: vi.fn(async (key: string) => storedValues.delete(key)),
+      setItem: vi.fn(async (key: string, value: string) => {
+        storedValues.set(key, value);
+      }),
     } as unknown as ElectronStorageAdapter;
-
-    store = {};
-
-    registerIpcHandlers(fsAdapter, storage, store as never);
+    registerIpcHandlers(fileSystem, storage, () => null);
   });
 
-  it('fs:requestDirectoryAccess returns mock handle in test mode', async () => {
-    process.env['ELECTRON_IS_E2E_TEST'] = 'true';
-    const handler = handlers.get('fs:requestDirectoryAccess');
-    const result = await handler?.({} as unknown as IpcMainInvokeEvent);
-    expect(result).toMatchObject({ id: 'mock-directory-handle', kind: 'directory' });
-    process.env['ELECTRON_IS_E2E_TEST'] = undefined;
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
-  it('fs:requestDirectoryAccess proxies to adapter when not test mode', async () => {
-    const prevElectronTest = process.env['ELECTRON_IS_E2E_TEST'];
-    const prevNodeEnv = process.env['NODE_ENV'];
-    process.env['ELECTRON_IS_E2E_TEST'] = undefined;
-    process.env['NODE_ENV'] = 'development';
+  async function mountRoot(): Promise<DirectoryHandle> {
+    return (await handlers.get('fs:requestDirectoryAccess')?.(
+      {} as IpcMainInvokeEvent
+    )) as DirectoryHandle;
+  }
 
-    const handler = handlers.get('fs:requestDirectoryAccess');
-    const result = await handler?.({} as unknown as IpcMainInvokeEvent);
-    expect(fsAdapter.requestDirectoryAccess).toHaveBeenCalled();
-    expect(result).toMatchObject({ id: 'real-dir' });
+  it('registers and mounts a selected real root before returning its handle', async () => {
+    const handle = await mountRoot();
 
-    if (prevElectronTest !== undefined) {
-      process.env['ELECTRON_IS_E2E_TEST'] = prevElectronTest;
-    }
-    if (prevNodeEnv !== undefined) {
-      process.env['NODE_ENV'] = prevNodeEnv;
-    }
+    expect(fileSystem.requestDirectoryAccess).toHaveBeenCalledOnce();
+    expect(handle).toMatchObject({
+      path: path.resolve('/users/test/docs'),
+      rootId: expect.any(String),
+    });
+    expect(storedValues.get('rootsList')).toContain(handle.rootId);
   });
 
-  it('fs:readDirectory returns canned listing for mock handle', async () => {
-    const handler = handlers.get('fs:readDirectory');
-    const mockHandle = { id: 'mock-directory-handle' } as unknown as DirectoryHandle;
-    const items = await handler?.({} as unknown as IpcMainInvokeEvent, mockHandle);
+  it('keeps the E2E mock path isolated from the real adapter', async () => {
+    vi.stubEnv('ELECTRON_IS_E2E_TEST', 'true');
 
-    // Should match the structure returned by getMockDirectoryStructure
-    const rootPath = '/mock/test/directory';
-    expect(items).toEqual([
-      {
-        depth: 1,
-        handle: {
-          id: 'mock-file-1',
-          kind: 'file',
-          name: 'mock-file1.txt',
-          path: `${rootPath}/mock-file1.txt`,
-          platform: 'electron',
-        },
-        name: 'mock-file1.txt',
-        path: `${rootPath}/mock-file1.txt`,
-        rootFolderId: 'mock-directory-handle',
-        selectionState: 'unchecked',
-        size: 100,
-        type: 'file',
-      },
-      {
-        depth: 1,
-        handle: {
-          id: 'mock-file-2',
-          kind: 'file',
-          name: 'mock-file2.ts',
-          path: `${rootPath}/mock-file2.ts`,
-          platform: 'electron',
-        },
-        name: 'mock-file2.ts',
-        path: `${rootPath}/mock-file2.ts`,
-        rootFolderId: 'mock-directory-handle',
-        selectionState: 'unchecked',
-        size: 250,
-        type: 'file',
-      },
-      {
-        children: [],
-        depth: 1,
-        handle: {
-          id: 'mock-subfolder',
-          kind: 'directory',
-          name: 'mock-subfolder',
-          path: `${rootPath}/mock-subfolder`,
-          platform: 'electron',
-        },
-        name: 'mock-subfolder',
-        path: `${rootPath}/mock-subfolder`,
-        rootFolderId: 'mock-directory-handle',
-        selectionState: 'unchecked',
-        type: 'directory',
-      },
-    ]);
-  });
+    const handle = await mountRoot();
+    const entries = await handlers.get('fs:readDirectory')?.({} as IpcMainInvokeEvent, handle);
+    const content = await handlers.get('fs:readFile')?.({} as IpcMainInvokeEvent, {
+      kind: 'file',
+      name: 'file.txt',
+      path: '/mock/test/directory/file.txt',
+      platform: 'electron',
+      rootId: handle.rootId,
+    } satisfies FileHandle);
 
-  it('fs:readDirectory proxies to adapter for real handle', async () => {
-    const handler = handlers.get('fs:readDirectory');
-    const resolvedPath = path.resolve('/users/test/docs');
-    const realHandle = {
-      id: 'real',
-      kind: 'directory',
-      path: '/users/test/docs',
-    } as unknown as DirectoryHandle;
-    await handler?.({} as unknown as IpcMainInvokeEvent, realHandle);
-    expect(fsAdapter.readDirectory).toHaveBeenCalledWith({ ...realHandle, path: resolvedPath });
-  });
-
-  it('fs:readFile returns canned content for mock file handle', async () => {
-    const handler = handlers.get('fs:readFile');
-    const mockFile = { id: 'mock-file-123' } as unknown as FileHandle;
-    const content = await handler?.({} as unknown as IpcMainInvokeEvent, mockFile);
+    expect(handle).toMatchObject({
+      path: '/mock/test/directory',
+      rootId: expect.any(String),
+    });
+    expect(entries).toHaveLength(3);
     expect(String(content)).toContain('Mock file content for testing');
+    expect(fileSystem.requestDirectoryAccess).not.toHaveBeenCalled();
+    expect(fileSystem.readDirectory).not.toHaveBeenCalled();
+    expect(fileSystem.readFile).not.toHaveBeenCalled();
   });
 
-  it('fs:readFile proxies to adapter for real file handle', async () => {
-    const handler = handlers.get('fs:readFile');
-    const resolvedPath = path.resolve('/users/test/docs/file.txt');
-    const realFile = {
-      id: 'real-file',
+  it('routes mounted reads through the registry and never through raw readFileByPath', async () => {
+    const root = await mountRoot();
+    const file = {
+      kind: 'file',
+      name: 'file.txt',
       path: '/users/test/docs/file.txt',
-    } as unknown as FileHandle;
-    await handler?.({} as unknown as IpcMainInvokeEvent, realFile);
-    expect(fsAdapter.readFile).toHaveBeenCalledWith({ ...realFile, path: resolvedPath });
-  });
+      platform: 'electron',
+      rootId: root.rootId,
+    } satisfies FileHandle;
 
-  it('fs:readFile returns structured size-limit payload for oversized files', async () => {
-    const handler = handlers.get('fs:readFile');
-    const realFile = { id: 'real-file', path: '/users/test/large.json' } as unknown as FileHandle;
-    vi.mocked(fsAdapter.readFile).mockRejectedValueOnce(
-      new AccessError('File too large: 1.1MB (max: 750KB)', '/users/test/large.json', 'read')
+    await expect(
+      handlers.get('fs:readDirectory')?.({} as IpcMainInvokeEvent, root)
+    ).resolves.toEqual([]);
+    await expect(handlers.get('fs:readFile')?.({} as IpcMainInvokeEvent, file)).resolves.toBe(
+      'file content'
     );
-
-    const result = await handler?.({} as unknown as IpcMainInvokeEvent, realFile);
-
-    expect(result).toEqual({
-      code: 'TOO_LARGE',
-      message: 'File too large: 1.1MB (max: 750KB)',
-    });
+    await expect(
+      handlers.get('fs:readFileByPath')?.({} as IpcMainInvokeEvent, file.path)
+    ).resolves.toBe('file content');
+    expect(fileSystem.readDirectory).toHaveBeenCalledOnce();
+    expect(fileSystem.readFile).toHaveBeenCalledTimes(2);
+    expect(fileSystem.readFileByPath).not.toHaveBeenCalled();
   });
 
-  it('fs:readFile maps TOO_LARGE coded errors to structured payloads', async () => {
-    const handler = handlers.get('fs:readFile');
-    const realFile = { id: 'real-file', path: '/users/test/large.json' } as unknown as FileHandle;
-    const codedError = Object.assign(new Error('Size limit exceeded by adapter'), {
-      code: 'TOO_LARGE' as const,
-    });
-    vi.mocked(fsAdapter.readFile).mockRejectedValueOnce(codedError);
+  it('rejects unmounted, escaped, and malformed paths', async () => {
+    const readByPath = handlers.get('fs:readFileByPath');
+    await expect(
+      readByPath?.({} as IpcMainInvokeEvent, '/users/test/docs/file.txt')
+    ).rejects.toThrow('outside every mounted workspace root');
 
-    const result = await handler?.({} as unknown as IpcMainInvokeEvent, realFile);
-
-    expect(result).toEqual({
-      code: 'TOO_LARGE',
-      message: 'Size limit exceeded by adapter',
-    });
+    await mountRoot();
+    await expect(readByPath?.({} as IpcMainInvokeEvent, '/users/test/outside.txt')).rejects.toThrow(
+      'outside every mounted workspace root'
+    );
+    await expect(
+      readByPath?.({} as IpcMainInvokeEvent, '/users/test/docs/\0malicious.txt')
+    ).rejects.toThrow('null bytes');
+    expect(fileSystem.readFileByPath).not.toHaveBeenCalled();
   });
 
-  it('fs:exists rejects null bytes', async () => {
-    const handler = handlers.get('fs:exists');
-    const result = await handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/\0oops');
-    expect(result).toBe(false);
-    expect(fsAdapter.exists).not.toHaveBeenCalled();
-  });
-
-  it('fs:exists rejects excessive traversal', async () => {
-    const handler = handlers.get('fs:exists');
-    const pathWithTraversal = '../../'.repeat(11);
-    const result = await handler?.({} as unknown as IpcMainInvokeEvent, pathWithTraversal);
-    expect(result).toBe(false);
-    expect(fsAdapter.exists).not.toHaveBeenCalled();
-  });
-
-  it.skipIf(process.platform === 'win32')(
-    'fs:exists rejects sensitive directories on Unix',
-    async () => {
-      const handler = handlers.get('fs:exists');
-      const result = await handler?.({} as unknown as IpcMainInvokeEvent, '/etc/passwd');
-      expect(result).toBe(false);
-    }
-  );
-
-  it('fs:exists proxies to adapter for normal paths', async () => {
-    const handler = handlers.get('fs:exists');
-    const ok = await handler?.({} as unknown as IpcMainInvokeEvent, '/users/test/docs');
-    expect(ok).toBe(true);
-    expect(fsAdapter.exists).toHaveBeenCalledWith(path.resolve('/users/test/docs'));
-  });
-
-  // BST-307: Tests for fs:readFileByPath endpoint
-  describe('fs:readFileByPath', () => {
-    it('returns canned content for mock paths', async () => {
-      const handler = handlers.get('fs:readFileByPath');
-      const content = await handler?.({} as unknown as IpcMainInvokeEvent, '/mock/test/file.txt');
-      expect(String(content)).toContain('Mock file content for testing');
-      expect(fsAdapter.readFileByPath).not.toHaveBeenCalled();
-    });
-
-    it('proxies to adapter for normal paths', async () => {
-      const handler = handlers.get('fs:readFileByPath');
-      const content = await handler?.({} as unknown as IpcMainInvokeEvent, '/users/test/file.txt');
-      expect(content).toBe('file content by path');
-      expect(fsAdapter.readFileByPath).toHaveBeenCalledWith(path.resolve('/users/test/file.txt'));
-    });
-
-    it('returns structured size-limit payload instead of throwing for oversized files', async () => {
-      const handler = handlers.get('fs:readFileByPath');
-      vi.mocked(fsAdapter.readFileByPath).mockRejectedValueOnce(
-        new AccessError('File too large: 1.1MB (max: 750KB)', '/users/test/large-file.json', 'read')
-      );
-
-      const result = await handler?.(
-        {} as unknown as IpcMainInvokeEvent,
-        '/users/test/large-file.json'
-      );
-
-      expect(result).toEqual({
-        code: 'TOO_LARGE',
-        message: 'File too large: 1.1MB (max: 750KB)',
-      });
-    });
-
-    it('rejects null bytes in path', async () => {
-      const handler = handlers.get('fs:readFileByPath');
-      await expect(
-        handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/\0malicious.txt')
-      ).rejects.toThrow('Invalid path');
-      expect(fsAdapter.readFileByPath).not.toHaveBeenCalled();
-    });
-
-    it('rejects excessive traversal in path', async () => {
-      const handler = handlers.get('fs:readFileByPath');
-      const pathWithTraversal = `${'../../'.repeat(11)}secret.txt`;
-      await expect(
-        handler?.({} as unknown as IpcMainInvokeEvent, pathWithTraversal)
-      ).rejects.toThrow('Invalid path');
-      expect(fsAdapter.readFileByPath).not.toHaveBeenCalled();
-    });
-
-    it.skipIf(process.platform === 'win32')('rejects sensitive directories on Unix', async () => {
-      const handler = handlers.get('fs:readFileByPath');
-      await expect(handler?.({} as unknown as IpcMainInvokeEvent, '/etc/passwd')).rejects.toThrow(
-        'Invalid path'
-      );
-      expect(fsAdapter.readFileByPath).not.toHaveBeenCalled();
-    });
+  it('retains the existing guarded existence endpoint', async () => {
+    await expect(
+      handlers.get('fs:exists')?.({} as IpcMainInvokeEvent, '/tmp/\0oops')
+    ).resolves.toBe(false);
+    await expect(
+      handlers.get('fs:exists')?.({} as IpcMainInvokeEvent, '/users/test/docs')
+    ).resolves.toBe(true);
+    expect(fileSystem.exists).toHaveBeenCalledWith(path.resolve('/users/test/docs'));
   });
 });

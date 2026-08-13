@@ -21,7 +21,7 @@ export interface TreeNode {
   loadState?: DirectoryLoadState;
   name: string;
   path: string;
-  type: 'file' | 'directory' | 'loadMore';
+  type: 'file' | 'directory' | 'loadMore' | 'truncated';
 }
 
 const PATH_SEPARATOR_CODE = '/'.charCodeAt(0);
@@ -55,6 +55,14 @@ export function isDescendantPath(targetPath: string, ancestorPath: string): bool
  */
 export function sortTreeNodes<T extends TreeNode>(nodes: T[]): T[] {
   return [...nodes].sort((a, b) => {
+    // The truncation marker is a trailing pseudo-node: it sorts last within
+    // its directory regardless of name, ahead of the directories-first rule.
+    if (a.type === 'truncated' || b.type === 'truncated') {
+      if (a.type === b.type) {
+        return 0;
+      }
+      return a.type === 'truncated' ? 1 : -1;
+    }
     // Directories before files
     if (a.type !== b.type) {
       return a.type === 'directory' ? -1 : 1;
