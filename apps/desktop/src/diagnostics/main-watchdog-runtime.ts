@@ -30,6 +30,32 @@ interface MainWatchdogRuntimeOptions {
   onDeliveryError: (failure: MainWatchdogDeliveryFailure) => void;
 }
 
+export function attemptMainWatchdogBootstrap(
+  start: () => void,
+  onError: (error: unknown) => void
+): boolean {
+  try {
+    start();
+    return true;
+  } catch (error) {
+    onError(error);
+    return false;
+  }
+}
+
+export function runMainWatchdogPowerTransition(
+  runtime: Pick<MainWatchdogRuntime, 'resume' | 'suspend'>,
+  type: 'resume' | 'suspend',
+  transition: () => void
+): void {
+  if (type === 'suspend') {
+    runtime.suspend();
+  } else {
+    runtime.resume();
+  }
+  transition();
+}
+
 function resolveLogPath(fileLogging: MainWatchdogFileLoggingState): string | null {
   if (!fileLogging.enabled) {
     return null;

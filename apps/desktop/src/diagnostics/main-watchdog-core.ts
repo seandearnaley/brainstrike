@@ -1,6 +1,7 @@
 export const MAIN_WATCHDOG_CHECK_INTERVAL_MS = 5000;
 export const MAIN_WATCHDOG_CHECK_DISCONTINUITY_MS = MAIN_WATCHDOG_CHECK_INTERVAL_MS * 2;
 export const MAIN_WATCHDOG_FROZEN_THRESHOLD_MS = 20_000;
+const MAIN_WATCHDOG_SUSPEND_RECOVERY_CHECKS = 2;
 
 export type MainWatchdogMessage =
   | { logPath: string | null; type: 'config' }
@@ -77,6 +78,7 @@ export function createMainWatchdogController(
   let hasReceivedConfiguration = false;
   let logPath: string | null = null;
   let suspended = false;
+  let suspendedContinuousCheckCount = 0;
 
   const resetObservationBaselines = (): void => {
     const currentElapsedNow = readClock(dependencies.elapsedNow, 'elapsed clock value');
@@ -98,6 +100,7 @@ export function createMainWatchdogController(
 
     if (message.type === 'suspend') {
       suspended = true;
+      suspendedContinuousCheckCount = 0;
       resetObservationBaselines();
       return;
     }
@@ -105,6 +108,7 @@ export function createMainWatchdogController(
     if (message.type === 'resume') {
       resetObservationBaselines();
       suspended = false;
+      suspendedContinuousCheckCount = 0;
       return;
     }
 
@@ -137,6 +141,19 @@ export function createMainWatchdogController(
     readNonNegativeFinite(cpuUserDeltaMicros, 'user CPU delta');
 
     if (suspended) {
+      if (elapsedSincePreviousCheck > MAIN_WATCHDOG_CHECK_DISCONTINUITY_MS) {
+        suspendedContinuousCheckCount = 0;
+        return null;
+      }
+
+      suspendedContinuousCheckCount += 1;
+      if (suspendedContinuousCheckCount < MAIN_WATCHDOG_SUSPEND_RECOVERY_CHECKS) {
+        return null;
+      }
+
+      suspended = false;
+      suspendedContinuousCheckCount = 0;
+      lastHeartbeatAt = currentElapsedNow;
       return null;
     }
 

@@ -3,8 +3,10 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  attemptMainWatchdogBootstrap,
   createMainWatchdogAttachmentLifecycle,
   createMainWatchdogRuntime,
+  runMainWatchdogPowerTransition,
 } from '../../diagnostics/main-watchdog-runtime';
 
 const ENABLED_CUSTOM_LOGGING = {
@@ -114,6 +116,45 @@ describe('main watchdog runtime', () => {
   });
 });
 
+describe('main watchdog bootstrap', () => {
+  it('reports a synchronous watchdog startup failure without aborting app startup', () => {
+    const startupError = new Error('watchdog bundle missing');
+    const onError = vi.fn();
+
+    expect(
+      attemptMainWatchdogBootstrap(() => {
+        throw startupError;
+      }, onError)
+    ).toBe(false);
+    expect(onError).toHaveBeenCalledWith(startupError);
+  });
+});
+
+describe('main watchdog power transition', () => {
+  it.each([
+    'suspend',
+    'resume',
+  ] as const)('notifies the watchdog before running %s orchestration', (type) => {
+    const calls: string[] = [];
+    const runtime = {
+      resume: () => {
+        calls.push('watchdog:resume');
+        return true;
+      },
+      suspend: () => {
+        calls.push('watchdog:suspend');
+        return true;
+      },
+    };
+
+    runMainWatchdogPowerTransition(runtime, type, () => {
+      calls.push(`power:${type}`);
+    });
+
+    expect(calls).toEqual([`watchdog:${type}`, `power:${type}`]);
+  });
+});
+
 describe('main watchdog attachment lifecycle', () => {
   it('does not detach after initial configuration delivery makes attachment fail', () => {
     const runtime = createMainWatchdogRuntime({ onDeliveryError: vi.fn() });
@@ -157,39 +198,12 @@ describe('main watchdog attachment lifecycle', () => {
 describe('main watchdog source wiring', () => {
   const mainSource = fs.readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
 
-  function readPowerHandler(event: string, nextEvent: string): string {
-    const start = mainSource.indexOf(`powerMonitor.on('${event}'`);
-    const end = mainSource.indexOf(`powerMonitor.on('${nextEvent}'`, start);
-    expect(start).toBeGreaterThan(-1);
-    expect(end).toBeGreaterThan(start);
-    return mainSource.slice(start, end);
-  }
-
-  it('attaches with current logging and applies successful runtime preference changes', () => {
+  it('keeps watchdog attachment ahead of renderer startup and cleans up after exit', () => {
+    expect(mainSource).toContain('attemptMainWatchdogBootstrap(');
     expect(mainSource).toContain('mainWatchdogAttachment.attach(');
-    expect(mainSource).toContain('currentLoggingPreferences.file');
-    expect(mainSource).toContain('mainWatchdogRuntime.configureLogging(normalized.file)');
     expect(mainSource.indexOf('mainWatchdogAttachment.attach(')).toBeLessThan(
       mainSource.indexOf('const mainWindow = await createMainWindow()')
     );
     expect(mainSource).toContain('mainWatchdogAttachment.detachIfAttached()');
-  });
-
-  it('notifies the watchdog before OS suspend/resume work without pausing on lock-screen', () => {
-    const suspendHandler = readPowerHandler('suspend', 'resume');
-    const resumeHandler = readPowerHandler('resume', 'lock-screen');
-    const lockHandler = readPowerHandler('lock-screen', 'unlock-screen');
-    const unlockHandler = mainSource.slice(mainSource.indexOf("powerMonitor.on('unlock-screen'"));
-
-    expect(suspendHandler.indexOf('mainWatchdogRuntime.suspend()')).toBeGreaterThan(-1);
-    expect(suspendHandler.indexOf('mainWatchdogRuntime.suspend()')).toBeLessThan(
-      suspendHandler.indexOf("logger.info('power:suspend')")
-    );
-    expect(resumeHandler.indexOf('mainWatchdogRuntime.resume()')).toBeGreaterThan(-1);
-    expect(resumeHandler.indexOf('mainWatchdogRuntime.resume()')).toBeLessThan(
-      resumeHandler.indexOf("logger.info('power:resume')")
-    );
-    expect(lockHandler).not.toContain('mainWatchdogRuntime.');
-    expect(unlockHandler).not.toContain('mainWatchdogRuntime.');
   });
 });

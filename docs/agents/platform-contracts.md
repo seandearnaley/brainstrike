@@ -1295,12 +1295,15 @@ and the CPU baseline advances on every check (including healthy ones). The
 worker attaches before the renderer starts loading, so logging IPC cannot race
 its initial configuration. Electron main sends `suspend` before handling an OS
 suspend and `resume` before handling an OS resume; those messages pause checks
-and reset both heartbeat and CPU baselines. Lock/unlock does not pause the
-watchdog. If the worker's own elapsed check gap exceeds two check intervals (10
-seconds), it cannot independently account for the main thread during that gap,
-so it resets the observation baselines before enforcing configuration and
-requires a subsequent uninterrupted missed-heartbeat window before reporting.
-This closes phase-offset and expired-timer-before-resume races.
+and reset both heartbeat and CPU baselines. Suspension is bounded: if main never
+delivers `resume`, two consecutive normal worker check intervals prove the
+machine is scheduling again, reset the observation baselines, and re-enable
+freeze detection. Lock/unlock does not pause the watchdog. If the worker's own
+elapsed check gap exceeds two check intervals (10 seconds), it cannot
+independently account for the main thread during that gap, so it resets the
+observation baselines before enforcing configuration and requires a subsequent
+uninterrupted missed-heartbeat window before reporting. This closes
+phase-offset, expired-timer-before-resume, and missing-resume races.
 
 A missing config after an observable freeze window, malformed message, invalid
 counter, invalid enabled logging state, duplicate attach/detach, or invalid
@@ -1311,7 +1314,12 @@ message-deserialization errors, and unexpected exits are logged by Electron
 main; an exit stops the heartbeat timer and detaches the runtime only after a
 confirmed successful initial config delivery. Failed initial attachment leaves
 the runtime unattached, so the later worker exit cannot trigger a second strict
-detach error. There is no alternate watchdog implementation.
+detach error. Controller and message-handler throws are also synchronously
+written to fd 2 as `MAIN_WATCHDOG_WORKER_FAILED` before the worker exits, so the
+failure remains visible while Electron main is frozen. A synchronous watchdog
+bootstrap failure is logged at error level and does not make this
+diagnostics-only subsystem a fatal dependency of app startup. There is no
+alternate watchdog implementation.
 
 On a freeze, the worker writes the structured diagnostic directly to file
 descriptor 2 with `fs.writeSync`, so delivery does not depend on Electron

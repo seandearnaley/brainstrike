@@ -91,10 +91,41 @@ describe('main watchdog worker stderr', () => {
       });
 
       const diagnosticIndex = stderr.indexOf('"msg":"MAIN_THREAD_UNRESPONSIVE"');
+      const parentBlockedIndex = stderr.indexOf('PARENT_MAIN_THREAD_BLOCKED');
       const parentUnblockedIndex = stderr.indexOf('PARENT_MAIN_THREAD_UNBLOCKED');
 
       expect(diagnosticIndex).toBeGreaterThanOrEqual(0);
+      expect(parentBlockedIndex).toBeGreaterThanOrEqual(0);
+      expect(diagnosticIndex).toBeGreaterThan(parentBlockedIndex);
       expect(parentUnblockedIndex).toBeGreaterThan(diagnosticIndex);
+    } finally {
+      await fs.rm(temporaryDirectory, { force: true, recursive: true });
+    }
+  });
+
+  it('writes worker failures directly to stderr before the worker exits', async () => {
+    const temporaryDirectory = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'brainstrike-main-watchdog-worker-failure-')
+    );
+
+    try {
+      const workerPath = path.join(temporaryDirectory, 'main-watchdog-worker.cjs');
+      await buildAcceleratedWatchdogWorker(workerPath);
+      const fixturePath = path.resolve(
+        import.meta.dirname,
+        '../fixtures/run-main-watchdog-malformed-message.mjs'
+      );
+
+      const { stderr } = await execFileAsync(process.execPath, [fixturePath, workerPath], {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+
+      expect(stderr).toContain('"msg":"MAIN_WATCHDOG_WORKER_FAILED"');
+      expect(stderr).toContain('Main watchdog received a malformed message');
+      expect(stderr.indexOf('"msg":"MAIN_WATCHDOG_WORKER_FAILED"')).toBeLessThan(
+        stderr.indexOf('WATCHDOG_WORKER_EXITED')
+      );
     } finally {
       await fs.rm(temporaryDirectory, { force: true, recursive: true });
     }

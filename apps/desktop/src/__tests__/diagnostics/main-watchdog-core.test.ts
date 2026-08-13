@@ -281,4 +281,40 @@ describe('main watchdog controller', () => {
       heartbeatAgeMs: MAIN_WATCHDOG_FROZEN_THRESHOLD_MS + 1,
     });
   });
+
+  it('self-recovers when the main thread never delivers resume after wake', () => {
+    const harness = createHarness();
+    harness.controller.handleMessage({ logPath: null, type: 'config' });
+    harness.controller.handleMessage({ type: 'suspend' });
+
+    harness.setElapsedNow(MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 3);
+    harness.setCpuUsage({ system: 1000, user: 2000 });
+    expect(harness.controller.check()).toBeNull();
+
+    harness.setElapsedNow(MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 3 + MAIN_WATCHDOG_CHECK_INTERVAL_MS);
+    harness.setCpuUsage({ system: 1020, user: 2030 });
+    expect(harness.controller.check()).toBeNull();
+    harness.setElapsedNow(
+      MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 3 + MAIN_WATCHDOG_CHECK_INTERVAL_MS * 2
+    );
+    harness.setCpuUsage({ system: 1040, user: 2060 });
+    expect(harness.controller.check()).toBeNull();
+
+    for (let check = 3; check <= 6; check += 1) {
+      harness.setElapsedNow(
+        MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 3 + MAIN_WATCHDOG_CHECK_INTERVAL_MS * check
+      );
+      harness.setCpuUsage({ system: 1040 + check * 5, user: 2060 + check * 10 });
+      expect(harness.controller.check()).toBeNull();
+    }
+
+    harness.setElapsedNow(
+      MAIN_WATCHDOG_FROZEN_THRESHOLD_MS * 3 + MAIN_WATCHDOG_CHECK_INTERVAL_MS * 6 + 1
+    );
+    harness.setCpuUsage({ system: 1075, user: 2130 });
+    expect(harness.controller.check()).toMatchObject({
+      heartbeatAgeMs: MAIN_WATCHDOG_FROZEN_THRESHOLD_MS + 1,
+      msg: 'MAIN_THREAD_UNRESPONSIVE',
+    });
+  });
 });

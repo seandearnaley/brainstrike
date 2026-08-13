@@ -79,8 +79,10 @@ import { resolveMainLogTransportPath } from './diagnostics/main-log-transport-pa
 import { MAIN_WATCHDOG_CHECK_INTERVAL_MS } from './diagnostics/main-watchdog-core';
 import { resolveMainWatchdogWorkerPath } from './diagnostics/main-watchdog-path';
 import {
+  attemptMainWatchdogBootstrap,
   createMainWatchdogAttachmentLifecycle,
   createMainWatchdogRuntime,
+  runMainWatchdogPowerTransition,
 } from './diagnostics/main-watchdog-runtime';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import {
@@ -1989,42 +1991,60 @@ if (singleInstanceLockAcquired) {
       // If the main thread stops sending heartbeats, the worker writes
       // diagnostics directly to stderr and the log file.
       // ---------------------------------------------------------------
-      {
-        const workerPath = resolveMainWatchdogWorkerPath(app.getAppPath(), app.isPackaged);
-        const watchdog = new Worker(workerPath);
-        let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+      attemptMainWatchdogBootstrap(
+        () => {
+          const workerPath = resolveMainWatchdogWorkerPath(app.getAppPath(), app.isPackaged);
+          const watchdog = new Worker(workerPath);
+          let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-        watchdog.on('error', (error) => {
-          logger.error(
-            { error: serializeDesktopError(error), workerPath },
-            'main-thread watchdog worker failed'
-          );
-        });
-        watchdog.on('messageerror', (error) => {
-          logger.error(
-            { error: serializeDesktopError(error), workerPath },
-            'main-thread watchdog worker message failed to deserialize'
-          );
-        });
-        watchdog.once('exit', (code) => {
-          if (heartbeatTimer !== null) {
-            clearInterval(heartbeatTimer);
-            heartbeatTimer = null;
+          watchdog.on('error', (error) => {
+            logger.error(
+              { error: serializeDesktopError(error), workerPath },
+              'main-thread watchdog worker failed'
+            );
+          });
+          watchdog.on('messageerror', (error) => {
+            logger.error(
+              { error: serializeDesktopError(error), workerPath },
+              'main-thread watchdog worker message failed to deserialize'
+            );
+          });
+          watchdog.once('exit', (code) => {
+            if (heartbeatTimer !== null) {
+              clearInterval(heartbeatTimer);
+              heartbeatTimer = null;
+            }
+            mainWatchdogAttachment.detachIfAttached();
+            logger.error({ code, workerPath }, 'main-thread watchdog worker exited unexpectedly');
+          });
+          try {
+            mainWatchdogAttachment.attach((message) => {
+              watchdog.postMessage(message);
+            }, currentLoggingPreferences.file);
+          } catch (error) {
+            void watchdog.terminate().catch((terminationError: unknown) => {
+              logger.error(
+                { error: serializeDesktopError(terminationError), workerPath },
+                'failed to terminate main-thread watchdog after startup failure'
+              );
+            });
+            throw error;
           }
-          mainWatchdogAttachment.detachIfAttached();
-          logger.error({ code, workerPath }, 'main-thread watchdog worker exited unexpectedly');
-        });
-        mainWatchdogAttachment.attach((message) => {
-          watchdog.postMessage(message);
-        }, currentLoggingPreferences.file);
-        heartbeatTimer = setInterval(() => {
-          mainWatchdogRuntime.heartbeat();
-        }, MAIN_WATCHDOG_CHECK_INTERVAL_MS);
-        watchdog.unref();
-        heartbeatTimer.unref();
+          heartbeatTimer = setInterval(() => {
+            mainWatchdogRuntime.heartbeat();
+          }, MAIN_WATCHDOG_CHECK_INTERVAL_MS);
+          watchdog.unref();
+          heartbeatTimer.unref();
 
-        logger.debug({ workerPath }, 'main-thread watchdog started');
-      }
+          logger.debug({ workerPath }, 'main-thread watchdog started');
+        },
+        (error) => {
+          logger.error(
+            { error: serializeDesktopError(error) },
+            'main-thread watchdog failed to start; continuing application startup'
+          );
+        }
+      );
 
       logger.debug('Creating main window...');
       const mainWindow = await createMainWindow();
@@ -2032,17 +2052,19 @@ if (singleInstanceLockAcquired) {
 
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
-        mainWatchdogRuntime.suspend();
-        logger.info('power:suspend');
-        clearPendingPowerResume();
-        broadcastPowerState('suspend');
+        runMainWatchdogPowerTransition(mainWatchdogRuntime, 'suspend', () => {
+          logger.info('power:suspend');
+          clearPendingPowerResume();
+          broadcastPowerState('suspend');
+        });
       });
 
       powerMonitor.on('resume', () => {
-        mainWatchdogRuntime.resume();
-        logger.info('power:resume');
-        // Delay to let OS settle (GPU re-init, network reconnect)
-        schedulePowerResume();
+        runMainWatchdogPowerTransition(mainWatchdogRuntime, 'resume', () => {
+          logger.info('power:resume');
+          // Delay to let OS settle (GPU re-init, network reconnect)
+          schedulePowerResume();
+        });
       });
 
       // Lock-screen invalidates GPU contexts on macOS (WindowServer reclaims

@@ -24,10 +24,34 @@ const controller = createMainWatchdogController({
   },
 });
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function runWithVisibleFailure(task: () => void): void {
+  try {
+    task();
+  } catch (error) {
+    fs.writeSync(
+      2,
+      `${JSON.stringify({
+        error: errorMessage(error),
+        level: 50,
+        msg: 'MAIN_WATCHDOG_WORKER_FAILED',
+        scope: 'MainWatchdog',
+        time: new Date().toISOString(),
+      })}\n`
+    );
+    throw error;
+  }
+}
+
 parentPort.on('message', (message: unknown) => {
-  controller.handleMessage(message);
+  runWithVisibleFailure(() => controller.handleMessage(message));
 });
 
 setInterval(() => {
-  controller.check();
+  runWithVisibleFailure(() => {
+    controller.check();
+  });
 }, MAIN_WATCHDOG_CHECK_INTERVAL_MS);
