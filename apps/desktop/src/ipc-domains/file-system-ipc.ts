@@ -37,7 +37,6 @@ interface RegisterFileSystemIpcHandlersOptions {
    */
   readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
   readonly storage: ElectronStorageAdapter;
-  readonly workspaceRootRegistry?: WorkspaceRootRegistry;
 }
 
 interface ElectronE2eFileSystemFixture {
@@ -292,105 +291,98 @@ export function registerFileSystemIpcHandlers({
   fileSystem,
   getRootsDatabase,
   storage,
-  workspaceRootRegistry,
 }: RegisterFileSystemIpcHandlersOptions): () => void {
   const evictLspServerForRoot = evictLspServersForRootOverride ?? evictLspServersForRoot;
   const registry = createDesktopIpcRegistry({ ipcMain });
-  const roots =
-    workspaceRootRegistry ??
-    new WorkspaceRootRegistry({
-      createSecureRoot: async (rootPath): Promise<SecureWorkspaceRoot> => {
-        if (usesSyntheticFileSystem(rootPath)) {
-          return {
-            canonicalPath: path.normalize(rootPath),
-            close: () => undefined,
-            listDir: async (relativePath, maxEntries) => {
-              const directoryPath =
-                relativePath === '.' ? rootPath : path.join(rootPath, relativePath);
-              const nodes = await fileSystem.readDirectory({
-                kind: 'directory',
-                name: path.basename(directoryPath),
-                path: directoryPath,
-                platform: 'electron',
-              });
-              return {
-                entries: nodes.slice(0, maxEntries).map((node) => ({
-                  isDirectory: node.type === 'directory',
-                  isFile: node.type === 'file',
-                  isSymbolicLink: false,
-                  ...(node.lastModified === undefined ? {} : { lastModified: node.lastModified }),
-                  name: node.name,
-                  ...(node.size === undefined ? {} : { size: node.size }),
-                })),
-                inspected: Math.min(nodes.length, maxEntries),
-                truncated: nodes.length > maxEntries,
-              };
-            },
-            readFile: async (relativePath) => {
-              const filePath = path.join(rootPath, relativePath);
-              const content = await fileSystem.readFile({
-                kind: 'file',
-                name: path.basename(filePath),
-                path: filePath,
-                platform: 'electron',
-              });
-              return { content: Buffer.from(content), status: 'ok' };
-            },
-          };
-        }
-        const { SecureRoot } = await import('@brainstrike/secure-fs-native');
-        const secureRoot = new SecureRoot(rootPath);
+  const roots = new WorkspaceRootRegistry({
+    createSecureRoot: async (rootPath): Promise<SecureWorkspaceRoot> => {
+      if (usesSyntheticFileSystem(rootPath)) {
         return {
-          canonicalPath: secureRoot.canonicalPath,
-          close: () => secureRoot.close(),
-          listDir: (relativePath, maxEntries) => secureRoot.listDirAsync(relativePath, maxEntries),
-          readFile: (relativePath, maxBytes) => secureRoot.readFileAsync(relativePath, maxBytes),
+          canonicalPath: path.normalize(rootPath),
+          close: () => undefined,
+          listDir: async (relativePath, maxEntries) => {
+            const directoryPath =
+              relativePath === '.' ? rootPath : path.join(rootPath, relativePath);
+            const nodes = await fileSystem.readDirectory({
+              kind: 'directory',
+              name: path.basename(directoryPath),
+              path: directoryPath,
+              platform: 'electron',
+            });
+            return {
+              entries: nodes.slice(0, maxEntries).map((node) => ({
+                isDirectory: node.type === 'directory',
+                isFile: node.type === 'file',
+                isSymbolicLink: false,
+                ...(node.lastModified === undefined ? {} : { lastModified: node.lastModified }),
+                name: node.name,
+                ...(node.size === undefined ? {} : { size: node.size }),
+              })),
+              inspected: Math.min(nodes.length, maxEntries),
+              truncated: nodes.length > maxEntries,
+            };
+          },
+          readFile: async (relativePath) => {
+            const filePath = path.join(rootPath, relativePath);
+            const content = await fileSystem.readFile({
+              kind: 'file',
+              name: path.basename(filePath),
+              path: filePath,
+              platform: 'electron',
+            });
+            return { content: Buffer.from(content), status: 'ok' };
+          },
         };
-      },
-      disposeCommandSessionsForRoot,
-      evictLspServersForRoot: evictLspServerForRoot,
-      getRootsDatabase,
-      pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
-      resolveCanonicalRoot: async (rootPath) =>
-        usesSyntheticFileSystem(rootPath)
-          ? path.normalize(rootPath)
-          : path.normalize(await realpath(rootPath)),
-      resolveReadPath: async (requestedPath, canonicalRoot) => {
-        if (!usesSyntheticFileSystem(canonicalRoot)) {
-          const result = await resolveValidatedPath({
-            allowMissing: false,
-            maxTraversal: 0,
-            requestedPath,
-            rootDir: canonicalRoot,
-          });
-          if (!result.ok) {
-            throw new AccessError(
-              `Path validation failed: ${result.error.message}`,
-              requestedPath,
-              'read'
-            );
-          }
-          return result.path;
-        }
-        const candidate = path.isAbsolute(requestedPath)
-          ? path.normalize(requestedPath)
-          : path.resolve(canonicalRoot, requestedPath);
-        const relative = path.relative(canonicalRoot, candidate);
-        if (
-          relative === '..' ||
-          relative.startsWith(`..${path.sep}`) ||
-          path.isAbsolute(relative)
-        ) {
+      }
+      const { SecureRoot } = await import('@brainstrike/secure-fs-native');
+      const secureRoot = new SecureRoot(rootPath);
+      return {
+        canonicalPath: secureRoot.canonicalPath,
+        close: () => secureRoot.close(),
+        listDir: (relativePath, maxEntries) => secureRoot.listDirAsync(relativePath, maxEntries),
+        readFile: (relativePath, maxBytes) => secureRoot.readFileAsync(relativePath, maxBytes),
+      };
+    },
+    disposeCommandSessionsForRoot,
+    evictLspServersForRoot: evictLspServerForRoot,
+    getRootsDatabase,
+    pathExists: (rootPath) => ipcPathExists(fileSystem, rootPath),
+    resolveCanonicalRoot: async (rootPath) =>
+      usesSyntheticFileSystem(rootPath)
+        ? path.normalize(rootPath)
+        : path.normalize(await realpath(rootPath)),
+    resolveReadPath: async (requestedPath, canonicalRoot) => {
+      if (!usesSyntheticFileSystem(canonicalRoot)) {
+        const result = await resolveValidatedPath({
+          allowMissing: false,
+          maxTraversal: 0,
+          requestedPath,
+          rootDir: canonicalRoot,
+        });
+        if (!result.ok) {
           throw new AccessError(
-            'Path is outside the selected workspace root.',
+            `Path validation failed: ${result.error.message}`,
             requestedPath,
             'read'
           );
         }
-        return candidate;
-      },
-      storage,
-    });
+        return result.path;
+      }
+      const candidate = path.isAbsolute(requestedPath)
+        ? path.normalize(requestedPath)
+        : path.resolve(canonicalRoot, requestedPath);
+      const relative = path.relative(canonicalRoot, candidate);
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new AccessError(
+          'Path is outside the selected workspace root.',
+          requestedPath,
+          'read'
+        );
+      }
+      return candidate;
+    },
+    storage,
+  });
 
   const addSelectedRoot = async (): Promise<RootDescriptor> =>
     roots.addRoot(await resolveRequestedDirectoryHandle(fileSystem));

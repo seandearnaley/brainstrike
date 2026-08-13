@@ -31,7 +31,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
       });
     });
 
-    it('should save folder path when handle has path', async () => {
+    it('does not perform a follow-up IPC call to persist the folder path', async () => {
       const mockHandle = {
         kind: 'directory' as const,
         name: 'test-directory',
@@ -43,21 +43,8 @@ describe('ElectronRendererFileSystemAdapter', () => {
 
       await adapter.requestDirectoryAccess();
 
-      expect(mockElectronAPI.fileSystem.saveLastFolder).toHaveBeenCalledWith('/test/folder/path');
-    });
-
-    it('should not save folder path when handle has no path', async () => {
-      const mockHandle = {
-        kind: 'directory' as const,
-        name: 'test-directory',
-        path: '',
-        platform: 'electron' as const,
-      };
-
-      mockElectronAPI.fileSystem.requestDirectoryAccess.mockResolvedValueOnce(mockHandle);
-
-      await adapter.requestDirectoryAccess();
-
+      // Main owns the last-folder preference via the registry's addRoot, so
+      // the renderer must not perform a separate saveLastFolder write.
       expect(mockElectronAPI.fileSystem.saveLastFolder).not.toHaveBeenCalled();
     });
   });

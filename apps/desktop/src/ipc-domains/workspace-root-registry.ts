@@ -23,6 +23,14 @@ import {
 const CORRUPT_ROOTS_LIST_STORAGE_KEY = 'rootsList.corrupt' as const;
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
 const MAX_DIRECTORY_ENTRIES = 10_000;
+/**
+ * The native secure-fs read path (SecureRoot.readFileAsync) caps a single
+ * read at 16MB regardless of the configured maxFileSize. A configured value
+ * above this cap would silently degrade every oversized read to
+ * `status: 'unreadable'` — indistinguishable from a real access failure — so
+ * readFile fails loud at the configuration boundary instead.
+ */
+const NATIVE_MAX_READ_BYTES = 16 * 1024 * 1024;
 const ROOTS_LIST_STORAGE_KEY = 'rootsList' as const;
 const logger = createLogger('WorkspaceRootRegistry');
 
@@ -422,6 +430,13 @@ export class WorkspaceRootRegistry {
     const rootId = typeof request === 'string' ? undefined : request.rootId;
     const resolved = await this.resolveRead(requestedPath, rootId);
     const { maxFileSize } = getFileSizeConfig();
+    if (maxFileSize > NATIVE_MAX_READ_BYTES) {
+      throw new AccessError(
+        `Configured maxFileSize (${formatFileSize(maxFileSize)}) exceeds the native secure-read cap (${formatFileSize(NATIVE_MAX_READ_BYTES)}).`,
+        requestedPath,
+        'read'
+      );
+    }
     const result = await resolved.mounted.root.readFile(resolved.relativePath, maxFileSize);
     if (result.status === 'ok') {
       return result.content.toString('utf8');
@@ -459,11 +474,12 @@ export class WorkspaceRootRegistry {
       let disconnected: readonly { id: string; path: string }[];
       try {
         const db = await this.getRootsDatabase();
-        const mountedPaths = [...this.mounted.values()]
-          .filter(
-            (mounted) => mounted.rootId !== rootId && !this.sessionRootIds.has(mounted.rootId)
-          )
-          .map((mounted) => mounted.presentationPath);
+        const mountedPaths: string[] = [];
+        for (const mounted of this.mounted.values()) {
+          if (mounted.rootId !== rootId && !this.sessionRootIds.has(mounted.rootId)) {
+            mountedPaths.push(mounted.presentationPath);
+          }
+        }
         disconnected = await markRootsDisconnectedExcept(db, mountedPaths);
       } catch (error) {
         try {
@@ -582,9 +598,12 @@ export class WorkspaceRootRegistry {
   }
 
   private async convergeDatabase(): Promise<void> {
-    const mountedPaths = [...this.mounted.values()]
-      .filter((mounted) => !this.sessionRootIds.has(mounted.rootId))
-      .map((mounted) => mounted.presentationPath);
+    const mountedPaths: string[] = [];
+    for (const mounted of this.mounted.values()) {
+      if (!this.sessionRootIds.has(mounted.rootId)) {
+        mountedPaths.push(mounted.presentationPath);
+      }
+    }
     try {
       const db = await this.getRootsDatabase();
       const disconnected = await markRootsDisconnectedExcept(db, mountedPaths);

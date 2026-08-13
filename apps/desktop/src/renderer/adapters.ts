@@ -165,14 +165,9 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   public readonly platform = 'electron' as const;
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
-    const api = requireElectronAPI().fileSystem;
-    const handle = await api.requestDirectoryAccess();
-
-    // Save the selected folder path for future auto-restore
-    if (handle?.path) {
-      await api.saveLastFolder(handle.path);
-    }
-    return handle;
+    // Main owns the last-folder preference: fs:requestDirectoryAccess routes
+    // through the registry's addRoot, which persists it on success.
+    return requireElectronAPI().fileSystem.requestDirectoryAccess();
   }
 
   async addRoot(): Promise<RootDescriptor> {

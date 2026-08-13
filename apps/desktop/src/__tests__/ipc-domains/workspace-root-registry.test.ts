@@ -1,5 +1,9 @@
 import path from 'node:path';
-import type { DirectoryHandle } from '@brainstrike/file-system';
+import {
+  type DirectoryHandle,
+  getFileSizeConfig,
+  setFileSizeConfig,
+} from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
@@ -460,5 +464,27 @@ describe('WorkspaceRootRegistry', () => {
         platform: 'electron',
       })
     ).resolves.toEqual([]);
+  });
+
+  it('a configured maxFileSize above the native cap fails loud, not unreadable', async () => {
+    const registry = createRegistry({
+      resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+    });
+    const descriptor = await registry.addRoot(rootHandle('/canon/project'));
+    const defaultFileSizeConfig = getFileSizeConfig();
+    setFileSizeConfig({ maxFileSize: 17 * 1024 * 1024 });
+    try {
+      await expect(
+        registry.readFile({
+          kind: 'file',
+          name: 'a.md',
+          path: '/canon/project/a.md',
+          platform: 'electron',
+          rootId: descriptor.rootId,
+        })
+      ).rejects.toThrow(/exceeds the native secure-read cap/);
+    } finally {
+      setFileSizeConfig(defaultFileSizeConfig);
+    }
   });
 });
