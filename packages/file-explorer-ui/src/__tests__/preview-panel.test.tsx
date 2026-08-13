@@ -839,6 +839,7 @@ describe('PreviewPanel', () => {
       );
       const loadingFiles = new Set<string>();
       const loadingHasSpy = vi.spyOn(loadingFiles, 'has');
+      const fileContents = { file2: 'content2', file999: 'content999' };
       mockUsePreviewPanelState.mockReturnValue(buildState(staleItems));
       const decodeFileSelection = (key: string) => ({
         folderId: key === 'file999' ? 'root-a' : 'root-z',
@@ -849,7 +850,7 @@ describe('PreviewPanel', () => {
         <PreviewPanel
           {...baseProps}
           decodeFileSelection={decodeFileSelection}
-          fileContents={{ file2: 'content2', file999: 'content999' }}
+          fileContents={fileContents}
           loadingFiles={loadingFiles}
           selectedFiles={new Set(staleItems.map((item) => item.compositeKey))}
         />
@@ -859,20 +860,25 @@ describe('PreviewPanel', () => {
       // Keep those deferred rows while shrinking current membership to two files.
       loadingHasSpy.mockClear();
       const selectedFiles = new Set(['file999', 'file2']);
-      const selectionHasSpy = vi.spyOn(selectedFiles, 'has');
       rerender(
         <PreviewPanel
           {...baseProps}
           decodeFileSelection={decodeFileSelection}
-          fileContents={{ file2: 'content2', file999: 'content999' }}
+          fileContents={fileContents}
           loadingFiles={loadingFiles}
           selectedFiles={selectedFiles}
         />
       );
 
-      expect(selectionHasSpy.mock.calls.length).toBeLessThanOrEqual(selectedFiles.size);
-      // One lookup per selected file in both the base derivation and cache-pruning effect.
-      expect(loadingHasSpy.mock.calls.length).toBeLessThanOrEqual(selectedFiles.size * 2);
+      const loadingProbeKeys = loadingHasSpy.mock.calls.map(([compositeKey]) => compositeKey);
+
+      // This is the actual no-N-scan regression instrumentation: base
+      // derivation and cache persistence each probe every selected row once.
+      expect(loadingProbeKeys).toHaveLength(selectedFiles.size * 2);
+      expect(new Set(loadingProbeKeys)).toEqual(selectedFiles);
+      for (const compositeKey of selectedFiles) {
+        expect(loadingProbeKeys.filter((key) => key === compositeKey)).toHaveLength(2);
+      }
       expect(
         screen
           .getAllByTestId('tapestry-document-card')

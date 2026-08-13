@@ -219,8 +219,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   });
 
   const { totalStats, flatListItems } = state;
-  // Defer large list snapshots so expensive token summary work does not block UI updates.
-  const deferredFlatListItems = useDeferredValue(flatListItems);
+  // Defer row membership and its selection as one snapshot. Keeping them
+  // paired prevents the gallery pipeline from observing an old/new
+  // intersection while React advances the expensive row derivation.
+  const previewRowsInput = useMemo(
+    () => ({ flatListItems, selectedFiles }),
+    [flatListItems, selectedFiles]
+  );
+  const deferredPreviewRowsInput = useDeferredValue(previewRowsInput);
+  const deferredFlatListItems = deferredPreviewRowsInput.flatListItems;
+  const deferredSelectedFiles = deferredPreviewRowsInput.selectedFiles;
   // Compute the content snapshot for context-selected token summary.
   // Uses a pure useMemo — no ref access during render.
   const selectedFileContentSnapshot = useMemo(
@@ -336,16 +344,24 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [rowData]
   );
 
-  // Iterate current selected keys, then restore source order. Newly selected
-  // files appear as soon as their row reaches the deferred snapshot.
-  const selectedRowData = useMemo(
+  // The context snapshot follows current membership immediately without
+  // scanning the potentially stale deferred rows.
+  const currentSelectedRowData = useMemo(
     () => deriveSelectedRows(rowDataByCompositeKey, selectedFiles),
     [rowDataByCompositeKey, selectedFiles]
   );
 
+  // Expensive gallery work follows the paired deferred selection and rows, so
+  // it never observes an old/new intersection. Newly selected files appear as
+  // soon as the paired deferred snapshot advances.
+  const selectedRowData = useMemo(
+    () => deriveSelectedRows(rowDataByCompositeKey, deferredSelectedFiles),
+    [deferredSelectedFiles, rowDataByCompositeKey]
+  );
+
   useEffect(() => {
     const selectedFolderIds = new Set<string>();
-    const files = selectedRowData.map((item) => {
+    const files = currentSelectedRowData.map((item) => {
       selectedFolderIds.add(item.rootFolderId);
       const ranges = (deferredTapestryRangesByKey[item.compositeKey] ?? []).map((range) => ({
         ...tapestryLineRangeToToolRange(range),
@@ -385,7 +401,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     projectTreeTokenCountLoading,
     resolveRootDisplayName,
     setWorkspaceContextSnapshot,
-    selectedRowData,
+    currentSelectedRowData,
     deferredTapestryRangesByKey,
     tokenBudget,
   ]);
@@ -426,28 +442,35 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     return map;
   }, [selectedRowData, fileContents, loadingFiles]);
 
-  // Persist per-file cache after render — useEffect is a safe place for ref mutation.
+  // Prune only when the deferred row index advances. Selection-only updates
+  // must not scan or evict the larger deferred cache.
   // biome-ignore lint/plugin: Not fetching data — updating a local memoization cache ref.
   useEffect(() => {
-    const newCache = new Map<
-      string,
-      {
-        base: ReturnType<typeof buildTapestryFileBase>;
-        content: string | undefined;
-        isLoading: boolean;
+    const cache = tapestryBaseCacheRef.current;
+    for (const compositeKey of cache.keys()) {
+      if (!rowDataByCompositeKey.has(compositeKey)) {
+        cache.delete(compositeKey);
       }
-    >();
+    }
+  }, [rowDataByCompositeKey]);
+
+  // Persist selected bases after render in O(S). Deselected bases remain warm
+  // until their row leaves the deferred snapshot in the pruning effect above.
+  // biome-ignore lint/plugin: Not fetching data — updating a local memoization cache ref.
+  useEffect(() => {
+    const cache = tapestryBaseCacheRef.current;
     for (const item of selectedRowData) {
       const base = tapestryFileBaseByKey.get(item.compositeKey);
       if (base) {
-        newCache.set(item.compositeKey, {
+        cache.set(item.compositeKey, {
           base,
           content: fileContents[item.compositeKey],
           isLoading: loadingFiles.has(item.compositeKey),
         });
+      } else {
+        cache.delete(item.compositeKey);
       }
     }
-    tapestryBaseCacheRef.current = newCache;
   }, [tapestryFileBaseByKey, selectedRowData, fileContents, loadingFiles]);
 
   useEffect(() => {
