@@ -106,6 +106,69 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+/**
+ * BST-1248: toolCallIds that have already emitted a malformed-record warning.
+ * Supersession detection re-scans the full thread history on EVERY subsequent
+ * tool call, so without this memo a single malformed persisted record
+ * re-warned once per later call — one record produced 139 duplicate
+ * `tool_projection_rewrite_malformed_read_history` warnings in the 2026-08
+ * audit.
+ *
+ * The memo dedupes WARNS ONLY — it must never gate parsing or key
+ * normalization. A record can fail one consumer (`readCandidate`'s stricter
+ * projection contract) while remaining perfectly valid for detection
+ * (`readWasSuperseded` needs `later.read`, `grepWasSuperseded` needs both
+ * sides' `grepKey`), so skipping the parse for a memoized record would
+ * silently stop it acting as the superseder of OTHER, valid records for the
+ * life of the process — a context-reclamation regression, not log hygiene.
+ * The re-parse is cheap next to the `listPriorInvocations` DB scan.
+ *
+ * The set is not evicted: eviction interacts with the oldest→newest history
+ * walk to degrade back into warn-every-scan past the cap. Instead, once the
+ * cap of DISTINCT warned records is reached, ONE summary warning announces
+ * that further first-encounter warnings are suppressed — an explicit ceiling,
+ * not a cliff. Entries are ~30-byte ids, so the cap bounds memory at a few KB.
+ */
+const MALFORMED_WARN_MEMO_CAP = 512;
+const warnedMalformedToolCallIds = new Set<string>();
+let malformedWarnSuppressionAnnounced = false;
+let malformedWarnMemoCap = MALFORMED_WARN_MEMO_CAP;
+
+/**
+ * True when this toolCallId's malformed-record warning should be emitted:
+ * first encounter, below the distinct-record ceiling. Past the ceiling, one
+ * summary warning is emitted and further first encounters stay silent.
+ */
+function shouldWarnMalformed(toolCallId: string): boolean {
+  if (warnedMalformedToolCallIds.has(toolCallId)) {
+    return false;
+  }
+  if (warnedMalformedToolCallIds.size >= malformedWarnMemoCap) {
+    if (!malformedWarnSuppressionAnnounced) {
+      malformedWarnSuppressionAnnounced = true;
+      logger.warn('Further malformed persisted tool record warnings are suppressed', {
+        code: 'tool_projection_rewrite_malformed_history_suppressed',
+        distinctRecordCap: malformedWarnMemoCap,
+      });
+    }
+    return false;
+  }
+  warnedMalformedToolCallIds.add(toolCallId);
+  return true;
+}
+
+/** Test-only: reset the malformed-record warn memo between cases. */
+export function resetMalformedProjectionMemoForTests(): void {
+  warnedMalformedToolCallIds.clear();
+  malformedWarnSuppressionAnnounced = false;
+  malformedWarnMemoCap = MALFORMED_WARN_MEMO_CAP;
+}
+
+/** Test-only: lower the distinct-record warn ceiling (pass nothing to restore). */
+export function setMalformedWarnMemoCapForTests(value?: number): void {
+  malformedWarnMemoCap = value ?? MALFORMED_WARN_MEMO_CAP;
+}
+
 function parseReadProjectionResult(value: unknown): ReadProjectionResult | undefined {
   if (!isRecord(value)) {
     return;
@@ -191,11 +254,13 @@ function readCandidate(
       toolCallId: invocation.toolCallId,
     };
   } catch (error) {
-    logger.warn('Skipping malformed persisted read result during supersession detection', {
-      code: 'tool_projection_rewrite_malformed_read_history',
-      error: redactToolErrorForLog(error),
-      toolCallId: invocation.toolCallId,
-    });
+    if (shouldWarnMalformed(invocation.toolCallId)) {
+      logger.warn('Skipping malformed persisted read result during supersession detection', {
+        code: 'tool_projection_rewrite_malformed_read_history',
+        error: redactToolErrorForLog(error),
+        toolCallId: invocation.toolCallId,
+      });
+    }
     return;
   }
 }
@@ -207,11 +272,13 @@ function grepCandidate(
   try {
     result = parseGrepToolResult(invocation.result);
   } catch (error) {
-    logger.warn('Skipping malformed persisted grep result during supersession detection', {
-      code: 'tool_projection_rewrite_malformed_grep_history',
-      error,
-      toolCallId: invocation.toolCallId,
-    });
+    if (shouldWarnMalformed(invocation.toolCallId)) {
+      logger.warn('Skipping malformed persisted grep result during supersession detection', {
+        code: 'tool_projection_rewrite_malformed_grep_history',
+        error,
+        toolCallId: invocation.toolCallId,
+      });
+    }
     return;
   }
   const markerText = buildGrepSupersededMarker(result.outputMode);
@@ -236,7 +303,7 @@ function normalizeGrepKey(
   const candidate = resolveToolExecuteInputCandidate(GrepSearchInputSchema, invocation.args);
   const parsed = GrepSearchInputSchema.safeParse(candidate);
   if (!parsed.success) {
-    if (persisted) {
+    if (persisted && shouldWarnMalformed(invocation.toolCallId)) {
       logger.warn('Skipping unparseable persisted grep arguments during supersession detection', {
         code: 'tool_projection_rewrite_malformed_grep_history_args',
         toolCallId: invocation.toolCallId,
@@ -344,11 +411,18 @@ function prepareInvocation(
   invocation: PersistedToolInvocation,
   persisted: boolean
 ): PreparedToolInvocation {
+  // BST-1248: the memo gates ONLY the warn, never the parse — `read` and
+  // `grepKey` feed supersession detection in both directions, so a memoized
+  // record must keep acting as a superseder of other, valid records.
   const read =
     invocation.toolName === NATIVE_TOOL_ID.readWorkspaceFile
       ? parseReadProjectionResult(invocation.result)
       : undefined;
-  if (invocation.toolName === NATIVE_TOOL_ID.readWorkspaceFile && !read) {
+  if (
+    invocation.toolName === NATIVE_TOOL_ID.readWorkspaceFile &&
+    !read &&
+    shouldWarnMalformed(invocation.toolCallId)
+  ) {
     logger.warn('Skipping malformed persisted read result during supersession detection', {
       code: 'tool_projection_rewrite_malformed_read_history',
       toolCallId: invocation.toolCallId,

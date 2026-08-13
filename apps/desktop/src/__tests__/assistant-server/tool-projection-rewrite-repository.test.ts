@@ -37,7 +37,9 @@ import {
 import {
   applyToolProjectionRewriteRecording,
   recordSuccessfulToolProjection,
+  resetMalformedProjectionMemoForTests,
   runRecencyPruneScan,
+  setMalformedWarnMemoCapForTests,
   toRecencyPruneInvocation,
 } from '../../assistant-server/tool-projection-rewrite-repository';
 
@@ -96,6 +98,7 @@ function fakeDatabase(parts: readonly unknown[]) {
 describe('tool projection rewrite recording', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetMalformedProjectionMemoForTests();
   });
 
   it('returns an already-successful tool result when projection bookkeeping throws', async () => {
@@ -180,6 +183,143 @@ describe('tool projection rewrite recording', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       'Skipping malformed persisted read result during supersession detection',
       expect.objectContaining({ toolCallId: 'read-malformed' })
+    );
+  });
+
+  it('warns once per malformed record across scans, not once per scan (BST-1248)', async () => {
+    const database = fakeDatabase([
+      persistedInvocation({ id: 'read-malformed-cross-scan', result: { content: 'no identity' } }),
+    ]);
+    const scan = (toolCallId: string) =>
+      recordSuccessfulToolProjection(
+        {
+          input: { endLine: 100, path: 'src/other.ts', root: 'root-a', startLine: 1 },
+          result: readResult('fresh', { path: 'src/other.ts' }),
+          runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+          toolCallId,
+          toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+        },
+        { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
+      );
+
+    await scan('read-new-1');
+    await scan('read-new-2');
+    await scan('read-new-3');
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Skipping malformed persisted read result during supersession detection',
+      expect.objectContaining({ toolCallId: 'read-malformed-cross-scan' })
+    );
+  });
+
+  it('still warns for each distinct malformed record (BST-1248 memo must not over-suppress)', async () => {
+    const database = fakeDatabase([
+      persistedInvocation({ id: 'read-malformed-a', result: { content: 'missing identity' } }),
+      persistedInvocation({ id: 'read-malformed-b', result: { content: 'also malformed' } }),
+    ]);
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { endLine: 100, path: 'src/other.ts', root: 'root-a', startLine: 1 },
+        result: readResult('fresh', { path: 'src/other.ts' }),
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'read-new-1',
+        toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
+    );
+
+    expect(logger.warn).toHaveBeenCalledTimes(2);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Skipping malformed persisted read result during supersession detection',
+      expect.objectContaining({ toolCallId: 'read-malformed-a' })
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Skipping malformed persisted read result during supersession detection',
+      expect.objectContaining({ toolCallId: 'read-malformed-b' })
+    );
+  });
+
+  it('keeps a warn-memoized record acting as a superseder on later scans (warn-dedup only)', async () => {
+    // A(1-10) is superseded ONLY by X(5-20); X parses fine for detection but
+    // its stricter projection contract throws (missing content/size/...), so
+    // X warns once via readCandidate when L(15-30) supersedes it. If the memo
+    // gated the PARSE instead of just the warn, scan 2 would drop X.read and
+    // A would silently lose its only superseder — a context-reclamation
+    // regression, not log hygiene (review finding on BST-1248).
+    const projectionOnlyMalformed = {
+      endLine: 20,
+      path: 'src/a.ts',
+      rootId: 'root-a',
+      rootName: 'workspace',
+      startLine: 5,
+      totalLines: 100,
+    };
+    const database = fakeDatabase([
+      persistedInvocation({
+        id: 'read-a',
+        result: readResult('early', { endLine: 10, startLine: 1 }),
+      }),
+      persistedInvocation({ id: 'read-x', result: projectionOnlyMalformed }),
+      persistedInvocation({
+        id: 'read-l',
+        result: readResult('late', { endLine: 30, startLine: 15 }),
+      }),
+    ]);
+    const scan = (toolCallId: string) =>
+      recordSuccessfulToolProjection(
+        {
+          input: { endLine: 100, path: 'src/other.ts', root: 'root-a', startLine: 1 },
+          result: readResult('fresh', { path: 'src/other.ts' }),
+          runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+          toolCallId,
+          toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+        },
+        { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
+      );
+
+    await scan('read-new-1');
+    await scan('read-new-2');
+
+    // Both scans must attempt candidates for A (superseded by X) and X
+    // (superseded by L, projection throws): 2 projection calls per scan.
+    expect(projectReadWorkspaceFileModelOutput).toHaveBeenCalledTimes(4);
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Skipping malformed persisted read result during supersession detection',
+      expect.objectContaining({ toolCallId: 'read-x' })
+    );
+  });
+
+  it('announces suppression once at the distinct-record ceiling instead of an eviction cliff', async () => {
+    setMalformedWarnMemoCapForTests(2);
+    const database = fakeDatabase([
+      persistedInvocation({ id: 'bad-1', result: { content: 'no identity' } }),
+      persistedInvocation({ id: 'bad-2', result: { content: 'no identity' } }),
+      persistedInvocation({ id: 'bad-3', result: { content: 'no identity' } }),
+    ]);
+    const scan = (toolCallId: string) =>
+      recordSuccessfulToolProjection(
+        {
+          input: { endLine: 100, path: 'src/other.ts', root: 'root-a', startLine: 1 },
+          result: readResult('fresh', { path: 'src/other.ts' }),
+          runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+          toolCallId,
+          toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+        },
+        { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
+      );
+
+    await scan('read-new-1');
+    await scan('read-new-2');
+
+    // Two first-encounter warns, one suppression announcement, then silence —
+    // scan 2 must not re-warn (the eviction-cliff failure mode).
+    expect(logger.warn).toHaveBeenCalledTimes(3);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Further malformed persisted tool record warnings are suppressed',
+      expect.objectContaining({ distinctRecordCap: 2 })
     );
   });
 });
