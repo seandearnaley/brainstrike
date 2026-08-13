@@ -1,4 +1,5 @@
 import {
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
   GrepSearchInputSchema,
   NATIVE_TOOL_INPUT_SCHEMAS,
   type RuntimeData,
@@ -24,7 +25,11 @@ import {
   resolveToolExecuteInputCandidate,
   type ToolExecuteRunContext,
 } from './tool-execute-support';
-import { type RecencyPruneInvocation, selectRecencyPruneCandidates } from './tool-projection-prune';
+import {
+  decodedPersistedModelOutputChars,
+  type RecencyPruneInvocation,
+  selectRecencyPruneCandidates,
+} from './tool-projection-prune';
 import {
   commitProjectionRewriteCandidates,
   listPriorInvocations,
@@ -229,6 +234,39 @@ export function buildGrepSupersededMarker(outputMode: GrepToolResult['outputMode
   return `${grepProjectionHeaderPrefix(outputMode)}[superseded — results for this pattern were refreshed later]`;
 }
 
+/**
+ * BST-1249: measure a persisted invocation's model-facing size from the
+ * projection it actually shipped (`providerMetadata.mastra.modelOutput`),
+ * exactly like recency pruning does. Re-projecting the raw result re-applies
+ * the DEFAULT domain budget — smaller than the loop-guard/scaled budget some
+ * runtimes used — so legitimately-large historical reads threw RangeError and
+ * were mislabeled `tool_projection_rewrite_malformed_read_history` on every
+ * scan. Only legacy rows persisted before modelOutput existed re-project, and
+ * they do so under the CEILING budget (the largest any runtime could have
+ * used), so no honestly-projected row can be branded malformed.
+ */
+function measurePersistedProjectionChars(
+  invocation: PersistedToolInvocation,
+  reprojectLegacy: () => string
+): number {
+  if (invocation.modelOutput !== undefined) {
+    try {
+      return decodedPersistedModelOutputChars(invocation.modelOutput);
+    } catch (error) {
+      // A present-but-unreadable persisted projection (e.g. an explicitly
+      // persisted null — the store maps only a MISSING key to undefined) has
+      // a perfectly good raw result; branding it malformed would re-create
+      // the exact false label BST-1249 removes (review finding). Fall back to
+      // the ceiling-budget re-projection, visibly.
+      logger.debug('Unreadable persisted model output; re-projecting under the ceiling budget', {
+        error: redactToolErrorForLog(error),
+        toolCallId: invocation.toolCallId,
+      });
+    }
+  }
+  return decodedWorkspaceTextModelOutputChars([reprojectLegacy()]);
+}
+
 function readCandidate(
   invocation: PersistedToolInvocation,
   result: ReadProjectionResult,
@@ -241,9 +279,14 @@ function readCandidate(
     // JSON.stringify(...).length -- see workspace-model-projection-helpers.ts.
     // Both projectReadWorkspaceFileModelOutput and projectGrepSearchModelOutput
     // below return that shape.
-    const originalChars = decodedWorkspaceTextModelOutputChars([
-      projectReadWorkspaceFileModelOutput(invocation.result).value,
-    ]);
+    const originalChars = measurePersistedProjectionChars(
+      invocation,
+      () =>
+        projectReadWorkspaceFileModelOutput(
+          invocation.result,
+          CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+        ).value
+    );
     const markerChars = decodedWorkspaceTextModelOutputChars([markerText]);
     return {
       kind: 'supersession',
@@ -268,6 +311,11 @@ function readCandidate(
 function grepCandidate(
   invocation: PersistedToolInvocation
 ): SupersessionRewriteCandidate | undefined {
+  // The try covers ONLY the parse (review finding): a measurement failure is
+  // not a malformed grep RESULT, and branding it
+  // tool_projection_rewrite_malformed_grep_history would point a future audit
+  // at the wrong cause. Measurement throws propagate to the outer post-success
+  // bookkeeping catch, exactly as before BST-1249.
   let result: GrepToolResult;
   try {
     result = parseGrepToolResult(invocation.result);
@@ -282,9 +330,14 @@ function grepCandidate(
     return;
   }
   const markerText = buildGrepSupersededMarker(result.outputMode);
-  const originalChars = decodedWorkspaceTextModelOutputChars([
-    projectGrepSearchModelOutput(invocation.result).value,
-  ]);
+  const originalChars = measurePersistedProjectionChars(
+    invocation,
+    () =>
+      projectGrepSearchModelOutput(
+        invocation.result,
+        CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+      ).value
+  );
   const markerChars = decodedWorkspaceTextModelOutputChars([markerText]);
   return {
     kind: 'supersession',

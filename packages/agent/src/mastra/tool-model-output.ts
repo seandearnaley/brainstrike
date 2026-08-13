@@ -2,6 +2,7 @@ import { isGuardedToolError, NATIVE_TOOL_ID } from '@brainstrike/assistant-contr
 import { createLogger } from '@brainstrike/logging';
 import { sliceCodePoints } from '@brainstrike/utils/string-utils';
 import type { ToolsInput } from '@mastra/core/agent';
+import { isValidationError } from '@mastra/core/tools';
 import { toJsonSafe } from '../stream/json';
 import {
   boundToolOutputForModel,
@@ -173,6 +174,45 @@ function isExecutableTool(tool: unknown): tool is ExecutableToolWithModelOutput 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+/**
+ * BST-1249: Mastra's tool input/output validation failure carrier
+ * (`@mastra/core` `ValidationError`: `{error: true, message, validationErrors}`)
+ * is an EXPECTED result shape whenever the model mis-parameterizes a call, so
+ * it routes to the generic bounded projection exactly like a guarded tool
+ * error. Letting it reach a strict domain projector produced a spurious
+ * error-severity `tool_model_projection_fail_soft` on every mis-parameterized
+ * call (8 in the 2026-08 audit window), which polluted the anomaly signal that
+ * log exists to carry.
+ *
+ * Detection delegates to `@mastra/core`'s own `isValidationError` predicate —
+ * a hand-written structural check would silently no-op the moment Mastra
+ * changed the carrier shape (review finding). The carrier reaches the
+ * dispatcher either bare (the persisted tool result IS the carrier) or nested
+ * under the AI-SDK result envelope (`{input, output, toolCallId}`); returns
+ * the UNWRAPPED carrier so the projection serializes the validation message,
+ * not an envelope whose (possibly huge) `input` would truncate the message
+ * away (review finding).
+ */
+function readMastraToolValidationError(value: unknown): unknown {
+  if (isValidationError(value)) {
+    return value;
+  }
+  // Nested unwrap ONLY for the complete AI-SDK result envelope
+  // ({input, output, toolCallId}) — a legitimate tool result that merely
+  // CONTAINS an `output` field satisfying the validation predicate must keep
+  // its other fields and its ordinary projection (Codex review: unwrapping on
+  // `output` alone silently discarded sibling fields like `summary`).
+  if (
+    isRecord(value) &&
+    Object.hasOwn(value, 'input') &&
+    Object.hasOwn(value, 'toolCallId') &&
+    isValidationError(value['output'])
+  ) {
+    return value['output'];
+  }
+  return;
 }
 
 function stringifyJsonSafe(value: unknown): string {
@@ -703,6 +743,10 @@ function projectDefaultModelOutput(
   if (isGuardedToolError(projectionSource)) {
     return createDefaultModelOutput(toolName, projectionSource, resolvedDefaultBudget);
   }
+  const nestedValidationError = readMastraToolValidationError(projectionSource);
+  if (nestedValidationError !== undefined) {
+    return createDefaultModelOutput(toolName, nestedValidationError, resolvedDefaultBudget);
+  }
   const envelope = readHookResultEnvelope(projectionSource);
   const domainOutput = envelope ? envelope.result : projectionSource;
   const hookContext = envelope?.additionalContext;
@@ -800,6 +844,10 @@ function projectExistingModelOutput(
   const projectionSource = readSettledToolOutputProjectionSource(output);
   if (isGuardedToolError(projectionSource)) {
     return projectDefaultModelOutput(toolName, projectionSource, resolvedDefaultBudget);
+  }
+  const validationError = readMastraToolValidationError(projectionSource);
+  if (validationError !== undefined) {
+    return projectDefaultModelOutput(toolName, validationError, resolvedDefaultBudget);
   }
   const envelope = readHookResultEnvelope(projectionSource);
   const domainOutput = envelope ? envelope.result : projectionSource;

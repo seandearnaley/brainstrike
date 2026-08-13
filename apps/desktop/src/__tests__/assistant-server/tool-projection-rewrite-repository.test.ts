@@ -26,8 +26,22 @@ vi.mock('../../assistant-server/read-workspace-file-model-projection', async (im
   };
 });
 
-import { APPROX_CHARS_PER_TOKEN, decodedTextModelOutputChars } from '@brainstrike/agent';
+import {
+  APPROX_CHARS_PER_TOKEN,
+  CEILING_SCALED_TOOL_RESULT_BUDGET,
+  decodedTextModelOutputChars,
+} from '@brainstrike/agent';
 import { projectReadWorkspaceFileModelOutput } from '../../assistant-server/read-workspace-file-model-projection';
+
+// The UNMOCKED projector, for building fixtures: production persists the
+// PROJECTED model output, so fixtures must too (review finding — a raw-JSON
+// default would claim the model actually saw the raw JSON, and it never
+// throws, so budget regressions would pass trivially). Using the actual
+// avoids polluting the mocked projector's call counts.
+const { projectReadWorkspaceFileModelOutput: actualProjectRead } = await vi.importActual<
+  typeof import('../../assistant-server/read-workspace-file-model-projection')
+>('../../assistant-server/read-workspace-file-model-projection');
+
 import {
   buildRecencyPruneMarker,
   selectRecencyPruneCandidates,
@@ -43,6 +57,24 @@ import {
   toRecencyPruneInvocation,
 } from '../../assistant-server/tool-projection-rewrite-repository';
 
+function fixtureModelOutput(result: unknown): { type: 'text'; value: string } {
+  try {
+    // Mirror the runtime: project under the ceiling scaled budget (the
+    // loop-guard budget large-context runs actually used).
+    return {
+      type: 'text',
+      value: actualProjectRead(
+        result,
+        CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget
+      ).value,
+    };
+  } catch {
+    // Unprojectable fixture results (the deliberately-malformed ones) keep a
+    // measurable stand-in; their tests never reach measurement.
+    return { type: 'text', value: JSON.stringify(result) };
+  }
+}
+
 function persistedInvocation(args: {
   id: string;
   input?: Record<string, unknown>;
@@ -51,7 +83,7 @@ function persistedInvocation(args: {
 }): unknown {
   return {
     providerMetadata: {
-      mastra: { modelOutput: { type: 'text', value: JSON.stringify(args.result) } },
+      mastra: { modelOutput: fixtureModelOutput(args.result) },
     },
     toolInvocation: {
       args: args.input ?? {},
@@ -125,7 +157,7 @@ describe('tool projection rewrite recording', () => {
     expect(logger.error).toHaveBeenCalledOnce();
   });
 
-  it('builds a winning read rewrite candidate only once', async () => {
+  it('measures winning read candidates from the persisted model output, never by re-projecting', async () => {
     const parts = Array.from({ length: 14 }, (_, index) =>
       persistedInvocation({ id: `read-old-${index}`, result: readResult('x'.repeat(5000)) })
     );
@@ -142,7 +174,59 @@ describe('tool projection rewrite recording', () => {
       { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
     );
 
-    expect(projectReadWorkspaceFileModelOutput).toHaveBeenCalledTimes(14);
+    // BST-1249: persisted invocations carry the exact model-facing projection;
+    // re-projecting the raw result would re-apply the DEFAULT domain budget,
+    // which is smaller than the loop-guard/scaled budget some runtimes used.
+    expect(projectReadWorkspaceFileModelOutput).not.toHaveBeenCalled();
+  });
+
+  it('does not brand a large read as malformed when its projection exceeds the default budget (BST-1249)', async () => {
+    // Reproduces the 2026-08 audit rows: content projecting to ~10k chars was
+    // legitimately projected at runtime under a scaled budget (up to 12k), but
+    // history re-projection under the 6k default threw RangeError and mislabeled
+    // the record `tool_projection_rewrite_malformed_read_history` on every scan.
+    const database = fakeDatabase([
+      persistedInvocation({ id: 'read-large', result: readResult('x'.repeat(10_500)) }),
+    ]);
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+        result: readResult('fresh'),
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'read-new',
+        toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
+    );
+
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('re-projects a legacy row without persisted model output under the ceiling budget (BST-1249)', async () => {
+    const legacy = persistedInvocation({
+      id: 'read-legacy-large',
+      result: readResult('x'.repeat(10_500)),
+    }) as { providerMetadata?: unknown };
+    legacy.providerMetadata = undefined;
+    const database = fakeDatabase([legacy]);
+
+    await recordSuccessfulToolProjection(
+      {
+        input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+        result: readResult('fresh'),
+        runtimeData: { memory: { resourceId: 'resource-1', threadId: 'thread-1' } },
+        toolCallId: 'read-new',
+        toolId: NATIVE_TOOL_ID.readWorkspaceFile,
+      },
+      { getDatabase: async () => database as never, resetLoopGuards: vi.fn() }
+    );
+
+    // 10.5k chars fits the 12k ceiling budget even though it exceeds the 6k
+    // default: a legacy row projected under a scaled runtime budget must not
+    // be branded malformed.
+    expect(projectReadWorkspaceFileModelOutput).toHaveBeenCalledOnce();
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('warns once per malformed persisted read invocation during a scan', async () => {
@@ -256,12 +340,16 @@ describe('tool projection rewrite recording', () => {
       startLine: 5,
       totalLines: 100,
     };
+    const legacyX = persistedInvocation({ id: 'read-x', result: projectionOnlyMalformed }) as {
+      providerMetadata?: unknown;
+    };
+    legacyX.providerMetadata = undefined;
     const database = fakeDatabase([
       persistedInvocation({
         id: 'read-a',
         result: readResult('early', { endLine: 10, startLine: 1 }),
       }),
-      persistedInvocation({ id: 'read-x', result: projectionOnlyMalformed }),
+      legacyX,
       persistedInvocation({
         id: 'read-l',
         result: readResult('late', { endLine: 30, startLine: 15 }),
@@ -282,9 +370,12 @@ describe('tool projection rewrite recording', () => {
     await scan('read-new-1');
     await scan('read-new-2');
 
-    // Both scans must attempt candidates for A (superseded by X) and X
-    // (superseded by L, projection throws): 2 projection calls per scan.
-    expect(projectReadWorkspaceFileModelOutput).toHaveBeenCalledTimes(4);
+    // Both scans must attempt candidates for A (superseded by X, measured
+    // from its persisted model output — no re-projection) and X (a LEGACY
+    // row superseded by L whose ceiling re-projection throws): one
+    // re-projection call per scan. A parse-gating memo would drop X.read on
+    // scan 2 and silently lose A's only superseder.
+    expect(projectReadWorkspaceFileModelOutput).toHaveBeenCalledTimes(2);
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(
       'Skipping malformed persisted read result during supersession detection',

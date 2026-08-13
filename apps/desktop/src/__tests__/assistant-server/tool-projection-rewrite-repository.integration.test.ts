@@ -25,6 +25,7 @@ type ProcessLLMRequestArgs = Parameters<ToolProjectionRewriteProcessor['processL
 function invocation(args: {
   readonly id: string;
   readonly input: Record<string, unknown>;
+  readonly modelOutput?: unknown;
   readonly result: unknown;
   readonly toolName: string;
 }): string {
@@ -32,7 +33,12 @@ function invocation(args: {
     content: [
       {
         providerMetadata: {
-          mastra: { modelOutput: { type: 'text', value: JSON.stringify(args.result) } },
+          mastra: {
+            modelOutput: args.modelOutput ?? {
+              type: 'text',
+              value: JSON.stringify(args.result),
+            },
+          },
         },
         toolInvocation: {
           args: args.input,
@@ -613,6 +619,10 @@ describe('tool projection rewrite overlay', () => {
         {
           id: `read-raw-only-threshold-${index}`,
           input: { endLine: 100, path: 'src/a.ts', root: 'root-a', startLine: 1 },
+          // BST-1249: production persists the PROJECTED model output, and
+          // measurement now reads it directly — the raw-JSON default fixture
+          // would claim the model actually saw the raw JSON.
+          modelOutput: projectReadWorkspaceFileModelOutput(thresholdFixture.result),
           result: thresholdFixture.result,
           toolName: NATIVE_TOOL_ID.readWorkspaceFile,
         },
