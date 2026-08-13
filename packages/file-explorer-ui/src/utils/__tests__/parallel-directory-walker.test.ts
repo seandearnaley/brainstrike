@@ -2,7 +2,10 @@ import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-syste
 import type { IFileNode } from '@brainstrike/types';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import { describe, expect, it, vi } from 'vitest';
-import { walkDirectoryParallel } from '../parallel-directory-walker';
+import {
+  DirectoryListingTruncatedError,
+  walkDirectoryParallel,
+} from '../parallel-directory-walker';
 
 const rootHandle: DirectoryHandle = {
   _internal: undefined,
@@ -28,6 +31,15 @@ function createFileEntry(name: string, path: string): IFileNode {
     path,
     size: 32,
     type: 'file',
+  } as IFileNode;
+}
+
+function createTruncatedEntry(parentPath: string): IFileNode {
+  return {
+    handle: { kind: 'file', name: '…truncated…' },
+    name: 'Showing first 10,000 entries',
+    path: `${parentPath}/…truncated…`,
+    type: 'truncated',
   } as IFileNode;
 }
 
@@ -164,6 +176,66 @@ describe('walkDirectoryParallel', () => {
         name: 'src',
       }),
     ]);
+  });
+
+  it('reports truncated directory listings to onDirectoryTruncated and omits the marker from the tree', async () => {
+    const readDirectory = vi.fn(async (handle: DirectoryHandle) => {
+      if (handle.path === '/workspace/root') {
+        return [
+          createDirectoryEntry('src', '/workspace/root/src'),
+          createTruncatedEntry('/workspace/root'),
+        ];
+      }
+      if (handle.path === '/workspace/root/src') {
+        return [
+          createFileEntry('index.ts', '/workspace/root/src/index.ts'),
+          createTruncatedEntry('/workspace/root/src'),
+        ];
+      }
+      return [];
+    });
+
+    const truncated: Array<{ depth: number; path: string }> = [];
+    const tree = await walkDirectoryParallel(createFileSystemAdapter(readDirectory), rootHandle, {
+      onDirectoryTruncated: (info) => {
+        truncated.push(info);
+      },
+    });
+
+    expect(truncated).toEqual(
+      expect.arrayContaining([
+        { depth: 0, path: '/workspace/root' },
+        { depth: 1, path: '/workspace/root/src' },
+      ])
+    );
+    expect(truncated).toHaveLength(2);
+    expect(tree).toEqual([
+      expect.objectContaining({
+        children: [expect.objectContaining({ name: 'index.ts', type: 'file' })],
+        name: 'src',
+      }),
+    ]);
+  });
+
+  it('throws on a truncated subdirectory listing when no onDirectoryTruncated handler is installed', async () => {
+    const readDirectory = vi.fn(async (handle: DirectoryHandle) => {
+      if (handle.path === '/workspace/root') {
+        return [createDirectoryEntry('src', '/workspace/root/src')];
+      }
+      if (handle.path === '/workspace/root/src') {
+        return [
+          createFileEntry('index.ts', '/workspace/root/src/index.ts'),
+          createTruncatedEntry('/workspace/root/src'),
+        ];
+      }
+      return [];
+    });
+
+    // No propagateDirectoryReadErrors: truncation must still fail loud for a
+    // non-root directory instead of riding the silent unreadable-subdir skip.
+    await expect(
+      walkDirectoryParallel(createFileSystemAdapter(readDirectory), rootHandle, {})
+    ).rejects.toThrow(DirectoryListingTruncatedError);
   });
 
   it('sorts directories before files using the default collator', async () => {

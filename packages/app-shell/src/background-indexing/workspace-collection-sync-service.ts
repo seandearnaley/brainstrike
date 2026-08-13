@@ -321,13 +321,14 @@ export class WorkspaceCollectionSyncService {
   private createScanSummary(
     prepared: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >
   ): WorkspaceCollectionSyncScanSummary {
     return {
       changedFiles: prepared.changes.length,
       discoveredFiles: prepared.totalFiles,
       excludedEntries: prepared.excludedEntries,
+      truncatedDirectories: prepared.truncatedDirectoryPaths.length,
       unchangedFiles: prepared.unchangedCount,
     };
   }
@@ -612,7 +613,7 @@ export class WorkspaceCollectionSyncService {
     context: ResolvedSyncContext,
     prepared: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >
   ): void {
     this.deps.setStatus({
@@ -715,7 +716,7 @@ export class WorkspaceCollectionSyncService {
     rootPath: string;
     summary?: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >;
   }): void {
     this.deps.setStatus({
@@ -774,7 +775,7 @@ export class WorkspaceCollectionSyncService {
     rootPath: string;
     summary: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >;
   }): void {
     this.deps.setStatus({
@@ -803,7 +804,7 @@ export class WorkspaceCollectionSyncService {
     rootPath: string;
     summary: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >;
   }): Promise<void> {
     if (!args.qosPolicy.allowNewWork) {
@@ -910,7 +911,7 @@ export class WorkspaceCollectionSyncService {
     context: ResolvedSyncContext,
     summary: Pick<
       PreparedChangesSummary,
-      'changes' | 'excludedEntries' | 'totalFiles' | 'unchangedCount'
+      'changes' | 'excludedEntries' | 'totalFiles' | 'truncatedDirectoryPaths' | 'unchangedCount'
     >
   ): void {
     this.deps.setStatus({

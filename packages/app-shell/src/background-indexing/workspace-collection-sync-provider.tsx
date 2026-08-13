@@ -220,14 +220,23 @@ type WorkspaceCoverageAuditOutcome =
       readonly kind: 'unresolved-root';
       readonly message: string;
       readonly rootPath: string;
+    }
+  | {
+      readonly kind: 'truncated-root';
+      readonly message: string;
+      readonly rootPath: string;
     };
 type WorkspaceCoverageIncompleteOutcome = Extract<
   WorkspaceCoverageAuditOutcome,
   { readonly kind: 'incomplete' }
 >;
+type WorkspaceCoverageUnverifiableOutcome = Extract<
+  WorkspaceCoverageAuditOutcome,
+  { readonly kind: 'truncated-root' | 'unresolved-root' }
+>;
 type WorkspaceCoverageAuditTargetResult =
   | WorkspaceCoverageAuditTarget
-  | Extract<WorkspaceCoverageAuditOutcome, { readonly kind: 'unresolved-root' }>;
+  | WorkspaceCoverageUnverifiableOutcome;
 
 function parseDatabaseCount(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -260,16 +269,16 @@ function readFileCountFromCountRow(row: unknown): number {
   return parseDatabaseCount(record['file_count'] ?? record['fileCount'] ?? record['count']);
 }
 
-function isUnresolvedRootAuditOutcome(
+function isUnverifiableAuditOutcome(
   value: WorkspaceCoverageAuditTargetResult
-): value is Extract<WorkspaceCoverageAuditOutcome, { readonly kind: 'unresolved-root' }> {
-  return 'kind' in value && value.kind === 'unresolved-root';
+): value is WorkspaceCoverageUnverifiableOutcome {
+  return 'kind' in value && (value.kind === 'unresolved-root' || value.kind === 'truncated-root');
 }
 
 function isWorkspaceCoverageAuditTarget(
   value: WorkspaceCoverageAuditTargetResult
 ): value is WorkspaceCoverageAuditTarget {
-  return !isUnresolvedRootAuditOutcome(value);
+  return !isUnverifiableAuditOutcome(value);
 }
 
 async function readIndexedFileCountsByRoot(args: {
@@ -416,6 +425,13 @@ function createUnresolvedRootCoverageMessage(rootPath: string): string {
   return `Workspace Index coverage cannot be verified because root ${rootPath} has no resolved database root id.`;
 }
 
+function createTruncatedRootCoverageMessage(
+  rootPath: string,
+  truncatedDirectoryCount: number
+): string {
+  return `Workspace Index coverage cannot be verified for root ${rootPath}: ${truncatedDirectoryCount} director${truncatedDirectoryCount === 1 ? 'y listing was' : 'y listings were'} truncated at the enumeration cap, so the expected file set is a partial prefix.`;
+}
+
 async function buildCoverageAuditTargets(args: {
   fileSystemAdapter: NonNullable<ReturnType<typeof useAdapters>['fileSystemAdapter']>;
   handles: readonly DirectoryHandle[];
@@ -440,6 +456,18 @@ async function buildCoverageAuditTargets(args: {
         policyPreset: args.policyPreset,
         rootHandle: handle,
       });
+      if (expected.truncatedDirectoryPaths.length > 0) {
+        // The expected set is a partial prefix; a fully-indexed prefix must
+        // not verify the root complete.
+        return {
+          kind: 'truncated-root',
+          message: createTruncatedRootCoverageMessage(
+            handle.path,
+            expected.truncatedDirectoryPaths.length
+          ),
+          rootPath: handle.path,
+        };
+      }
       // Deduped by normalized relative path: file_records rows are keyed by
       // (rootId, relativePath), so the DB can never hold more rows than the
       // deduped expected set — a raw node count would over-count.
@@ -455,9 +483,9 @@ async function buildCoverageAuditTargets(args: {
       };
     })
   );
-  const unresolvedRoot = targetResults.find(isUnresolvedRootAuditOutcome);
-  if (unresolvedRoot) {
-    return unresolvedRoot;
+  const unverifiableRoot = targetResults.find(isUnverifiableAuditOutcome);
+  if (unverifiableRoot) {
+    return unverifiableRoot;
   }
   return targetResults.filter(isWorkspaceCoverageAuditTarget);
 }
@@ -598,7 +626,7 @@ function applyWorkspaceCoverageAuditOutcome(args: {
     );
     return null;
   }
-  if (args.outcome.kind === 'unresolved-root') {
+  if (args.outcome.kind === 'unresolved-root' || args.outcome.kind === 'truncated-root') {
     logger.warn(args.outcome.message, { rootPath: args.outcome.rootPath });
     args.setStatus(
       createCoverageStatusPatch({

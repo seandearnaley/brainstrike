@@ -45,6 +45,23 @@ async function timeDirectoryRead<T>(
   return { durationMs, exceededBudget, result };
 }
 
+/**
+ * Thrown when a directory listing carries a `'truncated'` marker entry and the
+ * caller installed no `onDirectoryTruncated` handler. Truncation means the
+ * adapter capped the listing, so consuming it silently would under-report the
+ * tree; `handleDirectoryError` always rethrows this error, even for non-root
+ * directories that otherwise skip silently.
+ */
+export class DirectoryListingTruncatedError extends Error {
+  constructor(directoryPath: string) {
+    super(
+      `Directory listing was truncated by the file-system adapter: ${directoryPath}. ` +
+        'Install onDirectoryTruncated to consume partial listings explicitly.'
+    );
+    this.name = 'DirectoryListingTruncatedError';
+  }
+}
+
 export interface ParallelWalkerOptions {
   /** AbortSignal for cancellation support */
   abortSignal?: AbortSignal | undefined;
@@ -65,6 +82,12 @@ export interface ParallelWalkerOptions {
           | undefined;
       }
     | undefined;
+  /**
+   * Called when a directory listing was truncated by the adapter (a
+   * `'truncated'` marker entry). The marker never enters the returned tree.
+   * Without a handler the walk fails with DirectoryListingTruncatedError.
+   */
+  onDirectoryTruncated?: ((info: { depth: number; path: string }) => void) | undefined;
   /** Callback when an entry is skipped during traversal */
   onEntrySkipped?:
     | ((entry: {
@@ -147,6 +170,7 @@ export async function walkDirectoryParallel(
     concurrency = DEFAULT_CONCURRENCY,
     abortSignal,
     entryPolicy,
+    onDirectoryTruncated,
     onEntrySkipped,
     onProgress,
     propagateDirectoryReadErrors,
@@ -366,6 +390,11 @@ export async function walkDirectoryParallel(
     if (isAbortError(error)) {
       throw error;
     }
+    // Truncation is never a skippable read failure: silently omitting the
+    // subdirectory would hide that the walk under-reports the tree.
+    if (error instanceof DirectoryListingTruncatedError) {
+      throw error;
+    }
     // For root directory (depth 0), propagate the error
     if (depth === 0 || propagateDirectoryReadErrors) {
       if (error instanceof Error) {
@@ -440,6 +469,13 @@ export async function walkDirectoryParallel(
 
       for (const entry of entries) {
         checkAbort();
+        if (entry.type === 'truncated') {
+          if (!onDirectoryTruncated) {
+            throw new DirectoryListingTruncatedError(handle.path);
+          }
+          onDirectoryTruncated({ depth, path: handle.path });
+          continue;
+        }
         const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
         if (maybeSkipEntry(entry, relativePath)) {
           continue;

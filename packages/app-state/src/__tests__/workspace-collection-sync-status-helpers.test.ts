@@ -39,6 +39,7 @@ describe('workspace collection sync status helpers', () => {
           changedFiles: 2,
           discoveredFiles: 10,
           excludedEntries: 3,
+          truncatedDirectories: 2,
           unchangedFiles: 8,
         },
         unindexableFileCount: 2,
@@ -46,7 +47,8 @@ describe('workspace collection sync status helpers', () => {
     ).toEqual([
       {
         label: 'Scan',
-        value: '10 eligible • 8 unchanged • 2 to update • 3 excluded entries',
+        value:
+          '10 eligible • 8 unchanged • 2 to update • 3 excluded entries • 2 directories truncated',
       },
       {
         label: 'Coverage',

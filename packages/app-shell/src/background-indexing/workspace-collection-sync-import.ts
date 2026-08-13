@@ -267,6 +267,13 @@ export interface PreparedChangesSummary {
   statRefreshes: StatMetadataRefresh[];
   terminalChunkingErrors: ChunkingRedispatchTerminalError[];
   totalFiles: number;
+  /**
+   * Directories whose adapter listing was truncated (capped entry count).
+   * Only the tree-walk phase (workspace-collection-sync-scan) can observe
+   * truncation, so the content-batch phase always reports an empty list and
+   * the scan replaces it with what its traversal recorded.
+   */
+  truncatedDirectoryPaths: string[];
   unchangedCount: number;
 }
 
@@ -1006,6 +1013,7 @@ export async function collectPreparedChangesInBatches(args: {
     statRefreshes,
     terminalChunkingErrors,
     totalFiles: fileNodes.length,
+    truncatedDirectoryPaths: [],
     unchangedCount,
   };
 }

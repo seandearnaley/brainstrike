@@ -1841,6 +1841,71 @@ describe('WorkspaceCollectionSyncProvider', () => {
     }
   });
 
+  it('never verifies coverage complete from a truncated expected-file walk', async () => {
+    // The audit's expected set is a partial prefix when a listing was
+    // truncated at the adapter cap; a fully-indexed prefix must not mark the
+    // root verified complete.
+    readFullTreeWithOptionsMock.mockImplementation(async (_adapter, _handle, options) => {
+      options?.onDirectoryTruncated?.({ depth: 0, path: '/workspace/root' });
+      return [
+        {
+          handle: { path: '/workspace/root/src/index.ts', platform: 'electron' },
+          name: 'index.ts',
+          path: '/workspace/root/src/index.ts',
+          rootFolderId: '/workspace/root',
+          type: 'file',
+        },
+      ];
+    });
+    dbState.current = {
+      exec: vi.fn(async () => undefined),
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('SELECT root_id, path')) {
+          return { rows: [{ path: 'src/index.ts', root_id: 'db-root-id' }] };
+        }
+        return { rows: [] };
+      }),
+      transaction: vi.fn(async (fn) => fn({ query: vi.fn(async () => ({ rows: [] })) })),
+    };
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+
+    try {
+      render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+
+      act(() => {
+        useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+          activeRootPath: '/workspace/root',
+          currentFilePath: null,
+          lastError: null,
+          managedCollectionId: '00000000-0000-0000-0000-000000000101',
+          managedCollectionName: 'Managed Cache',
+          pauseReasons: [],
+          processedFiles: 1,
+          queuedFiles: 0,
+          state: 'idle',
+        });
+      });
+
+      await waitFor(() => {
+        expect(useWorkspaceCollectionSyncStatusStore.getState().lastError ?? '').toContain(
+          'truncated'
+        );
+      });
+      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('waiting');
+      // Truncation is an enumeration cap, not missing pipeline work: it must
+      // not trigger a recovery sync that can never converge.
+      expect(syncSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      syncSpy.mockRestore();
+    }
+  });
+
   it('names genuinely missing files in the incomplete coverage error', async () => {
     readFullTreeWithOptionsMock.mockResolvedValue([
       {
@@ -2753,6 +2818,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         changedFiles: 8,
         discoveredFiles: 20,
         excludedEntries: 2,
+        truncatedDirectories: 0,
         unchangedFiles: 10,
       },
       state: 'importing',
