@@ -328,8 +328,13 @@ async function readDirectoryWithProgress(args: {
       `File system adapter returned an invalid directory listing: ${args.handle.path}`
     );
   }
+  // Mirror the walker contract: report truncation, and never let the marker
+  // pseudo-node reach scoped consumers (a future consumer treating "not a
+  // directory" as "file" would otherwise index a phantom entry).
   if (nodes.some((node) => node.type === 'truncated')) {
     args.onDirectoryTruncated(args.handle.path);
+    throwIfAborted(args.abortSignal);
+    return nodes.filter((node) => node.type !== 'truncated');
   }
   throwIfAborted(args.abortSignal);
   return nodes;

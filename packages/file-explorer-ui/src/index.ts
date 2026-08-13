@@ -33,6 +33,7 @@ export * from './tree';
 export * from './use-shared-file-content-loading';
 export * from './utils/file-content-worker';
 export * from './utils/file-node-cache';
+export { DirectoryListingTruncatedError } from './utils/parallel-directory-walker';
 export { processDirectoryEntry } from './utils/process-directory-entry';
 export { processFileEntry } from './utils/process-file-entry';
 export { readFullTree, readFullTreeWithOptions } from './utils/read-full-tree';
