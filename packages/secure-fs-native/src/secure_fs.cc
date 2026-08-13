@@ -332,7 +332,11 @@ NativeHandle OpenRelativeDirectory(NativeHandle root,
 
 // Reopens the directory that `root` refers to via a handle-relative open with
 // an empty name, yielding an independent open (and enumeration cursor) on the
-// same directory object. Never resolves through a path.
+// same directory object. Never resolves through a path. No post-open reparse
+// re-check is needed here: the constructor already rejected a reparse-point
+// root, and a by-handle reopen with an empty name resolves no path component
+// (nothing to re-traverse or re-reparse) — it can only ever hand back the
+// same underlying directory object `root` already refers to.
 NativeHandle ReopenDirectory(NativeHandle root) {
   const auto nt_create_file = ResolveNtCreateFile();
   if (nt_create_file == nullptr) {
@@ -342,7 +346,7 @@ NativeHandle ReopenDirectory(NativeHandle root) {
   static wchar_t kEmpty[] = L"";
   empty_name.Buffer = kEmpty;
   empty_name.Length = 0;
-  empty_name.MaximumLength = 0;
+  empty_name.MaximumLength = sizeof(kEmpty);
   OBJECT_ATTRIBUTES attributes{};
   InitializeObjectAttributes(&attributes, &empty_name,
                              OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE, root, nullptr);
@@ -728,8 +732,11 @@ struct RootState {
   }
 
   void Close() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    handle_.reset();
+    std::shared_ptr<const RootHandle> released;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      released.swap(handle_);
+    }  // ~RootHandle (and the close syscall) runs here, outside the lock
   }
 
  private:

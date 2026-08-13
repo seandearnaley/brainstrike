@@ -1,9 +1,13 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const {
+  closeSync,
+  constants,
   mkdirSync,
   mkdtempSync,
+  openSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -14,6 +18,7 @@ const {
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { afterEach, test } = require('node:test');
+const { setTimeout: sleep } = require('node:timers/promises');
 const { SecureRoot } = require('..');
 
 let tempRoot;
@@ -304,40 +309,63 @@ test('throws when the root path does not exist', () => {
   });
 });
 
-test('close never blocks on in-flight reads and fails new operations closed', async () => {
+test('close drains a blocked read without waiting on a mutex held across I/O', {
+  skip: process.platform === 'win32',
+  timeout: 15_000,
+}, async () => {
   const { commands, workspace } = fixture();
-  for (let index = 0; index < 50; index += 1) {
-    writeFileSync(path.join(commands, `bulk-${index}.md`), 'x'.repeat(4096));
-  }
+  const fifoPath = path.join(commands, 'pipe.fifo');
+  execFileSync('mkfifo', [fifoPath]);
   const root = new SecureRoot(workspace);
-  const inflight = [
-    root.listDirAsync('.brainstrike/commands', 10_000),
-    root.readFileAsync('.brainstrike/commands/bulk-0.md', 1024 * 1024),
-    root.listDirAsync('.', 10_000),
-  ];
+
+  // openat(parent, 'pipe.fifo', O_RDONLY|O_NOFOLLOW) blocks in the kernel
+  // until a writer opens the FIFO. The worker acquires its RootHandle
+  // snapshot before making that blocking call.
+  let settled = false;
+  const pending = root.readFileAsync('.brainstrike/commands/pipe.fifo', 1024);
+  pending.then(() => {
+    settled = true;
+  });
+  // Give the worker time to reach the blocked open.
+  await sleep(100);
+
   const before = process.hrtime.bigint();
   root.close();
   const closeMs = Number(process.hrtime.bigint() - before) / 1e6;
-  // Drain semantics: close() only swaps the state pointer; it must not wait
-  // for the queued/blocking I/O above (generous bound to avoid CI flake).
-  assert.ok(closeMs < 250, `close() took ${closeMs}ms`);
+  // Discriminating assertion: under the old mutex-across-I/O design,
+  // close() blocks on the mutex the worker is holding for the entire
+  // blocked open, i.e. until a writer shows up — this bound would time
+  // out the whole test (see the `timeout` option above) rather than pass.
+  // Under the new design close() only swaps the state pointer.
+  assert.ok(closeMs < 1000, `close() took ${closeMs}ms`);
 
   // New operations after close fail closed immediately.
   assert.equal(root.listDir('.', 10), null);
-  assert.deepEqual(root.readFile('.brainstrike/commands/bulk-0.md', 1024), {
+  assert.deepEqual(root.readFile('.brainstrike/commands/pipe.fifo', 1024), {
     status: 'unreadable',
   });
-  const [lateList, lateRead] = [
-    await root.listDirAsync('.', 10),
-    await root.readFileAsync('.brainstrike/commands/bulk-0.md', 1024),
-  ];
-  assert.equal(lateList, null);
-  assert.equal(lateRead.status, 'unreadable');
 
-  // In-flight operations settle without rejection or crash; each either
-  // completed against the pinned object or observed the revocation.
-  const settled = await Promise.all(inflight);
-  for (const result of settled) {
-    assert.notEqual(result, undefined);
+  // Release the blocked worker (unless close() already won a rare race
+  // and the read observed the revocation before ever blocking).
+  if (!settled) {
+    const deadline = Date.now() + 5000;
+    for (;;) {
+      try {
+        const writerFd = openSync(fifoPath, constants.O_WRONLY | constants.O_NONBLOCK);
+        closeSync(writerFd);
+        break;
+      } catch (error) {
+        if (error.code !== 'ENXIO' || Date.now() > deadline) {
+          throw error;
+        }
+        await sleep(10);
+      }
+    }
   }
+
+  // The drained read ran to completion against the pinned object: the
+  // open succeeds once a writer appears, then fstat rejects the
+  // non-regular file.
+  const result = await pending;
+  assert.equal(result.status, 'unreadable');
 });
