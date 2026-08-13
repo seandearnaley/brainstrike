@@ -12,7 +12,7 @@
  */
 import { createLogger } from '@brainstrike/logging';
 import { useContext, useEffect } from 'react';
-import { DbContext, type DbInitializationStatus } from './db-context.js';
+import { DbContext, type DbContextValue, type DbInitializationStatus } from './db-context.js';
 import type { DbHandle } from './db-handle.js';
 import type { DrizzleDb } from './drizzle/database.js';
 import type { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
@@ -30,6 +30,67 @@ const logger = createLogger('DbProvider');
 
 function logDatabaseError(message: string, error: unknown): void {
   logger.error({ err: error }, message);
+}
+
+interface DbSelectorConfig<T> {
+  hookName: string;
+  /**
+   * 'warn' logs `<hookName> must be used within a DbProvider` when there is
+   * no provider, so a wiring bug is never mistaken for pre-init state.
+   * 'silent' is reserved for hooks whose contract is explicitly optional
+   * (useOptionalPGliteDatabase) — silence must be opted into per call site.
+   */
+  onMissingProvider: 'silent' | 'warn';
+  select: (ctx: DbContextValue) => T | null;
+  /**
+   * Field whose non-null presence means "database already initialized" for
+   * the lazy-init trigger. This must be one of the nullable context fields
+   * (`db`, the repositories, `drizzleDb`) — it cannot default to the
+   * selected value, because hooks selecting always-present function fields
+   * (`clearAllData`, `factoryReset`, `clearQueuesAndEmbeddingSets`) would
+   * then never see an "uninitialized" state and never trigger init.
+   */
+  watch: (ctx: DbContextValue) => unknown;
+}
+
+/**
+ * Shared body of the nullable consumer hooks: trigger lazy database
+ * initialization on first access, then expose the selected context field
+ * once the provider is ready and error-free.
+ */
+function useDbSelector<T>({
+  hookName,
+  onMissingProvider,
+  select,
+  watch,
+}: DbSelectorConfig<T>): T | null {
+  const ctx = useContext(DbContext);
+
+  // Plain values (not ctx) in the dependency array, so the effect re-runs on
+  // state transitions rather than on every provider render.
+  const watched = ctx ? watch(ctx) : undefined;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
+  // Trigger lazy initialization when first accessed
+  // Only trigger if not already initializing to avoid duplicate calls
+  useEffect(() => {
+    if (!(watched || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logDatabaseError('Failed to lazy-initialize database', err);
+      });
+    }
+  }, [watched, error, initializing, initializeDatabase]);
+
+  if (!ctx) {
+    if (onMissingProvider === 'warn') {
+      logger.warn(`${hookName} must be used within a DbProvider`);
+    }
+    return null;
+  }
+
+  return ctx.ready && !ctx.error ? select(ctx) : null;
 }
 
 export function useVectorEnabled(): boolean {
@@ -66,81 +127,6 @@ export function useDbInitializationStatus(): DbInitializationStatus {
   return ctx.initializationStatus;
 }
 
-export function useFileRecordRepository():
-  | DrizzleFileRecordRepository
-  | ElectronFileRecordRepository
-  | null {
-  const ctx = useContext(DbContext);
-
-  // Destructure to get stable references for dependency array
-  const fileRecordRepository = ctx?.fileRecordRepository;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-
-  // Trigger lazy initialization when first accessed
-  // Only trigger if not already initializing to avoid duplicate calls
-  useEffect(() => {
-    if (!(fileRecordRepository || error || initializing) && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [fileRecordRepository, error, initializing, initializeDatabase]);
-
-  if (!ctx) {
-    logger.warn('useFileRecordRepository must be used within a DbProvider');
-    return null;
-  }
-
-  return ctx.ready && !ctx.error ? ctx.fileRecordRepository : null;
-}
-
-export function usePGliteDatabase(): DbHandle | null {
-  const ctx = useContext(DbContext);
-
-  // Destructure to get stable references for dependency array
-  const db = ctx?.db;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-
-  // Trigger lazy initialization when first accessed
-  // Only trigger if not already initializing to avoid duplicate calls
-  useEffect(() => {
-    if (!(db || error || initializing) && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [db, error, initializing, initializeDatabase]);
-
-  if (!ctx) {
-    logger.warn('usePGliteDatabase must be used within a DbProvider');
-    return null;
-  }
-
-  return ctx.ready && !ctx.error ? ctx.db : null;
-}
-
-export function useOptionalPGliteDatabase(): DbHandle | null {
-  const ctx = useContext(DbContext);
-  const db = ctx?.db;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-
-  useEffect(() => {
-    if (!(db || error || initializing) && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [db, error, initializing, initializeDatabase]);
-
-  return ctx?.ready && !ctx.error ? ctx.db : null;
-}
-
 export function useDbProviderError(): Error | null {
   const ctx = useContext(DbContext);
   if (!ctx) {
@@ -149,113 +135,78 @@ export function useDbProviderError(): Error | null {
   return ctx.error;
 }
 
+export function useFileRecordRepository():
+  | DrizzleFileRecordRepository
+  | ElectronFileRecordRepository
+  | null {
+  return useDbSelector({
+    hookName: 'useFileRecordRepository',
+    onMissingProvider: 'warn',
+    select: (ctx) => ctx.fileRecordRepository,
+    watch: (ctx) => ctx.fileRecordRepository,
+  });
+}
+
+export function usePGliteDatabase(): DbHandle | null {
+  return useDbSelector({
+    hookName: 'usePGliteDatabase',
+    onMissingProvider: 'warn',
+    select: (ctx) => ctx.db,
+    watch: (ctx) => ctx.db,
+  });
+}
+
+export function useOptionalPGliteDatabase(): DbHandle | null {
+  return useDbSelector({
+    hookName: 'useOptionalPGliteDatabase',
+    onMissingProvider: 'silent',
+    select: (ctx) => ctx.db,
+    watch: (ctx) => ctx.db,
+  });
+}
+
 export function useFileChunkRepository():
   | DrizzleFileChunkRepository
   | ElectronFileChunkRepository
   | null {
-  const ctx = useContext(DbContext);
-
-  // Destructure to get stable references for dependency array
-  const chunkRepository = ctx?.chunkRepository;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-
-  // Trigger lazy initialization when first accessed
-  // Only trigger if not already initializing to avoid duplicate calls
-  useEffect(() => {
-    if (!(chunkRepository || error || initializing) && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [chunkRepository, error, initializing, initializeDatabase]);
-
-  if (!ctx) {
-    logger.warn('useFileChunkRepository must be used within a DbProvider');
-    return null;
-  }
-
-  return ctx.ready && !ctx.error ? ctx.chunkRepository : null;
+  return useDbSelector({
+    hookName: 'useFileChunkRepository',
+    onMissingProvider: 'warn',
+    select: (ctx) => ctx.chunkRepository,
+    watch: (ctx) => ctx.chunkRepository,
+  });
 }
 
 export function useClearAllData():
   | (() => Promise<{ deletedFiles: number; deletedChunks: number }>)
   | null {
-  const ctx = useContext(DbContext);
-
-  // Destructure to get stable references for dependency array
-  const fileRecordRepository = ctx?.fileRecordRepository;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-
-  // Trigger lazy initialization when first accessed
-  // Only trigger if not already initializing to avoid duplicate calls
-  useEffect(() => {
-    if (!(fileRecordRepository || error || initializing) && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [fileRecordRepository, error, initializing, initializeDatabase]);
-
-  if (!ctx) {
-    logger.warn('useClearAllData must be used within a DbProvider');
-    return null;
-  }
-
-  return ctx.ready && !ctx.error ? ctx.clearAllData : null;
+  return useDbSelector({
+    hookName: 'useClearAllData',
+    onMissingProvider: 'warn',
+    select: (ctx) => ctx.clearAllData,
+    // clearAllData is always present; the repository is the init signal.
+    watch: (ctx) => ctx.fileRecordRepository,
+  });
 }
 
 export function useFactoryReset(): (() => Promise<void>) | null {
-  const ctx = useContext(DbContext);
-
-  // Destructure to get stable references for dependency array
-  const db = ctx?.db;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-
-  // Trigger lazy initialization when first accessed
-  // Only trigger if not already initializing to avoid duplicate calls
-  useEffect(() => {
-    if (!(db || error || initializing) && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [db, error, initializing, initializeDatabase]);
-
-  if (!ctx) {
-    return null;
-  }
-  return ctx.ready && !ctx.error ? ctx.factoryReset : null;
+  return useDbSelector({
+    hookName: 'useFactoryReset',
+    onMissingProvider: 'warn',
+    select: (ctx) => ctx.factoryReset,
+    // factoryReset is always present; the db handle is the init signal.
+    watch: (ctx) => ctx.db,
+  });
 }
 
 export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
-  const ctx = useContext(DbContext);
-
-  // Destructure to get stable references for dependency array
-  const db = ctx?.db;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-
-  // Trigger lazy initialization when first accessed
-  // Only trigger if not already initializing to avoid duplicate calls
-  useEffect(() => {
-    if (!(db || error || initializing) && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [db, error, initializing, initializeDatabase]);
-
-  if (!ctx) {
-    return null;
-  }
-  return ctx.ready && !ctx.error ? ctx.clearQueuesAndEmbeddingSets : null;
+  return useDbSelector({
+    hookName: 'useClearQueuesAndEmbeddingSets',
+    onMissingProvider: 'warn',
+    select: (ctx) => ctx.clearQueuesAndEmbeddingSets,
+    // clearQueuesAndEmbeddingSets is always present; db is the init signal.
+    watch: (ctx) => ctx.db,
+  });
 }
 
 /**
@@ -263,29 +214,12 @@ export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
  * Use this for advanced queries or when you need the raw Drizzle instance.
  */
 export function useDrizzleDb(): DrizzleDb | null {
-  const ctx = useContext(DbContext);
-
-  // Destructure to get stable references for dependency array
-  const drizzleDb = ctx?.drizzleDb;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-
-  // Trigger lazy initialization when first accessed
-  useEffect(() => {
-    if (!(drizzleDb || error || initializing) && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [drizzleDb, error, initializing, initializeDatabase]);
-
-  if (!ctx) {
-    logger.warn('useDrizzleDb must be used within a DbProvider');
-    return null;
-  }
-
-  return ctx.ready && !ctx.error ? ctx.drizzleDb : null;
+  return useDbSelector({
+    hookName: 'useDrizzleDb',
+    onMissingProvider: 'warn',
+    select: (ctx) => ctx.drizzleDb,
+    watch: (ctx) => ctx.drizzleDb,
+  });
 }
 
 /**
@@ -293,29 +227,12 @@ export function useDrizzleDb(): DrizzleDb | null {
  * Use this to manage embedding sets (collections) in the database.
  */
 export function useEmbeddingSetsRepository(): IEmbeddingSetsRepository | null {
-  const ctx = useContext(DbContext);
-
-  // Destructure to get stable references for dependency array
-  const embeddingSetsRepository = ctx?.embeddingSetsRepository;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-
-  // Trigger lazy initialization when first accessed
-  useEffect(() => {
-    if (!(embeddingSetsRepository || error || initializing) && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [embeddingSetsRepository, error, initializing, initializeDatabase]);
-
-  if (!ctx) {
-    logger.warn('useEmbeddingSetsRepository must be used within a DbProvider');
-    return null;
-  }
-
-  return ctx.ready && !ctx.error ? ctx.embeddingSetsRepository : null;
+  return useDbSelector({
+    hookName: 'useEmbeddingSetsRepository',
+    onMissingProvider: 'warn',
+    select: (ctx) => ctx.embeddingSetsRepository,
+    watch: (ctx) => ctx.embeddingSetsRepository,
+  });
 }
 
 /**
@@ -323,27 +240,10 @@ export function useEmbeddingSetsRepository(): IEmbeddingSetsRepository | null {
  * Use this to manage view filter presets (include/exclude patterns) in the database.
  */
 export function useViewFilterPresetsRepository(): IViewFilterPresetsRepository | null {
-  const ctx = useContext(DbContext);
-
-  // Destructure to get stable references for dependency array
-  const viewFilterPresetsRepository = ctx?.viewFilterPresetsRepository;
-  const error = ctx?.error;
-  const initializing = ctx?.initializing;
-  const initializeDatabase = ctx?.initializeDatabase;
-
-  // Trigger lazy initialization when first accessed
-  useEffect(() => {
-    if (!(viewFilterPresetsRepository || error || initializing) && initializeDatabase) {
-      initializeDatabase().catch((err) => {
-        logDatabaseError('Failed to lazy-initialize database', err);
-      });
-    }
-  }, [viewFilterPresetsRepository, error, initializing, initializeDatabase]);
-
-  if (!ctx) {
-    logger.warn('useViewFilterPresetsRepository must be used within a DbProvider');
-    return null;
-  }
-
-  return ctx.ready && !ctx.error ? ctx.viewFilterPresetsRepository : null;
+  return useDbSelector({
+    hookName: 'useViewFilterPresetsRepository',
+    onMissingProvider: 'warn',
+    select: (ctx) => ctx.viewFilterPresetsRepository,
+    watch: (ctx) => ctx.viewFilterPresetsRepository,
+  });
 }
