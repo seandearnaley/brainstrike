@@ -4,6 +4,18 @@
 export type FileNodeType = 'file' | 'directory' | 'loadMore' | 'truncated';
 
 /**
+ * True for UI-only pseudo-node types ('loadMore', 'truncated') that render
+ * as tree rows but never back a real file or directory. Every consumer that
+ * counts files, rolls up tri-state selection, or mutates selection must
+ * treat these as transparent — contributing nothing, not even an
+ * "incomplete" or "unselected" signal — rather than falling through
+ * whatever bucket a `!== 'directory'` / `!== 'file'` check lands them in.
+ */
+export function isPseudoFileNodeType(type: FileNodeType): boolean {
+  return type === 'loadMore' || type === 'truncated';
+}
+
+/**
  * Selection state for a file node
  */
 export type SelectionState = 'checked' | 'unchecked' | 'indeterminate';

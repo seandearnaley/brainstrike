@@ -11,6 +11,29 @@ import { calculateDynamicTotal } from './progress-utils.js';
 
 const logger = createLogger('useFileTree');
 
+/**
+ * Directories first, then alphabetically. The truncation marker is a
+ * trailing pseudo-node: it sorts last within its directory regardless of
+ * name, ahead of directories-first.
+ */
+function compareFileTreeNodesForSort(a: IFileNode, b: IFileNode): number {
+  if (a.type === 'truncated' || b.type === 'truncated') {
+    if (a.type === b.type) {
+      return 0;
+    }
+    return a.type === 'truncated' ? 1 : -1;
+  }
+  if (a.type !== b.type) {
+    if (a.type === 'directory') {
+      return -1;
+    }
+    if (b.type === 'directory') {
+      return 1;
+    }
+  }
+  return fileNodeCollator.compare(a.name, b.name);
+}
+
 function countSlashes(path: string): number {
   let count = 0;
   let idx = path.indexOf('/');
@@ -115,18 +138,7 @@ export function useFileTree(
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const sortFileNodes = useCallback(
-    (nodes: IFileNode[]): IFileNode[] =>
-      [...nodes].sort((a, b) => {
-        if (a.type !== b.type) {
-          if (a.type === 'directory') {
-            return -1;
-          }
-          if (b.type === 'directory') {
-            return 1;
-          }
-        }
-        return fileNodeCollator.compare(a.name, b.name);
-      }),
+    (nodes: IFileNode[]): IFileNode[] => [...nodes].sort(compareFileTreeNodesForSort),
     []
   );
 

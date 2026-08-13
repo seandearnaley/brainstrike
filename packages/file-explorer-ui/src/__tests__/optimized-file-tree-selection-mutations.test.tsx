@@ -763,4 +763,61 @@ describe('OptimizedFileTree keyboard selection (a11y)', () => {
     // swallowed into a row-open no-op.
     expect(after).not.toBe(before);
   });
+
+  it('does not mutate selection when Space is pressed on a focused truncated-marker row', async () => {
+    const truncatedOnlyTree: IFileNode[] = [
+      {
+        depth: 0,
+        handle: {} as FileSystemFileHandle,
+        isVisible: true,
+        name: 'Showing first 10,000 entries',
+        path: '/…truncated…',
+        rootFolderId: 'root',
+        selectionState: 'unchecked',
+        type: 'truncated',
+      },
+    ];
+
+    let fileExplorerStore: FileExplorerStore | undefined;
+    render(
+      <FileExplorerTestWrapper>
+        <StoreHandleBridge
+          onStoreReady={(store) => {
+            fileExplorerStore = store;
+          }}
+        />
+        <OptimizedFileTree fileTree={truncatedOnlyTree} folderId="root" loadingFiles={new Set()} />
+      </FileExplorerTestWrapper>
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const readyStore = fileExplorerStore;
+    if (!readyStore) {
+      throw new Error('File explorer store is unavailable in test');
+    }
+    await act(async () => {
+      readyStore.getState().clearSelectedFiles();
+      readyStore.getState().setMaxSelectionCount(100);
+      await Promise.resolve();
+    });
+
+    const grid = screen.getByRole('treegrid', { name: 'File tree' });
+    grid.focus();
+    // Roving focus onto the sole (truncated-marker) row, then Space — the
+    // keyboard path bypasses the checkbox's `disabled` attribute entirely
+    // (it calls handleNodeSelectionEvent directly), so this exercises the
+    // pseudo-node guard in handleNodeSelection, not the disabled checkbox.
+    await act(async () => {
+      fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    });
+    const before = readyStore.getState().selectedFilePaths.size;
+    await act(async () => {
+      fireEvent.keyDown(grid, { key: ' ' });
+    });
+    const after = readyStore.getState().selectedFilePaths.size;
+
+    expect(after).toBe(before);
+    expect(after).toBe(0);
+  });
 });

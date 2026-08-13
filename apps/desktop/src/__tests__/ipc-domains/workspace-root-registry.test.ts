@@ -427,10 +427,13 @@ describe('WorkspaceRootRegistry', () => {
     });
 
     expect(nodes).toHaveLength(3);
+    const markers = nodes.filter((node) => node.type === 'truncated');
+    expect(markers).toHaveLength(1);
     const marker = nodes.at(-1);
     expect(marker?.type).toBe('truncated');
     expect(marker?.name).toBe('Showing first 10,000 entries');
     expect(marker?.selectionState).toBe('unchecked');
+    expect(marker?.path).toBe(path.join(descriptor.handle.path, '…truncated…'));
   });
 
   it('mounts a new root under its presentation path while canonical-path reads route to it', async () => {

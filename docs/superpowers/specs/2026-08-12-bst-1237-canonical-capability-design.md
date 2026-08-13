@@ -62,7 +62,7 @@ NO SILENT FALLBACKS, concretely:
 - Revoked capability → explicit fail-closed statuses on new operations.
 - Corrupt `rootsList` → quarantined + surfaced on add/remove; fail-loud on restore/convergence.
 - `maxFileSize` above the native cap → throw at the registry boundary.
-- Truncated listing → partial data with a visible UI row, never a silent partial and never a hard failure.
+- Truncated listing → partial data with a visible UI row in the Explorer, never a silent partial and never a hard failure. Scoped to the Explorer specifically: the background Workspace Index scanner (`parallel-directory-walker.ts`) consumes the same `readDirectory` listing but does not yet recognize the `'truncated'` marker — it silently drops the unrecognized node type, so a truncated ROOT directory now completes the scan silently instead of the previous visible throw. Tracked as a follow-up, not fixed in this change.
 - Native binding unavailable → error/null, no path-based fallback (unchanged invariant).
 
 ### 5. Testing (RED/GREEN)
