@@ -229,6 +229,28 @@ NativeHandle OpenRelativeComponent(NativeHandle parent, const std::wstring& name
   return result;
 }
 
+NativeHandle ReopenRelativeDirectory(NativeHandle root) {
+  const auto nt_create_file = ResolveNtCreateFile();
+  if (nt_create_file == nullptr) {
+    return kInvalidHandle;
+  }
+  UNICODE_STRING object_name{};
+  OBJECT_ATTRIBUTES attributes{};
+  InitializeObjectAttributes(&attributes, &object_name, OBJ_DONT_REPARSE, root, nullptr);
+  IO_STATUS_BLOCK status_block{};
+  HANDLE result = kInvalidHandle;
+  const NTSTATUS status = nt_create_file(
+      &result, FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+      &attributes, &status_block, nullptr, FILE_ATTRIBUTE_NORMAL,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
+      FILE_SYNCHRONOUS_IO_NONALERT | FILE_DIRECTORY_FILE, nullptr, 0);
+  if (status < 0 || result == kInvalidHandle || IsReparsePoint(result)) {
+    CloseNativeHandle(result);
+    return kInvalidHandle;
+  }
+  return result;
+}
+
 bool ParseWindowsAbsoluteRoot(const std::wstring& input, std::wstring* prefix,
                               std::vector<std::wstring>* components) {
   std::wstring path = input;
@@ -303,13 +325,7 @@ NativeHandle OpenRelativeDirectory(NativeHandle root,
     *not_found = false;
   }
   bool component_not_found = false;
-  NativeHandle current = ReOpenFile(
-      root, FILE_LIST_DIRECTORY | FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
-      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_FLAG_BACKUP_SEMANTICS);
-  if (current != kInvalidHandle && IsReparsePoint(current)) {
-    CloseNativeHandle(current);
-    current = kInvalidHandle;
-  }
+  NativeHandle current = ReopenRelativeDirectory(root);
   if (current == kInvalidHandle) {
     return kInvalidHandle;
   }
