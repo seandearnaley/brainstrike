@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import {
   addLogListener,
@@ -75,6 +76,14 @@ import {
   listErrorLogFilePaths,
 } from './diagnostics/error-log-sink';
 import { resolveMainLogTransportPath } from './diagnostics/main-log-transport-path';
+import { MAIN_WATCHDOG_CHECK_INTERVAL_MS } from './diagnostics/main-watchdog-core';
+import { resolveMainWatchdogWorkerPath } from './diagnostics/main-watchdog-path';
+import {
+  attemptMainWatchdogBootstrap,
+  createMainWatchdogAttachmentLifecycle,
+  createMainWatchdogRuntime,
+  runMainWatchdogPowerTransition,
+} from './diagnostics/main-watchdog-runtime';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_FILES } from './diagnostics/rotating-file-sink';
 import {
   type DimensionIndexBuildStrategy,
@@ -518,6 +527,18 @@ const loggingOptions: InitializeLoggingOptions = {
 };
 
 const logger = createLogger('DesktopMain');
+const mainWatchdogRuntime = createMainWatchdogRuntime({
+  onDeliveryError: ({ error, message }) => {
+    logger.error(
+      {
+        error: error instanceof Error ? error.message : String(error),
+        messageType: message.type,
+      },
+      'main-thread watchdog message delivery failed'
+    );
+  },
+});
+const mainWatchdogAttachment = createMainWatchdogAttachmentLifecycle(mainWatchdogRuntime);
 
 // Captured at module evaluation — BEFORE app.whenReady() and therefore before
 // any renderer (the only run-row minter) can exist. The thread-run startup
@@ -679,6 +700,7 @@ async function applyAndPersistLoggingPreferences(
     },
     fileTransport: createMainLogTransportConfig(),
   });
+  mainWatchdogRuntime.configureLogging(normalized.file);
   void verifyActiveLogFile('logging-preferences-updated');
   return getLoggingSettingsPayload();
 }
@@ -1906,10 +1928,6 @@ if (singleInstanceLockAcquired) {
         }, 2000);
       };
 
-      logger.debug('Creating main window...');
-      const mainWindow = await createMainWindow();
-      logger.debug('Main window created successfully');
-
       // ---------------------------------------------------------------
       // Event loop health diagnostics — logs CPU and loop lag every 30s.
       // Logs UNCONDITIONALLY so the absence of entries = freeze detected.
@@ -1973,63 +1991,80 @@ if (singleInstanceLockAcquired) {
       // If the main thread stops sending heartbeats, the worker writes
       // diagnostics directly to stderr and the log file.
       // ---------------------------------------------------------------
-      {
-        const { Worker } = await import('node:worker_threads');
-        const watchdogSource = [
-          'const { parentPort } = require("node:worker_threads");',
-          'const fs = require("node:fs");',
-          'let lastHb = Date.now();',
-          'let logPath = null;',
-          'const CHECK_MS = 5000;',
-          'const FROZEN_MS = 20000;',
-          'parentPort.on("message", (m) => {',
-          '  if (m.type === "heartbeat") lastHb = Date.now();',
-          '  else if (m.type === "config") logPath = m.logPath;',
-          '});',
-          'setInterval(() => {',
-          '  const age = Date.now() - lastHb;',
-          '  if (age > FROZEN_MS) {',
-          '    const d = JSON.stringify({',
-          '      level: 50,',
-          '      time: new Date().toISOString(),',
-          '      scope: "MainWatchdog",',
-          '      msg: "MAIN_THREAD_UNRESPONSIVE",',
-          '      heartbeatAgeMs: age,',
-          '      cpuUser: process.cpuUsage().user,',
-          '      cpuSystem: process.cpuUsage().system,',
-          '      rssKb: Math.round(process.memoryUsage().rss / 1024),',
-          '      heapUsedKb: Math.round(process.memoryUsage().heapUsed / 1024),',
-          '    });',
-          '    process.stderr.write(d + "\\n");',
-          '    if (logPath) {',
-          '      try { fs.appendFileSync(logPath, d + "\\n"); } catch (_) {}',
-          '    }',
-          '  }',
-          '}, CHECK_MS);',
-        ].join('\n');
+      attemptMainWatchdogBootstrap(
+        () => {
+          const workerPath = resolveMainWatchdogWorkerPath(app.getAppPath(), app.isPackaged);
+          const watchdog = new Worker(workerPath);
+          let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-        const watchdog = new Worker(watchdogSource, { eval: true });
-        watchdog.unref();
-        watchdog.postMessage({ logPath: getLogFilePath(), type: 'config' });
+          watchdog.on('error', (error) => {
+            logger.error(
+              { error: serializeDesktopError(error), workerPath },
+              'main-thread watchdog worker failed'
+            );
+          });
+          watchdog.on('messageerror', (error) => {
+            logger.error(
+              { error: serializeDesktopError(error), workerPath },
+              'main-thread watchdog worker message failed to deserialize'
+            );
+          });
+          watchdog.once('exit', (code) => {
+            if (heartbeatTimer !== null) {
+              clearInterval(heartbeatTimer);
+              heartbeatTimer = null;
+            }
+            mainWatchdogAttachment.detachIfAttached();
+            logger.error({ code, workerPath }, 'main-thread watchdog worker exited unexpectedly');
+          });
+          try {
+            mainWatchdogAttachment.attach((message) => {
+              watchdog.postMessage(message);
+            }, currentLoggingPreferences.file);
+          } catch (error) {
+            void watchdog.terminate().catch((terminationError: unknown) => {
+              logger.error(
+                { error: serializeDesktopError(terminationError), workerPath },
+                'failed to terminate main-thread watchdog after startup failure'
+              );
+            });
+            throw error;
+          }
+          heartbeatTimer = setInterval(() => {
+            mainWatchdogRuntime.heartbeat();
+          }, MAIN_WATCHDOG_CHECK_INTERVAL_MS);
+          watchdog.unref();
+          heartbeatTimer.unref();
 
-        setInterval(() => {
-          watchdog.postMessage({ type: 'heartbeat' });
-        }, 5000).unref();
+          logger.debug({ workerPath }, 'main-thread watchdog started');
+        },
+        (error) => {
+          logger.error(
+            { error: serializeDesktopError(error) },
+            'main-thread watchdog failed to start; continuing application startup'
+          );
+        }
+      );
 
-        logger.debug('main-thread watchdog started');
-      }
+      logger.debug('Creating main window...');
+      const mainWindow = await createMainWindow();
+      logger.debug('Main window created successfully');
 
       // Power state monitoring: gracefully pause/resume heavy subsystems on sleep/wake
       powerMonitor.on('suspend', () => {
-        logger.info('power:suspend');
-        clearPendingPowerResume();
-        broadcastPowerState('suspend');
+        runMainWatchdogPowerTransition(mainWatchdogRuntime, 'suspend', () => {
+          logger.info('power:suspend');
+          clearPendingPowerResume();
+          broadcastPowerState('suspend');
+        });
       });
 
       powerMonitor.on('resume', () => {
-        logger.info('power:resume');
-        // Delay to let OS settle (GPU re-init, network reconnect)
-        schedulePowerResume();
+        runMainWatchdogPowerTransition(mainWatchdogRuntime, 'resume', () => {
+          logger.info('power:resume');
+          // Delay to let OS settle (GPU re-init, network reconnect)
+          schedulePowerResume();
+        });
       });
 
       // Lock-screen invalidates GPU contexts on macOS (WindowServer reclaims

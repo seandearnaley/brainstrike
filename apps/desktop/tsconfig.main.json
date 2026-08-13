@@ -121,6 +121,7 @@
     "src/main.ts",
     "src/preload.ts",
     "src/hidden-preload.ts",
+    "src/diagnostics/main-watchdog-worker.ts",
     "src/db-host-entry.ts",
     "src/db-host-manager.ts",
     "src/db-host-protocol.ts",

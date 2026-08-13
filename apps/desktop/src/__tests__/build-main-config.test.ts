@@ -43,6 +43,7 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
  * - package.json "main" → dist/main.js
  * - visible BrowserWindow preload → dist/preload.js
  * - hidden renderer host preload → dist/hidden-preload.js
+ * - main-thread watchdog worker → dist/main-watchdog-worker.js
  * - utilityProcess.fork sibling lookups → dist/db-host-entry.js,
  *   dist/parser-host-entry.js (resolved relative to module.filename of the
  *   bundled main.js, so outputs must stay FLAT in dist/)
@@ -54,15 +55,18 @@ describe('main-process bundle config', () => {
       'hidden-preload': 'src/hidden-preload.ts',
       main: 'src/main-bootstrap.ts',
       'main-log-transport': 'src/diagnostics/main-log-transport.ts',
+      'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
       'parser-host-entry': 'src/parser-host-entry.ts',
       preload: 'src/preload.ts',
     });
   });
 
-  it('unpacks the logging transport worker for a plain packaged-worker path', () => {
+  it('unpacks worker-thread entries for plain packaged-worker paths', () => {
     const packageJson = readDesktopPackageConfig();
 
-    expect(packageJson.build?.asarUnpack).toContain('dist/main-log-transport.js');
+    expect(packageJson.build?.asarUnpack).toEqual(
+      expect.arrayContaining(['dist/main-log-transport.js', 'dist/main-watchdog-worker.js'])
+    );
   });
 
   it('ships and unpacks the classic TypeScript server used by LSP diagnostics', () => {
