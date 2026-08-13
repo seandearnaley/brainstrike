@@ -10,6 +10,26 @@
 -- signal (a tool that misses often has a targeting problem regardless of how
 -- few chars each miss costs). Do not read the score as a char count.
 --
+-- BST-1247: the score counts MODEL-CONTROLLABLE waste only. A call is
+-- substrate_degraded when the live search engine fell back to the capped JS
+-- walk, could not run at all ('skipped' — the result is index-only and
+-- blind to fresh edits), the bounded scan hit its cap, or the candidate set
+-- was truncated —
+-- infrastructure failure the model cannot influence (BST-1246 showed rg
+-- degrading on ~80% of grep calls, which the pre-split score misread as
+-- model misbehavior). BOTH rates use the SAME denominator — non-degraded
+-- calls (review fix: mixed denominators made the ranking a function of
+-- substrate health) — so they read as "model-controllable waste per
+-- model-controllable call"; a fully-degraded tool has NULL rates and a zero
+-- waste_score. substrate_degraded_rate is reported over ALL calls. The
+-- secondary ORDER BY substrate_degraded_rate lets a degraded-but-zero-waste
+-- tool surface inside the top N as environment signal instead of being
+-- silently filtered. Pre-092 rows (engine IS NULL, substrate columns default
+-- false) keep their old OR-folded `truncated` meaning and simply age out of
+-- the window; COALESCE keeps their NULL engine classified as non-degraded
+-- (a bare IN would yield NULL and silently drop them from the non-degraded
+-- denominators).
+--
 -- tool_id is stored VERBATIM by the telemetry writer, so one logical tool
 -- can land under both bare and dotted spellings ('grepSearch' /
 -- 'brainstrike.grepSearch'); the CTE normalizes to the bare spelling before
@@ -30,7 +50,9 @@ WITH normalized AS (
     END AS tool_id,
     model_facing_chars,
     truncated,
-    zero_match
+    zero_match,
+    (COALESCE(engine IN ('js-walk', 'skipped'), false) OR scan_limited OR candidates_truncated)
+      AS substrate_degraded
   FROM brainstrike_tool_call_telemetry
   WHERE occurred_at >= $1::timestamptz
     AND occurred_at <= $2::timestamptz
@@ -39,12 +61,17 @@ SELECT
   tool_id,
   count(*)::int AS calls,
   sum(model_facing_chars)::float8 AS total_model_facing_chars,
-  sum(truncated::int)::float8 / count(*) AS truncation_hit_rate,
-  avg(zero_match::int)::float8 AS zero_match_rate,
+  (count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8
+    / NULLIF(count(*) FILTER (WHERE NOT substrate_degraded), 0)
+    AS truncation_hit_rate,
+  (avg(zero_match::int) FILTER (WHERE NOT substrate_degraded))::float8 AS zero_match_rate,
+  avg(substrate_degraded::int)::float8 AS substrate_degraded_rate,
   sum(model_facing_chars)::float8
-    * (sum(truncated::int)::float8 / count(*) + COALESCE(avg(zero_match::int)::float8, 0))
+    * (COALESCE((count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8
+        / NULLIF(count(*) FILTER (WHERE NOT substrate_degraded), 0), 0)
+      + COALESCE((avg(zero_match::int) FILTER (WHERE NOT substrate_degraded))::float8, 0))
     AS waste_score
 FROM normalized
 GROUP BY tool_id
-ORDER BY waste_score DESC, tool_id
+ORDER BY waste_score DESC, substrate_degraded_rate DESC, tool_id
 LIMIT $3;

@@ -106,8 +106,10 @@ interface MergedGrepResult {
  *
  * `totalMatches` preserves the index's UNCAPPED unique count as a floor; when the
  * live pass returns nothing it equals the index total exactly (the pre-hybrid
- * behaviour is unchanged). `truncated` ORs both passes' own truncation flags so
- * the existing budget logic drives the continuation hint.
+ * behaviour is unchanged). `truncated` carries ONLY the index arm's
+ * output/paging truncation (BST-1247); the live pass's caps are substrate
+ * conditions and merge into `candidatesTruncated`/`scanLimited`, which the
+ * hint gate unions so continuation guidance still fires.
  *
  * Counting the live-only contribution depends on whether the index arm
  * MATERIALIZED everything it counted (see {@link resolveTotalMatches}).
@@ -179,14 +181,18 @@ function mergeGrepMatches(
   });
 
   return {
-    candidatesTruncated: indexResult.candidatesTruncated,
+    // BST-1247: substrate caps merge from BOTH arms into their own fields;
+    // `truncated` carries ONLY the index arm's output/paging truncation. The
+    // live pass has no output paging of its own — its folded `truncated` is
+    // pure substrate, and folding it here was the first half of the OR-fold
+    // that made waste_score blame the model for a degraded engine.
+    candidatesTruncated: indexResult.candidatesTruncated || liveResult.candidatesTruncated,
     liveEngine: liveResult.engine,
     matches,
-    scanLimited: indexResult.scanLimited,
+    scanLimited: indexResult.scanLimited || liveResult.scanLimited,
     skippedMissingLineMetadata: indexResult.skippedMissingLineMetadata,
     totalMatches,
-    // Truncated when EITHER pass was truncated (the index cap, or the live caps).
-    truncated: indexResult.truncated || liveResult.truncated,
+    truncated: indexResult.truncated,
     ...(liveResult.note ? { liveNote: liveResult.note } : {}),
   };
 }
@@ -494,9 +500,11 @@ async function runLiveGrepSafely(args: {
   } catch (error) {
     logger.error('live grep pass threw unexpectedly; returning index-only results', { error });
     return {
+      candidatesTruncated: false,
       engine: 'skipped',
       matches: [],
       note: 'The live (on-disk) pass could not run this call, so results reflect the index only (which may be stale after recent edits).',
+      scanLimited: false,
       truncated: false,
     };
   }

@@ -20,7 +20,9 @@ export const SELF_IMPROVEMENT_SIGNAL_SQL = `WITH normalized AS (
     END AS tool_id,
     model_facing_chars,
     truncated,
-    zero_match
+    zero_match,
+    (COALESCE(engine IN ('js-walk', 'skipped'), false) OR scan_limited OR candidates_truncated)
+      AS substrate_degraded
   FROM brainstrike_tool_call_telemetry
   WHERE occurred_at >= $1::timestamptz
     AND occurred_at <= $2::timestamptz
@@ -29,14 +31,19 @@ SELECT
   tool_id,
   count(*)::int AS calls,
   sum(model_facing_chars)::float8 AS total_model_facing_chars,
-  sum(truncated::int)::float8 / count(*) AS truncation_hit_rate,
-  avg(zero_match::int)::float8 AS zero_match_rate,
+  (count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8
+    / NULLIF(count(*) FILTER (WHERE NOT substrate_degraded), 0)
+    AS truncation_hit_rate,
+  (avg(zero_match::int) FILTER (WHERE NOT substrate_degraded))::float8 AS zero_match_rate,
+  avg(substrate_degraded::int)::float8 AS substrate_degraded_rate,
   sum(model_facing_chars)::float8
-    * (sum(truncated::int)::float8 / count(*) + COALESCE(avg(zero_match::int)::float8, 0))
+    * (COALESCE((count(*) FILTER (WHERE truncated AND NOT substrate_degraded))::float8
+        / NULLIF(count(*) FILTER (WHERE NOT substrate_degraded), 0), 0)
+      + COALESCE((avg(zero_match::int) FILTER (WHERE NOT substrate_degraded))::float8, 0))
     AS waste_score
 FROM normalized
 GROUP BY tool_id
-ORDER BY waste_score DESC, tool_id
+ORDER BY waste_score DESC, substrate_degraded_rate DESC, tool_id
 LIMIT $3;`;
 
 const EXPECTED_COLUMNS = [
@@ -45,6 +52,7 @@ const EXPECTED_COLUMNS = [
   'total_model_facing_chars',
   'truncation_hit_rate',
   'zero_match_rate',
+  'substrate_degraded_rate',
   'waste_score',
 ] as const;
 
@@ -140,8 +148,10 @@ export interface SelfImprovementSignalContextDeps {
 
 interface SignalRow {
   readonly calls: number;
+  readonly substrateDegradedRate: number;
   readonly toolId: string;
-  readonly truncationHitRate: number;
+  /** NULL when every call was substrate-degraded (no model-controllable denominator). */
+  readonly truncationHitRate: number | null;
   readonly wasteScore: number;
   readonly zeroMatchRate: number | null;
 }
@@ -163,29 +173,50 @@ function readSignalRow(row: readonly unknown[]): SignalRow | null {
   const totalModelFacingChars = row[2];
   const truncationHitRate = row[3];
   const zeroMatchRate = row[4];
-  const wasteScore = row[5];
+  const substrateDegradedRate = row[5];
+  const wasteScore = row[6];
   if (
     typeof toolId !== 'string' ||
     !isFiniteNumber(calls) ||
     !isFiniteNumber(totalModelFacingChars) ||
-    !isFiniteNumber(truncationHitRate) ||
+    !(truncationHitRate === null || isFiniteNumber(truncationHitRate)) ||
     !(zeroMatchRate === null || isFiniteNumber(zeroMatchRate)) ||
+    !isFiniteNumber(substrateDegradedRate) ||
     !isFiniteNumber(wasteScore)
   ) {
     return null;
   }
-  return { calls, toolId, truncationHitRate, wasteScore, zeroMatchRate };
+  return { calls, substrateDegradedRate, toolId, truncationHitRate, wasteScore, zeroMatchRate };
 }
 
 function buildSignalContent(rows: readonly SignalRow[]): string {
   const lines = rows.map((row) => {
+    // BST-1247 review: a degraded-only tool (zero model-controllable waste)
+    // renders as a pure environment line — before this, waste_score = 0
+    // filtered it out entirely and the model never learned its search
+    // substrate was degraded (the exact BST-1246 situation).
+    if (row.wasteScore <= 0) {
+      return `- ${sanitizeSignalToolId(row.toolId)}: ${row.calls} calls, ${Math.round(row.substrateDegradedRate * 100)}% substrate-degraded (environment; not your behavior)`;
+    }
+    const truncationClause =
+      row.truncationHitRate === null
+        ? ''
+        : `, ${Math.round(row.truncationHitRate * 100)}% truncated`;
     const zeroMatchClause =
       row.zeroMatchRate === null ? '' : `, ${Math.round(row.zeroMatchRate * 100)}% zero-match`;
-    return `- ${sanitizeSignalToolId(row.toolId)}: ${row.calls} calls, ${Math.round(row.truncationHitRate * 100)}% truncated${zeroMatchClause}`;
+    // Substrate degradation is environment information, not a model behavior
+    // signal — rendered separately so the model neither ignores a degraded
+    // search substrate nor tries to "fix" it by changing behavior.
+    const substrateClause =
+      row.substrateDegradedRate > 0
+        ? `, ${Math.round(row.substrateDegradedRate * 100)}% substrate-degraded`
+        : '';
+    return `- ${sanitizeSignalToolId(row.toolId)}: ${row.calls} calls${truncationClause}${zeroMatchClause}${substrateClause}`;
   });
   return [
     '## Self-assessment signal (agent tool telemetry, last 24h)',
-    'Top tool waste, ranked (truncation = output cut to budget; zero-match = call found nothing):',
+    'Top tool waste, ranked (truncation = output cut to budget; zero-match = call found nothing;',
+    'substrate-degraded = the search engine degraded — an environment condition, not your behavior):',
     ...lines,
     'Adapt: scope searches (filePaths/narrower patterns) and read selectively to reduce this waste.',
   ].join('\n');
@@ -239,7 +270,10 @@ async function loadAndMemoizeSignalRows(
       logger.warn('self_improvement_signal_malformed_row');
       return null;
     }
-    if (parsed.wasteScore > 0) {
+    // Positive-waste rows rank; degraded-only rows (waste 0, substrate > 0)
+    // are kept as environment signal (BST-1247 review — filtering them hid
+    // exactly the substrate failure the legend describes).
+    if (parsed.wasteScore > 0 || parsed.substrateDegradedRate > 0) {
       collected.push(parsed);
     }
   }

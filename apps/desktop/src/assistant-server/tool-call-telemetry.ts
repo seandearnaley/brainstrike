@@ -6,6 +6,13 @@ import {
 import type { GlobWorkspaceToolResult } from './glob-workspace-tool';
 import type { GrepToolResult } from './grep-search-result-contract';
 
+/**
+ * BST-1247: `truncated` records exactly "model-facing output was clipped".
+ * Substrate degradation (rg → capped JS walk, candidate caps, walk caps) is
+ * recorded in its own fields — the pre-split OR fold made the 2026-08 audit's
+ * waste ranking blame the model for infrastructure failure: all 40 glob calls
+ * were "truncated", including 33 zero-match results with nothing to clip.
+ */
 export function attachGrepSearchTelemetry(
   input: Pick<GrepSearchInput, 'offset'>,
   result: GrepToolResult
@@ -13,8 +20,11 @@ export function attachGrepSearchTelemetry(
   const zeroMatch =
     result.outputMode === 'files' ? result.totalFiles === 0 : result.totalMatches === 0;
   return attachToolCallTelemetryMetadata(result, {
+    candidatesTruncated: result.candidatesTruncated,
+    engine: result.liveEngine,
     isPaginationFollowup: (input.offset ?? 0) > 0,
-    truncated: result.truncated || result.candidatesTruncated || result.scanLimited,
+    scanLimited: result.scanLimited,
+    truncated: result.truncated,
     zeroMatch,
   });
 }
@@ -24,8 +34,10 @@ export function attachGlobWorkspaceTelemetry(
   result: GlobWorkspaceToolResult
 ): GlobWorkspaceToolResult {
   return attachToolCallTelemetryMetadata(result, {
+    candidatesTruncated: false,
     isPaginationFollowup: (input.offset ?? 0) > 0,
-    truncated: result.truncated || result.scanLimited,
+    scanLimited: result.scanLimited,
+    truncated: result.truncated,
     zeroMatch: result.totalMatches === 0,
   });
 }

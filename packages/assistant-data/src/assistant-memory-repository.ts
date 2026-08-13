@@ -809,8 +809,9 @@ CREATE INDEX IF NOT EXISTS brainstrike_canvas_versions_canvas_version_idx
   ON ${CANVAS_VERSIONS_TABLE} (canvas_id, version DESC);
 
 -- Privacy-safe per-tool model-output telemetry (BST-1190). Bootstrapped here
--- AND created by migrations 083 (table + thread/tool_time indexes) and 085
--- (occurred_at index, BST-1198) — keep the shape byte-identical to both.
+-- AND created by migrations 083 (table + thread/tool_time indexes), 085
+-- (occurred_at index, BST-1198), and 092 (substrate-split columns,
+-- BST-1247) — keep the shape byte-identical to all three.
 -- Mirrored because the thread-delete cascade references every sidecar
 -- unconditionally; only desktop main writes rows during normal operation.
 CREATE TABLE IF NOT EXISTS ${TOOL_CALL_TELEMETRY_TABLE} (
@@ -822,7 +823,12 @@ CREATE TABLE IF NOT EXISTS ${TOOL_CALL_TELEMETRY_TABLE} (
   model_facing_chars integer NOT NULL CHECK (model_facing_chars >= 0),
   truncated boolean NOT NULL DEFAULT false,
   zero_match boolean,
-  is_pagination_followup boolean NOT NULL DEFAULT false
+  is_pagination_followup boolean NOT NULL DEFAULT false,
+  -- Migration 092 (BST-1247): substrate degradation split out of truncated
+  -- so the waste lens can separate model behavior from engine degradation.
+  engine text,
+  scan_limited boolean NOT NULL DEFAULT false,
+  candidates_truncated boolean NOT NULL DEFAULT false
 );
 
 CREATE INDEX IF NOT EXISTS brainstrike_tool_call_telemetry_thread_idx

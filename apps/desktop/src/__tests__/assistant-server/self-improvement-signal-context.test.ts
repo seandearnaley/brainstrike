@@ -22,6 +22,7 @@ const EXPECTED_COLUMNS = [
   'total_model_facing_chars',
   'truncation_hit_rate',
   'zero_match_rate',
+  'substrate_degraded_rate',
   'waste_score',
 ] as const;
 
@@ -104,8 +105,8 @@ describe('injectSelfImprovementSignalContext', () => {
     const runSignalQuery = vi.fn(async () => ({
       columns: [...EXPECTED_COLUMNS],
       rows: [
-        ['grepSearch', 65, 100_000, 0.98, 0.42, 140_000],
-        ['globWorkspace', 23, 50_000, 1, 0.78, 89_000],
+        ['grepSearch', 65, 100_000, 0.98, 0.42, 0.1, 140_000],
+        ['globWorkspace', 23, 50_000, 1, 0.78, 0, 89_000],
       ],
     }));
 
@@ -118,8 +119,9 @@ describe('injectSelfImprovementSignalContext', () => {
     expect(result[1]).toBe(input[0]);
     expect(systemText(result)).toBe(
       '## Self-assessment signal (agent tool telemetry, last 24h)\n' +
-        'Top tool waste, ranked (truncation = output cut to budget; zero-match = call found nothing):\n' +
-        '- grepSearch: 65 calls, 98% truncated, 42% zero-match\n' +
+        'Top tool waste, ranked (truncation = output cut to budget; zero-match = call found nothing;\n' +
+        'substrate-degraded = the search engine degraded — an environment condition, not your behavior):\n' +
+        '- grepSearch: 65 calls, 98% truncated, 42% zero-match, 10% substrate-degraded\n' +
         '- globWorkspace: 23 calls, 100% truncated, 78% zero-match\n' +
         'Adapt: scope searches (filePaths/narrower patterns) and read selectively to reduce this waste.'
     );
@@ -135,7 +137,7 @@ describe('injectSelfImprovementSignalContext', () => {
   it('memoizes rows per hour: one query per hour, refreshed on hour change', async () => {
     const runSignalQuery = vi.fn(async () => ({
       columns: [...EXPECTED_COLUMNS],
-      rows: [['grepSearch', 5, 100, 1, null, 100]],
+      rows: [['grepSearch', 5, 100, 1, null, 0, 100]],
     }));
 
     const first = await injectSelfImprovementSignalContext(messages(), runtime(), {
@@ -181,7 +183,7 @@ describe('injectSelfImprovementSignalContext', () => {
       .mockRejectedValueOnce(new Error('database unavailable'))
       .mockResolvedValue({
         columns: [...EXPECTED_COLUMNS],
-        rows: [['grepSearch', 5, 100, 1, null, 100]],
+        rows: [['grepSearch', 5, 100, 1, null, 0, 100]],
       });
 
     const first = await injectSelfImprovementSignalContext(messages(), runtime(), {
@@ -205,8 +207,8 @@ describe('injectSelfImprovementSignalContext', () => {
       runSignalQuery: async () => ({
         columns: [...EXPECTED_COLUMNS],
         rows: [
-          [hostile, 3, 100, 1, null, 100],
-          [long, 2, 50, 1, null, 50],
+          [hostile, 3, 100, 1, null, 0, 100],
+          [long, 2, 50, 1, null, 0, 50],
         ],
       }),
     });
@@ -222,6 +224,26 @@ describe('injectSelfImprovementSignalContext', () => {
     expect(longLine).not.toContain('x'.repeat(41));
   });
 
+  it('renders a fully-degraded tool as an environment line instead of hiding it (BST-1247)', async () => {
+    const result = await injectSelfImprovementSignalContext(messages(), runtime(), {
+      now: () => NOW,
+      runSignalQuery: async () => ({
+        columns: [...EXPECTED_COLUMNS],
+        rows: [
+          ['grepSearch', 5, 1000, 0.4, null, 0, 400],
+          ['globWorkspace', 40, 14_000, null, null, 1, 0],
+        ],
+      }),
+    });
+
+    const text = systemText(result);
+    expect(text).toContain('- grepSearch: 5 calls, 40% truncated\n');
+    // Zero model-controllable waste, 100% degraded: pure environment signal.
+    expect(text).toContain(
+      '- globWorkspace: 40 calls, 100% substrate-degraded (environment; not your behavior)'
+    );
+  });
+
   it('excludes zero-waste rows and omits the zero-match clause for NULL', async () => {
     const input = messages();
     const result = await injectSelfImprovementSignalContext(input, runtime(), {
@@ -229,8 +251,8 @@ describe('injectSelfImprovementSignalContext', () => {
       runSignalQuery: async () => ({
         columns: [...EXPECTED_COLUMNS],
         rows: [
-          ['readWorkspaceFile', 4, 1200, 0.25, null, 300],
-          ['cleanTool', 50, 5000, 0, 0, 0],
+          ['readWorkspaceFile', 4, 1200, 0.25, null, 0, 300],
+          ['cleanTool', 50, 5000, 0, 0, 0, 0],
         ],
       }),
     });
@@ -268,7 +290,7 @@ describe('injectSelfImprovementSignalContext', () => {
           now: () => NOW,
           runSignalQuery: async () => ({
             columns: [...EXPECTED_COLUMNS],
-            rows: [['cleanTool', 5, 500, 0, 0, 0]],
+            rows: [['cleanTool', 5, 500, 0, 0, 0, 0]],
           }),
         })
       );
@@ -323,6 +345,7 @@ describe('injectSelfImprovementSignalContext', () => {
       1,
       1,
       1,
+      1,
     ]);
     const result = await injectSelfImprovementSignalContext(input, runtime(), {
       now: () => NOW,
@@ -330,9 +353,9 @@ describe('injectSelfImprovementSignalContext', () => {
     });
 
     // Worst case measured: 5 × 40-char capped ids + 9-digit call counts +
-    // both 100% clauses = 712 chars. The bound is structural (id cap + top-5),
-    // not a runtime truncation path.
-    expect(systemText(result).length).toBeLessThan(750);
+    // all three 100% clauses plus the two-line legend = 934 chars. The bound
+    // is structural (id cap + top-5), not a runtime truncation path.
+    expect(systemText(result).length).toBeLessThan(1000);
   });
 });
 

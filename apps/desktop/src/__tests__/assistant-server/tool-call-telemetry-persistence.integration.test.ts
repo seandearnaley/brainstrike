@@ -23,10 +23,13 @@ import { persistDesktopToolCallTelemetry } from '../../assistant-server/run-pers
 type TestDatabase = Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
 
 interface TelemetryRow {
+  candidates_truncated: boolean;
+  engine: string | null;
   id: string;
   is_pagination_followup: boolean;
   model_facing_chars: number;
   occurred_at: string;
+  scan_limited: boolean;
   thread_id: string;
   tool_id: string;
   truncated: boolean;
@@ -70,17 +73,22 @@ describe('persistDesktopToolCallTelemetry against real PGlite', () => {
         for await (const _chunk of persistDesktopToolCallTelemetry(
           singleTelemetryChunk([
             {
+              candidatesTruncated: true,
+              engine: 'js-walk',
               isPaginationFollowup: true,
               modelFacingChars: 210,
               occurredAt: grepOccurredAt,
+              scanLimited: true,
               toolId: 'grepSearch',
               truncated: true,
               zeroMatch: false,
             },
             {
+              candidatesTruncated: false,
               isPaginationFollowup: true,
               modelFacingChars: 88,
               occurredAt: execOccurredAt,
+              scanLimited: false,
               toolId: 'executeCommand',
               truncated: false,
               zeroMatch: true,
@@ -101,7 +109,7 @@ describe('persistDesktopToolCallTelemetry against real PGlite', () => {
       await drain();
 
       const result = await db.query<TelemetryRow>(
-        `SELECT id, thread_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup
+        `SELECT id, thread_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup, engine, scan_limited, candidates_truncated
          FROM brainstrike_tool_call_telemetry
          ORDER BY tool_id`
       );
@@ -109,8 +117,11 @@ describe('persistDesktopToolCallTelemetry against real PGlite', () => {
 
       const [execRow, grepRow] = result.rows;
       expect(execRow).toMatchObject({
+        candidates_truncated: false,
+        engine: null,
         is_pagination_followup: false,
         model_facing_chars: 88,
+        scan_limited: false,
         thread_id: 'thread-real-1',
         tool_id: 'executeCommand',
         truncated: false,
@@ -120,9 +131,13 @@ describe('persistDesktopToolCallTelemetry against real PGlite', () => {
       expect(execRow?.zero_match).toBeNull();
       expect(new Date(execRow?.occurred_at ?? '').getTime()).toBe(execOccurredAt);
 
+      // BST-1247: substrate flags land in their own typed columns.
       expect(grepRow).toMatchObject({
+        candidates_truncated: true,
+        engine: 'js-walk',
         is_pagination_followup: true,
         model_facing_chars: 210,
+        scan_limited: true,
         thread_id: 'thread-real-1',
         tool_id: 'grepSearch',
         truncated: true,
@@ -146,9 +161,11 @@ describe('persistDesktopToolCallTelemetry against real PGlite', () => {
         for await (const _chunk of persistDesktopToolCallTelemetry(
           singleTelemetryChunk([
             {
+              candidatesTruncated: false,
               isPaginationFollowup: false,
               modelFacingChars: 40,
               occurredAt: Date.now(),
+              scanLimited: false,
               toolId: 'grepSearch',
               truncated: false,
               zeroMatch: true,

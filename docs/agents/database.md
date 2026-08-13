@@ -195,6 +195,22 @@ The primary key uses `crypto.randomUUID()` (matching the sibling
 net-new counters ledger outside any sync-related rework, so AGENTS.md's
 uuidv7-groundwork carve-out does not apply.
 
+**Substrate split (migration 092, BST-1247):** `truncated` means exactly
+"model-facing output was clipped". Substrate degradation lives in its own
+columns — `engine` (live-pass engine for search tools: 'ripgrep' | 'js-walk'
+| 'skipped'; NULL for non-search tools and all pre-092 rows), `scan_limited`,
+and `candidates_truncated` — populated by the desktop writer from flags the
+search results already carry. The pre-split OR fold made the
+`self-improvement-signal` waste ranking blame the model for the BST-1246
+ripgrep degradation (94-100% "truncation" that was mostly the capped JS-walk
+fallback). Pre-092 rows are acknowledged-ambiguous: their `truncated` keeps
+the old folded meaning, is NOT backfilled, and ages out of the lens's 24h
+window; `engine IS NULL` marks them. The lens excludes degraded calls from
+`truncation_hit_rate`/`zero_match_rate` and reports
+`substrate_degraded_rate` separately
+(`packages/db/__tests__/search-lens-self-improvement-signal.test.ts` pins
+this).
+
 **Retention (BST-1198, closes the BST-1190 deferral):** rows older than 60
 days are pruned by the existing scheduled-database-maintenance mechanism —
 `runScheduledDatabaseMaintenance` in

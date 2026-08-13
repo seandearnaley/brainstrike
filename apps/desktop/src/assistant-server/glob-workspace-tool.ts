@@ -147,7 +147,11 @@ function buildResult(args: {
     // the window, or the `limit` capped it below the true total. Either way the
     // model can page forward, so this gates the "Continue with offset" hint.
     const moreThanPaged = offset + matches.length < totalMatches;
-    const truncated = moreThanPaged || scanLimited;
+    // BST-1247: `truncated` = output paging only; `scanLimited` stays its own
+    // field (the pre-split fold made every scan-capped glob read as output
+    // truncation — all 40 calls in the 2026-08 audit, 33 with zero matches).
+    // The hint still fires for BOTH conditions below.
+    const truncated = moreThanPaged;
     // A continuation hint must always ADVANCE: if even one match cannot fit the
     // budget, skip past it rather than re-suggesting the same offset.
     const nextOffset =
@@ -155,11 +159,12 @@ function buildResult(args: {
     const scanNote = scanLimited
       ? ' The walk hit its file-visit cap, so more matches may exist; narrow the pattern (e.g. a specific subdirectory) to reach them.'
       : '';
-    const hint = truncated
-      ? `Showing matches ${offset + 1}-${offset + matches.length} of ${totalMatches}${scanLimited ? '+' : ''}.` +
-        `${scanNote}` +
-        (moreThanPaged ? ` Continue with offset: ${nextOffset}, or narrow the pattern.` : '')
-      : undefined;
+    const hint =
+      moreThanPaged || scanLimited
+        ? `Showing matches ${offset + 1}-${offset + matches.length} of ${totalMatches}${scanLimited ? '+' : ''}.` +
+          `${scanNote}` +
+          (moreThanPaged ? ` Continue with offset: ${nextOffset}, or narrow the pattern.` : '')
+        : undefined;
     return {
       count: matches.length,
       matches,

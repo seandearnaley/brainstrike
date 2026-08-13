@@ -81,6 +81,7 @@ import { migration088AssistantCompactionRanges } from '../migrations/088-assista
 import { migration089TokenEstimateCalibrationResolvedBudgets } from '../migrations/089-token-estimate-calibration-resolved-budgets.js';
 import { migration090CompactionSummaryRunUsageKind } from '../migrations/090-compaction-summary-run-usage-kind.js';
 import { migration091TokenEstimateCalibrationPromptBaseline } from '../migrations/091-token-estimate-calibration-prompt-baseline.js';
+import { migration092ToolCallTelemetrySubstrateSplit } from '../migrations/092-tool-call-telemetry-substrate-split.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -296,6 +297,10 @@ const customMigrations: Migration[] = [
   customMigration(
     'custom-091-token-estimate-calibration-prompt-baseline',
     migration091TokenEstimateCalibrationPromptBaseline
+  ),
+  customMigration(
+    'custom-092-tool-call-telemetry-substrate-split',
+    migration092ToolCallTelemetrySubstrateSplit
   ),
 ];
 

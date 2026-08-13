@@ -410,10 +410,17 @@ export interface StreamChunkChildRunUsage {
  * onto the same timestamp (review fix).
  */
 export interface ToolCallTelemetrySample {
+  /** BST-1247: candidate-set cap hit in the search substrate (not output clipping). */
+  readonly candidatesTruncated: boolean;
+  /** Live-pass engine for search tools; absent for non-search tools. */
+  readonly engine?: 'js-walk' | 'ripgrep' | 'skipped';
   readonly isPaginationFollowup: boolean;
   readonly modelFacingChars: number;
   readonly occurredAt: number;
+  /** BST-1247: bounded scan/walk cap hit in the search substrate. */
+  readonly scanLimited: boolean;
   readonly toolId: string;
+  /** Model-facing output was clipped — output clipping ONLY (BST-1247). */
   readonly truncated: boolean;
   readonly zeroMatch?: boolean;
 }
