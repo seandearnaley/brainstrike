@@ -11,8 +11,10 @@ const ASSISTANT_RUN_TREATMENTS_TABLE = 'brainstrike_assistant_run_treatments';
  * BST-1250 review: `signal_injected = false` alone conflated three states —
  * preference off, a failed/malformed signal query, and a genuine no-waste
  * hour — and for an ENROLLED run "assigned to treatment but the signal was
- * unavailable" must never masquerade as a control run. The status carries the
- * reason; `signal_injected` is derived (`status === 'injected'`).
+ * unavailable" must never masquerade as a control run — and neither may a
+ * MALFORMED preference ('preference_malformed'): a corrupt or version-skewed
+ * request is not clean control evidence (Codex review). The status carries
+ * the reason; `signal_injected` is derived (`status === 'injected'`).
  * `continuation` marks approval/resume legs, which mint their own runId but
  * never reach prompt assembly.
  */
@@ -20,6 +22,7 @@ export const RUN_INJECTION_STATUSES = [
   'continuation',
   'injected',
   'no_waste',
+  'preference_malformed',
   'preference_off',
   'query_failed',
 ] as const;

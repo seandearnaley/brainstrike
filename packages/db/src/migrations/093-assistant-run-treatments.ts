@@ -41,7 +41,7 @@ export const migration093AssistantRunTreatments: Migration = {
       experiment_id text,
       variant text,
       injection_status text NOT NULL CHECK (
-        injection_status IN ('continuation', 'injected', 'no_waste', 'preference_off', 'query_failed')
+        injection_status IN ('continuation', 'injected', 'no_waste', 'preference_malformed', 'preference_off', 'query_failed')
       ),
       signal_injected boolean NOT NULL,
       signal_content_hash text,

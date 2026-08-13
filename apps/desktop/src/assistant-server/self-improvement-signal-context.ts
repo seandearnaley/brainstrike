@@ -105,6 +105,13 @@ export function resetSelfImprovementSignalMemoForTests(): void {
 
 interface NormalizedSelfImprovementSignalPreference {
   readonly enabled: boolean;
+  /**
+   * The preference was present but unparseable. Injection still fails safe to
+   * OFF, but the treatment record must NOT file the run as clean control
+   * evidence ('preference_off') — a corrupt or version-skewed request is a
+   * distinct state ('preference_malformed', Codex review).
+   */
+  readonly malformed: boolean;
 }
 
 /**
@@ -116,26 +123,26 @@ export function readSelfImprovementSignalPreference(
 ): NormalizedSelfImprovementSignalPreference {
   const raw: unknown = runtimeData?.selfImprovementSignalPreference;
   if (raw === undefined) {
-    return { enabled: false };
+    return { enabled: false, malformed: false };
   }
   if (raw === null || typeof raw !== 'object') {
     logger.warn('Ignoring malformed selfImprovementSignalPreference (not an object)', {
       received: raw === null ? 'null' : typeof raw,
     });
-    return { enabled: false };
+    return { enabled: false, malformed: true };
   }
 
   const enabled = (raw as Record<string, unknown>)['enabled'];
   if (enabled === undefined) {
-    return { enabled: false };
+    return { enabled: false, malformed: false };
   }
   if (typeof enabled !== 'boolean') {
     logger.warn('Ignoring malformed selfImprovementSignalPreference.enabled; defaulting OFF', {
       received: typeof enabled,
     });
-    return { enabled: false };
+    return { enabled: false, malformed: true };
   }
-  return { enabled };
+  return { enabled, malformed: false };
 }
 
 function isLocalProvider(runtimeData: RuntimeData | undefined): boolean {
@@ -343,10 +350,11 @@ export async function injectSelfImprovementSignalContext(
   if (isLocalProvider(runtimeData)) {
     return messages;
   }
-  const resolved: ResolvedSignalContent | { status: 'preference_off' } =
-    readSelfImprovementSignalPreference(runtimeData).enabled
+  const preference = readSelfImprovementSignalPreference(runtimeData);
+  const resolved: ResolvedSignalContent | { status: 'preference_malformed' | 'preference_off' } =
+    preference.enabled
       ? await resolveSignalContent(deps)
-      : { status: 'preference_off' };
+      : { status: preference.malformed ? 'preference_malformed' : 'preference_off' };
   // Detached on purpose: the treatment write is evidence bookkeeping, not a
   // prompt dependency, and it must not add a serialized DB round-trip to
   // every hosted run's latency path (the recorder logs its own failures).

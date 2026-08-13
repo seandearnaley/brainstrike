@@ -422,6 +422,21 @@ describe('run treatment recording (BST-1250)', () => {
     });
   });
 
+  it('records preference_malformed for a corrupt preference — never clean control evidence', async () => {
+    const recordTreatment = vi.fn(async () => {});
+    await injectSelfImprovementSignalContext(
+      messages(),
+      runtimeWithRun({ selfImprovementSignalPreference: { enabled: 'yes' } }),
+      { now: () => NOW, recordTreatment, runSignalQuery: vi.fn() }
+    );
+
+    // Codex review: injection fails safe to OFF, but a version-skewed or
+    // corrupt request must not contaminate the preference_off control bucket.
+    expect(recordTreatment).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ injectionStatus: 'preference_malformed' })
+    );
+  });
+
   it('records query_failed for an enabled run whose signal query rejected — never a control row', async () => {
     const recordTreatment = vi.fn(async () => {});
     const input = messages();
