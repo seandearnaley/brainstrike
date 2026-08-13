@@ -296,6 +296,26 @@ describe('file-content-worker', () => {
     expect(displayResult(results[failReq.compositeKey])).toMatch('Error accessing file');
   });
 
+  it('rejects when the progress finalizer throws instead of leaving the queue promise pending', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const request = createRequest('/progress-failure.txt');
+    const schedulerFailure = new Error('progress finalizer failed');
+    let progressCalls = 0;
+
+    MockFileSystemAdapter.setMockFileContent(request.path, 'content');
+
+    const queuePromise = worker([request], () => {
+      progressCalls += 1;
+      if (progressCalls === 1) {
+        throw schedulerFailure;
+      }
+    });
+
+    await expect(queuePromise).rejects.toBe(schedulerFailure);
+    expect(progressCalls).toBe(1);
+  }, 1000);
+
   it('handles empty request queue immediately', async () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createFileContentWorker({ fileSystemAdapter: adapter });
