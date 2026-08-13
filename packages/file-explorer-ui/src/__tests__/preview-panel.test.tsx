@@ -832,5 +832,75 @@ describe('PreviewPanel', () => {
       expect(screen.getByText('file0.txt')).toBeInTheDocument();
       expect(screen.queryByText('file24.txt')).not.toBeInTheDocument();
     });
+
+    it('touches only the current selection while deferred rows still contain a large prior selection', () => {
+      const staleItems = Array.from({ length: 1000 }, (_, index) =>
+        buildItem(index, { folderId: 'root' })
+      );
+      const selectedFiles = new Set(['file999', 'file2']);
+      const selectionHasSpy = vi.spyOn(selectedFiles, 'has');
+      const loadingFiles = new Set<string>();
+      const loadingHasSpy = vi.spyOn(loadingFiles, 'has');
+      mockUsePreviewPanelState.mockReturnValue(buildState(staleItems));
+
+      render(
+        <PreviewPanel
+          {...baseProps}
+          fileContents={{ file2: 'content2', file999: 'content999' }}
+          loadingFiles={loadingFiles}
+          selectedFiles={selectedFiles}
+        />
+      );
+
+      expect(selectionHasSpy.mock.calls.length).toBeLessThanOrEqual(selectedFiles.size);
+      expect(loadingHasSpy.mock.calls.length).toBeLessThanOrEqual(selectedFiles.size * 2);
+      expect(
+        screen
+          .getAllByTestId('tapestry-document-card')
+          .map((card) => within(card).getByText(/file\d+\.txt/).textContent)
+      ).toEqual(['file2.txt', 'file999.txt']);
+      expect(useWorkspaceContextCurationStore.getState().contextSnapshot?.files).toEqual([
+        expect.objectContaining({ path: 'path/to/file2.txt' }),
+        expect.objectContaining({ path: 'path/to/file999.txt' }),
+      ]);
+    });
+
+    it('adds a dynamically selected file when its deferred row arrives', () => {
+      const initialItems = [buildItem(1, { folderId: 'root' })];
+      mockUsePreviewPanelState.mockReturnValue(buildState(initialItems));
+      const { rerender } = render(
+        <PreviewPanel
+          {...baseProps}
+          fileContents={{ file1: 'content1', file2: 'content2' }}
+          selectedFiles={new Set(['file1'])}
+        />
+      );
+
+      rerender(
+        <PreviewPanel
+          {...baseProps}
+          fileContents={{ file1: 'content1', file2: 'content2' }}
+          selectedFiles={new Set(['file1', 'file2'])}
+        />
+      );
+      expect(screen.queryByText('file2.txt')).not.toBeInTheDocument();
+
+      mockUsePreviewPanelState.mockReturnValue(
+        buildState([buildItem(1, { folderId: 'root' }), buildItem(2, { folderId: 'root' })])
+      );
+      rerender(
+        <PreviewPanel
+          {...baseProps}
+          fileContents={{ file1: 'content1', file2: 'content2' }}
+          selectedFiles={new Set(['file1', 'file2'])}
+        />
+      );
+
+      expect(screen.getByText('file2.txt')).toBeInTheDocument();
+      expect(useWorkspaceContextCurationStore.getState().contextSnapshot?.files).toEqual([
+        expect.objectContaining({ path: 'path/to/file1.txt' }),
+        expect.objectContaining({ path: 'path/to/file2.txt' }),
+      ]);
+    });
   });
 });
