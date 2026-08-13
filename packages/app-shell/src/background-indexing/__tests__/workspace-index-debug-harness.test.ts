@@ -87,5 +87,50 @@ describe('countExpectedWorkspaceIndexFiles', () => {
     expect(result.skippedByReason.generatedOrIgnored).toBeGreaterThan(0);
     expect(result.skippedByReason.defaultIgnore).toBeGreaterThan(0);
     expect(result.skippedByReason.entryPolicy).toBeGreaterThan(0);
+    expect(result.truncatedDirectoryPaths).toEqual([]);
+  });
+
+  it('reports truncated directory listings instead of silently under-counting', async () => {
+    const adapter = new MockFileSystemAdapter({
+      src: {
+        children: {
+          'index.ts': {
+            content: 'export const value = 1;',
+            name: 'index.ts',
+            type: 'file',
+          },
+        },
+        name: 'src',
+        type: 'directory',
+      },
+    });
+    const rootHandle = (await adapter.requestDirectoryAccess()) as DirectoryHandle;
+    const truncatingAdapter = {
+      ...adapter,
+      readDirectory: async (handle: DirectoryHandle) => {
+        const nodes = await adapter.readDirectory(handle);
+        if (handle.path === rootHandle.path) {
+          return [
+            ...nodes,
+            {
+              handle: { kind: 'file', name: '…truncated…' },
+              name: 'Showing first 10,000 entries',
+              path: `${handle.path}/…truncated…`,
+              type: 'truncated',
+            },
+          ];
+        }
+        return nodes;
+      },
+    } as unknown as MockFileSystemAdapter;
+
+    const result = await countExpectedWorkspaceIndexFiles({
+      fileSystemAdapter: truncatingAdapter,
+      policyPreset: 'full-root',
+      rootHandle,
+    });
+
+    expect(result.truncatedDirectoryPaths).toEqual([rootHandle.path]);
+    expect(result.includedFiles).toContain('src/index.ts');
   });
 });

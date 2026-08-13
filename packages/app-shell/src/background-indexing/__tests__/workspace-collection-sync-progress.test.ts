@@ -19,6 +19,7 @@ const scanSummary = {
   changedFiles: 3,
   discoveredFiles: 8,
   excludedEntries: 1,
+  truncatedDirectories: 0,
   unchangedFiles: 4,
 };
 

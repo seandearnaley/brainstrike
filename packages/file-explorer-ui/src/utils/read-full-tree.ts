@@ -17,6 +17,8 @@ export interface ReadFullTreeOptions {
   concurrency?: number | undefined;
   /** Optional entry policy for pruning directories and files during traversal */
   entryPolicy?: ParallelWalkerOptions['entryPolicy'];
+  /** Callback when a directory listing was truncated by the adapter; without it the walk fails on truncation. */
+  onDirectoryTruncated?: ParallelWalkerOptions['onDirectoryTruncated'];
   /** Callback when a file or directory entry is skipped during traversal */
   onEntrySkipped?: ParallelWalkerOptions['onEntrySkipped'];
   /** Callback for streaming tree snapshots */
@@ -83,6 +85,7 @@ export async function readFullTreeWithOptions(
     concurrency,
     abortSignal,
     entryPolicy,
+    onDirectoryTruncated,
     onEntrySkipped,
     propagateDirectoryReadErrors,
     updateProgress,
@@ -95,6 +98,7 @@ export async function readFullTreeWithOptions(
     abortSignal,
     concurrency,
     entryPolicy,
+    onDirectoryTruncated,
     onEntrySkipped,
     onProgress: updateProgress,
     onTreeSnapshot,

@@ -348,6 +348,26 @@ there rather than hiding entries after the adapter has already read them.
   preempted; the walker checks the abort before processing its result or
   scheduling any more descendants, bounding the drain to reads already in
   flight.
+- **Truncated listings surface in scans; they never skip silently.** The
+  registry's `'truncated'` pseudo-node (above) is Explorer-visible, but the
+  recursive scan consumers must surface it too: `walkDirectoryParallel` never
+  lets the marker enter the returned tree — it reports the affected directory
+  through `onDirectoryTruncated`, and a walk WITHOUT that handler fails with
+  `DirectoryListingTruncatedError`, including for non-root subdirectories
+  whose ordinary read errors are skipped silently. Both Workspace Index scan
+  modes install the handler: the full scan wires it through
+  `readFullTreeWithOptions`; the scoped watcher scan recognizes the marker
+  centrally in `readDirectoryWithProgress`. Each scan logs one warning and
+  reports the deduped directory count as `truncatedDirectories` in the visible
+  scan summary (`PreparedChangesSummary.truncatedDirectoryPaths` →
+  `WorkspaceCollectionSyncScanSummary`); the content-batch phase always
+  reports an empty list because only the traversal can observe truncation.
+  The debug harness returns `truncatedDirectoryPaths` so coverage audits treat
+  `expectedFileCount` as a floor, not an exact total. Paired tests:
+  `parallel-directory-walker.test.ts` (report + fail-loud),
+  `workspace-collection-sync-service.test.ts` (full + scoped scan summaries),
+  `workspace-collection-sync-status-helpers.test.ts` (status row), and
+  `workspace-index-debug-harness.test.ts`.
 - Workspace include/exclude filters control visible-tree filtering and
   selection. They are not the Workspace Index traversal policy; do not mutate
   custom filters to implement indexing exclusions.

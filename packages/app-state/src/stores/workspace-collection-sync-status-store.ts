@@ -19,6 +19,8 @@ export interface WorkspaceCollectionSyncScanSummary {
   changedFiles: number;
   discoveredFiles: number;
   excludedEntries: number;
+  /** Directories whose listing was capped by the adapter — scan coverage is partial. */
+  truncatedDirectories: number;
   unchangedFiles: number;
 }
 

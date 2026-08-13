@@ -2753,6 +2753,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
         changedFiles: 8,
         discoveredFiles: 20,
         excludedEntries: 2,
+        truncatedDirectories: 0,
         unchangedFiles: 10,
       },
       state: 'importing',

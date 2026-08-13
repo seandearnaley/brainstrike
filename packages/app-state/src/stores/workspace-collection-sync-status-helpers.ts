@@ -21,6 +21,10 @@ function createScanMetricRow(
       scanSummary.excludedEntries > 0
         ? ` • ${scanSummary.excludedEntries} excluded entr${scanSummary.excludedEntries === 1 ? 'y' : 'ies'}`
         : ''
+    }${
+      scanSummary.truncatedDirectories > 0
+        ? ` • ${scanSummary.truncatedDirectories} director${scanSummary.truncatedDirectories === 1 ? 'y' : 'ies'} truncated`
+        : ''
     }`,
   };
 }

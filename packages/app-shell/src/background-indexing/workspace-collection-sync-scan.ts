@@ -3,6 +3,7 @@ import type { FileContentProcessor } from '@brainstrike/file-explorer-hooks';
 import { readFullTreeWithOptions } from '@brainstrike/file-explorer-ui/tree';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
+import { createLogger } from '@brainstrike/logging';
 import type { FileSystemChange, IFileNode } from '@brainstrike/types';
 import {
   type BackgroundIndexingPolicyPreset,
@@ -82,6 +83,24 @@ type WorkspaceIndexingEntryPolicy = ReturnType<typeof createBackgroundIndexingEn
 
 const SLASH_CHAR_CODE = 47;
 
+const logger = createLogger('WorkspaceCollectionSyncScan');
+
+/**
+ * A truncated adapter listing means the scan only saw the first N entries of a
+ * directory, so the Workspace Index silently misses everything past the cap
+ * unless the partial coverage is reported. One warning per scan; the count
+ * also lands in the visible scan summary as `truncatedDirectories`.
+ */
+function warnOnTruncatedDirectories(truncatedDirectoryPaths: ReadonlySet<string>): void {
+  if (truncatedDirectoryPaths.size === 0) {
+    return;
+  }
+  logger.warn('Workspace Index scan consumed truncated directory listings; coverage is partial', {
+    samplePaths: [...truncatedDirectoryPaths].slice(0, 10),
+    truncatedDirectories: truncatedDirectoryPaths.size,
+  });
+}
+
 function createEmptyPreparedSyncChanges(): PreparedSyncChanges {
   return {
     invalidationTargets: [],
@@ -92,6 +111,7 @@ function createEmptyPreparedSyncChanges(): PreparedSyncChanges {
       statRefreshes: [],
       terminalChunkingErrors: [],
       totalFiles: 0,
+      truncatedDirectoryPaths: [],
       unchangedCount: 0,
     },
   };
@@ -256,6 +276,7 @@ async function readDirectoryWithProgress(args: {
   abortSignal: AbortSignal;
   deps: WorkspaceCollectionSyncScanDeps;
   handle: RootDirectoryHandle;
+  onDirectoryTruncated: (path: string) => void;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
 }): Promise<IFileNode[]> {
   throwIfAborted(args.abortSignal);
@@ -268,6 +289,9 @@ async function readDirectoryWithProgress(args: {
       `File system adapter returned an invalid directory listing: ${args.handle.path}`
     );
   }
+  if (nodes.some((node) => node.type === 'truncated')) {
+    args.onDirectoryTruncated(args.handle.path);
+  }
   throwIfAborted(args.abortSignal);
   return nodes;
 }
@@ -276,6 +300,7 @@ async function resolveDirectoryHandleForRelativePath(args: {
   abortSignal: AbortSignal;
   deps: WorkspaceCollectionSyncScanDeps;
   entryPolicy: WorkspaceIndexingEntryPolicy;
+  onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
   relativePath: string;
   rootHandle: RootDirectoryHandle;
@@ -289,6 +314,7 @@ async function resolveDirectoryHandleForRelativePath(args: {
       abortSignal: args.abortSignal,
       deps: args.deps,
       handle: currentHandle,
+      onDirectoryTruncated: args.onDirectoryTruncated,
       statusReporter: args.statusReporter,
     });
     const nextRelativePath = currentRelativePath ? `${currentRelativePath}/${segment}` : segment;
@@ -332,6 +358,7 @@ async function resolveChangedFileNode(args: {
   abortSignal: AbortSignal;
   deps: WorkspaceCollectionSyncScanDeps;
   entryPolicy: WorkspaceIndexingEntryPolicy;
+  onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
   relativePath: string;
   rootHandle: RootDirectoryHandle;
@@ -344,6 +371,7 @@ async function resolveChangedFileNode(args: {
         abortSignal: args.abortSignal,
         deps: args.deps,
         entryPolicy: args.entryPolicy,
+        onDirectoryTruncated: args.onDirectoryTruncated,
         onExcludedEntry: args.onExcludedEntry,
         relativePath: parentRelativePath,
         rootHandle: args.rootHandle,
@@ -362,6 +390,7 @@ async function resolveChangedFileNode(args: {
       abortSignal: args.abortSignal,
       deps: args.deps,
       handle: parentHandle,
+      onDirectoryTruncated: args.onDirectoryTruncated,
       statusReporter: args.statusReporter,
     });
     const matchingNode = siblings.find((candidate) => {
@@ -401,6 +430,7 @@ async function readScopedDirectoryTree(args: {
   deps: WorkspaceCollectionSyncScanDeps;
   directoryHandle: RootDirectoryHandle;
   entryPolicy: WorkspaceIndexingEntryPolicy;
+  onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
   rootHandle: RootDirectoryHandle;
   rootPath: string;
@@ -410,6 +440,7 @@ async function readScopedDirectoryTree(args: {
     abortSignal: args.abortSignal,
     deps: args.deps,
     handle: args.directoryHandle,
+    onDirectoryTruncated: args.onDirectoryTruncated,
     statusReporter: args.statusReporter,
   });
   const fileNodes: IFileNode[] = [];
@@ -438,6 +469,7 @@ async function readScopedDirectoryTree(args: {
           deps: args.deps,
           directoryHandle: toDirectoryHandle(node, args.rootHandle),
           entryPolicy: args.entryPolicy,
+          onDirectoryTruncated: args.onDirectoryTruncated,
           onExcludedEntry: args.onExcludedEntry,
           rootHandle: args.rootHandle,
           rootPath: args.rootPath,
@@ -544,6 +576,7 @@ async function collectChangedDirectoryFileNodes(args: {
   abortSignal: AbortSignal;
   deps: WorkspaceCollectionSyncScanDeps;
   entryPolicy: WorkspaceIndexingEntryPolicy;
+  onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
   relativePath: string;
   rootHandle: RootDirectoryHandle;
@@ -563,6 +596,7 @@ async function collectChangedDirectoryFileNodes(args: {
     abortSignal: args.abortSignal,
     deps: args.deps,
     entryPolicy: args.entryPolicy,
+    onDirectoryTruncated: args.onDirectoryTruncated,
     onExcludedEntry: args.onExcludedEntry,
     relativePath: args.relativePath,
     rootHandle: args.rootHandle,
@@ -577,6 +611,7 @@ async function collectChangedDirectoryFileNodes(args: {
     deps: args.deps,
     directoryHandle,
     entryPolicy: args.entryPolicy,
+    onDirectoryTruncated: args.onDirectoryTruncated,
     onExcludedEntry: args.onExcludedEntry,
     rootHandle: args.rootHandle,
     rootPath: args.rootPath,
@@ -591,6 +626,7 @@ async function collectScopedChange(args: {
   context: ResolvedScanContext;
   deps: WorkspaceCollectionSyncScanDeps;
   entryPolicy: WorkspaceIndexingEntryPolicy;
+  onDirectoryTruncated: (path: string) => void;
   onExcludedEntry: () => void;
   rootHandle: RootDirectoryHandle;
   statusReporter: ReturnType<typeof createScanningStatusReporter>;
@@ -613,6 +649,7 @@ async function collectScopedChange(args: {
       abortSignal: args.abortSignal,
       deps: args.deps,
       entryPolicy: args.entryPolicy,
+      onDirectoryTruncated: args.onDirectoryTruncated,
       onExcludedEntry: args.onExcludedEntry,
       relativePath,
       rootHandle: args.rootHandle,
@@ -630,6 +667,7 @@ async function collectScopedChange(args: {
     abortSignal: args.abortSignal,
     deps: args.deps,
     entryPolicy: args.entryPolicy,
+    onDirectoryTruncated: args.onDirectoryTruncated,
     onExcludedEntry: args.onExcludedEntry,
     relativePath,
     rootHandle: args.rootHandle,
@@ -660,6 +698,7 @@ async function collectPreparedFullChanges(args: {
   });
   const statusReporter = createScanningStatusReporter(args.deps.onScanningPath);
   let excludedEntries = 0;
+  const truncatedDirectoryPaths = new Set<string>();
 
   try {
     const tree = await readFullTreeWithOptions(
@@ -668,6 +707,9 @@ async function collectPreparedFullChanges(args: {
       {
         abortSignal: args.abortSignal,
         entryPolicy,
+        onDirectoryTruncated: ({ path }) => {
+          truncatedDirectoryPaths.add(path);
+        },
         onEntrySkipped: (entry) => {
           if (entry.reason === 'entry-policy') {
             excludedEntries += 1;
@@ -680,6 +722,7 @@ async function collectPreparedFullChanges(args: {
       }
     );
     throwIfAborted(args.abortSignal);
+    warnOnTruncatedDirectories(truncatedDirectoryPaths);
 
     const existingEntries = await args.deps.fileRecordRepository.listManagedCacheEntryMetadata(
       args.context.collectionId
@@ -720,6 +763,8 @@ async function collectPreparedFullChanges(args: {
         // counted inside collectPreparedChangesInBatches — replacing instead of
         // summing silently dropped the content-gate count from the summary.
         excludedEntries: excludedEntries + prepared.excludedEntries,
+        // Only the traversal observes truncation; the batch phase reports [].
+        truncatedDirectoryPaths: [...truncatedDirectoryPaths],
       },
     };
   } finally {
@@ -747,6 +792,10 @@ async function collectPreparedScopedChanges(args: {
   const onExcludedEntry = (): void => {
     excludedEntries += 1;
   };
+  const truncatedDirectoryPaths = new Set<string>();
+  const onDirectoryTruncated = (path: string): void => {
+    truncatedDirectoryPaths.add(path);
+  };
   const accumulator: ScopedChangeAccumulator = {
     changedFileNodesByPath: new Map<string, IFileNode>(),
     forceReadRelativePaths: new Set<string>(),
@@ -762,12 +811,14 @@ async function collectPreparedScopedChanges(args: {
         context: args.context,
         deps: args.deps,
         entryPolicy,
+        onDirectoryTruncated,
         onExcludedEntry,
         rootHandle,
         statusReporter,
       });
     }
     throwIfAborted(args.abortSignal);
+    warnOnTruncatedDirectories(truncatedDirectoryPaths);
 
     const existingEntries = await args.deps.fileRecordRepository.listManagedCacheEntryMetadata(
       args.context.collectionId
@@ -804,6 +855,7 @@ async function collectPreparedScopedChanges(args: {
         ...prepared,
         // Same summing contract as the full-scan path above.
         excludedEntries: excludedEntries + prepared.excludedEntries,
+        truncatedDirectoryPaths: [...truncatedDirectoryPaths],
       },
     };
   } finally {

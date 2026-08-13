@@ -2178,6 +2178,139 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('surfaces truncated directory listings from a full scan in the scan summary', async () => {
+    readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
+      options?.onDirectoryTruncated?.({ depth: 0, path: ROOT_PATH });
+      return [
+        {
+          handle: { path: `${ROOT_PATH}/${FILE_PATH}`, platform: 'electron' },
+          name: 'index.ts',
+          path: `${ROOT_PATH}/${FILE_PATH}`,
+          rootFolderId: ROOT_PATH,
+          type: 'file',
+        },
+      ];
+    });
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+        })),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    expect(readFullTreeWithOptionsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        onDirectoryTruncated: expect.any(Function),
+      })
+    );
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scanSummary: expect.objectContaining({
+          truncatedDirectories: 1,
+        }),
+      })
+    );
+  });
+
+  it('surfaces truncated directory listings from a scoped scan in the scan summary', async () => {
+    const truncatedEntry = (parentPath: string): IFileNode =>
+      ({
+        handle: createMockNodeHandle({
+          kind: 'file',
+          name: '…truncated…',
+          path: `${parentPath}/…truncated…`,
+        }),
+        name: 'Showing first 10,000 entries',
+        path: `${parentPath}/…truncated…`,
+        rootFolderId: ROOT_PATH,
+        type: 'truncated',
+      }) as IFileNode;
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+        })),
+      },
+      fileSystemAdapter: {
+        exists: vi.fn(),
+        readDirectory: vi.fn(async (handle: { path: string }): Promise<IFileNode[]> => {
+          if (handle.path === ROOT_PATH) {
+            return [
+              {
+                depth: 1,
+                handle: createMockNodeHandle({
+                  kind: 'directory',
+                  name: 'src',
+                  path: `${ROOT_PATH}/src`,
+                }),
+                name: 'src',
+                path: `${ROOT_PATH}/src`,
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                type: 'directory',
+              } as IFileNode,
+              truncatedEntry(ROOT_PATH),
+            ];
+          }
+          if (handle.path === `${ROOT_PATH}/src`) {
+            return [
+              {
+                depth: 2,
+                handle: createMockNodeHandle({
+                  kind: 'file',
+                  name: 'index.ts',
+                  path: `${ROOT_PATH}/${FILE_PATH}`,
+                }),
+                name: 'index.ts',
+                path: `${ROOT_PATH}/${FILE_PATH}`,
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                size: 24,
+                type: 'file',
+              } as IFileNode,
+              truncatedEntry(`${ROOT_PATH}/src`),
+            ];
+          }
+          return [];
+        }),
+        readFile: vi.fn(),
+        requestDirectoryAccess: vi.fn(),
+      } as unknown as WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'],
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+      scope: {
+        changes: [{ kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'modified' }],
+        mode: 'paths',
+      },
+    });
+
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+    expect(deps.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scanSummary: expect.objectContaining({
+          truncatedDirectories: 2,
+        }),
+      })
+    );
+  });
+
   it('propagates scan and content-processing progress through the status reporter', async () => {
     readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
       options?.updateProgress?.();
@@ -2938,6 +3071,7 @@ describe('WorkspaceCollectionSyncService', () => {
           changedFiles: 1,
           discoveredFiles: 1,
           excludedEntries: 0,
+          truncatedDirectories: 0,
           unchangedFiles: 0,
         },
         state: 'embedding',
