@@ -316,6 +316,57 @@ describe('file-content-worker', () => {
     expect(progressCalls).toBe(1);
   }, 1000);
 
+  it('rejects concurrent completions when the first progress finalizer throws', async () => {
+    let releaseReads: () => void = () => {
+      throw new Error('Read barrier was not initialized');
+    };
+    const readBarrier = new Promise<void>((resolve) => {
+      releaseReads = resolve;
+    });
+    let reportBothReadsStarted: () => void = () => {
+      throw new Error('Read-start barrier was not initialized');
+    };
+    const bothReadsStarted = new Promise<void>((resolve) => {
+      reportBothReadsStarted = resolve;
+    });
+
+    class BarrierAdapter extends MockFileSystemAdapter {
+      private readsStarted = 0;
+
+      override async readFile(handle: Parameters<MockFileSystemAdapter['readFile']>[0]) {
+        this.readsStarted += 1;
+        if (this.readsStarted === 2) {
+          reportBothReadsStarted();
+        }
+        await readBarrier;
+        return super.readFile(handle);
+      }
+    }
+
+    const adapter = new BarrierAdapter();
+    const worker = createFileContentWorker({ concurrency: 2, fileSystemAdapter: adapter });
+    const firstRequest = createRequest('/concurrent-first.txt');
+    const secondRequest = createRequest('/concurrent-second.txt');
+    const schedulerFailure = new Error('first progress finalizer failed');
+    let progressCalls = 0;
+
+    MockFileSystemAdapter.setMockFileContent(firstRequest.path, 'first');
+    MockFileSystemAdapter.setMockFileContent(secondRequest.path, 'second');
+
+    const queuePromise = worker([firstRequest, secondRequest], () => {
+      progressCalls += 1;
+      if (progressCalls === 1) {
+        throw schedulerFailure;
+      }
+    });
+
+    await bothReadsStarted;
+    releaseReads();
+
+    await expect(queuePromise).rejects.toBe(schedulerFailure);
+    expect(progressCalls).toBe(1);
+  }, 1000);
+
   it('handles empty request queue immediately', async () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createFileContentWorker({ fileSystemAdapter: adapter });
