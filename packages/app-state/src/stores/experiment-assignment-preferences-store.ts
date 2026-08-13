@@ -9,7 +9,7 @@
  * changes no runtime behavior by itself.
  *
  * The wire contract (`ExperimentAssignmentRequest`) requires BOTH fields, so
- * the request is derived through `selectExperimentAssignmentRequest`, which
+ * the request is derived through `buildExperimentAssignmentRequest`, which
  * emits the pair only when both are non-empty — a half-filled pair never
  * reaches the wire.
  *
@@ -102,13 +102,6 @@ export function buildExperimentAssignmentRequest(
     return { experimentId, variant };
   }
   return;
-}
-
-/** Derive the wire request from store state (see `buildExperimentAssignmentRequest`). */
-export function selectExperimentAssignmentRequest(
-  store: ExperimentAssignmentPreferencesStore
-): { experimentId: string; variant: string } | undefined {
-  return buildExperimentAssignmentRequest(store.experimentId, store.variant);
 }
 
 /** Reset the live store and clear its persisted slice for factory reset. */

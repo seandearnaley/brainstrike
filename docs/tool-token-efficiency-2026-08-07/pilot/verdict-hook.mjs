@@ -71,11 +71,18 @@ function grade() {
   }
   const last = answerLines.at(-1);
   const patterns = Array.isArray(state.answerPatterns) ? state.answerPatterns : [];
-  const missing = patterns
-    .map((pattern, index) => (new RegExp(pattern, 'i').test(last) ? null : index))
-    .filter((index) => index !== null);
   if (patterns.length === 0) {
     return { detail: `${state.taskId}: no answerPatterns armed`, verdict: 'failed' };
+  }
+  let missing;
+  try {
+    missing = patterns
+      .map((pattern, index) => (new RegExp(pattern, 'i').test(last) ? null : index))
+      .filter((index) => index !== null);
+  } catch {
+    // A malformed pattern must fail the ARMED task loudly, never crash the
+    // hook (the header's fail-safe contract) or mislabel anything else.
+    return { detail: `${state.taskId}: invalid answerPatterns`, verdict: 'failed' };
   }
   if (missing.length > 0) {
     return {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetExperimentAssignmentPreferencesStoreForTests,
-  selectExperimentAssignmentRequest,
+  buildExperimentAssignmentRequest,
   useExperimentAssignmentPreferencesStore,
 } from '../stores/experiment-assignment-preferences-store';
 import type { PersistApi } from './persist-api-test-helper';
@@ -32,19 +32,17 @@ describe('experiment-assignment-preferences-store', () => {
 
   it('emits a wire request only when BOTH fields are set (atomic pair)', () => {
     const store = useExperimentAssignmentPreferencesStore.getState();
-    expect(
-      selectExperimentAssignmentRequest(useExperimentAssignmentPreferencesStore.getState())
-    ).toBeUndefined();
+    const derive = () => {
+      const { experimentId, variant } = useExperimentAssignmentPreferencesStore.getState();
+      return buildExperimentAssignmentRequest(experimentId, variant);
+    };
+    expect(derive()).toBeUndefined();
 
     store.setExperimentId('search-policy-v1');
-    expect(
-      selectExperimentAssignmentRequest(useExperimentAssignmentPreferencesStore.getState())
-    ).toBeUndefined();
+    expect(derive()).toBeUndefined();
 
     store.setVariant('control');
-    expect(
-      selectExperimentAssignmentRequest(useExperimentAssignmentPreferencesStore.getState())
-    ).toEqual({
+    expect(derive()).toEqual({
       experimentId: 'search-policy-v1',
       variant: 'control',
     });

@@ -230,11 +230,15 @@ export async function* withStopHook(
   let sawError = false;
   let stopRan = false;
   let assistantText = '';
+  let textBoundaryPending = false;
   const runStopOnce = async (): Promise<void> => {
     if (stopRan) {
       return;
     }
     stopRan = true;
+    // Exact tail materialized ONCE here; the streaming loop only trims when
+    // the buffer exceeds 2× the bound (amortized — never a per-delta flatten).
+    const assistantMessageTail = assistantText.slice(-ASSISTANT_MESSAGE_TAIL_CHARS);
     // Allow-on-fault (mirrors applyToolHooks): the Stop phase runs in FRONT of
     // the terminal `message-finish` yield, so a runner-layer throw here would
     // otherwise unwind BEFORE the finish chunk is yielded — `consumeSource`
@@ -243,7 +247,7 @@ export async function* withStopHook(
     try {
       const result = await manager.runStop(
         signal.aborted ? 'aborted' : sawError ? 'error' : 'complete',
-        assistantText.length > 0 ? assistantText : undefined
+        assistantMessageTail.length > 0 ? assistantMessageTail : undefined
       );
       // Task Ledger source 'hook': a Stop hook reported a verdict for this run.
       // AWAITED here, still in front of the finish yield, so the label lands
@@ -265,11 +269,24 @@ export async function* withStopHook(
   try {
     for await (const chunk of stream) {
       if (chunk.type === 'text-delta') {
-        // Feed the Stop hooks' `assistant_message` stdin field so acceptance
-        // hooks can grade the final answer. Bounded to the same 64 KiB tail
-        // as the verdict stdout scan: a grader cares about the END of an
-        // oversized answer, and the buffer must not grow with the stream.
-        assistantText = `${assistantText}${chunk.value}`.slice(-ASSISTANT_MESSAGE_TAIL_CHARS);
+        // Feed the Stop hooks' `assistant_message` stdin field: the RUN's
+        // accumulated assistant text (all generation steps), tail-bounded so
+        // an acceptance hook can grade the end of the final answer. Any
+        // non-text chunk (tool call, run event) marks a step boundary — a
+        // newline is inserted there so line-anchored graders never see step
+        // N's tail glued onto step N+1's first line.
+        if (textBoundaryPending && assistantText.length > 0 && !assistantText.endsWith('\n')) {
+          assistantText += '\n';
+        }
+        textBoundaryPending = false;
+        assistantText += chunk.value;
+        if (assistantText.length > ASSISTANT_MESSAGE_TAIL_CHARS * 2) {
+          // Amortized trim: keeps memory ≤ 2× the bound without flattening a
+          // 64 KiB string on every delta; the exact tail is cut in runStopOnce.
+          assistantText = assistantText.slice(-ASSISTANT_MESSAGE_TAIL_CHARS);
+        }
+      } else {
+        textBoundaryPending = true;
       }
       if (chunk.type === 'message-finish') {
         if (chunk.finishReason === 'error') {

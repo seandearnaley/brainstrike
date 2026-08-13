@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
+import { createAssistantRunEvent } from '@brainstrike/agent';
 import { buildHookTrustRequest } from '@brainstrike/app-state/stores/hook-trust-store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHookRunner } from '../../../assistant-server/hooks/hook-runner-impl';
@@ -387,6 +388,57 @@ describe('withStopHook', () => {
     expect(stopPayload.assistant_message).toBeDefined();
     expect(stopPayload.assistant_message?.endsWith('The answer is live-grep.ts')).toBe(true);
     expect(stopPayload.assistant_message?.length).toBeLessThanOrEqual(64 * 1024);
+  });
+
+  it('separates generation steps with a newline so line-anchored graders still match', async () => {
+    const marker = join(tmpRoot, 'stop-boundary.json');
+    const config = JSON.stringify({
+      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+    });
+    const file = writeProjectHooks(tmpRoot, config);
+    const manager = buildHookManager({
+      hookTrustRequest: {
+        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
+      },
+      logger,
+      runtimeData: runtimeWithRoot('root-1', tmpRoot),
+      sessionId: 's1',
+    });
+
+    // Step 1 text does NOT end in a newline; a non-text chunk (the step
+    // boundary) intervenes; step 2 opens with the verdict-bearing line. The
+    // accumulated assistant_message must not glue them together.
+    async function* source(): AsyncIterable<StreamChunk> {
+      yield { type: 'text-delta', value: 'Let me search the workspace.' };
+      yield {
+        event: createAssistantRunEvent({
+          kind: 'run.started',
+          label: 'step boundary stand-in',
+          status: 'running',
+        }),
+        type: 'run-event',
+      };
+      yield { type: 'text-delta', value: 'ANSWER: live-grep.ts' };
+      yield {
+        finishReason: 'stop',
+        path: [],
+        type: 'message-finish',
+        usage: { completionTokens: 1, promptTokens: 1 },
+      };
+    }
+
+    const controller = new AbortController();
+    for await (const _chunk of withStopHook(source(), manager, controller.signal, logger)) {
+      // drain
+    }
+
+    const stopPayload = JSON.parse(readFileSync(marker, 'utf8')) as {
+      assistant_message?: string;
+    };
+    expect(stopPayload.assistant_message).toBe(
+      'Let me search the workspace.\nANSWER: live-grep.ts'
+    );
+    expect(/^ANSWER: live-grep\.ts$/m.test(stopPayload.assistant_message ?? '')).toBe(true);
   });
 
   it('omits assistant_message when the stream produced no text', async () => {
