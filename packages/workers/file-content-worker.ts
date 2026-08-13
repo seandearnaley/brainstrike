@@ -152,6 +152,13 @@ export function createFileContentWorker({
         results[request.compositeKey] = { message, status: 'inaccessible' };
         finalizeRequest(request);
       };
+      const runRequestHandler = (handler: () => void): void => {
+        try {
+          handler();
+        } catch (error) {
+          finishReject(normalizeSchedulerError(error));
+        }
+      };
       const scheduleRequest = async (request: FileReadRequest): Promise<void> => {
         active += 1;
         try {
@@ -164,10 +171,14 @@ export function createFileContentWorker({
         void processRequest(request)
           .then(
             ({ key, content }) => {
-              handleRequestSuccess(request, key, content);
+              runRequestHandler(() => {
+                handleRequestSuccess(request, key, content);
+              });
             },
             (error: unknown) => {
-              handleRequestFailure(request, error);
+              runRequestHandler(() => {
+                handleRequestFailure(request, error);
+              });
             }
           )
           .catch((error: unknown) => {
