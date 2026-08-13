@@ -20,6 +20,7 @@ import {
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
 
+const CORRUPT_ROOTS_LIST_STORAGE_KEY = 'rootsList.corrupt' as const;
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
 const MAX_DIRECTORY_ENTRIES = 10_000;
 const ROOTS_LIST_STORAGE_KEY = 'rootsList' as const;
@@ -268,7 +269,7 @@ export class WorkspaceRootRegistry {
       // sequencing means the try/finally below covers `probe` from the
       // instant it exists — a rejected readStoredRoots() can no longer
       // leak an already-opened probe capability.
-      const entries = await this.readStoredRoots();
+      const entries = await this.readStoredRootsOrQuarantine();
       const probe = await this.createSecureRoot(presentationPath);
       let probeAdopted = false;
       try {
@@ -385,7 +386,7 @@ export class WorkspaceRootRegistry {
 
   removeRoot(rootId: string): Promise<void> {
     return this.serializeMutation(async () => {
-      const entries = await this.readStoredRoots();
+      const entries = await this.readStoredRootsOrQuarantine();
       const removed = entries.find((entry) => entry.rootId === rootId);
       if (!removed) {
         if (this.sessionRootIds.delete(rootId)) {
@@ -759,6 +760,27 @@ export class WorkspaceRootRegistry {
       throw new Error('The persisted workspace root registry contains duplicate root IDs.');
     }
     return parsed;
+  }
+
+  /**
+   * Mutation-path reader: a corrupt store must not brick add/remove, but it is
+   * never coerced — the raw value is preserved for diagnosis and the failure
+   * is logged at error level. Convergence paths (restoreRoots) intentionally
+   * keep the throwing readStoredRoots: an unknown mount set is never an
+   * authoritative zero.
+   */
+  private async readStoredRootsOrQuarantine(): Promise<StoredWorkspaceRoot[]> {
+    try {
+      return await this.readStoredRoots();
+    } catch (error) {
+      const raw = await this.storage.getItem(ROOTS_LIST_STORAGE_KEY);
+      if (raw !== null) {
+        await this.storage.setItem(CORRUPT_ROOTS_LIST_STORAGE_KEY, raw);
+        await this.storage.removeItem(ROOTS_LIST_STORAGE_KEY);
+      }
+      logger.error('Quarantined a corrupt workspace root registry value', { error });
+      return [];
+    }
   }
 
   private async resolveRead(

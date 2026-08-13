@@ -335,6 +335,27 @@ describe('WorkspaceRootRegistry', () => {
     ).resolves.toEqual([]);
   });
 
+  it('addRoot quarantines a corrupt rootsList and proceeds with a fresh list', async () => {
+    storage = createStorage({ rootsList: '{not json' });
+    const registry = createRegistry();
+
+    const descriptor = await registry.addRoot(rootHandle('/workspace'));
+
+    expect(descriptor.persisted).toBe(true);
+    expect(await storage.getItem('rootsList.corrupt')).toBe('{not json');
+    const list = JSON.parse((await storage.getItem('rootsList')) ?? '[]') as unknown[];
+    expect(list).toHaveLength(1);
+  });
+
+  it('removeRoot quarantines a corrupt rootsList without half-deleting state', async () => {
+    storage = createStorage({ rootsList: '{not json' });
+    const registry = createRegistry();
+
+    await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
+    expect(await storage.getItem('rootsList.corrupt')).toBe('{not json');
+    expect(await storage.getItem('rootsList')).toBeNull();
+  });
+
   it('mounts a new root under its presentation path while canonical-path reads route to it', async () => {
     const registry = createRegistry({
       createSecureRoot: async () => secureRoot('/real/workspace'),
