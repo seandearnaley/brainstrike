@@ -75,7 +75,7 @@ test.describe('Report Folder Summary Threshold', () => {
 
     // Include Project Tree is enabled by default, so the threshold input should be visible
     // Change threshold to 2 via the preview summary input
-    const thresholdInput = page.getByLabel('Tree detail:');
+    const thresholdInput = page.getByLabel('Tree detail:', { exact: true });
     await expect(thresholdInput).toBeVisible();
     await thresholdInput.scrollIntoViewIfNeeded();
     await thresholdInput.evaluate((element) => {

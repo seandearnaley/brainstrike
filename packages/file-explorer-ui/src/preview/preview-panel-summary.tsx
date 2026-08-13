@@ -14,7 +14,7 @@ import { TokenBudgetControl } from '../indexing/token-budget-control';
 import { TokenMeter } from '../indexing/token-meter';
 import { TokenSummaryBar } from '../indexing/token-summary-bar';
 import type { TokenCountingState } from '../indexing/use-token-counting';
-import type { PreviewFooterMode } from './preview-footer-layout';
+import type { PreviewSummaryMode } from './preview-summary-mode';
 
 const SUMMARY_INSIGHT_HISTORY_LIMIT = 24;
 const SVG_ID_INVALID_CHARACTERS = /[^a-zA-Z0-9_-]/g;
@@ -170,14 +170,14 @@ interface PreviewPanelSummaryProps {
   onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
   onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
   onProjectTreeUsesViewFiltersChange?: ((checked: boolean) => void) | undefined;
-  onSummaryModeChange?: ((mode: PreviewFooterMode) => void) | undefined;
+  onSummaryModeChange?: ((mode: PreviewSummaryMode) => void) | undefined;
   onTokenBudgetChange?: ((budget: number) => void) | undefined;
   projectTreeUsesViewFilters: boolean;
   projectTreeValidationError?: string | undefined;
   selectedFilesCount: number;
   /** BST-153: Number of files still being indexed (for "estimating..." state) */
   selectedTokensPendingCount?: number;
-  summaryMode?: PreviewFooterMode;
+  summaryMode?: PreviewSummaryMode;
   tokenCounting: TokenCountingState;
   tokenUsage: TokenUsageMetrics;
   totalFiles: number;
@@ -260,8 +260,8 @@ const SummaryActionButtons = memo<SummaryActionButtonsProps>(function SummaryAct
 });
 
 interface SummaryModeButtonsProps {
-  mode: PreviewFooterMode;
-  onModeSelect: (mode: PreviewFooterMode) => void;
+  mode: PreviewSummaryMode;
+  onModeSelect: (mode: PreviewSummaryMode) => void;
 }
 
 const SummaryModeButtons = memo<SummaryModeButtonsProps>(function SummaryModeButtons({

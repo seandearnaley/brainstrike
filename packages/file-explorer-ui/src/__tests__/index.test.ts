@@ -127,7 +127,7 @@ describe('file-explorer-ui index exports', () => {
     const previewImplementationMoves = [
       ['hooks/use-preview-panel-preferences.ts', 'preview/use-preview-panel-preferences.ts'],
       ['hooks/use-preview-panel-report-actions.ts', 'preview/use-preview-panel-report-actions.ts'],
-      ['preview-footer-layout.ts', 'preview/preview-footer-layout.ts'],
+      ['preview-footer-layout.ts', 'preview/preview-summary-mode.ts'],
       ['preview-panel-footer.tsx', 'preview/preview-panel-summary.tsx'],
       ['preview-panel.tsx', 'preview/preview-panel.tsx'],
       ['use-preview-panel-state.ts', 'preview/use-preview-panel-state.ts'],
@@ -139,9 +139,10 @@ describe('file-explorer-ui index exports', () => {
     const missingPreviewFiles = previewImplementationMoves
       .map(([, previewPath]) => previewPath)
       .filter((filePath) => !existsSync(path.join(sourceRoot, filePath)));
-    const stalePreviewFiles = ['preview/preview-panel-footer.tsx'].filter((filePath) =>
-      existsSync(path.join(sourceRoot, filePath))
-    );
+    const stalePreviewFiles = [
+      'preview/preview-footer-layout.ts',
+      'preview/preview-panel-footer.tsx',
+    ].filter((filePath) => existsSync(path.join(sourceRoot, filePath)));
 
     expect(legacyFiles).toEqual([]);
     expect(missingPreviewFiles).toEqual([]);

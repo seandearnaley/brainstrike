@@ -50,10 +50,7 @@ const TAPESTRY_PAGE_SIZE = 24;
 const EMPTY_PAGINATION_INFO = {};
 
 interface PreviewPanelProps {
-  decodeFileSelection: (compositeKey: string) => {
-    folderId: string;
-    path: string;
-  };
+  decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
   fileContents: { [compositeKey: string]: string };
   fileSizes?: { [compositeKey: string]: number };
   folderSummaryThreshold?: number;

@@ -20,7 +20,6 @@ describe('usePreviewPanelPreferences', () => {
       'previewPanelPreferences.v1',
       JSON.stringify({
         collapsedGroups: ['keep', 12, null],
-        footerCollapsed: true,
         footerHeight: 9999,
         footerMode: 'not-a-mode',
         groupingConfig: 'folder',

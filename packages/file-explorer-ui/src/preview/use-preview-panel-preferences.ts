@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { DEFAULT_TAPESTRY_SCALE, MAX_TAPESTRY_SCALE, MIN_TAPESTRY_SCALE } from '../tapestry/utils';
 import { GROUPING_CONFIGS } from '../utils/grouping-configs';
-import { PREVIEW_FOOTER_MODES, type PreviewFooterMode } from './preview-footer-layout';
+import { PREVIEW_SUMMARY_MODES, type PreviewSummaryMode } from './preview-summary-mode';
 
 /**
  * Persisted preferences for the context preview surface.
@@ -21,32 +21,31 @@ const STORAGE_KEY = 'previewPanelPreferences.v1';
 const SAVE_DEBOUNCE_MS = 250;
 const logger = createLogger('PreviewPanelPreferences');
 const VALID_GROUPING_CONFIGS = new Set(Object.keys(GROUPING_CONFIGS));
-const VALID_FOOTER_MODES = new Set<PreviewFooterMode>(PREVIEW_FOOTER_MODES);
+const VALID_FOOTER_MODES = new Set<PreviewSummaryMode>(PREVIEW_SUMMARY_MODES);
 // BST-504 replaced the resizable footer with a natural-height summary. These
 // historical midpoint thresholds remain only to migrate old `footerHeight`
 // values to the equivalent persisted mode. Round first to preserve the legacy
 // clamp helper's exact boundary behavior for fractional stored heights.
-const LEGACY_COMPACT_MODE_MAX_HEIGHT = 194;
-const LEGACY_EXPANDED_MODE_MIN_HEIGHT = 314;
+const LEGACY_COMPACT_MODE_MAX_HEIGHT = 194; // Midpoint of the legacy 160/228 heights.
+const LEGACY_EXPANDED_MODE_MIN_HEIGHT = 314; // Midpoint of the legacy 228/400 heights.
 
 interface StoredPreferences {
   collapsedGroups?: string[];
-  footerCollapsed?: boolean;
   footerHeight?: number;
-  footerMode?: PreviewFooterMode;
+  footerMode?: PreviewSummaryMode;
   groupingConfig?: string;
   tapestryScale?: number;
 }
 
 interface PreviewPanelPreferences {
   collapsedGroups: Set<string>;
-  footerMode: PreviewFooterMode;
+  footerMode: PreviewSummaryMode;
   groupingConfig: string;
   tapestryScale: number;
 }
 
 interface PreviewPanelPreferencesDefaults {
-  footerMode: PreviewFooterMode;
+  footerMode: PreviewSummaryMode;
   groupingConfig: string;
 }
 
@@ -125,7 +124,7 @@ function sanitizeFooterMode(
   return;
 }
 
-function inferPreviewFooterModeFromLegacyHeight(height: number): PreviewFooterMode {
+function inferPreviewFooterModeFromLegacyHeight(height: number): PreviewSummaryMode {
   const roundedHeight = Math.round(height);
   if (roundedHeight <= LEGACY_COMPACT_MODE_MAX_HEIGHT) {
     return 'compact';
@@ -174,7 +173,7 @@ function isQuotaExceeded(error: unknown): boolean {
 
 interface PreviewPanelPreferencesSetters {
   setCollapsedGroups: Dispatch<SetStateAction<Set<string>>>;
-  setFooterMode: Dispatch<SetStateAction<PreviewFooterMode>>;
+  setFooterMode: Dispatch<SetStateAction<PreviewSummaryMode>>;
   setGroupingConfig: Dispatch<SetStateAction<string>>;
   setTapestryScale: Dispatch<SetStateAction<number>>;
 }
@@ -195,7 +194,7 @@ export function usePreviewPanelPreferences(
     return new Set(storedGroups);
   });
 
-  const [footerMode, setFooterMode] = useState<PreviewFooterMode>(() =>
+  const [footerMode, setFooterMode] = useState<PreviewSummaryMode>(() =>
     getStoredValue(storedPreferences, 'footerMode', defaults.footerMode)
   );
   const [tapestryScale, setTapestryScale] = useState<number>(() =>

@@ -77,9 +77,7 @@ describe('PreviewPanelSummary', () => {
     render(<PreviewPanelSummary {...createProps()} />);
 
     expect(
-      screen.queryByRole('switch', {
-        name: 'Use tapestry ranges in context output',
-      })
+      screen.queryByRole('switch', { name: 'Use tapestry ranges in context output' })
     ).not.toBeInTheDocument();
     expect(screen.queryByText('Use Tapestry Ranges')).not.toBeInTheDocument();
   });
