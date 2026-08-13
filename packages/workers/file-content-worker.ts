@@ -54,6 +54,12 @@ function normalizeAbortError(error: unknown): Error {
   return error instanceof Error ? error : createAbortError();
 }
 
+function normalizeSchedulerError(error: unknown): Error {
+  return error instanceof Error
+    ? error
+    : new Error('File content queue scheduling failed.', { cause: error });
+}
+
 const logger = createLogger('FileContentWorker');
 
 function normalizeMaxFileSize(maxFileSize: unknown): number {
@@ -123,7 +129,9 @@ export function createFileContentWorker({
           finishResolve(results);
           return;
         }
-        void next();
+        void next().catch((error: unknown) => {
+          finishReject(normalizeSchedulerError(error));
+        });
       };
       const handleRequestSuccess = (
         request: FileReadRequest,
@@ -144,6 +152,13 @@ export function createFileContentWorker({
         results[request.compositeKey] = { message, status: 'inaccessible' };
         finalizeRequest(request);
       };
+      const runRequestHandler = (handler: () => void): void => {
+        try {
+          handler();
+        } catch (error) {
+          finishReject(normalizeSchedulerError(error));
+        }
+      };
       const scheduleRequest = async (request: FileReadRequest): Promise<void> => {
         active += 1;
         try {
@@ -153,12 +168,21 @@ export function createFileContentWorker({
           finishReject(normalizeAbortError(error));
           return;
         }
-        processRequest(request)
-          .then(({ key, content }) => {
-            handleRequestSuccess(request, key, content);
-          })
-          .catch((error) => {
-            handleRequestFailure(request, error);
+        void processRequest(request)
+          .then(
+            ({ key, content }) => {
+              runRequestHandler(() => {
+                handleRequestSuccess(request, key, content);
+              });
+            },
+            (error: unknown) => {
+              runRequestHandler(() => {
+                handleRequestFailure(request, error);
+              });
+            }
+          )
+          .catch((error: unknown) => {
+            finishReject(normalizeSchedulerError(error));
           });
       };
       const next = async () => {
@@ -182,7 +206,9 @@ export function createFileContentWorker({
         finishResolve(results);
         return;
       }
-      void next();
+      void next().catch((error: unknown) => {
+        finishReject(normalizeSchedulerError(error));
+      });
     });
   }
 
