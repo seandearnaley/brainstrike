@@ -76,6 +76,69 @@ describe('WorkspaceRootRegistry', () => {
     expect(dbQuery).not.toHaveBeenCalled();
   });
 
+  it('addRoot quarantines a corrupt rootsList and proceeds with a fresh list', async () => {
+    storage = createStorage({ rootsList: '{not json' });
+    const registry = createRegistry();
+
+    const descriptor = await registry.addRoot(rootHandle('/workspace'));
+
+    expect(descriptor.persisted).toBe(true);
+    expect(await storage.getItem('rootsList.corrupt')).toBe('{not json');
+    const list = JSON.parse((await storage.getItem('rootsList')) ?? '[]') as unknown[];
+    expect(list).toHaveLength(1);
+  });
+
+  it('removeRoot quarantines a corrupt rootsList without half-deleting state', async () => {
+    storage = createStorage({ rootsList: '{not json' });
+    const registry = createRegistry();
+
+    await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
+    expect(await storage.getItem('rootsList.corrupt')).toBe('{not json');
+    expect(await storage.getItem('rootsList')).toBeNull();
+  });
+
+  it('removeRoot retires an already-mounted persisted root when the store is corrupt', async () => {
+    const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
+    storage = createStorage({ rootsList: JSON.stringify([entry]) });
+    const registry = createRegistry({ createSecureRoot: async () => secureRoot('/workspace') });
+    await registry.restoreRoots();
+
+    // Corrupt the persisted list out-of-band while the root stays mounted —
+    // the not-found branch below must not be gated on sessionRootIds, since
+    // a persisted (non-session) root was never added to that set.
+    await storage.setItem('rootsList', '{not json');
+
+    await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
+    await expect(
+      registry.readDirectory({
+        kind: 'directory',
+        name: 'workspace',
+        path: '/workspace',
+        platform: 'electron',
+        rootId: 'root-a',
+      })
+    ).rejects.toThrow('Workspace root is not mounted.');
+  });
+
+  it('propagates a quarantine I/O failure instead of swallowing it', async () => {
+    storage = createStorage({ rootsList: '{not json' });
+    vi.mocked(storage.removeItem).mockRejectedValueOnce(new Error('disk full'));
+    const registry = createRegistry();
+
+    await expect(registry.addRoot(rootHandle('/workspace'))).rejects.toThrow('disk full');
+  });
+
+  it('does not quarantine a valid rootsList on a transient storage I/O failure', async () => {
+    const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
+    storage = createStorage({ rootsList: JSON.stringify([entry]) });
+    vi.mocked(storage.getItem).mockRejectedValueOnce(new Error('disk read error'));
+    const registry = createRegistry();
+
+    await expect(registry.addRoot(rootHandle('/other'))).rejects.toThrow('disk read error');
+    expect(storage.setItem).not.toHaveBeenCalledWith('rootsList.corrupt', expect.any(String));
+    expect(await storage.getItem('rootsList')).toBe(JSON.stringify([entry]));
+  });
+
   it('keeps a transiently unmountable root persisted and returns it as unavailable', async () => {
     const entry = { addedAt: 1, path: '/workspace', rootId: 'root-a' };
     storage = createStorage({ rootsList: JSON.stringify([entry]) });
@@ -333,27 +396,6 @@ describe('WorkspaceRootRegistry', () => {
         rootId: 'persisted-id',
       })
     ).resolves.toEqual([]);
-  });
-
-  it('addRoot quarantines a corrupt rootsList and proceeds with a fresh list', async () => {
-    storage = createStorage({ rootsList: '{not json' });
-    const registry = createRegistry();
-
-    const descriptor = await registry.addRoot(rootHandle('/workspace'));
-
-    expect(descriptor.persisted).toBe(true);
-    expect(await storage.getItem('rootsList.corrupt')).toBe('{not json');
-    const list = JSON.parse((await storage.getItem('rootsList')) ?? '[]') as unknown[];
-    expect(list).toHaveLength(1);
-  });
-
-  it('removeRoot quarantines a corrupt rootsList without half-deleting state', async () => {
-    storage = createStorage({ rootsList: '{not json' });
-    const registry = createRegistry();
-
-    await expect(registry.removeRoot('root-a')).resolves.toBeUndefined();
-    expect(await storage.getItem('rootsList.corrupt')).toBe('{not json');
-    expect(await storage.getItem('rootsList')).toBeNull();
   });
 
   it('mounts a new root under its presentation path while canonical-path reads route to it', async () => {

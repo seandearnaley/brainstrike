@@ -94,6 +94,36 @@ function isStoredWorkspaceRoot(value: unknown): value is StoredWorkspaceRoot {
   );
 }
 
+/**
+ * Pure validation, deliberately separated from storage I/O: it throws only
+ * when `raw` itself is corrupt (bad JSON, wrong shape, duplicate root IDs),
+ * never for an I/O failure — callers that need to tell those two apart (see
+ * readStoredRootsOrQuarantine) read the raw value once themselves and pass
+ * it here, rather than letting a storage exception get relabeled as
+ * "corrupt".
+ */
+function parseStoredRoots(raw: string | null): StoredWorkspaceRoot[] {
+  if (raw === null) {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error('The persisted workspace root registry is not valid JSON.', {
+      cause: error,
+    });
+  }
+  if (!(Array.isArray(parsed) && parsed.every(isStoredWorkspaceRoot))) {
+    throw new Error('The persisted workspace root registry has an invalid shape.');
+  }
+  const ids = new Set(parsed.map((entry) => entry.rootId));
+  if (ids.size !== parsed.length) {
+    throw new Error('The persisted workspace root registry contains duplicate root IDs.');
+  }
+  return parsed;
+}
+
 function isContained(rootPath: string, candidatePath: string): boolean {
   const relative = path.relative(rootPath, candidatePath);
   return (
@@ -267,8 +297,9 @@ export class WorkspaceRootRegistry {
       // Sequential, not Promise.all: addRoot already runs inside
       // serializeMutation (no concurrent caller to race against), and
       // sequencing means the try/finally below covers `probe` from the
-      // instant it exists — a rejected readStoredRoots() can no longer
-      // leak an already-opened probe capability.
+      // instant it exists — a rejected readStoredRootsOrQuarantine() (a raw
+      // storage I/O failure; corruption is quarantined rather than thrown)
+      // can no longer leak an already-opened probe capability.
       const entries = await this.readStoredRootsOrQuarantine();
       const probe = await this.createSecureRoot(presentationPath);
       let probeAdopted = false;
@@ -389,9 +420,13 @@ export class WorkspaceRootRegistry {
       const entries = await this.readStoredRootsOrQuarantine();
       const removed = entries.find((entry) => entry.rootId === rootId);
       if (!removed) {
-        if (this.sessionRootIds.delete(rootId)) {
-          this.unmount(rootId);
-        }
+        // Unconditional, not sessionRootIds-gated: a quarantined read
+        // returns an empty entries list even for a persisted (non-session)
+        // root, so this branch must retire any live mount for rootId
+        // regardless of session/persisted status — retireMount is already a
+        // no-op for an id that isn't mounted.
+        this.sessionRootIds.delete(rootId);
+        await this.retireMount(rootId);
         return;
       }
 
@@ -740,26 +775,7 @@ export class WorkspaceRootRegistry {
   }
 
   private async readStoredRoots(): Promise<StoredWorkspaceRoot[]> {
-    const raw = await this.storage.getItem(ROOTS_LIST_STORAGE_KEY);
-    if (raw === null) {
-      return [];
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (error) {
-      throw new Error('The persisted workspace root registry is not valid JSON.', {
-        cause: error,
-      });
-    }
-    if (!(Array.isArray(parsed) && parsed.every(isStoredWorkspaceRoot))) {
-      throw new Error('The persisted workspace root registry has an invalid shape.');
-    }
-    const ids = new Set(parsed.map((entry) => entry.rootId));
-    if (ids.size !== parsed.length) {
-      throw new Error('The persisted workspace root registry contains duplicate root IDs.');
-    }
-    return parsed;
+    return parseStoredRoots(await this.storage.getItem(ROOTS_LIST_STORAGE_KEY));
   }
 
   /**
@@ -768,17 +784,26 @@ export class WorkspaceRootRegistry {
    * is logged at error level. Convergence paths (restoreRoots) intentionally
    * keep the throwing readStoredRoots: an unknown mount set is never an
    * authoritative zero.
+   *
+   * The raw value is read exactly once. An I/O failure from that single read
+   * propagates uncaught (fail loud) rather than being mistaken for
+   * corruption; only a validation failure from parseStoredRoots — thrown on
+   * that same already-read `raw` — triggers quarantine, and the bytes
+   * quarantined are provably the exact bytes that failed to parse.
    */
   private async readStoredRootsOrQuarantine(): Promise<StoredWorkspaceRoot[]> {
+    const raw = await this.storage.getItem(ROOTS_LIST_STORAGE_KEY);
     try {
-      return await this.readStoredRoots();
+      return parseStoredRoots(raw);
     } catch (error) {
-      const raw = await this.storage.getItem(ROOTS_LIST_STORAGE_KEY);
       if (raw !== null) {
         await this.storage.setItem(CORRUPT_ROOTS_LIST_STORAGE_KEY, raw);
         await this.storage.removeItem(ROOTS_LIST_STORAGE_KEY);
       }
-      logger.error('Quarantined a corrupt workspace root registry value', { error });
+      logger.error('Quarantined a corrupt workspace root registry value', {
+        error,
+        quarantineKey: CORRUPT_ROOTS_LIST_STORAGE_KEY,
+      });
       return [];
     }
   }
