@@ -1331,11 +1331,14 @@ describe('useFileSystem — removeRootDirectory adapter disconnect failures (Fix
     const removeRootFn = vi.fn().mockRejectedValue(new Error('registry disconnect failed'));
     const adapter = Object.assign(new MockFileSystemAdapter(), { removeRoot: removeRootFn });
     const wrapper = ({ children }: { children: ReactNode }) =>
-      createElement(FileExplorerTestWrapper, {
-        children,
-        mockFileSystemAdapter: adapter,
-        mockStorageAdapter: new MemoryStorageAdapter(),
-      });
+      createElement(
+        FileExplorerTestWrapper,
+        {
+          mockFileSystemAdapter: adapter,
+          mockStorageAdapter: new MemoryStorageAdapter(),
+        },
+        children
+      );
     const rendered = renderHook(() => ({ ...useExposed(), toastState: useToast() }), { wrapper });
 
     const mockHandle: DirectoryHandle = {
