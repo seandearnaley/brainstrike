@@ -158,11 +158,7 @@ function findHandleByIdentity(
   return handles.find((handle) => rootKeyOf(handle) === key);
 }
 
-/**
- * Best-effort platform forget for a disconnected root: a failure must not
- * block the UI removal — the UI state wins, and the stale stored entry is
- * re-pruned on the next boot restore. No-op for adapters without removeRoot.
- */
+/** Complete the authoritative adapter transition before changing renderer state. */
 async function forgetRootInAdapter(adapter: unknown, rootId: string): Promise<void> {
   const adapterWithRemoveRoot = adapter as {
     removeRoot?: (rootId: string) => Promise<void>;
@@ -170,14 +166,7 @@ async function forgetRootInAdapter(adapter: unknown, rootId: string): Promise<vo
   if (typeof adapterWithRemoveRoot.removeRoot !== 'function') {
     return;
   }
-  try {
-    await adapterWithRemoveRoot.removeRoot.call(adapter, rootId);
-  } catch (error) {
-    logger.warn('removeRootDirectory: adapter removeRoot failed — proceeding', {
-      error,
-      rootId,
-    });
-  }
+  await adapterWithRemoveRoot.removeRoot.call(adapter, rootId);
 }
 
 function reducer(state: FileSystemState, action: FileSystemAction): FileSystemState {
@@ -472,7 +461,7 @@ export function useFileSystem({
 
   /**
    * Disconnect a root (multi-root). Forgets the platform persistence
-   * (best-effort), removes the handle + path→rootId entry, shifts focus when
+   * (authoritatively), removes the handle + path→rootId entry, shifts focus when
    * the removed root was focused, and purges the store entries for the root.
    *
    * Disconnect ≠ delete: the adapter never touches the DB — indexed rows are
@@ -484,9 +473,8 @@ export function useFileSystem({
    */
   const removeRootDirectory = useCallback(
     async (rootId: string): Promise<DirectoryHandle | null> => {
-      // 1) Platform persistence, best-effort: a failure must not block the UI
-      //    removal — the UI state wins; the stale stored entry is re-pruned on
-      //    the next boot restore.
+      // 1) Platform authority first. If it rejects, renderer state is unchanged
+      //    and the surfaced error lets the user retry one coherent transition.
       await forgetRootInAdapter(fileSystemAdapter, rootId);
 
       // 2) Remove the handle by canonical identity (rootId), never by path —

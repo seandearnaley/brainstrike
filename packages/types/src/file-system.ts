@@ -147,7 +147,8 @@ export type RootPermissionState = 'granted' | 'prompt' | 'denied' | 'unknown';
  * - kind 'fsa': web — handle persisted in IndexedDB; permissionState reflects
  *   queryPermission at restore time (never prompts).
  * - kind 'path': desktop — absolute path persisted in main-process storage;
- *   permissionState is always 'granted' (OS-level access).
+ *   permissionState is 'granted' only while the main-process capability is
+ *   mounted, and 'unknown' when a persisted root is temporarily unavailable.
  */
 export interface RootDescriptor {
   readonly displayName: string;
@@ -170,6 +171,8 @@ export interface FileHandle {
   path: string;
   platform: 'web' | 'electron';
   rootFolderId?: string;
+  /** Durable workspace authority for desktop descriptor-relative reads. */
+  rootId?: RootId;
   size?: number;
 }
 
@@ -333,11 +336,12 @@ export interface FileSystemAdapter {
   ): Promise<void>;
   readFile(handle: FileHandle): Promise<string>;
   /**
-   * Read a file directly by its absolute path.
+   * Read a file by absolute path within an adapter-authorized root.
    *
    * This method is available on platforms with direct file system access (Electron)
-   * and allows reading files without needing a handle from the file tree.
-   * Useful for restoring persisted file tabs before the tree is loaded.
+   * This does not require a file-tree handle, but implementations must still
+   * authorize the path against a persisted/mounted root. Useful for restoring
+   * persisted file tabs before the tree is loaded.
    *
    * @param absolutePath - The absolute path to the file
    * @returns The file contents as a string
@@ -345,12 +349,11 @@ export interface FileSystemAdapter {
    */
   readFileByPath?(absolutePath: string): Promise<string>;
   /**
-   * Multi-root: forget a persisted root by its RootId.
+   * Multi-root: disconnect an authoritative persisted root by its RootId.
    *
-   * Disconnect ≠ delete: this removes ONLY the platform persistence for the
-   * root (stored handle / rootsList entry). It NEVER touches the DB — all
-   * roots/file_records/file_chunks rows are deliberately KEPT so re-adding the
-   * same folder resumes without re-indexing.
+   * Disconnect ≠ delete: platform authority may converge DB live status, but
+   * indexed rows are deliberately retained so re-adding the same folder resumes
+   * without re-indexing.
    */
   removeRoot?(rootId: string): Promise<void>;
   requestDirectoryAccess(): Promise<DirectoryHandle>;
