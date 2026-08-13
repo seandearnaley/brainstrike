@@ -4,20 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useRecursiveFolderSelect } from '../use-recursive-folder-select';
 
-type UseEventCallbackMockModule =
-  typeof import('../../__tests__/__mocks__/use-event-callback-mock');
-
-const useEventCallbackMockModulePromise = vi.hoisted(
-  async () =>
-    (await import(
-      '../../__tests__/__mocks__/use-event-callback-mock'
-    )) as UseEventCallbackMockModule
-);
-
 let mockStoreState: Record<string, unknown> | null = null;
 
 vi.mock('@brainstrike/hooks', async () => {
-  const { useEventCallbackMock } = await useEventCallbackMockModulePromise;
+  const { useEventCallbackMock } = await import(
+    '../../__tests__/__mocks__/use-event-callback-mock'
+  );
   return {
     useEventCallback: useEventCallbackMock,
     useFileFilters: () => ({
