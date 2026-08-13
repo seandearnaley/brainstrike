@@ -337,6 +337,7 @@ export class WorkspaceRootRegistry {
       // storage I/O failure; corruption is quarantined rather than thrown)
       // can no longer leak an already-opened probe capability.
       const entries = await this.readStoredRootsOrQuarantine();
+      // eslint-disable-next-line react-doctor/server-sequential-independent-await -- sequencing is the leak fix: the probe may only be opened once the store read has succeeded, so the try/finally owns it from the instant it exists.
       const probe = await this.createSecureRoot(presentationPath);
       let probeAdopted = false;
       try {
@@ -542,6 +543,7 @@ export class WorkspaceRootRegistry {
       const storedSurvivors: StoredWorkspaceRoot[] = [];
 
       for (const entry of entries) {
+        // eslint-disable-next-line react-doctor/async-await-in-loop -- mounts are intentionally serial: each iteration's canonical-alias dedup and session-supersession bookkeeping depends on the mounts installed by prior iterations.
         const mountResult = await this.tryMountStoredEntry(entry);
         if (!mountResult.ok) {
           descriptors.push(descriptorFor(entry, 'unknown'));
@@ -806,6 +808,7 @@ export class WorkspaceRootRegistry {
         pathsEqual(candidate.canonicalPath, canonicalPath)
       ) {
         retainedRootIds.delete(candidate.rootId);
+        // eslint-disable-next-line react-doctor/async-await-in-loop -- retirement is intentionally serial: capability close must precede resource cleanup, and the mounted map is mutated while iterating a snapshot.
         await this.retireMount(candidate.rootId);
       }
     }
