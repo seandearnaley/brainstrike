@@ -970,12 +970,19 @@ provider-request boundary without mutating Mastra-owned message content.
   more; below threshold it writes nothing. Detection/commit is post-success
   optimization bookkeeping: any failure is logged and the already successful
   tool result remains successful. Malformed persisted records warn ONCE per
-  process, not once per scan (BST-1248): a bounded module-scope memo keyed by
-  `tool_call_id` skips both the re-parse and the re-warn on later scans —
-  before it, one bad record re-warned on every subsequent tool call in the
-  thread (139 duplicates from a single record in the 2026-08 audit). The first
-  encounter always warns; distinct records always warn independently
-  (`tool-projection-rewrite-repository.test.ts` pins both).
+  process, not once per scan (BST-1248): a module-scope memo keyed by
+  `tool_call_id` dedupes the WARN ONLY — every scan still re-parses, because
+  `read`/`grepKey` feed supersession detection in both directions and a
+  record that fails one consumer's stricter contract must keep acting as the
+  superseder of other, valid records (gating the parse silently lost their
+  reclamation; review-caught, pinned by the A/X/L geometry test). Before the
+  memo, one bad record re-warned on every subsequent tool call in the thread
+  (139 duplicates from a single record in the 2026-08 audit). The first
+  encounter always warns; distinct records warn independently; past a
+  distinct-record ceiling ONE summary warning
+  (`tool_projection_rewrite_malformed_history_suppressed`) announces
+  suppression instead of an eviction cliff
+  (`tool-projection-rewrite-repository.test.ts` pins all of it).
 - **Replay rewriting is surgical and transient.** The agent-side Mastra input
   processor receives the fully built AI-SDK prompt and replaces only matching
   `tool-result.output` values with text markers. It runs before provider-history
