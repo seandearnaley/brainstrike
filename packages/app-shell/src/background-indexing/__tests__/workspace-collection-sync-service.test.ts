@@ -2311,6 +2311,77 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
+  it('does not invalidate cached rows under a truncated directory during a full scan', async () => {
+    // A truncated listing means "absent from the tree" is NOT evidence of
+    // deletion: rows past the 10,000-entry cap must survive the missing-file
+    // reconciliation, while rows outside the truncated subtree still invalidate.
+    readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
+      options?.onDirectoryTruncated?.({ depth: 1, path: `${ROOT_PATH}/src` });
+      return [
+        {
+          handle: { path: `${ROOT_PATH}/${FILE_PATH}`, platform: 'electron' },
+          name: 'index.ts',
+          path: `${ROOT_PATH}/${FILE_PATH}`,
+          rootFolderId: ROOT_PATH,
+          type: 'file',
+        },
+      ];
+    });
+    const deps = createDeps({
+      fileContentProcessor: {
+        processFiles: vi.fn(async () => ({
+          [COMPOSITE_KEY]: { content: 'export const value = 1;', status: 'accessible' as const },
+        })),
+      },
+      fileRecordRepository: {
+        findById: vi.fn(async () => null),
+        findByIds: vi.fn(async () => []),
+        listManagedCacheEntryMetadata: vi.fn(async () => [
+          {
+            contentHash: 'hash-beyond-cap',
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-beyond-cap',
+            mtimeMs: 1000,
+            relativePath: 'src/beyond-cap.ts',
+            rootId: ROOT_PATH,
+            size: 42,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+          {
+            contentHash: 'hash-gone',
+            embeddingSetId: 'set-1',
+            fileRecordId: 'file-really-gone',
+            mtimeMs: 1000,
+            relativePath: 'docs/really-gone.ts',
+            rootId: ROOT_PATH,
+            size: 42,
+            updatedAt: new Date().toISOString(),
+          } satisfies ManagedCacheEntryMetadata,
+        ]),
+        update: vi.fn(async () => undefined),
+        updateStatMetadata: vi.fn(async () => undefined),
+      },
+    });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: createRootHandle(ROOT_PATH),
+    });
+
+    const invalidatedPaths = vi
+      .mocked(deps.invalidateManagedCacheEntriesByIdentity)
+      .mock.calls.flatMap(([callArgs]) =>
+        callArgs.targets.map((target) =>
+          'relativePath' in target ? target.relativePath : target.relativePathPrefix
+        )
+      );
+    expect(invalidatedPaths).toContain('docs/really-gone.ts');
+    expect(invalidatedPaths).not.toContain('src/beyond-cap.ts');
+  });
+
   it('propagates scan and content-processing progress through the status reporter', async () => {
     readFullTreeWithOptionsMock.mockImplementationOnce(async (_adapter, _handle, options) => {
       options?.updateProgress?.();

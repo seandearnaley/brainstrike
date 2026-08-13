@@ -86,6 +86,38 @@ const SLASH_CHAR_CODE = 47;
 const logger = createLogger('WorkspaceCollectionSyncScan');
 
 /**
+ * Convert the walker's absolute truncated-directory paths into root-relative
+ * prefixes ('' = the root itself) for absence-inference guards.
+ */
+function toTruncatedRelativePrefixes(
+  truncatedDirectoryPaths: ReadonlySet<string>,
+  rootPath: string
+): string[] {
+  const prefixes = new Set<string>();
+  for (const path of truncatedDirectoryPaths) {
+    if (toSlashPath(path.replace(/\\/g, '/')) === toSlashPath(rootPath)) {
+      prefixes.add('');
+      continue;
+    }
+    prefixes.add(
+      normalizeSelectionPathForFolder(path, rootPath, {
+        label: 'Workspace Index truncated directory path',
+      })
+    );
+  }
+  return [...prefixes];
+}
+
+function isUnderTruncatedDirectory(
+  relativePath: string,
+  truncatedDirectoryPrefixes: readonly string[]
+): boolean {
+  return truncatedDirectoryPrefixes.some(
+    (prefix) => prefix === '' || relativePath === prefix || relativePath.startsWith(`${prefix}/`)
+  );
+}
+
+/**
  * A truncated adapter listing means the scan only saw the first N entries of a
  * directory, so the Workspace Index silently misses everything past the cap
  * unless the partial coverage is reported. One warning per scan; the count
@@ -194,6 +226,7 @@ function collectFullScanMissingFileInvalidations(args: {
   fileNodes: readonly IFileNode[];
   rootId: string;
   rootPath: string;
+  truncatedDirectoryPrefixes: readonly string[];
 }): ManagedCacheInvalidationTarget[] {
   const scannedRelativePaths = new Set(
     args.fileNodes.map((node) =>
@@ -204,6 +237,12 @@ function collectFullScanMissingFileInvalidations(args: {
   );
   return args.existingEntries.flatMap((entry) => {
     if (entry.rootId !== args.rootId || scannedRelativePaths.has(entry.relativePath)) {
+      return [];
+    }
+    // A truncated listing makes "absent from the scanned tree" unreliable:
+    // rows past the cap are omitted, not deleted. Retain them (stale rows are
+    // recoverable; deleting live rows is not).
+    if (isUnderTruncatedDirectory(entry.relativePath, args.truncatedDirectoryPrefixes)) {
       return [];
     }
     return [
@@ -517,15 +556,46 @@ function dedupeInvalidationTargets(
   return [...byKey.values()];
 }
 
+function collectRemovedDirectoryEntryTargets(args: {
+  existingEntries: readonly ManagedCacheEntryMetadata[];
+  liveFilePaths: ReadonlySet<string>;
+  removalRelativePath: string;
+  rootId: string;
+  truncatedDirectoryPrefixes: readonly string[];
+}): ManagedCacheInvalidationTarget[] {
+  const targets: ManagedCacheInvalidationTarget[] = [];
+  for (const entry of args.existingEntries) {
+    if (
+      entry.rootId !== args.rootId ||
+      !isUnderRelativePrefix(entry.relativePath, args.removalRelativePath) ||
+      args.liveFilePaths.has(entry.relativePath) ||
+      isUnderTruncatedDirectory(entry.relativePath, args.truncatedDirectoryPrefixes)
+    ) {
+      continue;
+    }
+    targets.push({
+      expectedFileRecordId: entry.fileRecordId,
+      mode: 'exact',
+      relativePath: entry.relativePath,
+      rootId: args.rootId,
+    });
+  }
+  return targets;
+}
+
 function collectScopedRemovalInvalidations(args: {
   existingEntries: readonly ManagedCacheEntryMetadata[];
   liveFilePaths: ReadonlySet<string>;
   pendingRemovals: readonly ScopedPendingRemoval[];
   rootId: string;
+  truncatedDirectoryPrefixes: readonly string[];
 }): ManagedCacheInvalidationTarget[] {
   const targets: ManagedCacheInvalidationTarget[] = [];
   for (const removal of args.pendingRemovals) {
     if (removal.change.kind === 'file') {
+      // Watcher-authoritative exact removal: recreation in the same batch is
+      // re-resolved with a synthetic-node fallback, so truncation cannot hide
+      // a live recreated file from this branch.
       if (args.liveFilePaths.has(removal.relativePath)) {
         continue;
       }
@@ -534,6 +604,13 @@ function collectScopedRemovalInvalidations(args: {
         relativePath: removal.relativePath,
         rootId: args.rootId,
       });
+      continue;
+    }
+
+    // Directory removals infer deletions from the re-listed live set; a
+    // truncated listing anywhere over this subtree makes that set incomplete,
+    // so absence-based invalidation must not run against it.
+    if (isUnderTruncatedDirectory(removal.relativePath, args.truncatedDirectoryPrefixes)) {
       continue;
     }
 
@@ -553,21 +630,15 @@ function collectScopedRemovalInvalidations(args: {
       continue;
     }
 
-    for (const entry of args.existingEntries) {
-      if (
-        entry.rootId !== args.rootId ||
-        !isUnderRelativePrefix(entry.relativePath, removal.relativePath) ||
-        args.liveFilePaths.has(entry.relativePath)
-      ) {
-        continue;
-      }
-      targets.push({
-        expectedFileRecordId: entry.fileRecordId,
-        mode: 'exact',
-        relativePath: entry.relativePath,
+    targets.push(
+      ...collectRemovedDirectoryEntryTargets({
+        existingEntries: args.existingEntries,
+        liveFilePaths: args.liveFilePaths,
+        removalRelativePath: removal.relativePath,
         rootId: args.rootId,
-      });
-    }
+        truncatedDirectoryPrefixes: args.truncatedDirectoryPrefixes,
+      })
+    );
   }
   return dedupeInvalidationTargets(targets);
 }
@@ -756,6 +827,10 @@ async function collectPreparedFullChanges(args: {
         fileNodes,
         rootId,
         rootPath: args.context.activeRootPath,
+        truncatedDirectoryPrefixes: toTruncatedRelativePrefixes(
+          truncatedDirectoryPaths,
+          args.context.activeRootPath
+        ),
       }),
       prepared: {
         ...prepared,
@@ -850,6 +925,10 @@ async function collectPreparedScopedChanges(args: {
         liveFilePaths: new Set(accumulator.changedFileNodesByPath.keys()),
         pendingRemovals: accumulator.pendingRemovals,
         rootId: args.context.dbRootId ?? '',
+        truncatedDirectoryPrefixes: toTruncatedRelativePrefixes(
+          truncatedDirectoryPaths,
+          args.context.rootPath
+        ),
       }),
       prepared: {
         ...prepared,
@@ -880,7 +959,10 @@ export async function collectPreparedWorkspaceSyncChanges(args: {
 }
 
 export const __workspaceCollectionSyncScanInternalsForTests = {
+  collectScopedRemovalInvalidations,
   countRelativePathSegments,
   getPathName,
+  isUnderTruncatedDirectory,
   iterRelativePathSegments,
+  toTruncatedRelativePrefixes,
 };

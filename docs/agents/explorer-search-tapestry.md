@@ -363,9 +363,23 @@ there rather than hiding entries after the adapter has already read them.
   `WorkspaceCollectionSyncScanSummary`); the content-batch phase always
   reports an empty list because only the traversal can observe truncation.
   The debug harness returns `truncatedDirectoryPaths` so coverage audits treat
-  `expectedFileCount` as a floor, not an exact total. Paired tests:
+  `expectedFileCount` as a floor, not an exact total.
+  **Truncation also disarms absence inference — retain, never delete, on
+  partial knowledge.** "Absent from a truncated listing" is not evidence of
+  deletion: full-scan missing-file reconciliation skips cached rows under any
+  truncated directory (root truncation protects every row), and the scoped
+  directory-removal reconciliation neither prefix-wipes a removed directory
+  under a truncated prefix nor exact-invalidates unobserved entries beneath
+  one (watcher-authoritative exact FILE removals still invalidate). The idle
+  coverage audit returns a `truncated-root` outcome — surfaced like
+  `unresolved-root`: warning + visible `waiting` status, never
+  `markAuditVerified`, never a recovery sync — because a fully-indexed partial
+  prefix proves nothing. Paired tests:
   `parallel-directory-walker.test.ts` (report + fail-loud),
-  `workspace-collection-sync-service.test.ts` (full + scoped scan summaries),
+  `workspace-collection-sync-service.test.ts` (full + scoped scan summaries;
+  truncation-protected invalidation), `workspace-collection-sync-scan.test.ts`
+  (scoped removal guard), `workspace-collection-sync-provider.test.tsx`
+  (truncated audit never verifies complete),
   `workspace-collection-sync-status-helpers.test.ts` (status row), and
   `workspace-index-debug-harness.test.ts`.
 - Workspace include/exclude filters control visible-tree filtering and
