@@ -118,7 +118,7 @@ describe('WorkspaceRootRegistry secure filesystem integration', () => {
         platform: 'electron',
         rootId: descriptor.rootId,
       })
-    ).rejects.toThrow('not accessible');
+    ).rejects.toThrow('File is a symbolic link. Links are not followed inside workspace roots.');
     await expect(
       registry.readFile({
         kind: 'file',
