@@ -2115,10 +2115,10 @@ transport-level bridge failure for one root renders THAT row `Unavailable` (a
 structured `error` review), never a stale/empty "no hooks" lie.
 
 **Trust is keyed by the DB `roots.id`, NOT the adapter rootId (SECURITY).** The
-adapter uuid is minted afresh on every `fs:addRoot` and dropped on `fs:removeRoot`,
-so a remove→re-add of the SAME path yields a NEW adapter id while the DB `roots`
-row persists and is path-matched by `reconcileRoots` — the two ids DIVERGE on that
-ordinary flow. The server keys trust by the DB id (its roots come from the DB
+adapter rootId is the durable identity of a persisted mount and is reused when
+the same canonical folder is picked again, while the DB id identifies the
+retained indexed row. They are separate identity domains and MUST NOT be assumed
+equal. The server keys trust by the DB id (its roots come from the DB
 `roots` table), so the panel MUST too or revoke/approve target a dead id while the
 server keeps trusting a live grant (the fail-OPEN #1570 closed). Mechanism:
 - The review IPC runs in MAIN (DB access): it CONTAINMENT-checks the reviewed path
@@ -2131,9 +2131,10 @@ server keeps trusting a live grant (the fail-OPEN #1570 closed). Mechanism:
   attests NOTHING until resolved / if the resolver is absent (fail closed). A
   disconnected root's grant is therefore never presented to the server → its hooks
   fail closed. The disconnect-severs property is additionally SERVER-ENFORCED:
-  `fs:removeRoot` transitions the DB row to `status='disconnected'`
-  (`markRootDisconnectedByPath`, ordered BEFORE the rootsList write so a DB
-  failure rejects the disconnect instead of half-applying it), and every
+  `fs:removeRoot` asks the main-process `WorkspaceRootRegistry` to remove the
+  mount and converge the DB to the complete remaining mounted-path set. The
+  persisted registry write happens first, but a DB failure rolls it back before
+  the IPC rejects; the capability and renderer projection remain mounted. Every
   server-side consumer of `loadWorkspaceRootsFromDatabase` (workspace tools,
   hooks review containment, context-files scan, user /commands, checkpoint
   revert) serves only `status='live'` rows. `reconcileRoots` (app-shell)
@@ -2143,56 +2144,24 @@ server keeps trusting a live grant (the fail-OPEN #1570 closed). Mechanism:
   attestation scoping above remains as defense-in-depth: a renderer that skips
   scoping can at most re-run byte-identical already-approved hooks, never new
   content (same-process trust model + the server's authoritative disk re-hash).
-- CONVERGENCE (do not relitigate): because `reconcileRoots` only ever promotes
-  `disconnected → live`, `fs:removeRoot` was for a long time the SOLE demotion —
-  so every path that dropped a root without that IPC succeeding (boot-time
-  rootsList prune of a vanished path, the best-effort `forgetRootInAdapter`
-  swallowing an IPC failure, a 0-row path mismatch, storage rewritten out of
-  band) leaked a permanently `live` row. The Explorer showed one folder while
-  the server addressed three, `resolveWorkspaceRoot` threw "Multiple folders are
-  open", and NOTHING in the UI could clear it — `fs:removeRoot` early-returns for
-  a rootId absent from rootsList. `fs:restoreRoots` therefore closes the loop:
-  after pruning, it calls `markRootsDisconnectedExcept(db, mountedPaths)`, which
-  demotes every `live` PATH-BACKED row outside the just-restored mount set.
-  Rulings: (a) an EMPTY mount set is meaningful, not a no-op guard — zero folders
-  mounted means zero roots may be live, so the zero-entry case must NOT early-
-  return; (b) only path-backed rows are demoted — a null/empty-path (web FSA) row
-  is not comparable to a desktop mount set, so its state is not determinable and
-  is left alone rather than guessed at, the same boundary
-  `loadWorkspaceRootsFromDatabase` draws; (c) compare on the RESOLVED path, which
-  is what addRoot/reconcileRoots store, not the raw rootsList entry; (d) unlike
-  the `fs:removeRoot` transition this is deliberately NOT fail-closed — it runs on
-  the boot path, where rejecting the restore over a briefly unavailable DB would
-  leave the app with no roots at all, strictly worse than a stale row. The failure
-  is logged at ERROR (never silent) and the next boot retries; `fs:removeRoot`
-  remains the fail-closed primary.
-- The mount set is read at CONVERGENCE time, not at handler entry (do not "tidy"
-  this into reusing the opening `readRootsList` result). Boot is not
-  user-gesture-driven, so unlike the handlers the `fs:addRoot` no-mutex note
-  covers, an add CAN interleave at one of `restoreRoots`' per-entry awaits.
-  Ordering is what makes the late read sufficient: `fs:addRoot` writes its
-  rootsList entry BEFORE the IPC returns, and the renderer's `reconcileRoots`
-  inserts the DB row only after it resolves — so a `live` row can only exist for
-  a path already in the list. Re-reading immediately before the UPDATE therefore
-  yields a strict SUPERSET of every path that could own a live row.
-  Over-inclusion is the SAFE direction (a genuinely stale row just survives to
-  the next boot); under-inclusion would silently demote a just-mounted root,
-  which is the failure mode this whole mechanism exists to prevent.
-- A DEGRADED rootsList read is "mount set unknown", never "authoritative zero".
-  `readRootsList` coerces an unparseable / wrong-shape / partially-invalid store
-  to `[]`; that is survivable for the restore itself (it mounts nothing) but must
-  NOT reach convergence, where an empty mount set demotes every live root — a
-  corrupt storage value would silently disconnect the whole workspace.
-  `readRootsListResult` therefore carries a `malformed` flag and convergence
-  skips on it, logging at ERROR. An ABSENT or genuinely empty list is NOT
-  malformed and MUST still converge, or the original leak returns.
-- Convergence raises the stakes on PATH MATCHING. It hinges on the DB's stored
-  `path` string-equalling the descriptor's resolved path — an exact, case-
-  sensitive comparison with no normalization. The same assumption already governs
-  `reconcileRoots`' `dbByPath` matching, so this is not new, but a future drift
-  (trailing slash, symlink or case normalization applied on only one side) would
-  now actively DEMOTE a genuinely-mounted root rather than merely miss a match.
-  Any change to path normalization must update both sides together.
+- CONVERGENCE (do not relitigate): `WorkspaceRootRegistry` serializes add,
+  restore, preference, and disconnect transitions. `rootsList` is its persisted
+  mount inventory; only successfully mounted, persisted presentation paths are
+  supplied to `markRootsDisconnectedExcept`. An EMPTY mounted set is meaningful
+  and demotes every comparable path-backed row. Web FSA rows remain outside this
+  desktop comparison.
+- Restore never guesses. Malformed `rootsList` JSON or shape THROWS before DB
+  convergence. A missing or transiently unmountable folder remains persisted,
+  is returned as `permissionState:'unknown'`, and is excluded from the mounted
+  DB authorization set until a later restore succeeds. Boot-time DB convergence
+  remains allow-on-fault with an ERROR log so a transient DB failure does not
+  erase the Explorer restore; explicit disconnect remains fail-closed with
+  storage rollback.
+- Renderer state is a projection. `removeRootDirectory` awaits the authoritative
+  IPC transition and changes no renderer/store state when it rejects. The old
+  best-effort compensation loop and independent `lastFolderPath` root writer no
+  longer exist. `lastFolderPath` is only a preference for an already-persisted,
+  mounted root.
 - The store bumped to v2: pre-v2 adapter-keyed approvals are DROPPED at migration
   (unremappable without DB access → re-approval is the safe direction; mirrors the
   permission-policy v2 security bump). Factory reset clears the store unchanged.

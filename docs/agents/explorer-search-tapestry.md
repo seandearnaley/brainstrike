@@ -264,6 +264,33 @@ When changing this flow, update this section and the related tests.
 
 ## WORKSPACE INDEX TRAVERSAL
 
+### Desktop reads are mounted-root capabilities
+
+Electron Explorer and Workspace Index reads are authorized by the single
+main-process `WorkspaceRootRegistry`; renderer handles are stamped projections,
+not authority. A handle read must carry its durable `rootId`. The legacy
+absolute-path read is accepted only when contained by a currently mounted root
+(longest containing root wins); there is no raw-adapter fallback.
+
+Each mounted real root owns one lazy-loaded native `SecureRoot` pinned to the
+canonical directory. Target realpaths are checked with `allowMissing:false`
+for containment only; the native operation receives the original lexical
+relative path so even an in-root symlink is not rewritten to its target.
+Enumeration and bounded reads open each component relative to the pinned
+descriptor/handle with no-follow semantics. Parent,
+leaf, chained-link, reparse-point, and mounted-root replacement races therefore
+cannot escape. Native async work is serialized per root through shared
+capability state: no Electron-main blocking I/O and no duplicated directory
+cursor. Different roots can still run concurrently.
+
+Symlink/reparse entries remain explicit file-shaped Explorer rows so indexing
+attempts produce the existing visible inaccessible-file result; native reads
+never follow them. Listings fail visibly above 10,000 inspected entries, and
+file bytes are bounded before crossing into JavaScript. Paired coverage:
+`workspace-root-registry{,.integration}.test.ts`,
+`file-system-ipc.test.ts`, and
+`packages/secure-fs-native/test/secure-root.test.cjs`.
+
 The visible Explorer loads directories lazily. Recursive Workspace Index scans
 use `createBackgroundIndexingEntryPolicy` from
 `packages/utils/src/background-indexing-policy.ts`; keep traversal exclusions

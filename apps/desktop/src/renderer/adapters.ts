@@ -184,9 +184,9 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   }
 
   /**
-   * Disconnect a root by RootId. Disconnect ≠ delete — only the persisted
-   * rootsList entry (and a matching lastFolderPath) is forgotten; DB rows are
-   * deliberately KEPT so re-adding the same folder resumes without re-indexing.
+   * Disconnect a root by RootId. Main owns the authoritative transition:
+   * persistence and DB live-status converge together, while indexed rows remain
+   * retained so re-adding the folder resumes without re-indexing.
    */
   async removeRoot(rootId: string): Promise<void> {
     return requireElectronAPI().fileSystem.removeRoot(rootId);
@@ -201,8 +201,9 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   }
 
   /**
-   * Read a file directly by its absolute path.
-   * BST-307: Enables loading persisted file tabs before the file tree is available.
+   * Read by absolute path within a currently mounted root. This enables loading
+   * persisted tabs before their tree nodes exist without granting rootless disk
+   * access.
    */
   async readFileByPath(absolutePath: string): Promise<string> {
     return requireElectronAPI().fileSystem.readFileByPath(absolutePath);

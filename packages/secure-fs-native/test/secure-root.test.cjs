@@ -4,8 +4,10 @@ const assert = require('node:assert/strict');
 const {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } = require('node:fs');
@@ -31,18 +33,121 @@ function fixture() {
   return { commands, workspace };
 }
 
-test('lists and reads regular files beneath a pinned root', () => {
+test('exposes a constructible named export through dynamic import', async () => {
+  const imported = await import('../index.cjs');
+  assert.equal(imported.SecureRoot, SecureRoot);
+});
+
+test('lists metadata and reads regular files asynchronously beneath a pinned root', async () => {
   const { workspace } = fixture();
+  const filePath = path.join(workspace, '.brainstrike', 'commands', 'review.md');
+  const expected = statSync(filePath);
   const root = new SecureRoot(workspace);
   try {
-    assert.deepEqual(root.listDir('.brainstrike/commands', 10), {
-      entries: [{ isDirectory: false, isFile: true, name: 'review.md' }],
+    assert.equal(root.canonicalPath, realpathSync.native(workspace));
+    const pendingList = root.listDirAsync('.brainstrike/commands', 10);
+    assert.equal(typeof pendingList.then, 'function');
+    const listing = await pendingList;
+    assert.deepEqual(listing, {
+      entries: [
+        {
+          isDirectory: false,
+          isFile: true,
+          isSymbolicLink: false,
+          lastModified: expected.mtimeMs,
+          name: 'review.md',
+          size: expected.size,
+        },
+      ],
       inspected: 1,
       truncated: false,
     });
-    const result = root.readFile('.brainstrike/commands/review.md', 1024);
+    const pendingRead = root.readFileAsync('.brainstrike/commands/review.md', 1024);
+    assert.equal(typeof pendingRead.then, 'function');
+    const result = await pendingRead;
     assert.equal(result.status, 'ok');
     assert.equal(result.content.toString('utf8'), 'Inside workspace');
+  } finally {
+    root.close();
+  }
+});
+
+test('lists symlinks explicitly but never follows them', async () => {
+  const { commands, workspace } = fixture();
+  const outside = path.join(tempRoot, 'outside.md');
+  writeFileSync(outside, 'Outside workspace');
+  symlinkSync('review.md', path.join(commands, 'inside-link.md'), 'file');
+  symlinkSync(outside, path.join(commands, 'outside-link.md'), 'file');
+  symlinkSync('outside-link.md', path.join(commands, 'chained-link.md'), 'file');
+  symlinkSync('missing.md', path.join(commands, 'dangling-link.md'), 'file');
+  const root = new SecureRoot(workspace);
+  try {
+    const listing = await root.listDirAsync('.brainstrike/commands', 10);
+    for (const name of [
+      'inside-link.md',
+      'outside-link.md',
+      'chained-link.md',
+      'dangling-link.md',
+    ]) {
+      assert.deepEqual(
+        listing.entries.find((entry) => entry.name === name),
+        {
+          isDirectory: false,
+          isFile: false,
+          isSymbolicLink: true,
+          name,
+        }
+      );
+      assert.deepEqual(await root.readFileAsync(`.brainstrike/commands/${name}`, 1024), {
+        status: 'unreadable',
+      });
+    }
+  } finally {
+    root.close();
+  }
+});
+
+test('repeated and concurrent root listings each enumerate the complete directory', async () => {
+  const { workspace } = fixture();
+  const generatedNames = Array.from(
+    { length: 600 },
+    (_, index) => `entry-${String(index).padStart(4, '0')}-${'x'.repeat(80)}.txt`
+  );
+  for (const name of generatedNames) {
+    writeFileSync(path.join(workspace, name), name);
+  }
+  const root = new SecureRoot(workspace);
+  try {
+    const [first, second] = await Promise.all([
+      root.listDirAsync('.', 1000),
+      root.listDirAsync('.', 1000),
+    ]);
+    const expectedNames = ['.brainstrike', ...generatedNames].sort();
+    assert.deepEqual(first.entries.map((entry) => entry.name).sort(), expectedNames);
+    assert.deepEqual(second.entries.map((entry) => entry.name).sort(), expectedNames);
+    assert.deepEqual(
+      root
+        .listDir('.', 1000)
+        .entries.map((entry) => entry.name)
+        .sort(),
+      expectedNames
+    );
+  } finally {
+    root.close();
+  }
+});
+
+test('reports a missing leaf distinctly from an unreadable path', async () => {
+  const { commands, workspace } = fixture();
+  rmSync(path.join(commands, 'review.md'));
+  const root = new SecureRoot(workspace);
+  try {
+    assert.deepEqual(root.readFile('.brainstrike/commands/review.md', 1024), {
+      status: 'not-found',
+    });
+    assert.deepEqual(await root.readFileAsync('.brainstrike/commands/review.md', 1024), {
+      status: 'not-found',
+    });
   } finally {
     root.close();
   }
@@ -140,6 +245,23 @@ test('rejects traversal and oversized content', () => {
     assert.equal(root.listDir('../', 10), null);
     assert.deepEqual(root.readFile('.brainstrike/commands/review.md', 4), {
       status: 'oversized',
+    });
+  } finally {
+    root.close();
+  }
+});
+
+test('rejects non-finite and fractional bounds without entering native I/O', async () => {
+  const { workspace } = fixture();
+  const root = new SecureRoot(workspace);
+  try {
+    assert.equal(root.listDir('.', Number.NaN), null);
+    assert.equal(await root.listDirAsync('.', Number.POSITIVE_INFINITY), null);
+    assert.deepEqual(root.readFile('.brainstrike/commands/review.md', 1.5), {
+      status: 'unreadable',
+    });
+    assert.deepEqual(await root.readFileAsync('.brainstrike/commands/review.md', Number.NaN), {
+      status: 'unreadable',
     });
   } finally {
     root.close();
