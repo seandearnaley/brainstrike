@@ -179,8 +179,13 @@ export class RipgrepRunError extends Error {
 function buildRipgrepArgs(args: {
   prefilterLiteral: string;
   caseSensitive: boolean;
-  /** The normal live pass prunes it; the excluded-path probe deliberately searches it. */
-  excludeNodeModules?: boolean;
+  /**
+   * Apply the balanced-policy directory prune (default true; ~27 policy
+   * globs plus the `.claude/worktrees` prefix). The excluded-path probe
+   * passes false because its PURPOSE is to search policy-excluded trees
+   * (only `.git` stays pruned there).
+   */
+  applyPolicyPrune?: boolean;
   filesOnly?: boolean;
 }): string[] {
   const rgArgs = [
@@ -228,7 +233,7 @@ function buildRipgrepArgs(args: {
   // files (parity with the JS walk). The excluded-path probe's PURPOSE is to
   // find matches inside policy-excluded paths, so it keeps everything except
   // `.git` (hard-excluded in resolveCandidate) searchable.
-  if (args.excludeNodeModules ?? true) {
+  if (args.applyPolicyPrune ?? true) {
     for (const segment of BALANCED_UNCONDITIONAL_EXCLUDED_DIRECTORY_SEGMENTS) {
       rgArgs.push(`--glob=!**/${segment}/`);
     }
@@ -276,7 +281,7 @@ export function runRipgrep(args: {
   canonicalRootPath: string;
   prefilterLiteral: string;
   caseSensitive: boolean;
-  excludeNodeModules?: boolean;
+  applyPolicyPrune?: boolean;
   filesOnly?: boolean;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -306,15 +311,29 @@ export function runRipgrep(args: {
         // spawned command including the search pattern) plus the non-sensitive
         // failure metadata the warn sites log — the audit could not distinguish
         // timeout from crash because everything was redacted.
-        const buildError = (reason: string): RipgrepRunError =>
-          new RipgrepRunError(reason, {
-            elapsedMs: Date.now() - startedAt,
+        const buildError = (reason: string): RipgrepRunError => {
+          const elapsedMs = Date.now() - startedAt;
+          // `timedOut` is a ROUTING decision (the probe silences it to debug),
+          // so it must mean "our execFile timeout fired", not merely "killed":
+          // cross-check the kill signal (execFile's timeout sends SIGTERM) and
+          // the elapsed wall-clock against the budget, so an external
+          // SIGKILL/SIGTERM (OOM killer, app shutdown) stays a visible
+          // failure instead of vanishing as an expected bounded outcome.
+          const timedOut =
+            execError?.killed === true &&
+            !truncated &&
+            args.signal?.aborted !== true &&
+            execError?.signal === 'SIGTERM' &&
+            elapsedMs >= timeoutMs;
+          return new RipgrepRunError(reason, {
+            elapsedMs,
             errorCode: typeof execError?.code === 'string' ? execError.code : null,
             exitCode: typeof execError?.code === 'number' ? execError.code : null,
             killed: execError?.killed === true,
             signal: typeof execError?.signal === 'string' ? execError.signal : null,
-            timedOut: execError?.killed === true && !truncated && args.signal?.aborted !== true,
+            timedOut,
           });
+        };
         if (args.signal?.aborted) {
           reject(buildError('ripgrep aborted'));
           return;

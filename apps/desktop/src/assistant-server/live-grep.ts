@@ -317,20 +317,33 @@ export interface ExcludedPathProbeOptions {
 interface ExcludedPathProbeRootResult {
   examplePaths?: readonly string[];
   matchCount: number;
+  /**
+   * BST-1246 review: the probe's bounded rg run hit its time budget for this
+   * root, so a zero count is "did not finish", NOT "no matches". Surfaced to
+   * the zero-match note builder — a silent zero here would be exactly the
+   * silent-degradation pattern this ticket removes, relocated to the probe.
+   */
+  timedOut?: boolean;
 }
 
 function mergeExcludedPathProbeResults(
   results: readonly ExcludedPathProbeRootResult[]
 ): ExcludedPathProbeRootResult {
   let matchCount = 0;
+  let timedOut = false;
   const examplePaths: string[] = [];
   for (const result of results) {
     matchCount += result.matchCount;
+    timedOut = timedOut || result.timedOut === true;
     if (result.examplePaths && examplePaths.length < 2) {
       examplePaths.push(...result.examplePaths.slice(0, 2 - examplePaths.length));
     }
   }
-  return { matchCount, ...(examplePaths.length === 0 ? {} : { examplePaths }) };
+  return {
+    matchCount,
+    ...(examplePaths.length === 0 ? {} : { examplePaths }),
+    ...(timedOut ? { timedOut } : {}),
+  };
 }
 
 function isExcludedPathProbeCandidate(args: {
@@ -422,9 +435,9 @@ async function probeExcludedRoot(args: {
   let candidatePaths: Set<string>;
   try {
     const run = await runRipgrep({
+      applyPolicyPrune: false,
       canonicalRootPath,
       caseSensitive: args.caseSensitive,
-      excludeNodeModules: false,
       filesOnly: true,
       prefilterLiteral: args.prefilterLiteral,
       ripgrepPath: args.ripgrepPath,
@@ -449,13 +462,13 @@ async function probeExcludedRoot(args: {
     const metadata = error instanceof RipgrepRunError ? error.metadata : undefined;
     if (metadata?.timedOut) {
       logger.debug(
-        'excluded-path grep probe: ripgrep hit its bounded time budget; treating as a miss',
+        'excluded-path grep probe: ripgrep hit its bounded time budget; reporting as unfinished',
         {
           ripgrep: metadata,
           rootId: args.root.rootId,
         }
       );
-      return empty;
+      return { matchCount: 0, timedOut: true };
     }
     logger.warn('excluded-path grep probe: ripgrep failed for a root', {
       error: redactErrorForLog(error),
@@ -516,7 +529,7 @@ export async function probeExcludedPathMatches(
   options: ExcludedPathProbeOptions,
   matcher: LineMatcher,
   abortSignal?: AbortSignal
-): Promise<{ examplePaths?: readonly string[]; matchCount: number }> {
+): Promise<{ examplePaths?: readonly string[]; matchCount: number; timedOut?: boolean }> {
   const empty = { matchCount: 0 };
   if (options.roots.length === 0) {
     return empty;

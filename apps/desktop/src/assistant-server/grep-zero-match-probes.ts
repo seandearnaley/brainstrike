@@ -8,6 +8,8 @@ export const ZERO_MATCH_PROBE_TIMEOUT_MS = 2000;
 export interface ZeroMatchProbeCount {
   examplePaths?: readonly string[];
   matchCount: number;
+  /** The probe's bounded run hit its time budget: a zero count is "did not finish", not "no matches" (BST-1246). */
+  timedOut?: boolean;
 }
 
 export interface ZeroMatchProbeDeps {
@@ -41,7 +43,10 @@ async function runProbeSafely(
     ]);
   } catch (error) {
     logger.warn(`zero-match ${probe} probe failed; treating as a miss`, { error });
-    return { matchCount: 0 };
+    // An errored/timed-out probe DID NOT FINISH — flag it so consumers can
+    // distinguish "no matches" from "unknown" (only the excluded-path note
+    // renders it today).
+    return { matchCount: 0, timedOut: true };
   } finally {
     if (timeout !== undefined) {
       clearTimeout(timeout);
@@ -76,6 +81,14 @@ export async function resolveZeroMatchProbeNote(
     const examples = result.examplePaths?.slice(0, 2);
     const exampleNote = examples && examples.length > 0 ? ` (e.g. ${examples.join(', ')})` : '';
     return `0 matches in indexed/visible files, but ${result.matchCount} matches in excluded or ignored paths${exampleNote} — grepSearch cannot reach these; call globWorkspace with includeIgnored: true to list them, then readWorkspaceFile to inspect.`;
+  }
+  if (result.timedOut) {
+    // BST-1246 review: the excluded-path probe searches UNPRUNED trees
+    // (node_modules included, by design) under a short budget, so on large
+    // repos it can time out routinely. A silent zero here would be the same
+    // silent-degradation pattern this ticket removed from the live pass —
+    // say "unfinished", never "no matches".
+    return 'the excluded-path probe did not finish within its time budget, so matches may still exist in excluded or ignored paths — call globWorkspace with includeIgnored: true to check.';
   }
   return;
 }
