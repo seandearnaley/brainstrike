@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-
 import { classifyCatalogDelta } from '../agent-routines/model-catalog/classify-catalog-delta.mjs';
 import {
   assertLabelledReportsPromotionReady,
@@ -21,6 +20,8 @@ import {
   validateSourceManifest,
 } from '../agent-routines/model-catalog/source-manifest.mjs';
 import { fetchSource } from '../agent-routines/model-catalog/sources/index.mjs';
+import { runModelCatalogMain } from '../agent-routines/model-catalog/update-model-catalog.mjs';
+import { createRoutineResultWriter } from '../agent-routines/shared/routine-result.mjs';
 import { canonicalReportId } from '../agent-routines/shared/shadow-report.mjs';
 
 const fixture = JSON.parse(
@@ -852,6 +853,33 @@ test('safe-addition seam requires eligibility and returns evidence only', async 
       }),
     /eligible/u
   );
+});
+
+test('model catalog main emits one blocked result when diagnostic writes fail', async () => {
+  const baseSha = 'a'.repeat(40);
+  const lines = [];
+  const terminalWriter = createRoutineResultWriter((line) => lines.push(line));
+
+  const result = await runModelCatalogMain({
+    freezeMain: async () => baseSha,
+    readHead: async () => baseSha,
+    runReport: async () => {
+      throw new Error('primary catalog failure');
+    },
+    terminalWriter,
+    writeDiagnostic: async () => {
+      throw new Error('diagnostic failed at /private/secret-path');
+    },
+  });
+
+  assert.equal(lines.length, 1);
+  assert.equal(result.status, 'blocked');
+  assert.deepEqual(result.reasons, [
+    'Error: primary catalog failure',
+    'diagnostic report write failed',
+  ]);
+  assert.deepEqual(JSON.parse(lines[0]), result);
+  assert.doesNotMatch(lines[0], /secret-path/u);
 });
 
 test('workflow is weekday report-only with no mutation reachability', async () => {

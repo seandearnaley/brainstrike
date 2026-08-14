@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-
+import { createRoutineResultWriter } from '../agent-routines/shared/routine-result.mjs';
 import {
   BOUNDARY_CASE_COUNTS,
   BOUNDARY_FUZZ_SEED,
@@ -11,6 +11,7 @@ import {
   classifyBoundaryRun,
   createDeterministicCaseIds,
   runBoundaryCrashFuzzer,
+  runBoundaryCrashFuzzerMain,
 } from '../deterministic-boundary-crash-fuzzer.mjs';
 
 describe('deterministic boundary crash fuzzer harness', () => {
@@ -153,6 +154,33 @@ describe('deterministic boundary crash fuzzer harness', () => {
     } finally {
       await rm(reportDir, { force: true, recursive: true });
     }
+  });
+
+  it('emits one blocked result when diagnostic writes fail', async () => {
+    const baseSha = 'b'.repeat(40);
+    const lines = [];
+    const terminalWriter = createRoutineResultWriter((line) => lines.push(line));
+
+    const result = await runBoundaryCrashFuzzerMain({
+      freezeMain: async () => baseSha,
+      readHead: async () => baseSha,
+      runFuzzer: async () => {
+        throw new Error('primary boundary failure');
+      },
+      terminalWriter,
+      writeDiagnostic: async () => {
+        throw new Error('diagnostic failed at /private/secret-path');
+      },
+    });
+
+    assert.equal(lines.length, 1);
+    assert.equal(result.status, 'blocked');
+    assert.deepEqual(result.reasons, [
+      'Error: primary boundary failure',
+      'diagnostic report write failed',
+    ]);
+    assert.deepEqual(JSON.parse(lines[0]), result);
+    assert.doesNotMatch(lines[0], /secret-path/u);
   });
 
   it('rejects invalid immutable run identity before launching Vitest', async () => {

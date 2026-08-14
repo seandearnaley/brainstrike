@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createBlockedRoutineResult } from '../shared/blocked-result.mjs';
 import { freezeCurrentOriginMain, readCurrentHeadSha } from '../shared/current-main.mjs';
 import { createRoutineResultWriter } from '../shared/routine-result.mjs';
 import { fingerprint } from '../shared/shadow-report.mjs';
@@ -71,19 +72,39 @@ export async function runReport({
     ),
   };
 }
-if (import.meta.url === new URL(process.argv[1], 'file:').href) {
-  const terminalWriter = createRoutineResultWriter();
+async function writeBlockedDiagnostic(reason, baseSha) {
+  const directory = new URL('reports/model-catalog/', root);
+  await mkdir(directory, { recursive: true });
+  await writeFile(
+    new URL('model-catalog-report.json', directory),
+    `${JSON.stringify({ baseCommit: baseSha, error: reason, mode: 'report', status: 'blocked' }, null, 2)}\n`
+  );
+  await writeFile(
+    new URL('model-catalog-report.md', directory),
+    `# Model Catalog Shadow Report\n\nBlocked: ${reason}\n`
+  );
+}
+
+export async function runModelCatalogMain({
+  freezeMain = freezeCurrentOriginMain,
+  mode = '--mode report',
+  readHead = readCurrentHeadSha,
+  runReport: executeReport = runReport,
+  setExitCode = () => {},
+  terminalWriter = createRoutineResultWriter(),
+  writeDiagnostic = writeBlockedDiagnostic,
+} = {}) {
   let baseSha = /^[0-9a-f]{40}$/u.test(process.env.GITHUB_SHA ?? '')
     ? process.env.GITHUB_SHA
     : '0'.repeat(40);
   let terminalResult;
   try {
-    if (process.argv.slice(2).join(' ') !== '--mode report') {
+    if (mode !== '--mode report') {
       throw new Error('scheduled entrypoint supports only --mode report');
     }
-    baseSha = await readCurrentHeadSha();
-    baseSha = await freezeCurrentOriginMain();
-    const result = await runReport({ baseSha });
+    baseSha = await readHead();
+    baseSha = await freezeMain();
+    const result = await executeReport({ baseSha });
     const findingCount =
       result.report.summary.conflict +
       result.report.summary.fieldDrift +
@@ -112,27 +133,26 @@ if (import.meta.url === new URL(process.argv[1], 'file:').href) {
       };
     }
   } catch (error) {
-    const reason = String(error);
-    const directory = new URL('reports/model-catalog/', root);
-    await mkdir(directory, { recursive: true });
-    await writeFile(
-      new URL('model-catalog-report.json', directory),
-      `${JSON.stringify({ baseCommit: baseSha, error: reason, mode: 'report', status: 'blocked' }, null, 2)}\n`
-    );
-    await writeFile(
-      new URL('model-catalog-report.md', directory),
-      `# Model Catalog Shadow Report\n\nBlocked: ${reason}\n`
-    );
-    terminalResult = {
+    terminalResult = await createBlockedRoutineResult({
       baseSha,
-      fingerprint: fingerprint(['model-catalog-updater', baseSha, 'blocked', reason]),
-      reasons: [reason],
-      status: 'blocked',
-    };
+      error,
+      routineId: 'model-catalog-updater',
+      writeDiagnostic,
+    });
   }
   terminalWriter.write(terminalResult);
   terminalWriter.assertWritten();
   if (terminalResult.status === 'blocked') {
-    process.exitCode = 1;
+    setExitCode(1);
   }
+  return terminalResult;
+}
+
+if (import.meta.url === new URL(process.argv[1], 'file:').href) {
+  await runModelCatalogMain({
+    mode: process.argv.slice(2).join(' '),
+    setExitCode: (code) => {
+      process.exitCode = code;
+    },
+  });
 }

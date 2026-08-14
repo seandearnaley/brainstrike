@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createBlockedRoutineResult } from './agent-routines/shared/blocked-result.mjs';
 import { runBoundedProcess } from './agent-routines/shared/bounded-process.mjs';
 import {
   freezeCurrentOriginMain,
@@ -224,11 +225,12 @@ export async function runMutationGapHardener(options = {}) {
   const reportDir =
     options.reportDir ?? path.join(repoRoot, 'reports/shadow/mutation-gap-hardener');
   await mkdir(reportDir, { recursive: true });
-  const processResult = await spawn({ repoRoot, timeoutMs });
   const rawReportPath = path.join(
     repoRoot,
     'packages/file-system/reports/shadow/mutation-gap.json'
   );
+  await rm(rawReportPath, { force: true });
+  const processResult = await spawn({ repoRoot, timeoutMs });
   let rawReport = null;
   try {
     rawReport = JSON.parse(await readFile(rawReportPath, 'utf8'));
@@ -241,19 +243,34 @@ export async function runMutationGapHardener(options = {}) {
   return normalized;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
-  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const terminalWriter = createRoutineResultWriter();
+async function writeBlockedDiagnostic(reason, baseSha, reportDir) {
+  await mkdir(reportDir, { recursive: true });
+  await writeFile(
+    path.join(reportDir, 'report.json'),
+    `${JSON.stringify({ baseSha, classification: 'harness-error', error: reason, routineId: 'mutation-gap-hardener' }, null, 2)}\n`
+  );
+}
+
+export async function runMutationGapHardenerMain({
+  freezeMain = freezeCurrentOriginMain,
+  readHead = readCurrentHeadSha,
+  repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
+  runHardener = runMutationGapHardener,
+  setExitCode = () => {},
+  terminalWriter = createRoutineResultWriter(),
+  writeDiagnostic,
+} = {}) {
   const reportDir = path.join(repoRoot, 'reports/shadow/mutation-gap-hardener');
+  const diagnosticWriter =
+    writeDiagnostic ?? ((reason, baseSha) => writeBlockedDiagnostic(reason, baseSha, reportDir));
   let baseSha = /^[0-9a-f]{40}$/u.test(process.env.GITHUB_SHA ?? '')
     ? process.env.GITHUB_SHA
     : '0'.repeat(40);
   let terminalResult;
   try {
-    baseSha = await readCurrentHeadSha({ cwd: repoRoot });
-    baseSha = await freezeCurrentOriginMain({ cwd: repoRoot });
-    const report = await runMutationGapHardener({ baseSha, repoRoot, reportDir });
+    baseSha = await readHead({ cwd: repoRoot });
+    baseSha = await freezeMain({ cwd: repoRoot });
+    const report = await runHardener({ baseSha, repoRoot, reportDir });
     if (report.classification === 'no-change') {
       terminalResult = {
         baseSha,
@@ -280,22 +297,26 @@ if (isMain) {
       };
     }
   } catch (error) {
-    const reason = String(error);
-    await mkdir(reportDir, { recursive: true });
-    await writeFile(
-      path.join(reportDir, 'report.json'),
-      `${JSON.stringify({ baseSha, classification: 'harness-error', error: reason, routineId: 'mutation-gap-hardener' }, null, 2)}\n`
-    );
-    terminalResult = {
+    terminalResult = await createBlockedRoutineResult({
       baseSha,
-      fingerprint: fingerprint(['mutation-gap-hardener', baseSha, 'blocked', reason]),
-      reasons: [reason],
-      status: 'blocked',
-    };
+      error,
+      routineId: 'mutation-gap-hardener',
+      writeDiagnostic: diagnosticWriter,
+    });
   }
   terminalWriter.write(terminalResult);
   terminalWriter.assertWritten();
   if (terminalResult.status === 'blocked') {
-    process.exitCode = 1;
+    setExitCode(1);
   }
+  return terminalResult;
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  await runMutationGapHardenerMain({
+    setExitCode: (code) => {
+      process.exitCode = code;
+    },
+  });
 }

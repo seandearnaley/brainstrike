@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
-
+import { createRoutineResultWriter } from '../agent-routines/shared/routine-result.mjs';
 import {
   classifyMutationReport,
   MUTATION_TARGET,
   mutationRunExitCode,
   runMutationGapHardener,
+  runMutationGapHardenerMain,
 } from '../mutation-gap-hardener.mjs';
 
 const require = createRequire(import.meta.url);
@@ -150,6 +151,58 @@ describe('mutation gap hardener', () => {
     assert.equal(result.classification, 'incomplete');
     assert.deepEqual(result.reasons, ['Stryker process termination could not be verified']);
     assert.equal(mutationRunExitCode(result), 1);
+  });
+
+  it('does not consume stale mutation JSON when the current run writes no report', async () => {
+    const repoRoot = await mkdtemp(path.join(os.tmpdir(), 'mutation-stale-report-'));
+    const reportDir = path.join(repoRoot, 'normalized-report');
+    const rawReportDir = path.join(repoRoot, 'packages/file-system/reports/shadow');
+    await mkdir(rawReportDir, { recursive: true });
+    await writeFile(
+      path.join(rawReportDir, 'mutation-gap.json'),
+      JSON.stringify(report([mutant('stale-survivor', 'Survived')]))
+    );
+
+    try {
+      const result = await runMutationGapHardener({
+        baseSha: 'a'.repeat(40),
+        repoRoot,
+        reportDir,
+        spawn: async () => ({ exitCode: 0, signal: null, timedOut: false }),
+      });
+
+      assert.equal(result.classification, 'harness-error');
+      assert.deepEqual(result.reasons, ['Stryker JSON report is missing or malformed']);
+    } finally {
+      await rm(repoRoot, { force: true, recursive: true });
+    }
+  });
+
+  it('emits one blocked result when diagnostic writes fail', async () => {
+    const baseSha = 'c'.repeat(40);
+    const lines = [];
+    const terminalWriter = createRoutineResultWriter((line) => lines.push(line));
+
+    const result = await runMutationGapHardenerMain({
+      freezeMain: async () => baseSha,
+      readHead: async () => baseSha,
+      runHardener: async () => {
+        throw new Error('primary mutation failure');
+      },
+      terminalWriter,
+      writeDiagnostic: async () => {
+        throw new Error('diagnostic failed at /private/secret-path');
+      },
+    });
+
+    assert.equal(lines.length, 1);
+    assert.equal(result.status, 'blocked');
+    assert.deepEqual(result.reasons, [
+      'Error: primary mutation failure',
+      'diagnostic report write failed',
+    ]);
+    assert.deepEqual(JSON.parse(lines[0]), result);
+    assert.doesNotMatch(lines[0], /secret-path/u);
   });
 
   it('rejects invalid immutable run identity before launching Stryker', async () => {

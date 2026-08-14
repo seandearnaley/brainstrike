@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createBlockedRoutineResult } from './agent-routines/shared/blocked-result.mjs';
 import { runBoundedProcess } from './agent-routines/shared/bounded-process.mjs';
 import {
   freezeCurrentOriginMain,
@@ -184,19 +185,34 @@ export async function runBoundaryCrashFuzzer(options = {}) {
   return report;
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
-  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const terminalWriter = createRoutineResultWriter();
+async function writeBlockedDiagnostic(reason, baseSha, reportDir) {
+  await mkdir(reportDir, { recursive: true });
+  await writeFile(
+    path.join(reportDir, 'report.json'),
+    `${JSON.stringify({ baseSha, classification: 'harness-error', error: reason, routineId: 'boundary-crash-fuzzer' }, null, 2)}\n`
+  );
+}
+
+export async function runBoundaryCrashFuzzerMain({
+  freezeMain = freezeCurrentOriginMain,
+  readHead = readCurrentHeadSha,
+  repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
+  runFuzzer = runBoundaryCrashFuzzer,
+  setExitCode = () => {},
+  terminalWriter = createRoutineResultWriter(),
+  writeDiagnostic,
+} = {}) {
   const reportDir = path.join(repoRoot, 'reports/shadow/boundary-crash-fuzzer');
+  const diagnosticWriter =
+    writeDiagnostic ?? ((reason, baseSha) => writeBlockedDiagnostic(reason, baseSha, reportDir));
   let baseSha = /^[0-9a-f]{40}$/u.test(process.env.GITHUB_SHA ?? '')
     ? process.env.GITHUB_SHA
     : '0'.repeat(40);
   let terminalResult;
   try {
-    baseSha = await readCurrentHeadSha({ cwd: repoRoot });
-    baseSha = await freezeCurrentOriginMain({ cwd: repoRoot });
-    const report = await runBoundaryCrashFuzzer({ baseSha, repoRoot, reportDir });
+    baseSha = await readHead({ cwd: repoRoot });
+    baseSha = await freezeMain({ cwd: repoRoot });
+    const report = await runFuzzer({ baseSha, repoRoot, reportDir });
     if (report.classification === 'no-change') {
       terminalResult = {
         baseSha,
@@ -223,22 +239,26 @@ if (isMain) {
       };
     }
   } catch (error) {
-    const reason = String(error);
-    await mkdir(reportDir, { recursive: true });
-    await writeFile(
-      path.join(reportDir, 'report.json'),
-      `${JSON.stringify({ baseSha, classification: 'harness-error', error: reason, routineId: 'boundary-crash-fuzzer' }, null, 2)}\n`
-    );
-    terminalResult = {
+    terminalResult = await createBlockedRoutineResult({
       baseSha,
-      fingerprint: terminalFingerprint(['boundary-crash-fuzzer', baseSha, 'blocked', reason]),
-      reasons: [reason],
-      status: 'blocked',
-    };
+      error,
+      routineId: 'boundary-crash-fuzzer',
+      writeDiagnostic: diagnosticWriter,
+    });
   }
   terminalWriter.write(terminalResult);
   terminalWriter.assertWritten();
   if (terminalResult.status === 'blocked') {
-    process.exitCode = 1;
+    setExitCode(1);
   }
+  return terminalResult;
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  await runBoundaryCrashFuzzerMain({
+    setExitCode: (code) => {
+      process.exitCode = code;
+    },
+  });
 }
