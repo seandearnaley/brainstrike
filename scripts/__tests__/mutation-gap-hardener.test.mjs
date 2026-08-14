@@ -135,6 +135,23 @@ describe('mutation gap hardener', () => {
     assert.equal(mutationRunExitCode({ classification: 'report' }), 0);
   });
 
+  it('treats failed process termination as incomplete despite complete JSON', async () => {
+    const { classifyMutationRun } = await import('../mutation-gap-hardener.mjs');
+    const result = classifyMutationRun({
+      processResult: {
+        exitCode: 0,
+        signal: null,
+        terminationFailed: true,
+        timedOut: false,
+      },
+      rawReport: report([mutant('killed', 'Killed')]),
+    });
+
+    assert.equal(result.classification, 'incomplete');
+    assert.deepEqual(result.reasons, ['Stryker process termination could not be verified']);
+    assert.equal(mutationRunExitCode(result), 1);
+  });
+
   it('rejects invalid immutable run identity before launching Stryker', async () => {
     const reportDir = await mkdtemp(path.join(os.tmpdir(), 'mutation-inputs-'));
     let spawnCalls = 0;

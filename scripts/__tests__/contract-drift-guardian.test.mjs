@@ -62,6 +62,7 @@ test('ordinary failure is contract drift without retries', async () => {
 test('timeout and signal fail closed as incomplete; spawn errors are harness errors', async () => {
   for (const [outcome, status] of [
     ['timed-out', 'incomplete'],
+    ['termination-failed', 'incomplete'],
     ['signalled', 'incomplete'],
     ['spawn-error', 'harness-error'],
   ]) {

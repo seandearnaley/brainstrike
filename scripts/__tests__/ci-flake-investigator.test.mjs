@@ -58,6 +58,7 @@ test('classifies exactly three attempts without treating infrastructure as a fla
     [['passed', 'failed', 'passed'], 'flake-suspect'],
     [['passed', 'signalled', 'passed'], 'infrastructure'],
     [['passed', 'timed-out', 'passed'], 'infrastructure'],
+    [['passed', 'termination-failed', 'passed'], 'infrastructure'],
     [['passed', 'spawn-error', 'passed'], 'infrastructure'],
   ];
   for (const [outcomes, expected] of cases) {

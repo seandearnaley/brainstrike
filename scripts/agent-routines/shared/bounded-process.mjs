@@ -42,7 +42,15 @@ function appendTail(current, chunk) {
   return combined.length <= TAIL_BYTES ? combined : combined.subarray(combined.length - TAIL_BYTES);
 }
 
-export function runBoundedProcess({ command, cwd = process.cwd(), env = {}, timeoutMs }) {
+export function runBoundedProcess({
+  command,
+  cwd = process.cwd(),
+  env = {},
+  isProcessTreeAlive: processTreeIsAlive = isProcessTreeAlive,
+  platform = process.platform,
+  spawnProcess = spawn,
+  timeoutMs,
+}) {
   if (
     !Array.isArray(command) ||
     command.length === 0 ||
@@ -50,6 +58,16 @@ export function runBoundedProcess({ command, cwd = process.cwd(), env = {}, time
     timeoutMs <= 0
   ) {
     throw new Error('invalid bounded process request');
+  }
+  if (platform === 'win32') {
+    return Promise.resolve({
+      durationMs: 0,
+      exitCode: null,
+      outcome: 'spawn-error',
+      signal: null,
+      stderrTail: 'unsupported platform: win32 cannot safely terminate descendant processes',
+      stdoutTail: '',
+    });
   }
   return new Promise((resolve) => {
     const started = performance.now();
@@ -60,9 +78,9 @@ export function runBoundedProcess({ command, cwd = process.cwd(), env = {}, time
     const invocation = createSpawnInvocation(command[0], command.slice(1));
     let child;
     try {
-      child = spawn(invocation.command, invocation.args, {
+      child = spawnProcess(invocation.command, invocation.args, {
         cwd,
-        detached: process.platform !== 'win32',
+        detached: true,
         env: { ...process.env, ...env },
         shell: invocation.shell,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -94,8 +112,12 @@ export function runBoundedProcess({ command, cwd = process.cwd(), env = {}, time
         signalProcessTree(child, 'SIGKILL');
         const verificationDeadline = performance.now() + TERMINATION_VERIFICATION_MS;
         const verifyTermination = () => {
-          if (!isProcessTreeAlive(child) || performance.now() >= verificationDeadline) {
+          if (!processTreeIsAlive(child)) {
             finish(closeResult ?? { exitCode: null, outcome: 'timed-out', signal: 'SIGKILL' });
+            return;
+          }
+          if (performance.now() >= verificationDeadline) {
+            finish({ exitCode: null, outcome: 'termination-failed', signal: 'SIGKILL' });
             return;
           }
           verificationTimer = setTimeout(verifyTermination, TERMINATION_POLL_MS);
@@ -130,7 +152,7 @@ export function runBoundedProcess({ command, cwd = process.cwd(), env = {}, time
         outcome: timedOut ? 'timed-out' : signal ? 'signalled' : code === 0 ? 'passed' : 'failed',
         signal,
       };
-      if (timedOut && process.platform !== 'win32') {
+      if (timedOut) {
         closeResult = result;
         return;
       }

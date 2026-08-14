@@ -70,7 +70,7 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
   let classification = 'no-change';
   const findings = [];
 
-  if (processResult.timedOut) {
+  if (processResult.terminationFailed || processResult.timedOut) {
     classification = 'incomplete';
   } else if (processResult.signal || assertions === null) {
     classification = 'parser-process-crash';
@@ -141,6 +141,7 @@ async function spawnVitest({ cwd, outputFile, timeoutMs }) {
   return {
     exitCode: result.exitCode,
     signal: result.signal,
+    terminationFailed: result.outcome === 'termination-failed',
     timedOut: result.outcome === 'timed-out',
   };
 }

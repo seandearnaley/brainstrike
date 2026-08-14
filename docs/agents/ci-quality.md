@@ -54,7 +54,12 @@ completed failed current-main `Unit (<shard>)` job whose sole failed step is an
 exact push Unit or integration phase, and reruns only that shard/phase up to
 three times. Stale/cancelled runs, setup failures, ambiguous jobs, and other
 infrastructure evidence produce no test work (or a blocked report when the
-metadata/API itself is unreadable); they are never classified as flakes.
+metadata/API itself is unreadable); they are never classified as flakes. The
+shared bounded-process runner is POSIX-only: Windows fails closed before spawn
+until a reviewed descendant-tree termination primitive exists. After a POSIX
+timeout, the runner verifies that the process group is gone; a live group at the
+verification deadline is `termination-failed`, and every routine treats that as
+incomplete or blocked rather than as an ordinary timeout completion.
 
 Promotion is per routine and fail-closed. Hermes evaluates historical-fixture,
 holdout, and live frozen-head reports, labels findings independently, and tunes

@@ -1,7 +1,37 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { test } from 'node:test';
 import { runBoundedProcess } from '../agent-routines/shared/bounded-process.mjs';
+
+test('bounded process runner fails closed on Windows before spawning', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'brainstrike-bounded-process-windows-'));
+  const sideEffectPath = path.join(root, 'spawned');
+  let spawnCalls = 0;
+  context.after(() => rm(root, { force: true, recursive: true }));
+
+  const result = await runBoundedProcess({
+    command: [
+      process.execPath,
+      '-e',
+      `require('node:fs').writeFileSync(${JSON.stringify(sideEffectPath)}, 'spawned')`,
+    ],
+    platform: 'win32',
+    spawnProcess: () => {
+      spawnCalls += 1;
+      throw new Error('spawn must not be called');
+    },
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.outcome, 'spawn-error');
+  assert.match(result.stderrTail, /unsupported platform: win32/u);
+  assert.equal(spawnCalls, 0);
+  assert.equal(existsSync(sideEffectPath), false);
+});
 
 test('bounded process runner distinguishes pass, ordinary failure, and timeout', async () => {
   const pass = await runBoundedProcess({
@@ -96,6 +126,18 @@ test('bounded process runner waits for escalation after the direct child exits',
   assert.ok(Number.isSafeInteger(grandchildPid));
   assert.equal(readyLine, 'ready');
   assert.throws(() => process.kill(grandchildPid, 0), { code: 'ESRCH' });
+});
+
+test('bounded process runner reports termination failure when the group remains alive', async () => {
+  const result = await runBoundedProcess({
+    command: [process.execPath, '-e', 'setTimeout(() => {}, 10000)'],
+    isProcessTreeAlive: () => true,
+    timeoutMs: 20,
+  });
+
+  assert.equal(result.outcome, 'termination-failed');
+  assert.equal(result.exitCode, null);
+  assert.equal(result.signal, 'SIGKILL');
 });
 
 test('bounded process runner retains only a capped output tail', async () => {

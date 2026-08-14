@@ -33,7 +33,7 @@ function classificationFor(outcome) {
   if (outcome === 'signalled') {
     return 'process-instability';
   }
-  if (outcome === 'timed-out') {
+  if (['termination-failed', 'timed-out'].includes(outcome)) {
     return 'incomplete';
   }
   return 'harness-error';

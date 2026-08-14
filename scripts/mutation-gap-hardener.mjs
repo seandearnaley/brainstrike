@@ -165,12 +165,19 @@ export function classifyMutationRun({ processResult, rawReport }) {
   if (!processResult || typeof processResult !== 'object') {
     return { ...harnessError('Stryker process result is missing'), classification: 'incomplete' };
   }
-  if (processResult.timedOut || processResult.signal || processResult.exitCode !== 0) {
-    const reason = processResult.timedOut
-      ? 'Stryker command timed out'
-      : processResult.signal
-        ? 'Stryker process crashed'
-        : `Stryker command exited nonzero: ${String(processResult.exitCode)}`;
+  if (
+    processResult.terminationFailed ||
+    processResult.timedOut ||
+    processResult.signal ||
+    processResult.exitCode !== 0
+  ) {
+    const reason = processResult.terminationFailed
+      ? 'Stryker process termination could not be verified'
+      : processResult.timedOut
+        ? 'Stryker command timed out'
+        : processResult.signal
+          ? 'Stryker process crashed'
+          : `Stryker command exited nonzero: ${String(processResult.exitCode)}`;
     return { ...harnessError(reason), classification: 'incomplete' };
   }
   return classifyMutationReport(rawReport);
@@ -197,6 +204,7 @@ async function spawnStryker({ repoRoot, timeoutMs }) {
   return {
     exitCode: result.exitCode,
     signal: result.signal,
+    terminationFailed: result.outcome === 'termination-failed',
     timedOut: result.outcome === 'timed-out',
   };
 }

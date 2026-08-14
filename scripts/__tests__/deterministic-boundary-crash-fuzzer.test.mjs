@@ -108,6 +108,27 @@ describe('deterministic boundary crash fuzzer harness', () => {
     assert.equal(boundaryRunExitCode(result), 1);
   });
 
+  it('treats failed process termination as incomplete despite complete passing JSON', () => {
+    const ids = createDeterministicCaseIds();
+    const result = classifyBoundaryRun({
+      expectedCaseIds: ids,
+      processResult: {
+        exitCode: 0,
+        signal: null,
+        terminationFailed: true,
+        timedOut: false,
+      },
+      vitestReport: {
+        testResults: ids.map((caseId) => ({
+          assertionResults: [{ status: 'passed', title: caseId }],
+        })),
+      },
+    });
+
+    assert.equal(result.classification, 'incomplete');
+    assert.equal(boundaryRunExitCode(result), 1);
+  });
+
   it('does not consume stale Vitest JSON when the current run writes no report', async () => {
     const reportDir = await mkdtemp(path.join(os.tmpdir(), 'boundary-fuzzer-'));
     const ids = createDeterministicCaseIds();
