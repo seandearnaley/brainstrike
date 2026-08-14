@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runBoundedProcess } from './agent-routines/shared/bounded-process.mjs';
 
 export const MUTATION_TARGET = 'packages/file-system/src/path-validation.ts';
 export const MUTATION_MAX_FINDINGS = 25;
@@ -31,6 +31,30 @@ function normalizedTarget(file) {
     return MUTATION_TARGET;
   }
   return portable;
+}
+
+function isValidPosition(position) {
+  return (
+    position !== null &&
+    typeof position === 'object' &&
+    Number.isSafeInteger(position.line) &&
+    position.line > 0 &&
+    Number.isSafeInteger(position.column) &&
+    position.column >= 0
+  );
+}
+
+function isValidMutantSchema(mutant) {
+  const start = mutant?.location?.start;
+  const end = mutant?.location?.end;
+  return (
+    isValidPosition(start) &&
+    isValidPosition(end) &&
+    (start.line < end.line || (start.line === end.line && start.column <= end.column)) &&
+    typeof mutant.mutatorName === 'string' &&
+    mutant.mutatorName.length > 0 &&
+    typeof mutant.replacement === 'string'
+  );
 }
 
 function stableIdentity(file, mutant) {
@@ -70,6 +94,9 @@ export function classifyMutationReport(report) {
       return harnessError('Stryker mutant IDs are missing or duplicated');
     }
     ids.add(mutant.id);
+    if (!isValidMutantSchema(mutant)) {
+      return harnessError('Stryker mutant schema is malformed');
+    }
     if (!KNOWN_STATUSES.has(mutant.status)) {
       return {
         ...harnessError(`unknown Stryker mutant status: ${String(mutant.status)}`),
@@ -141,39 +168,25 @@ export function mutationRunExitCode(report) {
   return ['harness-error', 'incomplete'].includes(report?.classification) ? 1 : 0;
 }
 
-export function assertMutationPromotionPatchAllowed(changedFiles) {
-  if (!Array.isArray(changedFiles) || changedFiles.length === 0) {
-    throw new Error('a future mutation promotion must contain at least one test change');
-  }
-  const exactTest = 'packages/file-system/src/__tests__/path-validation.test.ts';
-  for (const file of changedFiles) {
-    const portable = typeof file === 'string' ? file.replaceAll('\\', '/') : '';
-    const helper = /^packages\/file-system\/src\/__tests__\/[a-z0-9][a-z0-9.-]*\.(?:ts|tsx)$/u.test(
-      portable
-    );
-    if (portable !== exactTest && !helper) {
-      throw new Error(`mutation promotion contains a non-test change: ${String(file)}`);
-    }
-  }
-}
-
-function spawnStryker({ repoRoot, timeoutMs }) {
-  return new Promise((resolve) => {
-    const child = spawn(
+async function spawnStryker({ repoRoot, timeoutMs }) {
+  const result = await runBoundedProcess({
+    command: [
       'pnpm',
-      ['--dir', 'packages/file-system', 'exec', 'stryker', 'run', 'stryker.shadow.config.cjs'],
-      { cwd: repoRoot, stdio: 'inherit' }
-    );
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGKILL');
-    }, timeoutMs);
-    child.once('exit', (exitCode, signal) => {
-      clearTimeout(timer);
-      resolve({ exitCode, signal, timedOut });
-    });
+      '--dir',
+      'packages/file-system',
+      'exec',
+      'stryker',
+      'run',
+      'stryker.shadow.config.cjs',
+    ],
+    cwd: repoRoot,
+    timeoutMs,
   });
+  return {
+    exitCode: result.exitCode,
+    signal: result.signal,
+    timedOut: result.outcome === 'timed-out',
+  };
 }
 
 export async function runMutationGapHardener({

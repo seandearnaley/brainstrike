@@ -4,27 +4,10 @@ import {
   freezeRunContext,
   loadFrozenRunContext,
 } from '../agent-routines/shared/frozen-run-context.mjs';
-import {
-  assertPolicyAllows,
-  assertPromotionReady,
-  createPromotionPolicy,
-  createRoutinePolicy,
-} from '../agent-routines/shared/policy.mjs';
+import { assertPromotionReady, createPromotionPolicy } from '../agent-routines/shared/policy.mjs';
 import { createRoutineResultWriter } from '../agent-routines/shared/routine-result.mjs';
 
 const SHA = 'a'.repeat(40);
-
-function safeRequest(overrides = {}) {
-  return {
-    branch: 'automation/model-catalog-a1b2c3',
-    changedFiles: ['packages/db/src/migrations/100-add-model.ts'],
-    command: { args: ['--version'], file: 'node' },
-    deletedLines: 2,
-    insertedLines: 3,
-    proposedPrCount: 0,
-    ...overrides,
-  };
-}
 
 describe('scheduled-maintenance frozen run context', () => {
   it('freezes one immutable base SHA and watched set', () => {
@@ -84,68 +67,6 @@ describe('scheduled-maintenance frozen run context', () => {
         worktreePath: '/tmp/worktree',
       }),
       /GitHub state is unreadable/u
-    );
-  });
-});
-
-describe('scheduled-maintenance mutation policy', () => {
-  const policy = createRoutinePolicy({
-    allowedCommands: [{ argsPrefix: ['--version'], file: 'node' }],
-    allowedFiles: ['packages/db/src/migrations/*.ts'],
-    maxChangedLines: 5,
-  });
-
-  it('enforces file allowlists and diff budgets', () => {
-    assert.doesNotThrow(() => assertPolicyAllows(policy, safeRequest()));
-    assert.throws(
-      () => assertPolicyAllows(policy, safeRequest({ changedFiles: ['package.json'] })),
-      /outside the routine allowlist/u
-    );
-    assert.throws(
-      () => assertPolicyAllows(policy, safeRequest({ deletedLines: 3, insertedLines: 3 })),
-      /diff budget/u
-    );
-  });
-
-  it('allows no more than one proposed PR', () => {
-    assert.throws(
-      () => assertPolicyAllows(policy, safeRequest({ proposedPrCount: 1 })),
-      /one PR per run/u
-    );
-  });
-
-  it('rejects main, force-push, auto-merge, deploy, and destructive commands', () => {
-    const rejected = [
-      safeRequest({ branch: 'main' }),
-      safeRequest({ command: { args: ['push', '--force', 'origin', 'topic'], file: 'git' } }),
-      safeRequest({ command: { args: ['pr', 'merge', '--auto'], file: 'gh' } }),
-      safeRequest({ command: { args: ['deploy'], file: 'pnpm' } }),
-      safeRequest({ command: { args: ['-rf', '/'], file: 'rm' } }),
-    ];
-
-    for (const request of rejected) {
-      assert.throws(() => assertPolicyAllows(policy, request), /forbidden/u);
-    }
-  });
-
-  it('rejects malformed budgets and globally-optioned forbidden commands', () => {
-    assert.throws(
-      () => assertPolicyAllows(policy, safeRequest({ deletedLines: -10 })),
-      /invalid mutation request/u
-    );
-    assert.throws(
-      () =>
-        assertPolicyAllows(
-          createRoutinePolicy({
-            allowedCommands: [{ argsPrefix: ['--no-pager'], file: 'git' }],
-            allowedFiles: ['packages/db/src/migrations/*.ts'],
-            maxChangedLines: 5,
-          }),
-          safeRequest({
-            command: { args: ['--no-pager', 'push', '--force', 'origin', 'topic'], file: 'git' },
-          })
-        ),
-      /forbidden/u
     );
   });
 });

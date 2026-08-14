@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   BOUNDARY_CASE_COUNTS,
   BOUNDARY_FUZZ_SEED,
+  boundaryRunExitCode,
   classifyBoundaryRun,
   createDeterministicCaseIds,
 } from '../deterministic-boundary-crash-fuzzer.mjs';
@@ -84,6 +85,14 @@ describe('deterministic boundary crash fuzzer harness', () => {
       }).classification,
       'incomplete'
     );
+  });
+
+  it('maps incomplete and harness failures to a nonzero runner exit', () => {
+    for (const classification of ['incomplete', 'parser-process-crash', 'harness-error']) {
+      assert.equal(boundaryRunExitCode({ classification }), 1);
+    }
+    assert.equal(boundaryRunExitCode({ classification: 'no-change' }), 0);
+    assert.equal(boundaryRunExitCode({ classification: 'boundary-counterexample' }), 0);
   });
 
   it('rejects duplicate case results instead of letting them mask harness drift', () => {

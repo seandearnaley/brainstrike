@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runBoundedProcess } from './agent-routines/shared/bounded-process.mjs';
 
 export const BOUNDARY_FUZZ_SEED = 0x42_53_54_52;
 export const BOUNDARY_CASE_COUNTS = Object.freeze({
@@ -107,7 +107,13 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
   };
 }
 
-function spawnVitest({ cwd, outputFile, timeoutMs }) {
+export function boundaryRunExitCode(report) {
+  return ['harness-error', 'incomplete', 'parser-process-crash'].includes(report?.classification)
+    ? 1
+    : 0;
+}
+
+async function spawnVitest({ cwd, outputFile, timeoutMs }) {
   const args = [
     '--dir',
     'apps/desktop',
@@ -121,18 +127,12 @@ function spawnVitest({ cwd, outputFile, timeoutMs }) {
     '--maxWorkers=1',
     '--no-file-parallelism',
   ];
-  return new Promise((resolve) => {
-    const child = spawn('pnpm', args, { cwd, stdio: 'inherit' });
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGKILL');
-    }, timeoutMs);
-    child.once('exit', (exitCode, signal) => {
-      clearTimeout(timer);
-      resolve({ exitCode, signal, timedOut });
-    });
-  });
+  const result = await runBoundedProcess({ command: ['pnpm', ...args], cwd, timeoutMs });
+  return {
+    exitCode: result.exitCode,
+    signal: result.signal,
+    timedOut: result.outcome === 'timed-out',
+  };
 }
 
 export async function runBoundaryCrashFuzzer({
@@ -165,5 +165,6 @@ export async function runBoundaryCrashFuzzer({
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  await runBoundaryCrashFuzzer({ repoRoot });
+  const report = await runBoundaryCrashFuzzer({ repoRoot });
+  process.exitCode = boundaryRunExitCode(report);
 }

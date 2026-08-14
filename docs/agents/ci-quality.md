@@ -56,9 +56,12 @@ revision and records its reason. Unknown tuning keys fail closed. When unsafe
 findings remain and every safe parameter is already at its bound, the tuner
 requires manual intervention instead of changing authority. Automatic tuning
 must never loosen evidence requirements, broaden file/command allowlists,
-suppress validator failures, weaken tests, or change production semantics. Even
-a promoted routine may propose at most one bounded PR and may never merge;
-fresh human merge authorization remains mandatory.
+suppress validator failures, weaken tests, or change production semantics.
+`propose-pr` is only a reserved future authority during the pilot: promotion
+makes a routine eligible for a separate reviewed implementation change; it does
+not activate prebuilt branch or publisher code. Any later implementation may
+propose at most one bounded PR and may never merge; fresh human merge
+authorization remains mandatory.
 
 The model updater's discovery sources do not share authority. OpenRouter can
 establish OpenRouter route availability, gateway pricing, and its published

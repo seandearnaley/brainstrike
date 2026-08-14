@@ -50,18 +50,22 @@ shared fail-closed policy layer:
 
 Each routine has one thin GitHub Actions workflow and one reviewed Node entry
 point under `scripts/agent-routines/`. Shared helpers may freeze the base SHA,
-validate policy, isolate a worktree, deduplicate active PRs, and format a result.
-There is no fleet-wide scheduler, generated registry, routing-label system,
-checkpoint tree, bulletin, doctrine, or routine that watches other routines.
+validate report calibration, bound subprocesses, and format a result. Branch,
+worktree, active-PR deduplication, publication, and other proposal machinery are
+not shipped during the report-only pilot; their implementation is deferred until
+a routine has independently met the promotion criteria below. There is no
+fleet-wide scheduler, generated registry, routing-label system, checkpoint tree,
+bulletin, doctrine, or routine that watches other routines.
 
 ## Autonomy classes
 
-The shared policy recognizes only these classes:
+The shared policy recognizes these authority classes, but `propose-pr` is a
+reserved future class and has no implementation in the pilot:
 
 - `observe`: read repository and public evidence; emit a terminal result.
 - `report`: publish a workflow summary or short-retention diagnostic artifact.
-- `propose-pr`: create at most one branch and one PR after all deterministic
-  admission checks pass.
+- `propose-pr`: after promotion and a separately reviewed implementation, create
+  at most one branch and one PR after all deterministic admission checks pass.
 
 No routine may merge, enable auto-merge, force-push, deploy, write directly to
 `main`, weaken tests or quality thresholds, close another author's issue or PR,
@@ -157,12 +161,14 @@ contracts are approved.
 
 ## Rollout and sunset
 
-For the first two scheduled weeks all five routines are report-only. Safe
-additive model proposals may graduate first. Deterministic contract fixes and
-tests-only fuzzer/mutation proposals require demonstrated classification
-precision. The flake investigator remains report-only until repeated reports
-show that it distinguishes flakes from infrastructure and deterministic
-failures.
+For the first two scheduled weeks all five routines are report-only. Promotion
+first establishes that a routine is eligible for proposal authority; only then
+may a separate reviewed change add the routine-specific worktree, policy,
+deduplication, cleanup, and publisher implementation. Safe additive model
+proposals may be considered first. Deterministic contract fixes and tests-only
+fuzzer/mutation proposals require demonstrated classification precision. The
+flake investigator remains report-only until repeated reports show that it
+distinguishes flakes from infrastructure and deterministic failures.
 
 Each routine records wakes, no-change rate, reports, proposals, acceptance,
 human edits, blocked/reverted proposals, duplicates, cost, and estimated

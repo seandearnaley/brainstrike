@@ -3,6 +3,22 @@ import { performance } from 'node:perf_hooks';
 import { createSpawnInvocation } from '../../spawn-command.mjs';
 
 const TAIL_BYTES = 64 * 1024;
+const TERMINATION_GRACE_MS = 250;
+
+function signalProcessTree(child, signal) {
+  if (process.platform === 'win32') {
+    child.kill(signal);
+    return;
+  }
+
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error?.code !== 'ESRCH') {
+      throw error;
+    }
+  }
+}
 
 function appendTail(current, chunk) {
   const combined = Buffer.concat([current, Buffer.from(chunk)]);
@@ -29,6 +45,7 @@ export function runBoundedProcess({ command, cwd = process.cwd(), env = {}, time
     try {
       child = spawn(invocation.command, invocation.args, {
         cwd,
+        detached: process.platform !== 'win32',
         env: { ...process.env, ...env },
         shell: invocation.shell,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -53,8 +70,8 @@ export function runBoundedProcess({ command, cwd = process.cwd(), env = {}, time
     let killTimer;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
-      killTimer = setTimeout(() => child.kill('SIGKILL'), 2000);
+      signalProcessTree(child, 'SIGTERM');
+      killTimer = setTimeout(() => signalProcessTree(child, 'SIGKILL'), TERMINATION_GRACE_MS);
     }, timeoutMs);
     const finish = (value) => {
       if (settled) {

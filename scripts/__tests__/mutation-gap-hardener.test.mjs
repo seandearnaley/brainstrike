@@ -3,7 +3,6 @@ import { createRequire } from 'node:module';
 import { describe, it } from 'node:test';
 
 import {
-  assertMutationPromotionPatchAllowed,
   classifyMutationReport,
   MUTATION_TARGET,
   mutationRunExitCode,
@@ -88,6 +87,22 @@ describe('mutation gap hardener', () => {
     );
   });
 
+  it('normalizes malformed mutant locations, mutators, and replacements as harness errors', () => {
+    const malformed = [
+      mutant('location', 'Survived', { location: null }),
+      mutant('line', 'Survived', {
+        location: { end: { column: 4, line: 1 }, start: { column: 1, line: 0 } },
+      }),
+      mutant('mutator', 'Survived', { mutatorName: null }),
+      mutant('replacement', 'Survived', { replacement: { code: 'false' } }),
+    ];
+
+    for (const value of malformed) {
+      assert.doesNotThrow(() => classifyMutationReport(report([value])));
+      assert.equal(classifyMutationReport(report([value])).classification, 'harness-error');
+    }
+  });
+
   it('treats a nonzero runner exit as incomplete even when JSON exists', async () => {
     const { classifyMutationRun } = await import('../mutation-gap-hardener.mjs');
     const result = classifyMutationRun({
@@ -116,22 +131,5 @@ describe('mutation gap hardener', () => {
     assert.equal(first.findings.length, 25);
     assert.equal(first.findings[0].location.start.line, 1);
     assert.deepEqual(first.findings, second.findings);
-  });
-
-  it('admits only the future tests-only promotion allowlist', () => {
-    assert.doesNotThrow(() =>
-      assertMutationPromotionPatchAllowed([
-        'packages/file-system/src/__tests__/path-validation.test.ts',
-        'packages/file-system/src/__tests__/path-validation-fixtures.ts',
-      ])
-    );
-    for (const file of [
-      'packages/file-system/src/path-validation.ts',
-      'packages/file-system/stryker.config.cjs',
-      'packages/file-system/src/__tests__/snapshot.snap',
-      '../path-validation.test.ts',
-    ]) {
-      assert.throws(() => assertMutationPromotionPatchAllowed([file]), /non-test change/u);
-    }
   });
 });
