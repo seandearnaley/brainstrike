@@ -1,0 +1,169 @@
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+export const BOUNDARY_FUZZ_SEED = 0x42_53_54_52;
+export const BOUNDARY_CASE_COUNTS = Object.freeze({
+  parserEnvelope: 256,
+  parserSource: 1024,
+  path: 512,
+  runVerdict: 256,
+});
+export const BOUNDARY_MAX_FINDINGS = 100;
+
+const CASE_GROUPS = [
+  ['path', BOUNDARY_CASE_COUNTS.path],
+  ['run-verdict', BOUNDARY_CASE_COUNTS.runVerdict],
+  ['parser-envelope', BOUNDARY_CASE_COUNTS.parserEnvelope],
+  ['parser-source', BOUNDARY_CASE_COUNTS.parserSource],
+];
+
+function xorshift32(value) {
+  let state = value >>> 0;
+  state ^= state << 13;
+  state ^= state >>> 17;
+  state ^= state << 5;
+  return state >>> 0;
+}
+
+export function createDeterministicCaseIds(seed = BOUNDARY_FUZZ_SEED) {
+  let state = seed >>> 0;
+  const ids = [];
+  for (const [group, count] of CASE_GROUPS) {
+    for (let index = 0; index < count; index += 1) {
+      state = xorshift32(state);
+      ids.push(`${group}:${String(index).padStart(4, '0')}:${state.toString(16).padStart(8, '0')}`);
+    }
+  }
+  return ids;
+}
+
+function fingerprint(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function collectAssertions(report) {
+  if (!report || typeof report !== 'object' || !Array.isArray(report.testResults)) {
+    return null;
+  }
+  const assertions = [];
+  for (const result of report.testResults) {
+    if (!result || typeof result !== 'object' || !Array.isArray(result.assertionResults)) {
+      return null;
+    }
+    assertions.push(...result.assertionResults);
+  }
+  return assertions;
+}
+
+export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestReport }) {
+  const expected = new Set(expectedCaseIds);
+  const assertions = collectAssertions(vitestReport);
+  let classification = 'no-change';
+  const findings = [];
+
+  if (processResult.timedOut) {
+    classification = 'incomplete';
+  } else if (processResult.signal || assertions === null) {
+    classification = 'parser-process-crash';
+  } else {
+    const seen = new Set();
+    let duplicateCaseCount = 0;
+    for (const assertion of assertions) {
+      const caseId = typeof assertion?.title === 'string' ? assertion.title : '';
+      if (!expected.has(caseId)) {
+        continue;
+      }
+      if (seen.has(caseId)) {
+        duplicateCaseCount += 1;
+      }
+      seen.add(caseId);
+      if (assertion.status !== 'passed') {
+        findings.push({
+          caseId,
+          fingerprint: fingerprint(`${caseId}:${assertion.status ?? 'unknown'}`),
+          kind: 'boundary-counterexample',
+        });
+      }
+    }
+    if (seen.size !== expected.size || duplicateCaseCount > 0) {
+      classification = 'incomplete';
+    } else if (processResult.exitCode !== 0 || findings.length > 0) {
+      classification = 'boundary-counterexample';
+    }
+    return {
+      classification,
+      counts: { executed: seen.size, expected: expected.size, findings: findings.length },
+      findings: findings.slice(0, BOUNDARY_MAX_FINDINGS),
+    };
+  }
+
+  return {
+    classification,
+    counts: { executed: assertions?.length ?? 0, expected: expected.size, findings: 0 },
+    findings,
+  };
+}
+
+function spawnVitest({ cwd, outputFile, timeoutMs }) {
+  const args = [
+    '--dir',
+    'apps/desktop',
+    'exec',
+    'vitest',
+    'run',
+    'src/__tests__/assistant-server/deterministic-boundary-crash-fuzzer.test.ts',
+    '--reporter=json',
+    `--outputFile=${outputFile}`,
+    '--pool=forks',
+    '--maxWorkers=1',
+    '--no-file-parallelism',
+  ];
+  return new Promise((resolve) => {
+    const child = spawn('pnpm', args, { cwd, stdio: 'inherit' });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, timeoutMs);
+    child.once('exit', (exitCode, signal) => {
+      clearTimeout(timer);
+      resolve({ exitCode, signal, timedOut });
+    });
+  });
+}
+
+export async function runBoundaryCrashFuzzer({
+  repoRoot,
+  reportDir = path.join(repoRoot, 'reports/shadow/boundary-crash-fuzzer'),
+  timeoutMs = 5 * 60 * 1000,
+} = {}) {
+  await mkdir(reportDir, { recursive: true });
+  const rawReportPath = path.join(reportDir, 'vitest.json');
+  const processResult = await spawnVitest({ cwd: repoRoot, outputFile: rawReportPath, timeoutMs });
+  let vitestReport = null;
+  try {
+    vitestReport = JSON.parse(await readFile(rawReportPath, 'utf8'));
+  } catch {
+    vitestReport = null;
+  }
+  const report = {
+    routineId: 'boundary-crash-fuzzer',
+    seed: BOUNDARY_FUZZ_SEED,
+    ...classifyBoundaryRun({
+      expectedCaseIds: createDeterministicCaseIds(),
+      processResult,
+      vitestReport,
+    }),
+  };
+  await writeFile(path.join(reportDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
+  return report;
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  await runBoundaryCrashFuzzer({ repoRoot });
+}

@@ -1,0 +1,26 @@
+{
+  "routineId": "mutation-gap-hardener",
+  "report": {
+    "findings": [
+      { "fingerprint": "mutation-correct-1" },
+      { "fingerprint": "mutation-duplicate-1" },
+      { "fingerprint": "mutation-ambiguous-1" },
+      { "fingerprint": "mutation-unsafe-1" }
+    ]
+  },
+  "labels": {
+    "mutation-correct-1": "correct/actionable",
+    "mutation-duplicate-1": "duplicate/noise",
+    "mutation-ambiguous-1": "ambiguous",
+    "mutation-unsafe-1": "unsafe"
+  },
+  "expectedSummary": {
+    "criticalFalsePositives": 0,
+    "duplicateRate": 0.25,
+    "noiseRate": 0.25,
+    "precision": 0.3333333333333333,
+    "routineId": "mutation-gap-hardener",
+    "sampleCount": 4,
+    "unsafeFindings": 1
+  }
+}

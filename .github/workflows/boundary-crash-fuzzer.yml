@@ -1,0 +1,43 @@
+name: Deterministic Boundary Crash Fuzzer
+
+on:
+  schedule:
+    - cron: '47 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: boundary-crash-fuzzer-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  boundary-crash-fuzzer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'false'
+
+      - name: Run deterministic synthetic boundary corpus
+        run: node scripts/deterministic-boundary-crash-fuzzer.mjs
+
+      - name: Upload boundary fuzzer reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: boundary-crash-fuzzer-report
+          path: reports/shadow/boundary-crash-fuzzer
+          retention-days: 14
+          if-no-files-found: error

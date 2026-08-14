@@ -1,0 +1,26 @@
+{
+  "routineId": "boundary-crash-fuzzer",
+  "report": {
+    "findings": [
+      { "fingerprint": "boundary-correct-1" },
+      { "fingerprint": "boundary-correct-2" },
+      { "fingerprint": "boundary-duplicate-1" },
+      { "fingerprint": "boundary-ambiguous-1" }
+    ]
+  },
+  "labels": {
+    "boundary-correct-1": "correct/actionable",
+    "boundary-correct-2": "correct/actionable",
+    "boundary-duplicate-1": "duplicate/noise",
+    "boundary-ambiguous-1": "ambiguous"
+  },
+  "expectedSummary": {
+    "criticalFalsePositives": 0,
+    "duplicateRate": 0.25,
+    "noiseRate": 0.25,
+    "precision": 0.6666666666666666,
+    "routineId": "boundary-crash-fuzzer",
+    "sampleCount": 4,
+    "unsafeFindings": 0
+  }
+}

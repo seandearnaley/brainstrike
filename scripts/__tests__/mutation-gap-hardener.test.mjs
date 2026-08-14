@@ -1,0 +1,137 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { describe, it } from 'node:test';
+
+import {
+  assertMutationPromotionPatchAllowed,
+  classifyMutationReport,
+  MUTATION_TARGET,
+  mutationRunExitCode,
+} from '../mutation-gap-hardener.mjs';
+
+const require = createRequire(import.meta.url);
+
+function mutant(id, status, overrides = {}) {
+  return {
+    id,
+    location: { end: { column: 4, line: 1 }, start: { column: 1, line: 1 } },
+    mutatorName: 'ConditionalExpression',
+    replacement: 'false',
+    status,
+    ...overrides,
+  };
+}
+
+function report(mutants, file = 'src/path-validation.ts') {
+  return { files: { [file]: { mutants, source: 'export const value = true;' } } };
+}
+
+describe('mutation gap hardener', () => {
+  it('classifies every supported Stryker status from machine JSON', () => {
+    const result = classifyMutationReport(
+      report([
+        mutant('killed', 'Killed'),
+        mutant('survived', 'Survived'),
+        mutant('uncovered', 'NoCoverage'),
+        mutant('compile', 'CompileError'),
+        mutant('timeout', 'Timeout'),
+      ])
+    );
+
+    assert.equal(MUTATION_TARGET, 'packages/file-system/src/path-validation.ts');
+    assert.equal(result.classification, 'report');
+    assert.deepEqual(result.totals, {
+      compileError: 1,
+      killed: 1,
+      mutationTimeout: 1,
+      survivingMutant: 1,
+      total: 5,
+      uncoveredMutant: 1,
+    });
+    assert.deepEqual(
+      result.findings.map((finding) => finding.kind),
+      ['surviving-mutant', 'uncovered-mutant', 'mutation-timeout']
+    );
+  });
+
+  it('uses an isolated reporter overlay without lowering the repository config', () => {
+    const base = require('../../packages/file-system/stryker.config.cjs');
+    const shadow = require('../../packages/file-system/stryker.shadow.config.cjs');
+
+    assert.equal(base.thresholds.break, 50);
+    assert.equal(shadow.thresholds.break, 0);
+    assert.equal(shadow.concurrency, 1);
+    assert.deepEqual(shadow.mutate, ['src/path-validation.ts']);
+    assert.deepEqual(shadow.reporters, ['json', 'html', 'clear-text']);
+    assert.equal(shadow.jsonReporter.fileName, 'reports/shadow/mutation-gap.json');
+    assert.equal(shadow.htmlReporter.fileName, 'reports/shadow/mutation-gap.html');
+    assert.equal(shadow.testRunner, base.testRunner);
+    assert.equal(shadow.vitest.configFile, 'vitest.mutation.shadow.config.ts');
+    assert.equal(shadow.coverageAnalysis, base.coverageAnalysis);
+    assert.equal(shadow.timeoutMS, 120_000);
+  });
+
+  it('fails closed for zero mutants, duplicate IDs, wrong targets, and unknown statuses', () => {
+    assert.equal(classifyMutationReport(report([])).classification, 'harness-error');
+    assert.equal(
+      classifyMutationReport(report([mutant('same', 'Killed'), mutant('same', 'Survived')]))
+        .classification,
+      'harness-error'
+    );
+    assert.equal(
+      classifyMutationReport(report([mutant('wrong', 'Killed')], 'src/other.ts')).classification,
+      'harness-error'
+    );
+    assert.equal(
+      classifyMutationReport(report([mutant('unknown', 'Pending')])).classification,
+      'incomplete'
+    );
+  });
+
+  it('treats a nonzero runner exit as incomplete even when JSON exists', async () => {
+    const { classifyMutationRun } = await import('../mutation-gap-hardener.mjs');
+    const result = classifyMutationRun({
+      processResult: { exitCode: 1, signal: null, timedOut: false },
+      rawReport: report([mutant('killed', 'Killed')]),
+    });
+    assert.equal(result.classification, 'incomplete');
+    assert.equal(mutationRunExitCode(result), 1);
+    assert.equal(mutationRunExitCode({ classification: 'report' }), 0);
+  });
+
+  it('sorts deterministically and caps detailed gaps without truncating totals', () => {
+    const mutants = Array.from({ length: 30 }, (_, index) =>
+      mutant(`mutant-${index}`, 'Survived', {
+        location: {
+          end: { column: 2, line: 30 - index },
+          start: { column: 1, line: 30 - index },
+        },
+        replacement: String(index),
+      })
+    );
+    const first = classifyMutationReport(report(mutants));
+    const second = classifyMutationReport(report([...mutants].reverse()));
+
+    assert.equal(first.totals.survivingMutant, 30);
+    assert.equal(first.findings.length, 25);
+    assert.equal(first.findings[0].location.start.line, 1);
+    assert.deepEqual(first.findings, second.findings);
+  });
+
+  it('admits only the future tests-only promotion allowlist', () => {
+    assert.doesNotThrow(() =>
+      assertMutationPromotionPatchAllowed([
+        'packages/file-system/src/__tests__/path-validation.test.ts',
+        'packages/file-system/src/__tests__/path-validation-fixtures.ts',
+      ])
+    );
+    for (const file of [
+      'packages/file-system/src/path-validation.ts',
+      'packages/file-system/stryker.config.cjs',
+      'packages/file-system/src/__tests__/snapshot.snap',
+      '../path-validation.test.ts',
+    ]) {
+      assert.throws(() => assertMutationPromotionPatchAllowed([file]), /non-test change/u);
+    }
+  });
+});
