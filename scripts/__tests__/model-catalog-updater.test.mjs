@@ -351,6 +351,21 @@ test('AST-reads the real static literal registry and rejects computed catalog sh
   }
 });
 
+test('registry reader rejects every TypeScript parse diagnostic', () => {
+  const malformedSources = [
+    "const PROVIDER_DEFINITIONS = [{ id: 'p' models: [] }];",
+    "const PROVIDER_DEFINITIONS = [{ id: 'p', models: [] }]; trailing garbage",
+    "const PROVIDER_DEFINITIONS = [{ id: 'p', models: [",
+  ];
+  for (const registrySource of malformedSources) {
+    assert.throws(
+      () => parseProviderRegistry({ registrySource }),
+      /TypeScript parse diagnostics/u,
+      registrySource
+    );
+  }
+});
+
 test('OpenRouter-only evidence cannot authorize vendor-owned catalog fields', async () => {
   const source = {
     ...(await loadSourceManifest()).sources.at(-1),
@@ -402,6 +417,36 @@ test('OpenRouter-only evidence cannot authorize vendor-owned catalog fields', as
   });
   assert.equal(blocked[0].kind, 'unverifiable');
   assert.match(blocked[0].safety.reasons.join(' '), /vision/u);
+});
+
+test('forged OpenRouter vendor authority cannot authorize vendor-owned fields', async () => {
+  const source = {
+    ...(await loadSourceManifest()).sources.at(-1),
+    safeAddition: { approvedModelIds: ['anthropic/claude-test'], eligible: true },
+  };
+  const fetched = await fetchSource({
+    credential: undefined,
+    fetchImpl: async () => new Response(JSON.stringify(fixture), { status: 200 }),
+    now,
+    source,
+  });
+  for (const field of ['contextWindow', 'maxOutputTokens', 'vision']) {
+    fetched.observation.models[0].fields[field].authority = 'vendor';
+  }
+
+  const deltas = classifyCatalogDelta({
+    evidence: buildEvidenceIndex({
+      now: now(),
+      observations: [fetched.observation],
+      sourcePolicies: new Map([[source.id, source]]),
+    }),
+    manifest: { schemaVersion: 1, sources: [source] },
+    registry: { models: [], providerCounts: {} },
+    sourceStatuses: [fetched],
+  });
+
+  assert.equal(deltas[0].safety.disposition, 'report_only');
+  assert.match(deltas[0].safety.reasons.join(' '), /first-party vendor evidence/u);
 });
 
 test('safeAddition.eligible false blocks classification even with exact approval', async () => {
@@ -502,6 +547,65 @@ test('does not treat a curated display label as provider metadata drift', async 
   );
 });
 
+test('OpenRouter route evidence is not authoritative drift for vendor-owned fields', async () => {
+  const source = (await loadSourceManifest()).sources.at(-1);
+  const fetched = await fetchSource({
+    credential: undefined,
+    fetchImpl: async () => new Response(JSON.stringify(fixture), { status: 200 }),
+    now,
+    source,
+  });
+  const fields = Object.fromEntries(
+    Object.entries(fetched.observation.models[0].fields).map(([name, item]) => [name, item.value])
+  );
+  fields.contextWindow = 1;
+  fields.maxOutputTokens = 2;
+  fields.vision = 'unsupported';
+
+  const deltas = classifyCatalogDelta({
+    evidence: buildEvidenceIndex({
+      now: now(),
+      observations: [fetched.observation],
+      sourcePolicies: new Map([[source.id, source]]),
+    }),
+    manifest: { schemaVersion: 1, sources: [source] },
+    registry: {
+      models: [{ fields, id: 'anthropic/claude-test', providerId: 'openrouter' }],
+      providerCounts: { openrouter: 1 },
+    },
+    sourceStatuses: [fetched],
+  });
+
+  assert.deepEqual(
+    deltas.map(({ kind }) => kind),
+    ['aligned']
+  );
+});
+
+test('model catalog reports assign stable finding provenance IDs', () => {
+  const delta = {
+    field: 'vision',
+    kind: 'field_drift',
+    modelId: 'model/id',
+    providerId: 'openrouter',
+    safety: { disposition: 'report_only', reasons: [] },
+  };
+  const input = {
+    baseCommit: 'a'.repeat(40),
+    deltas: [delta],
+    generatedAt: now().toISOString(),
+    manifestSha256: 'sha256:x',
+    registry: { models: [], providerCounts: {} },
+    sources: [],
+  };
+
+  const first = createReport(input);
+  const second = createReport(input);
+  assert.equal(first.deltas[0].findingId, second.deltas[0].findingId);
+  assert.ok(first.deltas[0].findingId.length > 0);
+  assert.equal('findingId' in delta, false);
+});
+
 test('renders stable JSON-derived Markdown', () => {
   const report = createReport({
     baseCommit: 'a'.repeat(40),
@@ -543,6 +647,36 @@ test('required failures remain incomplete and Markdown escapes all external iden
   assert.match(markdown, /provider\\\|cell/u);
 });
 
+test('promotion labels are bound to disjoint validated report findings', () => {
+  const report = (reportId, findingIds) => ({
+    report: {
+      deltas: findingIds.map((findingId) => ({ findingId })),
+      mode: 'report',
+      schemaVersion: 1,
+    },
+    reportId,
+  });
+
+  assert.throws(
+    () =>
+      evaluateLabelledReports({
+        labels: [{ findingId: 'invented', label: 'correct_actionable', reportId: 'report-1' }],
+        reports: [report('report-1', ['real'])],
+      }),
+    /labels do not match report findings/u
+  );
+  for (const reports of [
+    [report('report-1', [''])],
+    [report('report-1', ['duplicate', 'duplicate'])],
+    [report('report-1', ['shared']), report('report-2', ['shared'])],
+  ]) {
+    assert.throws(
+      () => evaluateLabelledReports({ labels: [], reports }),
+      /finding IDs are empty, duplicated, or shared/u
+    );
+  }
+});
+
 test('evaluation consumes external labels and missing labels fail closed', async () => {
   const labelled = JSON.parse(
     await readFile(new URL('./fixtures/model-catalog/labelled-reports.json', import.meta.url))
@@ -563,7 +697,20 @@ test('evaluation consumes external labels and missing labels fail closed', async
     /not promotion-ready/u
   );
   assert.throws(
-    () => evaluateLabelledReports([{ findingId: 'unlabelled' }]),
+    () =>
+      evaluateLabelledReports({
+        labels: [],
+        reports: [
+          {
+            report: {
+              deltas: [{ findingId: 'unlabelled' }],
+              mode: 'report',
+              schemaVersion: 1,
+            },
+            reportId: 'unlabelled-report',
+          },
+        ],
+      }),
     /missing external label/u
   );
 });

@@ -11,6 +11,7 @@ const SOURCE_KEYS = new Set([
   'providerId',
   'required',
   'safeAddition',
+  'sourceKind',
   'streamingPolicy',
   'url',
 ]);
@@ -49,6 +50,11 @@ export function validateSourceManifest(value) {
     }
     if (!ADAPTERS.has(source.adapter) || source.providerId !== source.adapter) {
       throw new Error('invalid provider ID or adapter');
+    }
+    const expectedSourceKind =
+      source.adapter === 'openrouter' ? 'gateway-model-list-api' : 'vendor-model-list-api';
+    if (source.sourceKind !== expectedSourceKind) {
+      throw new Error('source kind does not match adapter authority');
     }
     const tuple = `${source.providerId}/${source.adapter}`;
     if (tuples.has(tuple)) {

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 const SUMMARY_KEYS = {
   aligned: 'aligned',
   conflict: 'conflict',
@@ -19,6 +21,12 @@ const replaceControlCharacters = (value) =>
 const markdownText = (value) =>
   replaceControlCharacters(value).replaceAll(/([\\`*_[\]{}()#+.!|<>])/gu, '\\$1');
 
+const findingId = (delta) =>
+  createHash('sha256')
+    .update(JSON.stringify([delta.providerId, delta.modelId, delta.kind, delta.field ?? null]))
+    .digest('hex')
+    .slice(0, 24);
+
 export function createReport({
   baseCommit,
   generatedAt,
@@ -27,6 +35,10 @@ export function createReport({
   sources,
   deltas,
 }) {
+  const reportDeltas = deltas.map((delta) => ({ ...delta, findingId: findingId(delta) }));
+  if (new Set(reportDeltas.map((delta) => delta.findingId)).size !== reportDeltas.length) {
+    throw new Error('model catalog report findings are duplicated');
+  }
   const summary = {
     aligned: 0,
     blocked: 0,
@@ -38,7 +50,7 @@ export function createReport({
     safeAdditions: 0,
     unverifiable: 0,
   };
-  for (const delta of deltas) {
+  for (const delta of reportDeltas) {
     summary[SUMMARY_KEYS[delta.kind]] += 1;
     if (delta.safety.disposition === 'safe_addition') {
       summary.safeAdditions += 1;
@@ -49,7 +61,7 @@ export function createReport({
   }
   return {
     baseCommit,
-    deltas,
+    deltas: reportDeltas,
     generatedAt,
     manifestSha256,
     mode: 'report',

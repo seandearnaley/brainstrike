@@ -135,7 +135,13 @@ Vendor documentation is required for context, vision, output limits, reasoning
 controls, native tool-search behavior, tokenizer claims, and direct-provider
 pricing. Unknown required fields block; they are never inferred from a model
 name or another model in the same family. OpenRouter metadata cannot establish
-vendor reasoning controls.
+vendor reasoning controls. Evidence authority is derived from the checked-in
+source kind, never from an observation's self-claimed authority. In particular,
+OpenRouter route observations cannot establish authoritative drift for the
+vendor-owned context, output-limit, or vision fields of existing models.
+Promotion labels are evaluated only against the exact validated report/finding
+pairs in a disjoint report corpus; empty, duplicate, shared, missing, or
+invented provenance blocks promotion.
 
 An additive catalog proposal must preserve the static-literal
 `PROVIDER_DEFINITIONS` contract, update both migration runners, preserve user

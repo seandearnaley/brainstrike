@@ -4,6 +4,7 @@
     {
       "id": "anthropic-models-api",
       "adapter": "anthropic",
+      "sourceKind": "vendor-model-list-api",
       "providerId": "anthropic",
       "url": "https://api.anthropic.com/v1/models",
       "credential": {
@@ -19,6 +20,7 @@
     {
       "id": "google-models-api",
       "adapter": "google",
+      "sourceKind": "vendor-model-list-api",
       "providerId": "google",
       "url": "https://generativelanguage.googleapis.com/v1beta/models",
       "credential": {
@@ -34,6 +36,7 @@
     {
       "id": "openai-models-api",
       "adapter": "openai",
+      "sourceKind": "vendor-model-list-api",
       "providerId": "openai",
       "url": "https://api.openai.com/v1/models",
       "credential": {
@@ -49,6 +52,7 @@
     {
       "id": "openrouter-models-api",
       "adapter": "openrouter",
+      "sourceKind": "gateway-model-list-api",
       "providerId": "openrouter",
       "url": "https://openrouter.ai/api/v1/models",
       "credential": { "kind": "none" },

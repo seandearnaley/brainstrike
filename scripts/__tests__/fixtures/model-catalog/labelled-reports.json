@@ -1,6 +1,26 @@
-[
-  {"findingId":"a","label":"correct_actionable","reportId":"report-1"},
-  {"findingId":"b","label":"correct_actionable","reportId":"report-2"},
-  {"findingId":"c","label":"duplicate_noise","reportId":"report-3"},
-  {"findingId":"d","label":"ambiguous","reportId":"report-4"}
-]
+{
+  "reports": [
+    {
+      "reportId": "report-1",
+      "report": { "schemaVersion": 1, "mode": "report", "deltas": [{ "findingId": "a" }] }
+    },
+    {
+      "reportId": "report-2",
+      "report": { "schemaVersion": 1, "mode": "report", "deltas": [{ "findingId": "b" }] }
+    },
+    {
+      "reportId": "report-3",
+      "report": { "schemaVersion": 1, "mode": "report", "deltas": [{ "findingId": "c" }] }
+    },
+    {
+      "reportId": "report-4",
+      "report": { "schemaVersion": 1, "mode": "report", "deltas": [{ "findingId": "d" }] }
+    }
+  ],
+  "labels": [
+    { "findingId": "a", "label": "correct_actionable", "reportId": "report-1" },
+    { "findingId": "b", "label": "correct_actionable", "reportId": "report-2" },
+    { "findingId": "c", "label": "duplicate_noise", "reportId": "report-3" },
+    { "findingId": "d", "label": "ambiguous", "reportId": "report-4" }
+  ]
+}

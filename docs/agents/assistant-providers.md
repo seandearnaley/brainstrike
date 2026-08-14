@@ -320,6 +320,17 @@
   - packages/agent/src/providers/key-resolver.ts
   - packages/agent/src/providers/provider-factory.ts
   - User setup: docs/local-model-servers.md
+- The scheduled Model Catalog Updater treats checked-in `sourceKind` policy as
+  the authority boundary; an observation's own `authority` string is never a
+  grant. OpenRouter's gateway model-list remains route evidence even if a
+  captured payload forges `vendor`, so its context window, output limit, and
+  vision values may remain report leads but cannot create authoritative drift
+  against existing vendor-owned registry fields. Promotion evaluation consumes
+  validated report artifacts and external labels together. Report/finding pairs
+  must match exactly; report IDs and stable finding IDs form a disjoint corpus,
+  and empty, duplicate, shared, missing, or invented provenance blocks
+  promotion. Proposal authority remains disconnected during the report-only
+  pilot.
 - OpenRouter is configured through Mastra's `openrouter/<provider>/<model>`
   model-router IDs, not a generic `createOpenAI({ baseURL })` client. The
   official OpenRouter adapter preserves `providerMetadata.openrouter.usage.cost`;

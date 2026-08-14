@@ -76,6 +76,9 @@ export function parseProviderRegistry({ registrySource, importedStringConstants 
     true,
     ts.ScriptKind.TS
   );
+  if (file.parseDiagnostics.length > 0) {
+    throw new Error('registry source has TypeScript parse diagnostics');
+  }
   const constants = new Map(Object.entries(importedStringConstants));
   for (const statement of file.statements) {
     if (ts.isVariableStatement(statement)) {

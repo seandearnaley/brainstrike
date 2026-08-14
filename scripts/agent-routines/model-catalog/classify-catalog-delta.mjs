@@ -15,6 +15,7 @@ const DRIFT_FIELDS = new Set([
   'vision',
 ]);
 const VENDOR_OWNED_ADDITION_FIELDS = ['contextWindow', 'maxOutputTokens', 'vision'];
+const VENDOR_OWNED_FIELDS = new Set(VENDOR_OWNED_ADDITION_FIELDS);
 const RECENT_RELEASE_WINDOW_MS = 96 * 60 * 60 * 1000;
 const ORDER = [
   'aligned',
@@ -162,6 +163,8 @@ export function classifyCatalogDelta({ registry, evidence, sourceStatuses, manif
     const drift = [...fields.entries()].filter(
       ([name, item]) =>
         DRIFT_FIELDS.has(name) &&
+        (!VENDOR_OWNED_FIELDS.has(name) ||
+          item.evidence.some((entry) => entry.authority === 'vendor')) &&
         name in current.fields &&
         item.status === 'resolved' &&
         JSON.stringify(current.fields[name]) !== JSON.stringify(item.value)
