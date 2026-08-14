@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 import {
   assertLabeledReportPromotionReady,
   evaluateExternallyLabeledReport,
+  SHADOW_PROMOTION_POLICIES,
 } from '../agent-routines/shared/evaluation.mjs';
-import { createPromotionPolicy } from '../agent-routines/shared/policy.mjs';
 
 const fixturesDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -36,14 +36,9 @@ describe('externally labelled shadow report evaluation', () => {
 
   it('feeds external evaluation through shared promotion readiness', () => {
     const holdout = fixture('boundary-crash-fuzzer.json');
-    const policy = createPromotionPolicy({
-      maxDuplicateRate: 0.5,
-      maxNoiseRate: 0.5,
-      minimumPrecisionByRoutine: { 'boundary-crash-fuzzer': 0.5 },
-      minimumSamples: 4,
-    });
+    const policy = SHADOW_PROMOTION_POLICIES['boundary-crash-fuzzer'];
 
-    assert.doesNotThrow(() => assertLabeledReportPromotionReady(policy, holdout));
+    assert.throws(() => assertLabeledReportPromotionReady(policy, holdout), /not promotion-ready/u);
     delete holdout.labels[holdout.report.findings[0].fingerprint];
     assert.throws(
       () => assertLabeledReportPromotionReady(policy, holdout),

@@ -158,6 +158,7 @@ describe('scheduled-maintenance promotion readiness', () => {
       'contract-drift': 0.98,
       'model-catalog': 1,
     },
+    minimumReports: 10,
     minimumSamples: 20,
   });
   const readySummary = {
@@ -165,6 +166,7 @@ describe('scheduled-maintenance promotion readiness', () => {
     duplicateRate: 0.05,
     noiseRate: 0.1,
     precision: 1,
+    reportCount: 10,
     routineId: 'model-catalog',
     sampleCount: 20,
     unsafeFindings: 0,
@@ -198,6 +200,7 @@ describe('scheduled-maintenance promotion readiness', () => {
 
   it('blocks inadequate samples, unsafe findings, false positives, duplicates, noise, or precision', () => {
     const blockedSummaries = [
+      { ...readySummary, reportCount: 9 },
       { ...readySummary, sampleCount: 19 },
       { ...readySummary, criticalFalsePositives: 1 },
       { ...readySummary, unsafeFindings: 1 },

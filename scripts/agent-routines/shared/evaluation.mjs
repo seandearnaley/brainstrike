@@ -1,6 +1,20 @@
-import { assertPromotionReady } from './policy.mjs';
+import { assertPromotionReady, createPromotionPolicy } from './policy.mjs';
 
 const EXTERNAL_LABELS = new Set(['correct/actionable', 'duplicate/noise', 'ambiguous', 'unsafe']);
+export const SHADOW_PROMOTION_POLICIES = Object.freeze(
+  Object.fromEntries(
+    ['boundary-crash-fuzzer', 'mutation-gap-hardener'].map((routineId) => [
+      routineId,
+      createPromotionPolicy({
+        maxDuplicateRate: 0.1,
+        maxNoiseRate: 0.1,
+        minimumPrecisionByRoutine: { [routineId]: 0.9 },
+        minimumReports: 10,
+        minimumSamples: 10,
+      }),
+    ])
+  )
+);
 
 export function evaluateExternallyLabeledReport({ labels, report, routineId }) {
   if (
@@ -62,6 +76,7 @@ export function evaluateExternallyLabeledReport({ labels, report, routineId }) {
     duplicateRate: sampleCount === 0 ? 0 : counts.duplicateNoise / sampleCount,
     noiseRate: sampleCount === 0 ? 0 : counts.duplicateNoise / sampleCount,
     precision: precisionDenominator === 0 ? 0 : counts.actionable / precisionDenominator,
+    reportCount: sampleCount === 0 ? 0 : 1,
     routineId,
     sampleCount,
     unsafeFindings: counts.unsafe,

@@ -15,7 +15,8 @@ const calibrationPolicy = createPromotionPolicy({
   maxDuplicateRate: 0.05,
   maxNoiseRate: 0.1,
   minimumPrecisionByRoutine: { 'ci-flake-investigator': 0.98 },
-  minimumSamples: 1,
+  minimumReports: 10,
+  minimumSamples: 10,
 });
 
 export function loadUnitPartition(workflowText, shard) {
@@ -169,7 +170,11 @@ export function evaluateCiFlakeCalibration(report, labels) {
       throw new Error('flake report must contain exactly three ordered attempts per phase');
     }
   }
-  const summary = evaluateLabelledFindings('ci-flake-investigator', report.findings, labels);
+  return evaluateLabelledFindings('ci-flake-investigator', report.findings, labels);
+}
+
+export function assertCiFlakePromotionReady(report, labels) {
+  const summary = evaluateCiFlakeCalibration(report, labels);
   assertPromotionReady(calibrationPolicy, summary);
   return summary;
 }

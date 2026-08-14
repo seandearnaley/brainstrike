@@ -24,6 +24,49 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+### Scheduled repository-maintenance routines
+
+ADR-0004 owns the five-routine pilot. The workflows are deliberately independent:
+
+- `model-catalog-updater.yml`
+- `contract-drift-guardian.yml`
+- `ci-flake-investigator.yml`
+- `boundary-crash-fuzzer.yml`
+- `mutation-gap-hardener.yml`
+
+Their scheduled launch mode is read-only/report-only. They may write a workflow
+summary and a short-retention diagnostic artifact, but they must not create or
+update issues, branches, PRs, deployments, or repository state. Do not add a
+fleet router, generated routine registry, routing label, committed checkpoint,
+bulletin, or a workflow that supervises other routines.
+
+Promotion is per routine and fail-closed. Hermes evaluates historical-fixture,
+holdout, and live frozen-head reports, labels findings independently, and tunes
+only toward narrower evidence, lower noise, clearer grouping, or lower cadence.
+A routine cannot grade or promote itself from its own unevaluated output.
+Missing evaluation data, fewer than ten distinct non-empty evaluated reports,
+any critical unsafe finding, or a failed routine-specific precision/noise
+threshold keeps `propose-pr` unreachable. Findings from one noisy report cannot
+substitute for the report-count floor.
+
+Automatic tuning is monotonic and auditable. The shared tuner can only raise a
+confidence floor, lengthen a deduplication window, lower a finding cap, or
+shorten a recency window within fixed bounds; every change increments a
+revision and records its reason. Unknown tuning keys fail closed. When unsafe
+findings remain and every safe parameter is already at its bound, the tuner
+requires manual intervention instead of changing authority. Automatic tuning
+must never loosen evidence requirements, broaden file/command allowlists,
+suppress validator failures, weaken tests, or change production semantics. Even
+a promoted routine may propose at most one bounded PR and may never merge;
+fresh human merge authorization remains mandatory.
+
+The model updater's discovery sources do not share authority. OpenRouter can
+establish OpenRouter route availability, gateway pricing, and its published
+gateway metadata. Vendor-owned context/output limits, modality, reasoning,
+tool-search, tokenizer, and direct pricing require captured official vendor
+evidence. News is lead generation only. Unknown or conflicting required fields
+produce a blocked report, never an inferred catalog row.
+
 Desktop `workflow_dispatch` exposes a `suite` choice. `full` preserves the
 scheduled workflow exactly. `memory-baseline` skips the unrelated broad
 regression job and runs only the desktop embedding memory spec with no

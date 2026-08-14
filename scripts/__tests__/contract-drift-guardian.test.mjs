@@ -4,6 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  assertContractDriftPromotionReady,
   CONTRACT_COMMANDS,
   evaluateContractDriftCalibration,
   runContractDriftGuardian,
@@ -124,6 +125,14 @@ test('calibration consumes complete external labels and fails closed when one is
     { fingerprint: 'contract:test-scripts', label: 'correct-actionable' },
   ]);
   assert.equal(summary.precision, 1);
+  assert.equal(summary.reportCount, 1);
+  assert.throws(
+    () =>
+      assertContractDriftPromotionReady(report, [
+        { fingerprint: 'contract:test-scripts', label: 'correct-actionable' },
+      ]),
+    /not promotion-ready/u
+  );
   assert.throws(() => evaluateContractDriftCalibration(report, []), /missing external label/u);
 });
 

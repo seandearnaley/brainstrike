@@ -19,6 +19,7 @@
     "duplicateRate": 0.25,
     "noiseRate": 0.25,
     "precision": 0.3333333333333333,
+    "reportCount": 1,
     "routineId": "mutation-gap-hardener",
     "sampleCount": 4,
     "unsafeFindings": 1

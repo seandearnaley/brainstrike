@@ -19,7 +19,8 @@ const calibrationPolicy = createPromotionPolicy({
   maxDuplicateRate: 0.05,
   maxNoiseRate: 0.1,
   minimumPrecisionByRoutine: { 'contract-drift-guardian': 0.98 },
-  minimumSamples: 1,
+  minimumReports: 10,
+  minimumSamples: 10,
 });
 
 function classificationFor(outcome) {
@@ -120,7 +121,11 @@ export function evaluateContractDriftCalibration(report, labels) {
       throw new Error('contract report does not preserve exact command order');
     }
   }
-  const summary = evaluateLabelledFindings('contract-drift-guardian', report.findings, labels);
+  return evaluateLabelledFindings('contract-drift-guardian', report.findings, labels);
+}
+
+export function assertContractDriftPromotionReady(report, labels) {
+  const summary = evaluateContractDriftCalibration(report, labels);
   assertPromotionReady(calibrationPolicy, summary);
   return summary;
 }

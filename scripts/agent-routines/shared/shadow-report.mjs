@@ -51,6 +51,7 @@ export function evaluateLabelledFindings(routineId, findings, labels) {
     duplicateRate: total === 0 ? 0 : counts.noise / total,
     noiseRate: total === 0 ? 0 : (counts.noise + counts.ambiguous) / total,
     precision: judged === 0 ? 0 : counts.correct / judged,
+    reportCount: total === 0 ? 0 : 1,
     routineId,
     sampleCount: total,
     unsafeFindings: counts.unsafe,

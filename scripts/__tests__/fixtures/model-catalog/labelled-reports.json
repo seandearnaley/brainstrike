@@ -1,6 +1,6 @@
 [
-  {"findingId":"a","label":"correct_actionable"},
-  {"findingId":"b","label":"correct_actionable"},
-  {"findingId":"c","label":"duplicate_noise"},
-  {"findingId":"d","label":"ambiguous"}
+  {"findingId":"a","label":"correct_actionable","reportId":"report-1"},
+  {"findingId":"b","label":"correct_actionable","reportId":"report-2"},
+  {"findingId":"c","label":"duplicate_noise","reportId":"report-3"},
+  {"findingId":"d","label":"ambiguous","reportId":"report-4"}
 ]

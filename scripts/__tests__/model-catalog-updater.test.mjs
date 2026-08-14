@@ -3,7 +3,11 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { classifyCatalogDelta } from '../agent-routines/model-catalog/classify-catalog-delta.mjs';
-import { evaluateLabelledReports } from '../agent-routines/model-catalog/evaluator.mjs';
+import {
+  assertLabelledReportsPromotionReady,
+  evaluateLabelledReports,
+  MODEL_CATALOG_PROMOTION_POLICY,
+} from '../agent-routines/model-catalog/evaluator.mjs';
 import { buildEvidenceIndex } from '../agent-routines/model-catalog/evidence.mjs';
 import { parseProviderRegistry } from '../agent-routines/model-catalog/registry-reader.mjs';
 import { createReport, renderMarkdown } from '../agent-routines/model-catalog/report.mjs';
@@ -421,10 +425,15 @@ test('evaluation consumes external labels and missing labels fail closed', async
     duplicateRate: 0.25,
     noiseRate: 0.25,
     precision: 0.5,
+    reportCount: 4,
     routineId: 'model-catalog-updater',
     sampleCount: 4,
     unsafeFindings: 0,
   });
+  assert.throws(
+    () => assertLabelledReportsPromotionReady(MODEL_CATALOG_PROMOTION_POLICY, labelled),
+    /not promotion-ready/u
+  );
   assert.throws(
     () => evaluateLabelledReports([{ findingId: 'unlabelled' }]),
     /missing external label/u

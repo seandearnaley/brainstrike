@@ -4,6 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  assertCiFlakePromotionReady,
   classifyAttemptVector,
   evaluateCiFlakeCalibration,
   loadUnitPartition,
@@ -131,12 +132,11 @@ test('calibration requires an external label for every finding', () => {
       { attempts: [{}, {}, {}], phase: 'test:integration' },
     ],
   };
-  assert.equal(
-    evaluateCiFlakeCalibration(report, [
-      { fingerprint: 'flake:rest:test', label: 'correct-actionable' },
-    ]).precision,
-    1
-  );
+  const labels = [{ fingerprint: 'flake:rest:test', label: 'correct-actionable' }];
+  const summary = evaluateCiFlakeCalibration(report, labels);
+  assert.equal(summary.precision, 1);
+  assert.equal(summary.reportCount, 1);
+  assert.throws(() => assertCiFlakePromotionReady(report, labels), /not promotion-ready/u);
   assert.throws(() => evaluateCiFlakeCalibration(report, []), /missing external label/u);
 });
 
