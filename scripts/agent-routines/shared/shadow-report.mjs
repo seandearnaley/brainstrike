@@ -45,7 +45,22 @@ function canonicalJson(value, ancestors = new Set()) {
       ) {
         throw new Error('canonical JSON rejects sparse arrays and non-index array properties');
       }
-      return `[${value.map((item) => canonicalJson(item, ancestors)).join(',')}]`;
+      const items = [];
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (
+          !(
+            descriptor?.enumerable &&
+            descriptor.configurable &&
+            descriptor.writable &&
+            Object.hasOwn(descriptor, 'value')
+          )
+        ) {
+          throw new Error('canonical JSON rejects non-data array elements');
+        }
+        items.push(canonicalJson(descriptor.value, ancestors));
+      }
+      return `[${items.join(',')}]`;
     }
     if (Object.getPrototypeOf(value) !== Object.prototype) {
       throw new Error('canonical JSON rejects non-plain objects');

@@ -6,38 +6,43 @@
     "counts": {
       "executed": 2048,
       "expected": 2048,
-      "findings": 4
+      "findings": 4,
+      "unexpected": 0
     },
     "findings": [
       {
         "caseId": "path:0000:33f907fe",
-        "fingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
-        "kind": "boundary-counterexample"
+        "fingerprint": "78631c90632f36c7103677a24c3794388cf83e617d5f4f9d8b0b60a86eaeb0b1",
+        "kind": "boundary-counterexample",
+        "status": "failed"
       },
       {
         "caseId": "path:0001:73df01dd",
-        "fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
-        "kind": "boundary-counterexample"
+        "fingerprint": "5232c1b54051f1a7de5d3489fa5e0126c2a5a67479d61e99eecdeffd90239e73",
+        "kind": "boundary-counterexample",
+        "status": "failed"
       },
       {
         "caseId": "path:0002:ef79edcf",
-        "fingerprint": "3333333333333333333333333333333333333333333333333333333333333333",
-        "kind": "boundary-counterexample"
+        "fingerprint": "846bb19938e056e98e5be44a48c9106888b47630bcdfa70080e9a1ecbade2b50",
+        "kind": "boundary-counterexample",
+        "status": "failed"
       },
       {
         "caseId": "path:0003:8accf14f",
-        "fingerprint": "4444444444444444444444444444444444444444444444444444444444444444",
-        "kind": "boundary-counterexample"
+        "fingerprint": "ca45daeabcf0730794e658bd5b3d373c99ec5f2a3f3f9821216e6835e029152c",
+        "kind": "boundary-counterexample",
+        "status": "failed"
       }
     ],
     "routineId": "boundary-crash-fuzzer",
     "seed": 1112757330
   },
   "labels": {
-    "1111111111111111111111111111111111111111111111111111111111111111": "correct/actionable",
-    "2222222222222222222222222222222222222222222222222222222222222222": "correct/actionable",
-    "3333333333333333333333333333333333333333333333333333333333333333": "duplicate/noise",
-    "4444444444444444444444444444444444444444444444444444444444444444": "ambiguous"
+    "78631c90632f36c7103677a24c3794388cf83e617d5f4f9d8b0b60a86eaeb0b1": "correct/actionable",
+    "5232c1b54051f1a7de5d3489fa5e0126c2a5a67479d61e99eecdeffd90239e73": "correct/actionable",
+    "846bb19938e056e98e5be44a48c9106888b47630bcdfa70080e9a1ecbade2b50": "duplicate/noise",
+    "ca45daeabcf0730794e658bd5b3d373c99ec5f2a3f3f9821216e6835e029152c": "ambiguous"
   },
   "expectedSummary": {
     "criticalFalsePositives": 0,
@@ -49,5 +54,5 @@
     "sampleCount": 4,
     "unsafeFindings": 0
   },
-  "reportId": "9340a8a2dfbda3cc293f5351"
+  "reportId": "792967d21edab07d0ae7e7e8"
 }

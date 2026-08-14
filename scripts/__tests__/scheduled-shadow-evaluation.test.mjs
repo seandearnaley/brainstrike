@@ -13,6 +13,7 @@ import {
 import { canonicalReportId } from '../agent-routines/shared/shadow-report.mjs';
 import {
   BOUNDARY_FUZZ_SEED,
+  boundaryFindingFingerprint,
   createDeterministicCaseIds,
   validateBoundaryCrashReport,
 } from '../deterministic-boundary-crash-fuzzer.mjs';
@@ -31,16 +32,19 @@ function fixture(name) {
   return JSON.parse(readFileSync(path.join(fixturesDir, name), 'utf8'));
 }
 
-function boundaryReport(baseSha = 'a'.repeat(40), fingerprint = '1'.repeat(64)) {
+function boundaryReport(baseSha = 'a'.repeat(40)) {
+  const caseId = createDeterministicCaseIds()[0];
+  const status = 'failed';
   return {
     baseSha,
     classification: 'boundary-counterexample',
-    counts: { executed: 2048, expected: 2048, findings: 1 },
+    counts: { executed: 2048, expected: 2048, findings: 1, unexpected: 0 },
     findings: [
       {
-        caseId: createDeterministicCaseIds()[0],
-        fingerprint,
+        caseId,
+        fingerprint: boundaryFindingFingerprint(caseId, status),
         kind: 'boundary-counterexample',
+        status,
       },
     ],
     routineId: 'boundary-crash-fuzzer',
@@ -71,14 +75,19 @@ function mutationReport(baseSha = 'b'.repeat(40)) {
 }
 
 function labelledEvaluation({ baseSha, findings, routineId = 'boundary-crash-fuzzer' }) {
-  const reportFindings = findings.map((_, index) => ({
-    caseId: createDeterministicCaseIds()[index],
-    fingerprint: `${baseSha}${index.toString(16).padStart(24, '0')}`,
-    kind: 'boundary-counterexample',
-  }));
+  const reportFindings = findings.map((_, index) => {
+    const caseId = createDeterministicCaseIds()[index];
+    const status = `failed-${baseSha}-${index}`;
+    return {
+      caseId,
+      fingerprint: boundaryFindingFingerprint(caseId, status),
+      kind: 'boundary-counterexample',
+      status,
+    };
+  });
   const report = {
     ...boundaryReport(baseSha),
-    counts: { executed: 2048, expected: 2048, findings: reportFindings.length },
+    counts: { executed: 2048, expected: 2048, findings: reportFindings.length, unexpected: 0 },
     findings: reportFindings,
   };
   return {
@@ -149,6 +158,15 @@ describe('externally labelled shadow report evaluation', () => {
     sparse.length = 1;
     const symbolKeyed = { valid: true };
     symbolKeyed[Symbol('hidden')] = true;
+    const accessorArray = [];
+    Object.defineProperty(accessorArray, '0', {
+      configurable: true,
+      enumerable: true,
+      get: () => 'not JSON data',
+    });
+    accessorArray.length = 1;
+    const nonEnumerableArray = ['hidden'];
+    Object.defineProperty(nonEnumerableArray, '0', { enumerable: false });
 
     for (const value of [
       undefined,
@@ -166,6 +184,8 @@ describe('externally labelled shadow report evaluation', () => {
       new Map(),
       Object.create(null),
       symbolKeyed,
+      accessorArray,
+      nonEnumerableArray,
     ]) {
       assert.throws(() => canonicalReportId(value), /canonical JSON/u);
     }
@@ -230,9 +250,9 @@ describe('externally labelled shadow report evaluation', () => {
   });
 
   it('rejects repeated shared finding fingerprints across the report corpus', () => {
-    const sharedFingerprint = 'f'.repeat(64);
     const evaluation = (baseSha) => {
-      const report = boundaryReport(baseSha, sharedFingerprint);
+      const report = boundaryReport(baseSha);
+      const sharedFingerprint = report.findings[0].fingerprint;
       return {
         labels: { [sharedFingerprint]: 'correct/actionable' },
         report,

@@ -11,6 +11,15 @@ const SUMMARY_KEYS = {
 };
 const DELTA_KINDS = new Set(Object.keys(SUMMARY_KEYS));
 const SAFETY_DISPOSITIONS = new Set(['blocked', 'report_only', 'safe_addition']);
+const DISPOSITIONS_BY_KIND = {
+  aligned: new Set(['report_only']),
+  conflict: new Set(['blocked']),
+  field_drift: new Set(['report_only']),
+  ignored: new Set(['report_only']),
+  registry_missing_remote: new Set(['report_only']),
+  remote_addition_candidate: new Set(['blocked', 'report_only', 'safe_addition']),
+  unverifiable: new Set(['blocked']),
+};
 const SOURCE_STATUSES = new Set(['failed', 'skipped_missing_secret', 'success']);
 const SUMMARY_FIELDS = [
   'aligned',
@@ -110,6 +119,7 @@ export function validateModelCatalogReport(report) {
       (hasField && (typeof delta.field !== 'string' || delta.field.length === 0)) ||
       !hasExactKeys(delta.safety, ['disposition', 'reasons']) ||
       !SAFETY_DISPOSITIONS.has(delta.safety.disposition) ||
+      !DISPOSITIONS_BY_KIND[delta.kind].has(delta.safety.disposition) ||
       !Array.isArray(delta.safety.reasons) ||
       delta.safety.reasons.some((reason) => typeof reason !== 'string' || reason.length === 0) ||
       delta.findingId !== modelCatalogFindingId(delta) ||

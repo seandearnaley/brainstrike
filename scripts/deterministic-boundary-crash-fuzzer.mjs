@@ -82,7 +82,7 @@ export function validateBoundaryCrashReport(report) {
     report.routineId !== 'boundary-crash-fuzzer' ||
     report.seed !== BOUNDARY_FUZZ_SEED ||
     !BOUNDARY_CLASSIFICATIONS.has(report.classification) ||
-    !hasExactKeys(report.counts, ['executed', 'expected', 'findings']) ||
+    !hasExactKeys(report.counts, ['executed', 'expected', 'findings', 'unexpected']) ||
     !Object.values(report.counts).every((count) => Number.isSafeInteger(count) && count >= 0) ||
     report.counts.expected !== EXPECTED_CASE_COUNT ||
     report.counts.executed > report.counts.expected ||
@@ -96,10 +96,13 @@ export function validateBoundaryCrashReport(report) {
   const caseIds = new Set();
   for (const finding of report.findings) {
     if (
-      !hasExactKeys(finding, ['caseId', 'fingerprint', 'kind']) ||
+      !hasExactKeys(finding, ['caseId', 'fingerprint', 'kind', 'status']) ||
       finding.kind !== 'boundary-counterexample' ||
       !EXPECTED_CASE_IDS.has(finding.caseId) ||
-      !/^[0-9a-f]{64}$/u.test(finding.fingerprint) ||
+      typeof finding.status !== 'string' ||
+      finding.status.length === 0 ||
+      finding.status === 'passed' ||
+      finding.fingerprint !== boundaryFindingFingerprint(finding.caseId, finding.status) ||
       fingerprints.has(finding.fingerprint) ||
       caseIds.has(finding.caseId)
     ) {
@@ -111,9 +114,13 @@ export function validateBoundaryCrashReport(report) {
 
   if (
     (report.classification === 'boundary-counterexample' &&
-      (report.counts.executed !== report.counts.expected || report.findings.length === 0)) ||
+      (report.counts.executed !== report.counts.expected ||
+        report.counts.unexpected !== 0 ||
+        report.findings.length === 0)) ||
     (report.classification === 'no-change' &&
-      (report.counts.executed !== report.counts.expected || report.counts.findings !== 0)) ||
+      (report.counts.executed !== report.counts.expected ||
+        report.counts.unexpected !== 0 ||
+        report.counts.findings !== 0)) ||
     (report.classification === 'parser-process-crash' &&
       (report.counts.findings !== 0 || report.findings.length !== 0))
   ) {
@@ -124,6 +131,10 @@ export function validateBoundaryCrashReport(report) {
 
 function fingerprint(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+export function boundaryFindingFingerprint(caseId, status) {
+  return fingerprint(`${caseId}:${status}`);
 }
 
 function collectAssertions(report) {
@@ -168,10 +179,12 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
       }
       seen.add(caseId);
       if (assertion.status !== 'passed') {
+        const status = assertion.status ?? 'unknown';
         findings.push({
           caseId,
-          fingerprint: fingerprint(`${caseId}:${assertion.status ?? 'unknown'}`),
+          fingerprint: boundaryFindingFingerprint(caseId, status),
           kind: 'boundary-counterexample',
+          status,
         });
       }
     }
