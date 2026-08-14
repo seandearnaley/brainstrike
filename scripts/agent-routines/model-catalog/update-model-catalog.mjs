@@ -69,7 +69,7 @@ export async function runReport({
   return {
     report,
     requiredSourceFailed: statuses.some(
-      ({ sourceId, status }) => sourceId === 'openrouter-models-api' && status !== 'success'
+      ({ required, status }) => required === true && status !== 'success'
     ),
   };
 }

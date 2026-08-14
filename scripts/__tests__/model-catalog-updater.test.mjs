@@ -11,10 +11,7 @@ import {
 import { buildEvidenceIndex } from '../agent-routines/model-catalog/evidence.mjs';
 import { parseProviderRegistry } from '../agent-routines/model-catalog/registry-reader.mjs';
 import { createReport, renderMarkdown } from '../agent-routines/model-catalog/report.mjs';
-import {
-  planSafeAddition,
-  renderSafeAdditionEdits,
-} from '../agent-routines/model-catalog/safe-addition-plan.mjs';
+import { planSafeAddition } from '../agent-routines/model-catalog/safe-addition-plan.mjs';
 import {
   loadSourceManifest,
   validateSourceManifest,
@@ -31,6 +28,10 @@ test('validates the checked-in source policy and rejects unsafe approval policy'
   assert.deepEqual(
     manifest.sources.map(({ adapter }) => adapter),
     ['anthropic', 'google', 'openai', 'openrouter']
+  );
+  assert.deepEqual(
+    manifest.sources.map(({ required }) => required),
+    [false, false, false, true]
   );
   assert.throws(
     () =>
@@ -73,9 +74,12 @@ test('normalizes OpenRouter structured fields with field-level provenance', asyn
     source,
   });
   assert.equal(result.status, 'success');
-  assert.deepEqual(calls, [
-    { init: { headers: { accept: 'application/json' }, method: 'GET' }, url: source.url },
-  ]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, source.url);
+  assert.equal(calls[0].init.method, 'GET');
+  assert.deepEqual(calls[0].init.headers, { accept: 'application/json' });
+  assert.ok(calls[0].init.signal instanceof AbortSignal);
+  assert.equal(calls[0].init.signal.aborted, false);
   const model = result.observation.models[0];
   assert.equal(model.fields.contextWindow.value, 200_000);
   assert.equal(model.fields.pricing.value.inputPerMTok, 3);
@@ -217,9 +221,63 @@ test('missing provider credentials are visible and never become empty observatio
       now,
       source,
     });
-    assert.deepEqual(result, { sourceId: source.id, status: 'skipped_missing_secret' });
+    assert.deepEqual(result, {
+      required: false,
+      sourceId: source.id,
+      status: 'skipped_missing_secret',
+    });
     assert.equal('observation' in result, false);
   }
+});
+
+test('rejects unbounded, control-bearing, and non-grammar upstream model IDs', async () => {
+  const source = (await loadSourceManifest()).sources.at(-1);
+  for (const modelId of [
+    'anthropic/bad|id',
+    'anthropic/bad`id',
+    'anthropic/bad\nheading',
+    'anthropic//bad',
+    `anthropic/${'x'.repeat(300)}`,
+  ]) {
+    const payload = structuredClone(fixture);
+    payload.data[0].id = modelId;
+    const result = await fetchSource({
+      credential: undefined,
+      fetchImpl: async () => new Response(JSON.stringify(payload), { status: 200 }),
+      now,
+      source,
+    });
+    assert.equal(result.status, 'failed', modelId);
+    assert.match(result.error, /invalid model ID/u);
+  }
+});
+
+test('source requests abort at their configured deadline', async () => {
+  const source = (await loadSourceManifest()).sources.at(-1);
+  let observedSignal;
+  const result = await fetchSource({
+    credential: undefined,
+    fetchImpl: async (_url, init) => {
+      observedSignal = init.signal;
+      return await new Promise((resolve, reject) => {
+        const fallback = setTimeout(
+          () => resolve(new Response(JSON.stringify(fixture), { status: 200 })),
+          100
+        );
+        init.signal?.addEventListener('abort', () => {
+          clearTimeout(fallback);
+          reject(init.signal.reason);
+        });
+      });
+    },
+    now,
+    source,
+    timeoutMs: 5,
+  });
+  assert.ok(observedSignal instanceof AbortSignal);
+  assert.equal(observedSignal.aborted, true);
+  assert.equal(result.status, 'failed');
+  assert.match(result.error, /timed out/u);
 });
 
 test('source failures redact real credentials without corrupting unauthenticated diagnostics', async () => {
@@ -279,9 +337,21 @@ test('AST-reads the real static literal registry and rejects computed catalog sh
       }),
     /array literal/u
   );
+  for (const registrySource of [
+    "const PROVIDER_DEFINITIONS = [{ id: 'p', models: [{ id: 'm', label: makeLabel(), type: 'llm' }] }];",
+    "const PROVIDER_DEFINITIONS = [{ id: 'p', models: [{ id: UNKNOWN, type: 'llm' }] }];",
+    "const PROVIDER_DEFINITIONS = [{ id: 'p', models: [{ ['id']: 'm', type: 'llm' }] }];",
+    "const extra = {}; const PROVIDER_DEFINITIONS = [{ id: 'p', models: [{ ...extra, id: 'm', type: 'llm' }] }];",
+    "const PROVIDER_DEFINITIONS = [{ id: 'p', models: [{ id: 'm', id: 'other', type: 'llm' }] }];",
+  ]) {
+    assert.throws(
+      () => parseProviderRegistry({ registrySource }),
+      /unsupported|duplicate|unresolved/u
+    );
+  }
 });
 
-test('classifies approved completeness deterministically and reports unknown required fields', async () => {
+test('OpenRouter-only evidence cannot authorize vendor-owned catalog fields', async () => {
   const source = {
     ...(await loadSourceManifest()).sources.at(-1),
     safeAddition: { approvedModelIds: ['anthropic/claude-test'], eligible: true },
@@ -311,7 +381,11 @@ test('classifies approved completeness deterministically and reports unknown req
     deltas.map(({ kind }) => kind),
     ['remote_addition_candidate', 'registry_missing_remote']
   );
-  assert.equal(deltas[0].safety.disposition, 'safe_addition');
+  assert.equal(deltas[0].safety.disposition, 'report_only');
+  assert.match(
+    deltas[0].safety.reasons.join(' '),
+    /first-party vendor evidence.*contextWindow.*maxOutputTokens.*vision/u
+  );
   const incomplete = structuredClone(fetched.observation);
   incomplete.models[0].fields = Object.fromEntries(
     Object.entries(incomplete.models[0].fields).filter(([name]) => name !== 'vision')
@@ -328,6 +402,34 @@ test('classifies approved completeness deterministically and reports unknown req
   });
   assert.equal(blocked[0].kind, 'unverifiable');
   assert.match(blocked[0].safety.reasons.join(' '), /vision/u);
+});
+
+test('safeAddition.eligible false blocks classification even with exact approval', async () => {
+  const source = {
+    ...(await loadSourceManifest()).sources.at(-1),
+    safeAddition: { approvedModelIds: ['anthropic/claude-test'], eligible: false },
+  };
+  const fetched = await fetchSource({
+    credential: undefined,
+    fetchImpl: async () => new Response(JSON.stringify(fixture), { status: 200 }),
+    now,
+    source,
+  });
+  for (const field of ['contextWindow', 'maxOutputTokens', 'vision']) {
+    fetched.observation.models[0].fields[field].authority = 'vendor';
+  }
+  const deltas = classifyCatalogDelta({
+    evidence: buildEvidenceIndex({
+      now: now(),
+      observations: [fetched.observation],
+      sourcePolicies: new Map([[source.id, source]]),
+    }),
+    manifest: { schemaVersion: 1, sources: [source] },
+    registry: { models: [], providerCounts: {} },
+    sourceStatuses: [fetched],
+  });
+  assert.equal(deltas[0].safety.disposition, 'report_only');
+  assert.match(deltas[0].safety.reasons.join(' '), /source is not eligible for safe additions/u);
 });
 
 test('suppresses historical inventory and floating aliases while preserving recent release leads', async () => {
@@ -407,12 +509,38 @@ test('renders stable JSON-derived Markdown', () => {
     generatedAt: now().toISOString(),
     manifestSha256: 'sha256:x',
     registry: { models: [], providerCounts: {} },
-    sources: [{ sourceId: 'x', status: 'skipped_missing_secret' }],
+    sources: [{ required: false, sourceId: 'x', status: 'skipped_missing_secret' }],
   });
   assert.equal(report.summary.aligned, 0);
   const markdown = renderMarkdown(report);
-  assert.match(markdown, /incomplete.*missing credentials/iu);
+  assert.match(
+    markdown,
+    /complete.*optional sources were skipped because credentials are absent/iu
+  );
   assert.equal(renderMarkdown(report), markdown);
+});
+
+test('required failures remain incomplete and Markdown escapes all external identifiers', () => {
+  const report = createReport({
+    baseCommit: 'a'.repeat(40),
+    deltas: [
+      {
+        kind: 'remote_addition_candidate',
+        modelId: 'model`\n## injected',
+        providerId: 'provider|cell',
+        safety: { disposition: 'report_only', reasons: [] },
+      },
+    ],
+    generatedAt: now().toISOString(),
+    manifestSha256: 'sha256:x',
+    registry: { models: [], providerCounts: {} },
+    sources: [{ required: true, sourceId: 'required|source', status: 'failed' }],
+  });
+  const markdown = renderMarkdown(report);
+  assert.match(markdown, /Incomplete.*required source failed/u);
+  assert.doesNotMatch(markdown, /\n## injected/u);
+  assert.match(markdown, /required\\\|source/u);
+  assert.match(markdown, /provider\\\|cell/u);
 });
 
 test('evaluation consumes external labels and missing labels fail closed', async () => {
@@ -440,7 +568,7 @@ test('evaluation consumes external labels and missing labels fail closed', async
   );
 });
 
-test('safe-addition seam requires exact approval and only renders guarded non-writing additions', async () => {
+test('safe-addition seam requires eligibility and returns evidence only', async () => {
   const source = {
     ...(await loadSourceManifest()).sources.at(-1),
     safeAddition: { approvedModelIds: ['anthropic/claude-test'], eligible: true },
@@ -458,23 +586,17 @@ test('safe-addition seam requires exact approval and only renders guarded non-wr
     manifest: { schemaVersion: 1, sources: [source] },
     nextMigrationVersion: 73,
   });
-  assert.equal(plan.operation, 'PLAN');
+  assert.equal(plan.operation, 'EVIDENCE_PLAN');
+  assert.equal(plan.writes, false);
   assert.equal(plan.defaults.isEnabled, false);
   assert.equal(plan.defaults.default, undefined);
-  assert.ok(plan.paths.every((path) => !path.includes('preferences')));
-  const files = new Map(
-    plan.paths
-      .filter((path) => !path.includes('migration-073'))
-      .map((path) => [path, `original:${path}\n`])
-  );
-  const bundle = renderSafeAdditionEdits({ files, plan });
-  assert.equal(bundle.baseCommit, 'b'.repeat(40));
-  assert.equal(bundle.edits.length, 5);
-  assert.ok(
-    bundle.edits
-      .filter(({ expectedSha256 }) => expectedSha256 !== null)
-      .every(({ expectedSha256 }) => /^[0-9a-f]{64}$/u.test(expectedSha256))
-  );
+  assert.deepEqual(plan.requiredHumanWork, [
+    'author and review static registry entry',
+    'author both migration registrations and faithful down migration',
+    'author and run real PGlite migration coverage',
+  ]);
+  assert.equal('paths' in plan, false);
+  assert.equal('edits' in plan, false);
   assert.throws(
     () =>
       planSafeAddition({
@@ -484,6 +606,19 @@ test('safe-addition seam requires exact approval and only renders guarded non-wr
         nextMigrationVersion: 73,
       }),
     /approvedModelIds/u
+  );
+  assert.throws(
+    () =>
+      planSafeAddition({
+        baseCommit: 'b'.repeat(40),
+        candidate,
+        manifest: {
+          schemaVersion: 1,
+          sources: [{ ...source, safeAddition: { ...source.safeAddition, eligible: false } }],
+        },
+        nextMigrationVersion: 73,
+      }),
+    /eligible/u
   );
 });
 

@@ -1,13 +1,24 @@
 import ts from 'typescript';
 
-function property(object, name) {
-  return object.properties.find(
-    (item) =>
-      ts.isPropertyAssignment(item) &&
-      (ts.isIdentifier(item.name) || ts.isStringLiteral(item.name)) &&
-      item.name.text === name
-  );
+function propertyMap(object, at) {
+  const result = new Map();
+  for (const item of object.properties) {
+    if (
+      !(
+        ts.isPropertyAssignment(item) &&
+        (ts.isIdentifier(item.name) || ts.isStringLiteral(item.name))
+      )
+    ) {
+      throw new Error(`unsupported computed/spread/shorthand registry shape at ${at}`);
+    }
+    if (result.has(item.name.text)) {
+      throw new Error(`duplicate registry field at ${at}/${item.name.text}`);
+    }
+    result.set(item.name.text, item);
+  }
+  return result;
 }
+
 function evaluate(node, constants) {
   if (ts.isStringLiteralLike(node)) {
     return node.text;
@@ -24,7 +35,10 @@ function evaluate(node, constants) {
   if (node.kind === ts.SyntaxKind.NullKeyword) {
     return null;
   }
-  if (ts.isIdentifier(node) && constants.has(node.text)) {
+  if (ts.isIdentifier(node)) {
+    if (!constants.has(node.text)) {
+      throw new Error(`unresolved registry initializer: ${node.text}`);
+    }
     return constants.get(node.text);
   }
   if (ts.isArrayLiteralExpression(node)) {
@@ -32,21 +46,28 @@ function evaluate(node, constants) {
   }
   if (ts.isObjectLiteralExpression(node)) {
     return Object.fromEntries(
-      node.properties.map((item) => {
-        if (
-          !(
-            ts.isPropertyAssignment(item) &&
-            (ts.isIdentifier(item.name) || ts.isStringLiteral(item.name))
-          )
-        ) {
-          throw new Error('computed/spread registry field is forbidden');
-        }
-        return [item.name.text, evaluate(item.initializer, constants)];
-      })
+      [...propertyMap(node, 'evaluated object')].map(([name, item]) => [
+        name,
+        evaluate(item.initializer, constants),
+      ])
     );
   }
-  return;
+  throw new Error(`unsupported registry initializer: ${ts.SyntaxKind[node.kind]}`);
 }
+
+function unwrapExpression(node) {
+  let current = node;
+  while (
+    current &&
+    (ts.isAsExpression(current) ||
+      ts.isSatisfiesExpression(current) ||
+      ts.isParenthesizedExpression(current))
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
 export function parseProviderRegistry({ registrySource, importedStringConstants = {} }) {
   const file = ts.createSourceFile(
     'provider-registry.ts',
@@ -74,29 +95,29 @@ export function parseProviderRegistry({ registrySource, importedStringConstants 
     if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
         if (ts.isIdentifier(declaration.name) && declaration.name.text === 'PROVIDER_DEFINITIONS') {
+          if (definitions) {
+            throw new Error('duplicate PROVIDER_DEFINITIONS declaration');
+          }
           definitions = declaration.initializer;
         }
       }
     }
   }
-  if (definitions && ts.isAsExpression(definitions)) {
-    definitions = definitions.expression;
-  }
-  if (definitions && ts.isSatisfiesExpression(definitions)) {
-    definitions = definitions.expression;
-  }
+  definitions = unwrapExpression(definitions);
   if (!(definitions && ts.isArrayLiteralExpression(definitions))) {
     throw new Error('PROVIDER_DEFINITIONS must be an array literal');
   }
   const models = [];
   const ids = new Set();
+  const providerIds = new Set();
   const providerCounts = {};
-  for (const providerNode of definitions.elements) {
+  for (const [providerIndex, providerNode] of definitions.elements.entries()) {
     if (!ts.isObjectLiteralExpression(providerNode)) {
       throw new Error('provider must be an object literal');
     }
-    const idNode = property(providerNode, 'id');
-    const modelsNode = property(providerNode, 'models');
+    const providerProperties = propertyMap(providerNode, `provider ${providerIndex}`);
+    const idNode = providerProperties.get('id');
+    const modelsNode = providerProperties.get('models');
     if (!(idNode && modelsNode && ts.isArrayLiteralExpression(modelsNode.initializer))) {
       throw new Error('provider models must be an array literal');
     }
@@ -104,11 +125,16 @@ export function parseProviderRegistry({ registrySource, importedStringConstants 
     if (typeof providerId !== 'string') {
       throw new Error('provider ID must resolve to string');
     }
+    if (providerIds.has(providerId)) {
+      throw new Error(`duplicate provider ID: ${providerId}`);
+    }
+    providerIds.add(providerId);
     providerCounts[providerId] = modelsNode.initializer.elements.length;
-    for (const modelNode of modelsNode.initializer.elements) {
+    for (const [modelIndex, modelNode] of modelsNode.initializer.elements.entries()) {
       if (!ts.isObjectLiteralExpression(modelNode)) {
         throw new Error('model must be an object literal');
       }
+      const modelProperties = propertyMap(modelNode, `provider ${providerId}/model ${modelIndex}`);
       const fields = {};
       for (const name of [
         'id',
@@ -122,7 +148,7 @@ export function parseProviderRegistry({ registrySource, importedStringConstants 
         'reasoning',
         'default',
       ]) {
-        const node = property(modelNode, name);
+        const node = modelProperties.get(name);
         if (node) {
           fields[name] = evaluate(node.initializer, constants);
         }

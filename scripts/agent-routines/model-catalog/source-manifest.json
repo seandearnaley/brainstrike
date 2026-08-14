@@ -1,9 +1,63 @@
 {
   "schemaVersion": 1,
   "sources": [
-    {"id":"anthropic-models-api","adapter":"anthropic","providerId":"anthropic","url":"https://api.anthropic.com/v1/models","credential":{"kind":"anthropic-env","env":"BRAINSTRIKE_MODEL_CATALOG_ANTHROPIC_API_KEY"},"catalogCompleteness":"presence-only","maxObservationAgeHours":36,"enabled":true,"safeAddition":{"eligible":false}},
-    {"id":"google-models-api","adapter":"google","providerId":"google","url":"https://generativelanguage.googleapis.com/v1beta/models","credential":{"kind":"google-env","env":"BRAINSTRIKE_MODEL_CATALOG_GOOGLE_API_KEY"},"catalogCompleteness":"presence-only","maxObservationAgeHours":36,"enabled":true,"safeAddition":{"eligible":false}},
-    {"id":"openai-models-api","adapter":"openai","providerId":"openai","url":"https://api.openai.com/v1/models","credential":{"kind":"bearer-env","env":"BRAINSTRIKE_MODEL_CATALOG_OPENAI_API_KEY"},"catalogCompleteness":"presence-only","maxObservationAgeHours":36,"enabled":true,"safeAddition":{"eligible":false}},
-    {"id":"openrouter-models-api","adapter":"openrouter","providerId":"openrouter","url":"https://openrouter.ai/api/v1/models","credential":{"kind":"none"},"catalogCompleteness":"exhaustive","maxObservationAgeHours":36,"enabled":true,"streamingPolicy":true,"safeAddition":{"eligible":true,"approvedModelIds":[]}}
+    {
+      "id": "anthropic-models-api",
+      "adapter": "anthropic",
+      "providerId": "anthropic",
+      "url": "https://api.anthropic.com/v1/models",
+      "credential": {
+        "kind": "anthropic-env",
+        "env": "BRAINSTRIKE_MODEL_CATALOG_ANTHROPIC_API_KEY"
+      },
+      "catalogCompleteness": "presence-only",
+      "maxObservationAgeHours": 36,
+      "enabled": true,
+      "required": false,
+      "safeAddition": { "eligible": false }
+    },
+    {
+      "id": "google-models-api",
+      "adapter": "google",
+      "providerId": "google",
+      "url": "https://generativelanguage.googleapis.com/v1beta/models",
+      "credential": {
+        "kind": "google-env",
+        "env": "BRAINSTRIKE_MODEL_CATALOG_GOOGLE_API_KEY"
+      },
+      "catalogCompleteness": "presence-only",
+      "maxObservationAgeHours": 36,
+      "enabled": true,
+      "required": false,
+      "safeAddition": { "eligible": false }
+    },
+    {
+      "id": "openai-models-api",
+      "adapter": "openai",
+      "providerId": "openai",
+      "url": "https://api.openai.com/v1/models",
+      "credential": {
+        "kind": "bearer-env",
+        "env": "BRAINSTRIKE_MODEL_CATALOG_OPENAI_API_KEY"
+      },
+      "catalogCompleteness": "presence-only",
+      "maxObservationAgeHours": 36,
+      "enabled": true,
+      "required": false,
+      "safeAddition": { "eligible": false }
+    },
+    {
+      "id": "openrouter-models-api",
+      "adapter": "openrouter",
+      "providerId": "openrouter",
+      "url": "https://openrouter.ai/api/v1/models",
+      "credential": { "kind": "none" },
+      "catalogCompleteness": "exhaustive",
+      "maxObservationAgeHours": 36,
+      "enabled": true,
+      "required": true,
+      "streamingPolicy": true,
+      "safeAddition": { "eligible": true, "approvedModelIds": [] }
+    }
   ]
 }

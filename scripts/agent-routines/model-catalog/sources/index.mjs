@@ -3,6 +3,15 @@ import { createHash } from 'node:crypto';
 const sha = (value) => `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 const KNOWN_INPUT_MODALITIES = new Set(['audio', 'file', 'image', 'text', 'video']);
 const KNOWN_OUTPUT_MODALITIES = new Set(['audio', 'image', 'text']);
+const MODEL_ID = /^~?[A-Za-z0-9][A-Za-z0-9._:+-]*(?:\/[A-Za-z0-9][A-Za-z0-9._:+-]*)*$/u;
+const MAX_MODEL_ID_LENGTH = 256;
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const validModelId = (value, requireRoutePrefix = false) =>
+  typeof value === 'string' &&
+  value.length > 0 &&
+  value.length <= MAX_MODEL_ID_LENGTH &&
+  MODEL_ID.test(value) &&
+  (!requireRoutePrefix || value.includes('/'));
 const cleanUrl = (url) => {
   const result = new URL(url);
   result.search = '';
@@ -43,7 +52,7 @@ function normalizeOpenRouter(payload, source, retrievedAt) {
   }
   const seen = new Set();
   return payload.data.map((raw, index) => {
-    if (!raw || typeof raw.id !== 'string' || seen.has(raw.id)) {
+    if (!(raw && validModelId(raw.id, true)) || seen.has(raw.id)) {
       throw new Error('duplicate or invalid model ID');
     }
     seen.add(raw.id);
@@ -148,9 +157,15 @@ function normalizeOpenRouter(payload, source, retrievedAt) {
     };
   });
 }
-export async function fetchSource({ source, credential, fetchImpl, now }) {
+export async function fetchSource({
+  source,
+  credential,
+  fetchImpl,
+  now,
+  timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+}) {
   if (source.credential.kind !== 'none' && !credential) {
-    return { sourceId: source.id, status: 'skipped_missing_secret' };
+    return { required: source.required, sourceId: source.id, status: 'skipped_missing_secret' };
   }
   const headers = { accept: 'application/json' };
   if (source.adapter === 'openai') {
@@ -164,8 +179,16 @@ export async function fetchSource({ source, credential, fetchImpl, now }) {
   if (source.adapter === 'google') {
     url = `${source.url}?key=${encodeURIComponent(credential)}`;
   }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('source request timeout must be a positive safe integer');
+  }
+  const controller = new AbortController();
+  const deadline = setTimeout(
+    () => controller.abort(new Error(`source request timed out after ${timeoutMs}ms`)),
+    timeoutMs
+  );
   try {
-    const response = await fetchImpl(url, { headers, method: 'GET' });
+    const response = await fetchImpl(url, { headers, method: 'GET', signal: controller.signal });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -184,6 +207,7 @@ export async function fetchSource({ source, credential, fetchImpl, now }) {
         retrievedAt,
         sourceId: source.id,
       },
+      required: source.required,
       sourceId: source.id,
       status: 'success',
     };
@@ -191,9 +215,12 @@ export async function fetchSource({ source, credential, fetchImpl, now }) {
     const message = error instanceof Error ? error.message : 'unknown source failure';
     return {
       error: credential ? message.replaceAll(credential, '[redacted]') : message,
+      required: source.required,
       sourceId: source.id,
       status: 'failed',
     };
+  } finally {
+    clearTimeout(deadline);
   }
 }
 function normalizePresence(payload, source, retrievedAt) {
@@ -204,7 +231,7 @@ function normalizePresence(payload, source, retrievedAt) {
   const seen = new Set();
   return rows.map((row, index) => {
     const id = source.adapter === 'google' ? row.name?.replace(/^models\//u, '') : row.id;
-    if (typeof id !== 'string' || seen.has(id)) {
+    if (!validModelId(id) || seen.has(id)) {
       throw new Error('duplicate or invalid model ID');
     }
     seen.add(id);

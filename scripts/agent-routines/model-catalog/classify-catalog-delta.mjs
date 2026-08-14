@@ -14,6 +14,7 @@ const DRIFT_FIELDS = new Set([
   'type',
   'vision',
 ]);
+const VENDOR_OWNED_ADDITION_FIELDS = ['contextWindow', 'maxOutputTokens', 'vision'];
 const RECENT_RELEASE_WINDOW_MS = 96 * 60 * 60 * 1000;
 const ORDER = [
   'aligned',
@@ -74,6 +75,11 @@ export function classifyCatalogDelta({ registry, evidence, sourceStatuses, manif
       );
       const collision = globalIds.get(modelId);
       const approved = source?.safeAddition?.approvedModelIds?.includes(modelId) === true;
+      const eligible = source?.safeAddition?.eligible === true;
+      const missingVendorAuthority = VENDOR_OWNED_ADDITION_FIELDS.filter((name) => {
+        const item = fields.get(name);
+        return !item?.evidence.some((entry) => entry.authority === 'vendor');
+      });
       const createdAt = fields.get('createdAt')?.value;
       const observedAt = fields.get('id')?.evidence?.[0]?.retrievedAt;
       const releaseAge =
@@ -112,7 +118,9 @@ export function classifyCatalogDelta({ registry, evidence, sourceStatuses, manif
         providerId === 'openrouter' &&
         source?.catalogCompleteness === 'exhaustive' &&
         source.streamingPolicy === true &&
+        eligible &&
         approved &&
+        missingVendorAuthority.length === 0 &&
         !collision &&
         missing.length === 0 &&
         routeCompatible &&
@@ -120,6 +128,10 @@ export function classifyCatalogDelta({ registry, evidence, sourceStatuses, manif
         fresh;
       const reasons = [
         ...missing.map((name) => `unknown required field: ${name}`),
+        ...(missingVendorAuthority.length
+          ? [`first-party vendor evidence is required for: ${missingVendorAuthority.join(', ')}`]
+          : []),
+        ...(eligible ? [] : ['source is not eligible for safe additions']),
         ...(approved ? [] : ['model ID is not explicitly approved']),
         ...(collision ? [`global ID collision with ${collision}`] : []),
         ...(unsupportedInputs.length

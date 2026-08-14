@@ -9,6 +9,7 @@ const SOURCE_KEYS = new Set([
   'id',
   'maxObservationAgeHours',
   'providerId',
+  'required',
   'safeAddition',
   'streamingPolicy',
   'url',
@@ -43,6 +44,9 @@ export function validateSourceManifest(value) {
       throw new Error('duplicate or invalid source ID');
     }
     ids.add(source.id);
+    if (typeof source.required !== 'boolean') {
+      throw new Error('source required policy must be boolean');
+    }
     if (!ADAPTERS.has(source.adapter) || source.providerId !== source.adapter) {
       throw new Error('invalid provider ID or adapter');
     }

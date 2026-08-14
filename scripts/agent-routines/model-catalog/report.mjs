@@ -7,6 +7,18 @@ const SUMMARY_KEYS = {
   remote_addition_candidate: 'remoteAdditionCandidate',
   unverifiable: 'unverifiable',
 };
+
+const replaceControlCharacters = (value) =>
+  [...String(value)]
+    .map((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f) ? '�' : character;
+    })
+    .join('');
+
+const markdownText = (value) =>
+  replaceControlCharacters(value).replaceAll(/([\\`*_[\]{}()#+.!|<>])/gu, '\\$1');
+
 export function createReport({
   baseCommit,
   generatedAt,
@@ -53,27 +65,39 @@ export function createReport({
     summary,
   };
 }
+
 export function renderMarkdown(report) {
-  const incomplete = report.sources.some(({ status }) => status !== 'success');
+  const requiredFailure = report.sources.some(
+    ({ required, status }) => required !== false && status !== 'success'
+  );
+  const optionalCredentialSkipped = report.sources.some(
+    ({ required, status }) => required === false && status === 'skipped_missing_secret'
+  );
+  const completeness = requiredFailure
+    ? '> **Incomplete:** at least one required source failed.'
+    : optionalCredentialSkipped
+      ? '> **Complete:** required sources succeeded; optional sources were skipped because credentials are absent.'
+      : '> **Complete:** all configured sources were observed.';
   const lines = [
     '# Model Catalog Shadow Report',
     '',
-    `Base: \`${report.baseCommit}\`  `,
-    `Generated: ${report.generatedAt}`,
+    `Base: ${markdownText(report.baseCommit)}  `,
+    `Generated: ${markdownText(report.generatedAt)}`,
     '',
-    incomplete
-      ? '> **Incomplete:** one or more sources failed or have missing credentials.'
-      : '> **Complete:** all configured sources were observed.',
+    completeness,
     '',
     '## Source status',
     '',
     '| Source | Status |',
     '| --- | --- |',
-    ...report.sources.map(({ sourceId, status }) => `| ${sourceId} | ${status} |`),
+    ...report.sources.map(
+      ({ required, sourceId, status }) =>
+        `| ${markdownText(sourceId)} | ${markdownText(status)}${required === false ? ' (optional)' : ''} |`
+    ),
     '',
     '## Summary',
     '',
-    ...Object.entries(report.summary).map(([key, value]) => `- ${key}: ${value}`),
+    ...Object.entries(report.summary).map(([key, value]) => `- ${markdownText(key)}: ${value}`),
   ];
   for (const [title, kinds] of [
     ['Safe additions', []],
@@ -89,7 +113,10 @@ export function renderMarkdown(report) {
         : report.deltas.filter((d) => kinds.includes(d.kind));
     lines.push(
       ...(rows.length
-        ? rows.map((d) => `- \`${d.providerId}:${d.modelId}\` — ${d.kind}`)
+        ? rows.map(
+            (d) =>
+              `- ${markdownText(d.providerId)}:${markdownText(d.modelId)} — ${markdownText(d.kind)}`
+          )
         : ['- None.'])
     );
   }
