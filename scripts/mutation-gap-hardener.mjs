@@ -95,6 +95,7 @@ export function classifyMutationReport(report) {
     return harnessError('Stryker generated zero mutants');
   }
   const ids = new Set();
+  const stableIdentities = new Set();
   for (const mutant of mutants) {
     if (typeof mutant?.id !== 'string' || ids.has(mutant.id)) {
       return harnessError('Stryker mutant IDs are missing or duplicated');
@@ -103,6 +104,11 @@ export function classifyMutationReport(report) {
     if (!isValidMutantSchema(mutant)) {
       return harnessError('Stryker mutant schema is malformed');
     }
+    const identity = stableIdentity(MUTATION_TARGET, mutant);
+    if (stableIdentities.has(identity)) {
+      return harnessError('Stryker stable mutation identities are duplicated');
+    }
+    stableIdentities.add(identity);
     if (!KNOWN_STATUSES.has(mutant.status)) {
       return {
         ...harnessError(`unknown Stryker mutant status: ${String(mutant.status)}`),
@@ -195,14 +201,22 @@ async function spawnStryker({ repoRoot, timeoutMs }) {
   };
 }
 
-export async function runMutationGapHardener({
-  baseSha,
-  repoRoot,
-  reportDir = path.join(repoRoot, 'reports/shadow/mutation-gap-hardener'),
-  timeoutMs = 35 * 60 * 1000,
-} = {}) {
+function validateRunInputs({ baseSha, repoRoot }) {
+  if (!/^[0-9a-f]{40}$/u.test(baseSha)) {
+    throw new Error('baseSha must be a full lowercase Git SHA');
+  }
+  if (typeof repoRoot !== 'string' || !path.isAbsolute(repoRoot)) {
+    throw new Error('repoRoot must be an absolute path');
+  }
+}
+
+export async function runMutationGapHardener(options = {}) {
+  const { baseSha, repoRoot, spawn = spawnStryker, timeoutMs = 35 * 60 * 1000 } = options;
+  validateRunInputs({ baseSha, repoRoot });
+  const reportDir =
+    options.reportDir ?? path.join(repoRoot, 'reports/shadow/mutation-gap-hardener');
   await mkdir(reportDir, { recursive: true });
-  const processResult = await spawnStryker({ repoRoot, timeoutMs });
+  const processResult = await spawn({ repoRoot, timeoutMs });
   const rawReportPath = path.join(
     repoRoot,
     'packages/file-system/reports/shadow/mutation-gap.json'

@@ -85,11 +85,17 @@ export function renderMarkdown(report) {
   const optionalCredentialSkipped = report.sources.some(
     ({ required, status }) => required === false && status === 'skipped_missing_secret'
   );
+  const optionalAttemptFailure = report.sources.some(
+    ({ required, status }) =>
+      required === false && status !== 'success' && status !== 'skipped_missing_secret'
+  );
   const completeness = requiredFailure
     ? '> **Incomplete:** at least one required source failed.'
-    : optionalCredentialSkipped
-      ? '> **Complete:** required sources succeeded; optional sources were skipped because credentials are absent.'
-      : '> **Complete:** all configured sources were observed.';
+    : optionalAttemptFailure
+      ? '> **Incomplete:** at least one attempted optional source failed.'
+      : optionalCredentialSkipped
+        ? '> **Complete:** required sources succeeded; optional sources were skipped because credentials are absent.'
+        : '> **Complete:** all configured sources were observed.';
   const lines = [
     '# Model Catalog Shadow Report',
     '',

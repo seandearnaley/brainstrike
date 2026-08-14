@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
   classifyMutationReport,
   MUTATION_TARGET,
   mutationRunExitCode,
+  runMutationGapHardener,
 } from '../mutation-gap-hardener.mjs';
 
 const require = createRequire(import.meta.url);
@@ -28,13 +32,21 @@ function report(mutants, file = 'src/path-validation.ts') {
 describe('mutation gap hardener', () => {
   it('classifies every supported Stryker status from machine JSON', () => {
     const result = classifyMutationReport(
-      report([
-        mutant('killed', 'Killed'),
-        mutant('survived', 'Survived'),
-        mutant('uncovered', 'NoCoverage'),
-        mutant('compile', 'CompileError'),
-        mutant('timeout', 'Timeout'),
-      ])
+      report(
+        [
+          mutant('killed', 'Killed'),
+          mutant('survived', 'Survived'),
+          mutant('uncovered', 'NoCoverage'),
+          mutant('compile', 'CompileError'),
+          mutant('timeout', 'Timeout'),
+        ].map((value, index) => ({
+          ...value,
+          location: {
+            end: { column: 4, line: index + 1 },
+            start: { column: 1, line: index + 1 },
+          },
+        }))
+      )
     );
 
     assert.equal(MUTATION_TARGET, 'packages/file-system/src/path-validation.ts');
@@ -87,6 +99,15 @@ describe('mutation gap hardener', () => {
     );
   });
 
+  it('rejects duplicate stable mutation identities even when Stryker IDs differ', () => {
+    const result = classifyMutationReport(
+      report([mutant('transient-1', 'Killed'), mutant('transient-2', 'Survived')])
+    );
+
+    assert.equal(result.classification, 'harness-error');
+    assert.deepEqual(result.reasons, ['Stryker stable mutation identities are duplicated']);
+  });
+
   it('normalizes malformed mutant locations, mutators, and replacements as harness errors', () => {
     const malformed = [
       mutant('location', 'Survived', { location: null }),
@@ -112,6 +133,46 @@ describe('mutation gap hardener', () => {
     assert.equal(result.classification, 'incomplete');
     assert.equal(mutationRunExitCode(result), 1);
     assert.equal(mutationRunExitCode({ classification: 'report' }), 0);
+  });
+
+  it('rejects invalid immutable run identity before launching Stryker', async () => {
+    const reportDir = await mkdtemp(path.join(os.tmpdir(), 'mutation-inputs-'));
+    let spawnCalls = 0;
+    const spawn = async () => {
+      spawnCalls += 1;
+      return { exitCode: 0, signal: null, timedOut: false };
+    };
+
+    try {
+      await assert.rejects(
+        runMutationGapHardener({ repoRoot: reportDir, reportDir, spawn }),
+        /baseSha/u
+      );
+      await assert.rejects(
+        runMutationGapHardener({
+          baseSha: 'a'.repeat(40),
+          reportDir,
+          spawn,
+        }),
+        /repoRoot/u
+      );
+      await assert.rejects(
+        runMutationGapHardener({ baseSha: 'not-a-sha', repoRoot: reportDir, reportDir, spawn }),
+        /baseSha/u
+      );
+      await assert.rejects(
+        runMutationGapHardener({
+          baseSha: 'a'.repeat(40),
+          repoRoot: 'relative-root',
+          reportDir,
+          spawn,
+        }),
+        /repoRoot/u
+      );
+      assert.equal(spawnCalls, 0);
+    } finally {
+      await rm(reportDir, { force: true, recursive: true });
+    }
   });
 
   it('sorts deterministically and caps detailed gaps without truncating totals', () => {

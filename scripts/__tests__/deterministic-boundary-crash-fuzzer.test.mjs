@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
@@ -7,6 +10,7 @@ import {
   boundaryRunExitCode,
   classifyBoundaryRun,
   createDeterministicCaseIds,
+  runBoundaryCrashFuzzer,
 } from '../deterministic-boundary-crash-fuzzer.mjs';
 
 describe('deterministic boundary crash fuzzer harness', () => {
@@ -85,6 +89,89 @@ describe('deterministic boundary crash fuzzer harness', () => {
       }).classification,
       'incomplete'
     );
+  });
+
+  it('treats a nonzero process exit as incomplete despite complete passing JSON', () => {
+    const ids = createDeterministicCaseIds();
+    const result = classifyBoundaryRun({
+      expectedCaseIds: ids,
+      processResult: { exitCode: 1, signal: null, timedOut: false },
+      vitestReport: {
+        testResults: ids.map((caseId) => ({
+          assertionResults: [{ status: 'passed', title: caseId }],
+        })),
+      },
+    });
+
+    assert.equal(result.classification, 'incomplete');
+    assert.equal(result.counts.findings, 0);
+    assert.equal(boundaryRunExitCode(result), 1);
+  });
+
+  it('does not consume stale Vitest JSON when the current run writes no report', async () => {
+    const reportDir = await mkdtemp(path.join(os.tmpdir(), 'boundary-fuzzer-'));
+    const ids = createDeterministicCaseIds();
+    await writeFile(
+      path.join(reportDir, 'vitest.json'),
+      JSON.stringify({
+        testResults: ids.map((caseId) => ({
+          assertionResults: [{ status: 'passed', title: caseId }],
+        })),
+      })
+    );
+
+    try {
+      const result = await runBoundaryCrashFuzzer({
+        baseSha: 'a'.repeat(40),
+        repoRoot: reportDir,
+        reportDir,
+        spawn: async () => ({ exitCode: 0, signal: null, timedOut: false }),
+      });
+
+      assert.equal(result.classification, 'parser-process-crash');
+    } finally {
+      await rm(reportDir, { force: true, recursive: true });
+    }
+  });
+
+  it('rejects invalid immutable run identity before launching Vitest', async () => {
+    const reportDir = await mkdtemp(path.join(os.tmpdir(), 'boundary-inputs-'));
+    let spawnCalls = 0;
+    const spawn = async () => {
+      spawnCalls += 1;
+      return { exitCode: 0, signal: null, timedOut: false };
+    };
+
+    try {
+      await assert.rejects(
+        runBoundaryCrashFuzzer({ repoRoot: reportDir, reportDir, spawn }),
+        /baseSha/u
+      );
+      await assert.rejects(
+        runBoundaryCrashFuzzer({
+          baseSha: 'a'.repeat(40),
+          reportDir,
+          spawn,
+        }),
+        /repoRoot/u
+      );
+      await assert.rejects(
+        runBoundaryCrashFuzzer({ baseSha: 'not-a-sha', repoRoot: reportDir, reportDir, spawn }),
+        /baseSha/u
+      );
+      await assert.rejects(
+        runBoundaryCrashFuzzer({
+          baseSha: 'a'.repeat(40),
+          repoRoot: 'relative-root',
+          reportDir,
+          spawn,
+        }),
+        /repoRoot/u
+      );
+      assert.equal(spawnCalls, 0);
+    } finally {
+      await rm(reportDir, { force: true, recursive: true });
+    }
   });
 
   it('maps incomplete and harness failures to a nonzero runner exit', () => {

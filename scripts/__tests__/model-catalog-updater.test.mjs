@@ -624,6 +624,21 @@ test('renders stable JSON-derived Markdown', () => {
   assert.equal(renderMarkdown(report), markdown);
 });
 
+test('attempted optional source failures render the report as incomplete', () => {
+  const report = createReport({
+    baseCommit: 'a'.repeat(40),
+    deltas: [],
+    generatedAt: now().toISOString(),
+    manifestSha256: 'sha256:x',
+    registry: { models: [], providerCounts: {} },
+    sources: [{ required: false, sourceId: 'optional', status: 'failed' }],
+  });
+
+  const markdown = renderMarkdown(report);
+  assert.match(markdown, /Incomplete.*attempted optional source failed/iu);
+  assert.doesNotMatch(markdown, /all configured sources were observed/iu);
+});
+
 test('required failures remain incomplete and Markdown escapes all external identifiers', () => {
   const report = createReport({
     baseCommit: 'a'.repeat(40),

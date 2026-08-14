@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runBoundedProcess } from './agent-routines/shared/bounded-process.mjs';
@@ -94,9 +94,13 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
         });
       }
     }
-    if (seen.size !== expected.size || duplicateCaseCount > 0) {
+    if (
+      seen.size !== expected.size ||
+      duplicateCaseCount > 0 ||
+      (processResult.exitCode !== 0 && findings.length === 0)
+    ) {
       classification = 'incomplete';
-    } else if (processResult.exitCode !== 0 || findings.length > 0) {
+    } else if (findings.length > 0) {
       classification = 'boundary-counterexample';
     }
     return {
@@ -141,15 +145,24 @@ async function spawnVitest({ cwd, outputFile, timeoutMs }) {
   };
 }
 
-export async function runBoundaryCrashFuzzer({
-  baseSha,
-  repoRoot,
-  reportDir = path.join(repoRoot, 'reports/shadow/boundary-crash-fuzzer'),
-  timeoutMs = 5 * 60 * 1000,
-} = {}) {
+function validateRunInputs({ baseSha, repoRoot }) {
+  if (!/^[0-9a-f]{40}$/u.test(baseSha)) {
+    throw new Error('baseSha must be a full lowercase Git SHA');
+  }
+  if (typeof repoRoot !== 'string' || !path.isAbsolute(repoRoot)) {
+    throw new Error('repoRoot must be an absolute path');
+  }
+}
+
+export async function runBoundaryCrashFuzzer(options = {}) {
+  const { baseSha, repoRoot, spawn = spawnVitest, timeoutMs = 5 * 60 * 1000 } = options;
+  validateRunInputs({ baseSha, repoRoot });
+  const reportDir =
+    options.reportDir ?? path.join(repoRoot, 'reports/shadow/boundary-crash-fuzzer');
   await mkdir(reportDir, { recursive: true });
   const rawReportPath = path.join(reportDir, 'vitest.json');
-  const processResult = await spawnVitest({ cwd: repoRoot, outputFile: rawReportPath, timeoutMs });
+  await rm(rawReportPath, { force: true });
+  const processResult = await spawn({ cwd: repoRoot, outputFile: rawReportPath, timeoutMs });
   let vitestReport = null;
   try {
     vitestReport = JSON.parse(await readFile(rawReportPath, 'utf8'));
