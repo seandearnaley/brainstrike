@@ -102,9 +102,12 @@ function sliceKey(text, key, nextKey) {
 function classifyFilters(text) {
   const positives = new Set();
   const negations = new Set();
-  // Match each `--filter=...` / `--filter="..."` token.
+  const tokens = [];
+  // Match each `--filter=...` / `--filter="..."` token. The normalized tokens
+  // are also the executable source of truth for scheduled Unit repetitions.
   for (const match of text.matchAll(/--filter=(?:"([^"]*)"|(\S+))/g)) {
     const value = match[1] ?? match[2] ?? '';
+    tokens.push(`--filter=${value}`);
     const pkg = PKG.exec(value);
     if (!pkg) {
       // The affected-all base `--filter="...[origin/$BASE_REF]"` names no
@@ -114,7 +117,11 @@ function classifyFilters(text) {
     }
     (value.includes('!') ? negations : positives).add(pkg[1]);
   }
-  return { negations: [...negations].sort(), positives: [...positives].sort() };
+  return {
+    negations: [...negations].sort(),
+    positives: [...positives].sort(),
+    tokens,
+  };
 }
 
 const eqSet = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);

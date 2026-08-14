@@ -1,0 +1,26 @@
+[
+  {
+    "source": "historical",
+    "report": {
+      "executions": [
+        { "id": "boundaries", "command": ["pnpm", "exec", "turbo", "boundaries"] },
+        { "id": "test-scripts", "command": ["pnpm", "test:scripts"] },
+        { "id": "lint-ci", "command": ["pnpm", "run", "lint:ci"] }
+      ],
+      "findings": [{ "fingerprint": "contract-historical-1", "classification": "contract-drift" }]
+    },
+    "labels": [{ "fingerprint": "contract-historical-1", "label": "correct-actionable" }]
+  },
+  {
+    "source": "live",
+    "report": {
+      "executions": [
+        { "id": "boundaries", "command": ["pnpm", "exec", "turbo", "boundaries"] },
+        { "id": "test-scripts", "command": ["pnpm", "test:scripts"] },
+        { "id": "lint-ci", "command": ["pnpm", "run", "lint:ci"] }
+      ],
+      "findings": [{ "fingerprint": "contract-live-1", "classification": "contract-drift" }]
+    },
+    "labels": [{ "fingerprint": "contract-live-1", "label": "correct-actionable" }]
+  }
+]

@@ -1,0 +1,49 @@
+name: Contract Drift Guardian
+
+on:
+  schedule:
+    - cron: '11 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contract-drift-guardian
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+      - name: Run bounded contract drift guardian
+        id: guardian
+        continue-on-error: true
+        env:
+          REPORT_PATH: reports/agent-routines/contract-drift-guardian.json
+        run: node scripts/agent-routines/contract-drift/cli.mjs
+      - name: Publish summary
+        if: always()
+        run: |
+          test -f reports/agent-routines/contract-drift-guardian.json
+          printf '## Contract Drift Guardian\n\n```json\n' >> "$GITHUB_STEP_SUMMARY"
+          cat reports/agent-routines/contract-drift-guardian.json >> "$GITHUB_STEP_SUMMARY"
+          printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: contract-drift-guardian-${{ github.sha }}
+          path: reports/agent-routines/contract-drift-guardian.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Preserve harness failure
+        if: steps.guardian.outcome == 'failure'
+        run: exit 1

@@ -1,0 +1,24 @@
+[
+  {
+    "source": "historical",
+    "report": {
+      "phases": [
+        { "phase": "test", "attempts": [{}, {}, {}] },
+        { "phase": "test:integration", "attempts": [{}, {}, {}] }
+      ],
+      "findings": [{ "fingerprint": "flake-historical-1", "classification": "flake-suspect" }]
+    },
+    "labels": [{ "fingerprint": "flake-historical-1", "label": "correct-actionable" }]
+  },
+  {
+    "source": "live",
+    "report": {
+      "phases": [
+        { "phase": "test", "attempts": [{}, {}, {}] },
+        { "phase": "test:integration", "attempts": [{}, {}, {}] }
+      ],
+      "findings": [{ "fingerprint": "flake-live-1", "classification": "stable-fail" }]
+    },
+    "labels": [{ "fingerprint": "flake-live-1", "label": "correct-actionable" }]
+  }
+]

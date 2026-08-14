@@ -1,0 +1,8 @@
+[
+  { "outcomes": ["passed", "passed", "passed"], "expected": "stable-pass" },
+  { "outcomes": ["failed", "failed", "failed"], "expected": "stable-fail" },
+  { "outcomes": ["failed", "passed", "failed"], "expected": "flake-suspect" },
+  { "outcomes": ["failed", "signalled", "failed"], "expected": "process-instability" },
+  { "outcomes": ["signalled", "timed-out", "spawn-error"], "expected": "harness-error" },
+  { "outcomes": ["failed", "timed-out", "failed"], "expected": "incomplete" }
+]

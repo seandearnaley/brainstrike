@@ -1,0 +1,55 @@
+name: CI Flake Investigator
+
+on:
+  schedule:
+    - cron: '29 9 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-flake-investigator
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        shard: [db-1, db-2, heavy, rest]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: 'true'
+      - name: Run three uncached attempts per Unit phase
+        id: investigator
+        continue-on-error: true
+        env:
+          UNIT_SHARD: ${{ matrix.shard }}
+          REPORT_PATH: reports/agent-routines/ci-flake-${{ matrix.shard }}.json
+        run: node scripts/agent-routines/ci-flake/cli.mjs
+      - name: Publish summary
+        if: always()
+        run: |
+          test -f "reports/agent-routines/ci-flake-${{ matrix.shard }}.json"
+          printf '## CI Flake Investigator: %s\n\n```json\n' '${{ matrix.shard }}' >> "$GITHUB_STEP_SUMMARY"
+          cat "reports/agent-routines/ci-flake-${{ matrix.shard }}.json" >> "$GITHUB_STEP_SUMMARY"
+          printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-flake-investigator-${{ matrix.shard }}-${{ github.sha }}
+          path: reports/agent-routines/ci-flake-${{ matrix.shard }}.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Preserve harness failure
+        if: steps.investigator.outcome == 'failure'
+        run: exit 1
