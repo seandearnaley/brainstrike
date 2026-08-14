@@ -855,6 +855,43 @@ test('safe-addition seam requires eligibility and returns evidence only', async 
   );
 });
 
+test('model catalog main blocks once when an attempted optional source fails', async () => {
+  const baseSha = 'a'.repeat(40);
+  const lines = [];
+  const exitCodes = [];
+  const terminalWriter = createRoutineResultWriter((line) => lines.push(line));
+
+  const result = await runModelCatalogMain({
+    freezeMain: async () => baseSha,
+    readHead: async () => baseSha,
+    runReport: async () => ({
+      attemptedOptionalSourceFailed: true,
+      report: {
+        sources: [
+          { required: false, sourceId: 'optional', status: 'failed' },
+          { required: true, sourceId: 'required', status: 'success' },
+        ],
+        summary: {
+          conflict: 0,
+          fieldDrift: 0,
+          registryMissingRemote: 0,
+          remoteAdditionCandidate: 0,
+          unverifiable: 0,
+        },
+      },
+      requiredSourceFailed: false,
+    }),
+    setExitCode: (code) => exitCodes.push(code),
+    terminalWriter,
+  });
+
+  assert.equal(lines.length, 1);
+  assert.equal(result.status, 'blocked');
+  assert.deepEqual(result.reasons, ['attempted optional model-catalog source failed']);
+  assert.deepEqual(exitCodes, [1]);
+  assert.deepEqual(JSON.parse(lines[0]), result);
+});
+
 test('model catalog main emits one blocked result when diagnostic writes fail', async () => {
   const baseSha = 'a'.repeat(40);
   const lines = [];

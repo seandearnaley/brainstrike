@@ -231,6 +231,51 @@ describe('deterministic boundary crash fuzzer harness', () => {
     assert.equal(boundaryRunExitCode({ classification: 'boundary-counterexample' }), 0);
   });
 
+  it('MONEY TEST: rejects an unexpected passing assertion outside the exact corpus', () => {
+    const expectedCaseIds = ['expected-case'];
+    const report = classifyBoundaryRun({
+      expectedCaseIds,
+      processResult: { exitCode: 0, signal: null, timedOut: false },
+      vitestReport: {
+        testResults: [
+          {
+            assertionResults: [
+              { status: 'passed', title: expectedCaseIds[0] },
+              { status: 'passed', title: 'unexpected-case' },
+            ],
+          },
+        ],
+      },
+    });
+
+    assert.equal(report.classification, 'incomplete');
+    assert.equal(report.counts.unexpected, 1);
+    assert.equal(boundaryRunExitCode(report), 1);
+  });
+
+  it('MONEY TEST: rejects an unexpected failing assertion as harness drift', () => {
+    const expectedCaseIds = ['expected-case'];
+    const report = classifyBoundaryRun({
+      expectedCaseIds,
+      processResult: { exitCode: 0, signal: null, timedOut: false },
+      vitestReport: {
+        testResults: [
+          {
+            assertionResults: [
+              { status: 'passed', title: expectedCaseIds[0] },
+              { status: 'failed', title: 'unexpected-case' },
+            ],
+          },
+        ],
+      },
+    });
+
+    assert.equal(report.classification, 'incomplete');
+    assert.equal(report.counts.unexpected, 1);
+    assert.deepEqual(report.findings, []);
+    assert.equal(boundaryRunExitCode(report), 1);
+  });
+
   it('rejects duplicate case results instead of letting them mask harness drift', () => {
     const ids = createDeterministicCaseIds();
     const assertionResults = ids.map((caseId) => ({ status: 'passed', title: caseId }));

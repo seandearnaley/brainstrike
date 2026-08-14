@@ -66,6 +66,9 @@ export async function runReport({
   );
   await writeFile(new URL('model-catalog-report.md', directory), renderMarkdown(report));
   return {
+    attemptedOptionalSourceFailed: statuses.some(
+      ({ required, status }) => required === false && status === 'failed'
+    ),
     report,
     requiredSourceFailed: statuses.some(
       ({ required, status }) => required === true && status !== 'success'
@@ -116,6 +119,13 @@ export async function runModelCatalogMain({
         baseSha,
         fingerprint: fingerprint(['model-catalog-updater', baseSha, 'required-source-failed']),
         reasons: ['required model-catalog source failed'],
+        status: 'blocked',
+      };
+    } else if (result.attemptedOptionalSourceFailed) {
+      terminalResult = {
+        baseSha,
+        fingerprint: fingerprint(['model-catalog-updater', baseSha, 'optional-source-failed']),
+        reasons: ['attempted optional model-catalog source failed'],
         status: 'blocked',
       };
     } else if (findingCount > 0) {

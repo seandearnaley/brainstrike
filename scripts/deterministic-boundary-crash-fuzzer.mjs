@@ -70,6 +70,11 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
   const assertions = collectAssertions(vitestReport);
   let classification = 'no-change';
   const findings = [];
+  const unexpectedCaseCount =
+    assertions?.filter((assertion) => {
+      const caseId = typeof assertion?.title === 'string' ? assertion.title : '';
+      return !expected.has(caseId);
+    }).length ?? 0;
 
   if (processResult.terminationFailed || processResult.timedOut) {
     classification = 'incomplete';
@@ -98,6 +103,7 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
     if (
       seen.size !== expected.size ||
       duplicateCaseCount > 0 ||
+      unexpectedCaseCount > 0 ||
       (processResult.exitCode !== 0 && findings.length === 0)
     ) {
       classification = 'incomplete';
@@ -106,14 +112,24 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
     }
     return {
       classification,
-      counts: { executed: seen.size, expected: expected.size, findings: findings.length },
+      counts: {
+        executed: seen.size,
+        expected: expected.size,
+        findings: findings.length,
+        unexpected: unexpectedCaseCount,
+      },
       findings: findings.slice(0, BOUNDARY_MAX_FINDINGS),
     };
   }
 
   return {
     classification,
-    counts: { executed: assertions?.length ?? 0, expected: expected.size, findings: 0 },
+    counts: {
+      executed: assertions?.length ?? 0,
+      expected: expected.size,
+      findings: 0,
+      unexpected: unexpectedCaseCount,
+    },
     findings,
   };
 }

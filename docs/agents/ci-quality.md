@@ -97,7 +97,15 @@ establish OpenRouter route availability, gateway pricing, and its published
 gateway metadata. Vendor-owned context/output limits, modality, reasoning,
 tool-search, tokenizer, and direct pricing require captured official vendor
 evidence. News is lead generation only. Unknown or conflicting required fields
-produce a blocked report, never an inferred catalog row.
+produce a blocked report, never an inferred catalog row. An optional source
+that is skipped because its credential is absent remains visible but does not
+block the run; once an optional source is attempted, any fetch or parse failure
+makes the run incomplete and emits a nonzero blocked terminal result.
+
+The boundary fuzzer admits exactly the seeded assertion-ID corpus. Missing,
+duplicate, or unexpected assertion IDs—including unexpected passing assertions—
+make the run incomplete rather than no-change or a counterexample report. Its
+report counts expose unexpected assertions so harness drift remains observable.
 
 Desktop `workflow_dispatch` exposes a `suite` choice. `full` preserves the
 scheduled workflow exactly. `memory-baseline` skips the unrelated broad
