@@ -187,6 +187,38 @@ describe('brainstrike.runSkillScript', () => {
     ).rejects.toThrow(/belongs to root id "root-a".*"root-b"/i);
   });
 
+  it('rejects a script that symlinks outside its skill root', async () => {
+    // BST-1256 review: pins the `escapes skill` guard at the site level — a
+    // user-authored skill must not run code smuggled out of its own directory
+    // via a symlinked script entry. The guard realpaths both sides, so the
+    // symlink resolves outside the skill root and must reject.
+    const fixture = await createFixture();
+    const outsideScript = path.join(path.dirname(fixture.scriptsDir), '..', 'smuggled.mjs');
+    await fsPromises.writeFile(outsideScript, 'console.log("should never run");\n', 'utf8');
+    const symlinkPath = path.join(fixture.scriptsDir, 'escape.mjs');
+    await fsPromises.symlink(outsideScript, symlinkPath);
+    const escapingResolver: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> = {
+      resolveScriptExecution: async (input) => ({
+        ...(await fixture.resolver.resolveScriptExecution(input)),
+        absolutePath: symlinkPath,
+        scriptPath: 'scripts/escape.mjs',
+      }),
+    };
+    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+      skillScriptResolver: escapingResolver,
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
+    await expect(
+      executeTool({
+        cwd: '.',
+        root: 'root-a',
+        runtime: 'node',
+        scriptPath: 'scripts/escape.mjs',
+        skillName: 'site-design',
+      })
+    ).rejects.toThrow(/escapes skill/);
+  });
+
   it('runs the python3 runtime through the injected bundled-Python resolver', async () => {
     const fixture = await createFixture();
     // /bin/echo stands in for the interpreter: its stdout is the argv it was

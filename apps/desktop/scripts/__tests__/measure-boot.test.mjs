@@ -62,6 +62,13 @@ test('toRepoRelative returns a repo-relative path for a path inside the repo', (
   assert.equal(toRepoRelative(target), path.join('apps', 'desktop', 'package.json'));
 });
 
+test('toRepoRelative keeps an in-repo path under a ".."-prefixed directory name', () => {
+  // BST-1256: `relative.startsWith('..')` misread names like "..cache" as an
+  // escape and silently degraded a legitimate in-repo path to its basename.
+  const target = path.join(repoRoot, '..cache', 'file.txt');
+  assert.equal(toRepoRelative(target), path.join('..cache', 'file.txt'));
+});
+
 test('toRepoRelative falls back to a bare basename for a path outside the repo', () => {
   // The general "outside the repo" case, reachable on any OS via a `..`
   // escape (e.g. a scratch clone in a sibling directory, as this PR's own
