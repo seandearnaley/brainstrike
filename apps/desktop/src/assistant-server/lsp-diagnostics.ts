@@ -46,6 +46,7 @@ import type {
   Position,
   PublishDiagnosticsParams,
 } from 'vscode-languageserver-protocol/node';
+import { isWithinRoot } from './workspace-path';
 
 // LSP method names used verbatim (string overloads avoid the branded-type
 // identity mismatch between vscode-jsonrpc and -protocol under the main
@@ -791,7 +792,7 @@ const MAX_PREVIEW_FILE_BYTES = 2 * 1024 * 1024;
 /** Workspace-relative "/path" when under root, else the absolute path. */
 function toDisplayPath(absolutePath: string, rootPath: string): string {
   const relative = path.relative(rootPath, absolutePath);
-  if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+  if (relative && isWithinRoot(rootPath, absolutePath)) {
     return `/${relative.split(path.sep).join('/')}`;
   }
   return absolutePath;

@@ -105,11 +105,11 @@ export async function ensureContainedDirectory(
   if (targetDir === canonicalRootPath) {
     return;
   }
-  const relative = path.relative(canonicalRootPath, targetDir);
   // Defence in depth: resolveWorkspaceWritePath already guarantees containment.
-  if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
+  if (!isWithinRoot(canonicalRootPath, targetDir)) {
     throw new Error(`Path "${targetDir}" is outside the selected workspace root.`);
   }
+  const relative = path.relative(canonicalRootPath, targetDir);
   const segments = relative.split(path.sep).filter((segment) => segment.length > 0);
   let current = canonicalRootPath;
   for (const segment of segments) {
