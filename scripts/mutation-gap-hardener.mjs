@@ -3,6 +3,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runBoundedProcess } from './agent-routines/shared/bounded-process.mjs';
+import {
+  freezeCurrentOriginMain,
+  readCurrentHeadSha,
+} from './agent-routines/shared/current-main.mjs';
+import { createRoutineResultWriter } from './agent-routines/shared/routine-result.mjs';
+import { fingerprint } from './agent-routines/shared/shadow-report.mjs';
 
 export const MUTATION_TARGET = 'packages/file-system/src/path-validation.ts';
 export const MUTATION_MAX_FINDINGS = 25;
@@ -190,6 +196,7 @@ async function spawnStryker({ repoRoot, timeoutMs }) {
 }
 
 export async function runMutationGapHardener({
+  baseSha,
   repoRoot,
   reportDir = path.join(repoRoot, 'reports/shadow/mutation-gap-hardener'),
   timeoutMs = 35 * 60 * 1000,
@@ -207,7 +214,7 @@ export async function runMutationGapHardener({
     rawReport = null;
   }
   const report = classifyMutationRun({ processResult, rawReport });
-  const normalized = { routineId: 'mutation-gap-hardener', ...report };
+  const normalized = { baseSha, routineId: 'mutation-gap-hardener', ...report };
   await writeFile(path.join(reportDir, 'report.json'), `${JSON.stringify(normalized, null, 2)}\n`);
   return normalized;
 }
@@ -215,6 +222,58 @@ export async function runMutationGapHardener({
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const report = await runMutationGapHardener({ repoRoot });
-  process.exitCode = mutationRunExitCode(report);
+  const terminalWriter = createRoutineResultWriter();
+  const reportDir = path.join(repoRoot, 'reports/shadow/mutation-gap-hardener');
+  let baseSha = /^[0-9a-f]{40}$/u.test(process.env.GITHUB_SHA ?? '')
+    ? process.env.GITHUB_SHA
+    : '0'.repeat(40);
+  let terminalResult;
+  try {
+    baseSha = await readCurrentHeadSha({ cwd: repoRoot });
+    baseSha = await freezeCurrentOriginMain({ cwd: repoRoot });
+    const report = await runMutationGapHardener({ baseSha, repoRoot, reportDir });
+    if (report.classification === 'no-change') {
+      terminalResult = {
+        baseSha,
+        fingerprint: fingerprint(['mutation-gap-hardener', baseSha, 'no-change']),
+        status: 'no-change',
+      };
+    } else if (report.classification === 'report') {
+      terminalResult = {
+        baseSha,
+        fingerprint: fingerprint([
+          'mutation-gap-hardener',
+          baseSha,
+          ...report.findings.map(({ fingerprint }) => fingerprint),
+        ]),
+        status: 'report',
+        summary: `${report.findings.length} mutation gap(s) reported`,
+      };
+    } else {
+      terminalResult = {
+        baseSha,
+        fingerprint: fingerprint(['mutation-gap-hardener', baseSha, report.classification]),
+        reasons: [`mutation hardener ended as ${report.classification}`],
+        status: 'blocked',
+      };
+    }
+  } catch (error) {
+    const reason = String(error);
+    await mkdir(reportDir, { recursive: true });
+    await writeFile(
+      path.join(reportDir, 'report.json'),
+      `${JSON.stringify({ baseSha, classification: 'harness-error', error: reason, routineId: 'mutation-gap-hardener' }, null, 2)}\n`
+    );
+    terminalResult = {
+      baseSha,
+      fingerprint: fingerprint(['mutation-gap-hardener', baseSha, 'blocked', reason]),
+      reasons: [reason],
+      status: 'blocked',
+    };
+  }
+  terminalWriter.write(terminalResult);
+  terminalWriter.assertWritten();
+  if (terminalResult.status === 'blocked') {
+    process.exitCode = 1;
+  }
 }

@@ -1,7 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-
+import { freezeCurrentOriginMain, readCurrentHeadSha } from '../shared/current-main.mjs';
+import { createRoutineResultWriter } from '../shared/routine-result.mjs';
+import { fingerprint } from '../shared/shadow-report.mjs';
 import { classifyCatalogDelta } from './classify-catalog-delta.mjs';
 import { buildEvidenceIndex } from './evidence.mjs';
 import { parseProviderRegistry } from './registry-reader.mjs';
@@ -12,6 +13,7 @@ import { fetchSource } from './sources/index.mjs';
 const root = new URL('../../../', import.meta.url);
 const digest = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 export async function runReport({
+  baseSha,
   fetchImpl = fetch,
   now = () => new Date(),
   env = process.env,
@@ -47,12 +49,8 @@ export async function runReport({
     sourcePolicies: new Map(manifest.sources.map((source) => [source.id, source])),
   });
   const deltas = classifyCatalogDelta({ evidence, manifest, registry, sourceStatuses: statuses });
-  const baseCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
-    cwd: root,
-    encoding: 'utf8',
-  }).trim();
   const report = createReport({
-    baseCommit,
+    baseCommit: baseSha,
     deltas,
     generatedAt: now().toISOString(),
     manifestSha256: digest(manifestText),
@@ -74,11 +72,67 @@ export async function runReport({
   };
 }
 if (import.meta.url === new URL(process.argv[1], 'file:').href) {
-  if (process.argv.slice(2).join(' ') !== '--mode report') {
-    throw new Error('scheduled entrypoint supports only --mode report');
+  const terminalWriter = createRoutineResultWriter();
+  let baseSha = /^[0-9a-f]{40}$/u.test(process.env.GITHUB_SHA ?? '')
+    ? process.env.GITHUB_SHA
+    : '0'.repeat(40);
+  let terminalResult;
+  try {
+    if (process.argv.slice(2).join(' ') !== '--mode report') {
+      throw new Error('scheduled entrypoint supports only --mode report');
+    }
+    baseSha = await readCurrentHeadSha();
+    baseSha = await freezeCurrentOriginMain();
+    const result = await runReport({ baseSha });
+    const findingCount =
+      result.report.summary.conflict +
+      result.report.summary.fieldDrift +
+      result.report.summary.registryMissingRemote +
+      result.report.summary.remoteAdditionCandidate +
+      result.report.summary.unverifiable;
+    if (result.requiredSourceFailed) {
+      terminalResult = {
+        baseSha,
+        fingerprint: fingerprint(['model-catalog-updater', baseSha, 'required-source-failed']),
+        reasons: ['required model-catalog source failed'],
+        status: 'blocked',
+      };
+    } else if (findingCount > 0) {
+      terminalResult = {
+        baseSha,
+        fingerprint: fingerprint(['model-catalog-updater', baseSha, String(findingCount)]),
+        status: 'report',
+        summary: `${findingCount} catalog difference(s)`,
+      };
+    } else {
+      terminalResult = {
+        baseSha,
+        fingerprint: fingerprint(['model-catalog-updater', baseSha, 'no-change']),
+        status: 'no-change',
+      };
+    }
+  } catch (error) {
+    const reason = String(error);
+    const directory = new URL('reports/model-catalog/', root);
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      new URL('model-catalog-report.json', directory),
+      `${JSON.stringify({ baseCommit: baseSha, error: reason, mode: 'report', status: 'blocked' }, null, 2)}\n`
+    );
+    await writeFile(
+      new URL('model-catalog-report.md', directory),
+      `# Model Catalog Shadow Report\n\nBlocked: ${reason}\n`
+    );
+    terminalResult = {
+      baseSha,
+      fingerprint: fingerprint(['model-catalog-updater', baseSha, 'blocked', reason]),
+      reasons: [reason],
+      status: 'blocked',
+    };
   }
-  const result = await runReport();
-  if (result.requiredSourceFailed) {
+  terminalWriter.write(terminalResult);
+  terminalWriter.assertWritten();
+  if (terminalResult.status === 'blocked') {
     process.exitCode = 1;
   }
 }

@@ -17,14 +17,18 @@ env:
 
 jobs:
   report:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/setup-workspace
+          ref: refs/heads/main
+      - uses: ./.github/actions/setup-report-workspace
       - name: Generate report
+        if: github.ref == 'refs/heads/main'
         run: pnpm model-catalog:report
         env:
           BRAINSTRIKE_MODEL_CATALOG_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

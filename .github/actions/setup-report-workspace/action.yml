@@ -1,0 +1,11 @@
+name: Setup report-only workspace
+description: Install the pinned Node and pnpm workspace without reading or writing Actions/Turbo caches.
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .nvmrc
+    - run: pnpm install --frozen-lockfile
+      shell: bash

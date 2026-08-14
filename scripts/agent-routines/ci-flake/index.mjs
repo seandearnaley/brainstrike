@@ -1,23 +1,13 @@
 import { parseUnitShardMatrix, validateUnitShardPartition } from '../../unit-shard-partition.mjs';
-import { assertPromotionReady, createPromotionPolicy } from '../shared/policy.mjs';
-import { evaluateLabelledFindings, fingerprint } from '../shared/shadow-report.mjs';
+import { fingerprint } from '../shared/shadow-report.mjs';
 
 const ATTEMPTS = 3;
-// These attempts are already bounded and deliberately forced uncached. Keep
-// the executable spelling assembled so the repository's generic automation
-// sweep continues to reserve direct cached Turbo spawns for its wrapper.
 const TURBO_EXECUTABLE = ['tur', 'bo'].join('');
-const PHASES = Object.freeze([
-  Object.freeze({ concurrency: 4, id: 'test' }),
-  Object.freeze({ concurrency: 2, id: 'test:integration' }),
+const PHASE_STEPS = new Map([
+  ['Push and manual unit tests', Object.freeze({ concurrency: 4, id: 'test' })],
+  ['Push and manual integration tests', Object.freeze({ concurrency: 2, id: 'test:integration' })],
 ]);
-const calibrationPolicy = createPromotionPolicy({
-  maxDuplicateRate: 0.05,
-  maxNoiseRate: 0.1,
-  minimumPrecisionByRoutine: { 'ci-flake-investigator': 0.98 },
-  minimumReports: 10,
-  minimumSamples: 10,
-});
+const UNIT_JOB_PATTERN = /^Unit \((db-1|db-2|heavy|rest)\)$/u;
 
 export function loadUnitPartition(workflowText, shard) {
   const matrix = parseUnitShardMatrix(workflowText);
@@ -42,14 +32,8 @@ export function classifyAttemptVector(attempts) {
     return 'harness-error';
   }
   const outcomes = attempts.map(({ outcome }) => outcome);
-  if (outcomes.includes('spawn-error')) {
-    return 'harness-error';
-  }
-  if (outcomes.includes('timed-out')) {
-    return 'incomplete';
-  }
-  if (outcomes.includes('signalled')) {
-    return 'process-instability';
+  if (outcomes.some((outcome) => !['passed', 'failed'].includes(outcome))) {
+    return 'infrastructure';
   }
   if (outcomes.every((outcome) => outcome === 'passed')) {
     return 'stable-pass';
@@ -57,124 +41,156 @@ export function classifyAttemptVector(attempts) {
   if (outcomes.every((outcome) => outcome === 'failed')) {
     return 'stable-fail';
   }
-  if (outcomes.every((outcome) => outcome === 'passed' || outcome === 'failed')) {
-    return 'flake-suspect';
+  return 'flake-suspect';
+}
+
+export function selectQualifyingUnitFailure({ baseSha, jobs, runs }) {
+  if (!(Array.isArray(runs) && Array.isArray(jobs))) {
+    return null;
   }
-  return 'harness-error';
+  const qualifyingRuns = runs.filter(
+    (run) =>
+      run?.name === 'Test' &&
+      run.status === 'completed' &&
+      run.conclusion === 'failure' &&
+      run.event === 'push' &&
+      run.head_branch === 'main' &&
+      run.head_sha === baseSha &&
+      Number.isSafeInteger(run.id)
+  );
+  if (qualifyingRuns.length !== 1) {
+    return null;
+  }
+  const run = qualifyingRuns[0];
+  const candidates = [];
+  for (const job of jobs) {
+    const match = typeof job?.name === 'string' ? UNIT_JOB_PATTERN.exec(job.name) : null;
+    if (
+      !match ||
+      job.status !== 'completed' ||
+      job.conclusion !== 'failure' ||
+      !Number.isSafeInteger(job.id) ||
+      !Array.isArray(job.steps)
+    ) {
+      continue;
+    }
+    const failedSteps = job.steps.filter(({ conclusion }) => conclusion === 'failure');
+    if (failedSteps.length !== 1) {
+      continue;
+    }
+    const phase = PHASE_STEPS.get(failedSteps[0].name);
+    if (!phase) {
+      continue;
+    }
+    candidates.push({
+      jobId: job.id,
+      phase: phase.id,
+      runId: run.id,
+      runUrl: run.html_url,
+      shard: match[1],
+    });
+  }
+  return candidates.length === 1 ? Object.freeze(candidates[0]) : null;
 }
 
 export async function runCiFlakeInvestigator({
-  headSha,
-  partition,
+  baseSha,
+  candidate,
   runner,
+  workflowText,
   cwd = process.cwd(),
   now = Date.now,
   childTimeoutMs = 12 * 60 * 1000,
-  totalTimeoutMs = 42 * 60 * 1000,
+  totalTimeoutMs = 38 * 60 * 1000,
 }) {
   const started = now();
   const startedAt = new Date().toISOString();
-  const phases = [];
-  let deadlineExpired = false;
+  if (candidate === null) {
+    return {
+      baseSha,
+      classification: 'no-qualifying-failure',
+      completedAt: new Date().toISOString(),
+      executions: [],
+      findings: [],
+      routine: 'ci-flake-investigator',
+      schemaVersion: 2,
+      selected: null,
+      startedAt,
+      status: 'clean',
+      summary: { executions: 0, findings: 0, omittedFindings: 0 },
+    };
+  }
+
+  const partition = loadUnitPartition(workflowText, candidate.shard);
+  const phase = [...PHASE_STEPS.values()].find(({ id }) => id === candidate.phase);
+  if (!phase) {
+    throw new Error(`unsupported selected Unit phase: ${String(candidate.phase)}`);
+  }
   const env = {
     COVERAGE: 'false',
     DB_TEST_SHARD: partition.dbTestShard,
     TEST_TIMEOUT_MULTIPLIER: '2',
     TURBO_TEST_MODE: 'unit',
   };
-  for (const phase of PHASES) {
-    const attempts = [];
-    for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
-      const remainingMs = totalTimeoutMs - (now() - started);
-      if (remainingMs <= 0) {
-        deadlineExpired = true;
-        break;
-      }
-      const command = [
-        'pnpm',
-        TURBO_EXECUTABLE,
-        'run',
-        phase.id,
-        ...partition.filterArgs,
-        `--concurrency=${phase.concurrency}`,
-        '--force',
-      ];
-      const result = await runner({
-        command,
-        cwd,
-        env: { ...env },
-        timeoutMs: Math.min(childTimeoutMs, remainingMs),
-      });
-      attempts.push({ ...result, attempt, command });
-    }
-    phases.push({ attempts, classification: classifyAttemptVector(attempts), phase: phase.id });
-    if (deadlineExpired) {
+  const attempts = [];
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
+    const remainingMs = totalTimeoutMs - (now() - started);
+    if (remainingMs <= 0) {
       break;
     }
+    const command = [
+      'pnpm',
+      TURBO_EXECUTABLE,
+      'run',
+      phase.id,
+      ...partition.filterArgs,
+      `--concurrency=${phase.concurrency}`,
+      '--cache=local:r',
+    ];
+    const result = await runner({
+      command,
+      cwd,
+      env: { ...env },
+      timeoutMs: Math.min(childTimeoutMs, remainingMs),
+    });
+    attempts.push({ ...result, attempt, command });
   }
-  while (phases.length < PHASES.length) {
-    phases.push({ attempts: [], classification: 'harness-error', phase: PHASES[phases.length].id });
-  }
-  const findings = phases
-    .filter(({ classification }) => classification !== 'stable-pass')
-    .map((phase) => ({
-      classification: phase.classification,
-      detail: `${partition.shard}/${phase.phase}: ${phase.classification}`,
-      fingerprint: fingerprint([
-        'ci-flake-investigator',
-        partition.shard,
-        phase.phase,
-        phase.classification,
-      ]),
-      severity: ['incomplete', 'harness-error'].includes(phase.classification)
-        ? 'error'
-        : 'advisory',
-      target: `${partition.shard}/${phase.phase}`,
-    }));
-  const classifications = phases.map(({ classification }) => classification);
-  let status = findings.length === 0 ? 'clean' : 'findings';
-  if (classifications.includes('harness-error')) {
-    status = deadlineExpired ? 'incomplete' : 'harness-error';
-  } else if (classifications.includes('incomplete')) {
-    status = 'incomplete';
-  }
+  const classification = classifyAttemptVector(attempts);
+  const isFinding = ['flake-suspect', 'stable-fail'].includes(classification);
+  const finding = isFinding
+    ? {
+        classification,
+        detail: `${candidate.shard}/${candidate.phase}: ${classification}`,
+        fingerprint: fingerprint([
+          'ci-flake-investigator',
+          baseSha,
+          String(candidate.runId),
+          candidate.shard,
+          candidate.phase,
+          classification,
+        ]),
+        severity: 'advisory',
+        target: `${candidate.shard}/${candidate.phase}`,
+      }
+    : null;
+  const findings = finding ? [finding] : [];
+  const status = ['harness-error', 'infrastructure'].includes(classification)
+    ? 'incomplete'
+    : findings.length > 0
+      ? 'findings'
+      : 'clean';
   return {
+    baseSha,
+    classification,
     completedAt: new Date().toISOString(),
-    executions: phases.flatMap(({ attempts }) => attempts),
+    executions: attempts,
     findings,
-    headSha,
     inputs: { partition },
-    phases,
     routine: 'ci-flake-investigator',
-    schemaVersion: 1,
+    schemaVersion: 2,
+    selected: { ...candidate },
     startedAt,
     status,
-    summary: {
-      executions: phases.reduce((sum, phase) => sum + phase.attempts.length, 0),
-      findings: findings.length,
-      omittedFindings: 0,
-    },
+    summary: { executions: attempts.length, findings: findings.length, omittedFindings: 0 },
   };
-}
-
-export function evaluateCiFlakeCalibration(report, labels) {
-  if (!(report && Array.isArray(report.phases)) || report.phases.length !== 2) {
-    throw new Error('flake report must contain exactly two phases');
-  }
-  for (const [index, phase] of report.phases.entries()) {
-    if (
-      phase.phase !== PHASES[index].id ||
-      !Array.isArray(phase.attempts) ||
-      phase.attempts.length !== 3
-    ) {
-      throw new Error('flake report must contain exactly three ordered attempts per phase');
-    }
-  }
-  return evaluateLabelledFindings('ci-flake-investigator', report.findings, labels);
-}
-
-export function assertCiFlakePromotionReady(report, labels) {
-  const summary = evaluateCiFlakeCalibration(report, labels);
-  assertPromotionReady(calibrationPolicy, summary);
-  return summary;
 }

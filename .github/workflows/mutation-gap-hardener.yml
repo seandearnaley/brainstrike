@@ -17,21 +17,22 @@ env:
 
 jobs:
   mutation-gap-hardener:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           persist-credentials: false
+          ref: refs/heads/main
 
       - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          turbo-cache: 'false'
+        uses: ./.github/actions/setup-report-workspace
 
       - name: Build mutation target dependency closure
-        run: pnpm exec turbo run build --filter=@brainstrike/file-system... --concurrency=2 --cache-dir=.turbo
+        run: pnpm exec turbo run build --filter=@brainstrike/file-system... --concurrency=2 --cache=local:r
 
       - name: Run exact-target mutation shadow
         run: node scripts/mutation-gap-hardener.mjs

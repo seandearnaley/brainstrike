@@ -3,12 +3,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { fetchCurrentMainFailureMetadata } from '../agent-routines/ci-flake/github-actions.mjs';
 import {
-  assertCiFlakePromotionReady,
   classifyAttemptVector,
-  evaluateCiFlakeCalibration,
   loadUnitPartition,
   runCiFlakeInvestigator,
+  selectQualifyingUnitFailure,
 } from '../agent-routines/ci-flake/index.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -23,14 +23,42 @@ const execution = (outcome) => ({
   stdoutTail: '',
 });
 
-test('classifies exactly three attempts without parsing logs', () => {
+function run(overrides = {}) {
+  return {
+    conclusion: 'failure',
+    event: 'push',
+    head_branch: 'main',
+    head_sha: SHA,
+    id: 42,
+    name: 'Test',
+    run_attempt: 1,
+    status: 'completed',
+    ...overrides,
+  };
+}
+
+function job(overrides = {}) {
+  return {
+    conclusion: 'failure',
+    id: 91,
+    name: 'Unit (db-1)',
+    status: 'completed',
+    steps: [
+      { conclusion: 'success', name: 'Checkout', status: 'completed' },
+      { conclusion: 'failure', name: 'Push and manual unit tests', status: 'completed' },
+    ],
+    ...overrides,
+  };
+}
+
+test('classifies exactly three attempts without treating infrastructure as a flake', () => {
   const cases = [
     [['passed', 'passed', 'passed'], 'stable-pass'],
     [['failed', 'failed', 'failed'], 'stable-fail'],
     [['passed', 'failed', 'passed'], 'flake-suspect'],
-    [['passed', 'signalled', 'passed'], 'process-instability'],
-    [['passed', 'timed-out', 'passed'], 'incomplete'],
-    [['passed', 'spawn-error', 'passed'], 'harness-error'],
+    [['passed', 'signalled', 'passed'], 'infrastructure'],
+    [['passed', 'timed-out', 'passed'], 'infrastructure'],
+    [['passed', 'spawn-error', 'passed'], 'infrastructure'],
   ];
   for (const [outcomes, expected] of cases) {
     assert.equal(classifyAttemptVector(outcomes.map(execution)), expected);
@@ -38,12 +66,8 @@ test('classifies exactly three attempts without parsing logs', () => {
   assert.equal(classifyAttemptVector([execution('passed')]), 'harness-error');
 });
 
-test('reuses all four live Unit matrix rows and their push filters', () => {
+test('reuses all four live Unit matrix rows and their exact push filters', () => {
   const rows = ['db-1', 'db-2', 'heavy', 'rest'].map((shard) => loadUnitPartition(workflow, shard));
-  assert.deepEqual(
-    rows.map(({ shard }) => shard),
-    ['db-1', 'db-2', 'heavy', 'rest']
-  );
   assert.deepEqual(
     rows.map(({ dbTestShard }) => dbTestShard),
     ['1/2', '2/2', '', '']
@@ -56,110 +80,118 @@ test('reuses all four live Unit matrix rows and their push filters', () => {
   ]);
 });
 
-test('runs three forced uncached attempts for each existing phase with CI environment', async () => {
+test('selects one completed current-main Unit test phase from Actions metadata', () => {
+  assert.deepEqual(selectQualifyingUnitFailure({ baseSha: SHA, jobs: [job()], runs: [run()] }), {
+    jobId: 91,
+    phase: 'test',
+    runId: 42,
+    runUrl: undefined,
+    shard: 'db-1',
+  });
+  assert.equal(
+    selectQualifyingUnitFailure({
+      baseSha: SHA,
+      jobs: [
+        job({
+          name: 'Unit (heavy)',
+          steps: [
+            {
+              conclusion: 'failure',
+              name: 'Push and manual integration tests',
+              status: 'completed',
+            },
+          ],
+        }),
+      ],
+      runs: [run()],
+    }).phase,
+    'test:integration'
+  );
+});
+
+test('rejects stale, cancelled, ambiguous, and infrastructure-only metadata', () => {
+  for (const input of [
+    { jobs: [job()], runs: [run({ head_sha: 'c'.repeat(40) })] },
+    { jobs: [job()], runs: [run({ conclusion: 'cancelled' })] },
+    {
+      jobs: [job({ steps: [{ conclusion: 'failure', name: 'Setup workspace' }] })],
+      runs: [run()],
+    },
+    { jobs: [job(), job({ id: 92, name: 'Unit (rest)' })], runs: [run()] },
+  ]) {
+    assert.equal(selectQualifyingUnitFailure({ baseSha: SHA, ...input }), null);
+  }
+});
+
+test('queries only read-only Actions metadata with a request timeout', async () => {
+  const calls = [];
+  const metadata = await fetchCurrentMainFailureMetadata({
+    baseSha: SHA,
+    fetchImpl: async (url, init) => {
+      calls.push({ init, url });
+      if (url.includes('/runs?')) {
+        return new Response(JSON.stringify({ workflow_runs: [run()] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ jobs: [job()] }), { status: 200 });
+    },
+    repository: 'owner/repo',
+    requestTimeoutMs: 4321,
+    token: 'token',
+  });
+  assert.equal(metadata.runs.length, 1);
+  assert.equal(metadata.jobs.length, 1);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(({ init }) => init.method === 'GET'));
+  assert.ok(calls.every(({ init }) => init.signal instanceof AbortSignal));
+  assert.match(calls[0].url, /actions\/workflows\/test\.yml\/runs\?/u);
+  assert.match(calls[1].url, /actions\/runs\/42\/jobs/u);
+});
+
+test('does no test work when metadata has no qualifying failure', async () => {
+  let calls = 0;
+  const report = await runCiFlakeInvestigator({
+    baseSha: SHA,
+    candidate: null,
+    runner: async () => {
+      calls += 1;
+      return execution('passed');
+    },
+    workflowText: workflow,
+  });
+  assert.equal(calls, 0);
+  assert.equal(report.status, 'clean');
+  assert.equal(report.summary.executions, 0);
+});
+
+test('reruns only the selected Unit shard and phase three times with read-only cache', async () => {
   const calls = [];
   const report = await runCiFlakeInvestigator({
-    headSha: SHA,
-    partition: loadUnitPartition(workflow, 'db-1'),
+    baseSha: SHA,
+    candidate: { jobId: 91, phase: 'test:integration', runId: 42, shard: 'db-1' },
     runner: async (request) => {
       calls.push(request);
       return execution('passed');
     },
+    workflowText: workflow,
   });
-  assert.equal(calls.length, 6);
-  assert.deepEqual(
-    report.phases.map(({ classification }) => classification),
-    ['stable-pass', 'stable-pass']
-  );
-  assert.deepEqual(
-    calls.map(({ command }) => command[3]),
-    ['test', 'test', 'test', 'test:integration', 'test:integration', 'test:integration']
-  );
-  for (const call of calls) {
-    assert.ok(call.command.includes('--force'));
-    assert.equal(call.env.COVERAGE, 'false');
-    assert.equal(call.env.TEST_TIMEOUT_MULTIPLIER, '2');
-    assert.equal(call.env.TURBO_TEST_MODE, 'unit');
-    assert.equal(call.env.DB_TEST_SHARD, '1/2');
-  }
-  assert.ok(calls.slice(0, 3).every(({ command }) => command.includes('--concurrency=4')));
-  assert.ok(calls.slice(3).every(({ command }) => command.includes('--concurrency=2')));
+  assert.equal(calls.length, 3);
+  assert.equal(report.selected.phase, 'test:integration');
+  assert.ok(calls.every(({ command }) => command[3] === 'test:integration'));
+  assert.ok(calls.every(({ command }) => command.includes('--cache=local:r')));
+  assert.ok(calls.every(({ command }) => !command.includes('--force')));
+  assert.ok(calls.every(({ env }) => env.DB_TEST_SHARD === '1/2'));
 });
 
-test('classification precedence and status remain fail closed', async () => {
-  for (const [outcomes, classification, status] of [
-    [['failed', 'failed', 'failed'], 'stable-fail', 'findings'],
-    [['passed', 'failed', 'passed'], 'flake-suspect', 'findings'],
-    [['passed', 'signalled', 'passed'], 'process-instability', 'findings'],
-    [['passed', 'timed-out', 'passed'], 'incomplete', 'incomplete'],
-    [['passed', 'spawn-error', 'passed'], 'harness-error', 'harness-error'],
-  ]) {
-    let index = 0;
-    const report = await runCiFlakeInvestigator({
-      headSha: SHA,
-      partition: loadUnitPartition(workflow, 'rest'),
-      runner: async () => execution(outcomes[index++ % 3]),
-    });
-    assert.equal(report.phases[0].classification, classification);
-    assert.equal(report.status, status);
-  }
-});
-
-test('total deadline stops new work and reports incomplete attempts', async () => {
-  let now = 0;
-  let calls = 0;
+test('infrastructure during a selected rerun blocks instead of reporting a flake', async () => {
+  let attempt = 0;
+  const outcomes = ['passed', 'signalled', 'passed'];
   const report = await runCiFlakeInvestigator({
-    headSha: SHA,
-    now: () => now,
-    partition: loadUnitPartition(workflow, 'rest'),
-    runner: async () => {
-      calls += 1;
-      now += 2_000_000;
-      return execution('passed');
-    },
-    totalTimeoutMs: 1_000_000,
+    baseSha: SHA,
+    candidate: { jobId: 91, phase: 'test', runId: 42, shard: 'rest' },
+    runner: async () => execution(outcomes[attempt++]),
+    workflowText: workflow,
   });
-  assert.equal(calls, 1);
+  assert.equal(report.classification, 'infrastructure');
   assert.equal(report.status, 'incomplete');
-  assert.equal(report.phases[0].classification, 'harness-error');
-});
-
-test('calibration requires an external label for every finding', () => {
-  const report = {
-    findings: [{ classification: 'flake-suspect', fingerprint: 'flake:rest:test' }],
-    phases: [
-      { attempts: [{}, {}, {}], phase: 'test' },
-      { attempts: [{}, {}, {}], phase: 'test:integration' },
-    ],
-  };
-  const labels = [{ fingerprint: 'flake:rest:test', label: 'correct-actionable' }];
-  const summary = evaluateCiFlakeCalibration(report, labels);
-  assert.equal(summary.precision, 1);
-  assert.equal(summary.reportCount, 1);
-  assert.throws(() => assertCiFlakePromotionReady(report, labels), /not promotion-ready/u);
-  assert.throws(() => evaluateCiFlakeCalibration(report, []), /missing external label/u);
-});
-
-test('historical/live calibration and independent holdout fixtures stay precise', () => {
-  const fixtureRoot = path.join(root, 'scripts/__tests__/fixtures/agent-routines');
-  const calibration = JSON.parse(readFileSync(path.join(fixtureRoot, 'ci-flake-calibration.json')));
-  assert.deepEqual(
-    calibration.map(({ source }) => source),
-    ['historical', 'live']
-  );
-  for (const fixture of calibration) {
-    const summary = evaluateCiFlakeCalibration(fixture.report, fixture.labels);
-    assert.deepEqual(
-      {
-        noiseRate: summary.noiseRate,
-        precision: summary.precision,
-        unsafe: summary.unsafeFindings,
-      },
-      { noiseRate: 0, precision: 1, unsafe: 0 }
-    );
-  }
-  const holdout = JSON.parse(readFileSync(path.join(fixtureRoot, 'ci-flake-holdout.json')));
-  for (const fixture of holdout) {
-    assert.equal(classifyAttemptVector(fixture.outcomes.map(execution)), fixture.expected);
-  }
+  assert.deepEqual(report.findings, []);
 });

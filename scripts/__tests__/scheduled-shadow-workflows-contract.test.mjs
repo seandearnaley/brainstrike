@@ -36,11 +36,18 @@ describe('scheduled shadow workflow contract', () => {
       assert.equal(Object.keys(workflow.jobs).length, 1);
 
       const [job] = Object.values(workflow.jobs);
+      assert.equal(
+        job.if,
+        "github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'"
+      );
       assert.equal(job['timeout-minutes'], contract.timeout);
       assert.deepEqual(job.permissions, undefined);
       assert.equal(job.steps.filter((step) => step.run?.includes(contract.routine)).length, 1);
       const checkout = job.steps.find((step) => step.uses?.startsWith('actions/checkout@'));
       assert.equal(checkout.with['persist-credentials'], false);
+      assert.equal(checkout.with.ref, 'refs/heads/main');
+      assert.equal(checkout.with['fetch-depth'], 0);
+      assert.ok(job.steps.some((step) => step.uses === './.github/actions/setup-report-workspace'));
       const uploads = job.steps.filter((step) => step.uses?.startsWith('actions/upload-artifact@'));
       assert.equal(uploads.length, 1);
       assert.equal(uploads[0].if, 'always()');
@@ -51,6 +58,7 @@ describe('scheduled shadow workflow contract', () => {
         /pull_request_target|permissions:\s*[\s\S]*?write|\bgh\s+(?:issue|pr)|git\s+(?:commit|push|merge)|auto-merge/iu
       );
       assert.doesNotMatch(source, /\b(?:push|pull_request):/u);
+      assert.doesNotMatch(source, /setup-workspace|actions\/cache|turbo-cache/u);
     });
   }
 });

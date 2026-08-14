@@ -631,6 +631,10 @@ test('workflow is weekday report-only with no mutation reachability', async () =
   assert.match(workflow, /permissions:\n\s+contents: read/u);
   assert.match(workflow, /timeout-minutes: 10/u);
   assert.match(workflow, /pnpm model-catalog:report/u);
+  assert.match(workflow, /name: Generate report\n\s+if: github\.ref == 'refs\/heads\/main'/u);
+  assert.match(workflow, /ref: refs\/heads\/main/u);
+  assert.match(workflow, /uses: \.\/\.github\/actions\/setup-report-workspace/u);
+  assert.doesNotMatch(workflow, /setup-workspace|actions\/cache|turbo-cache/u);
   assert.doesNotMatch(
     workflow,
     /render-safe|pull-request|issues: write|contents: write|gh pr|git push/iu

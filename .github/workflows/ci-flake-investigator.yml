@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -14,40 +15,37 @@ concurrency:
 
 jobs:
   observe:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubicloud-standard-4
     timeout-minutes: 50
-    strategy:
-      fail-fast: false
-      max-parallel: 2
-      matrix:
-        shard: [db-1, db-2, heavy, rest]
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/setup-workspace
-        with:
-          turbo-cache: 'true'
-      - name: Run three uncached attempts per Unit phase
+          ref: refs/heads/main
+      - uses: ./.github/actions/setup-report-workspace
+      - name: Inspect current-main Actions metadata and rerun one exact failed Unit phase
         id: investigator
         continue-on-error: true
         env:
-          UNIT_SHARD: ${{ matrix.shard }}
-          REPORT_PATH: reports/agent-routines/ci-flake-${{ matrix.shard }}.json
+          REPORT_PATH: reports/agent-routines/ci-flake-investigator.json
         run: node scripts/agent-routines/ci-flake/cli.mjs
       - name: Publish summary
         if: always()
         run: |
-          test -f "reports/agent-routines/ci-flake-${{ matrix.shard }}.json"
-          printf '## CI Flake Investigator: %s\n\n```json\n' '${{ matrix.shard }}' >> "$GITHUB_STEP_SUMMARY"
-          cat "reports/agent-routines/ci-flake-${{ matrix.shard }}.json" >> "$GITHUB_STEP_SUMMARY"
+          test -f reports/agent-routines/ci-flake-investigator.json
+          printf '## CI Flake Investigator\n\n```json\n' >> "$GITHUB_STEP_SUMMARY"
+          cat reports/agent-routines/ci-flake-investigator.json >> "$GITHUB_STEP_SUMMARY"
           printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: ci-flake-investigator-${{ matrix.shard }}-${{ github.sha }}
-          path: reports/agent-routines/ci-flake-${{ matrix.shard }}.json
+          name: ci-flake-investigator-${{ github.sha }}
+          path: reports/agent-routines/ci-flake-investigator.json
           retention-days: 14
           if-no-files-found: error
       - name: Preserve harness failure

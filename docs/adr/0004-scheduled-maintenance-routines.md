@@ -36,10 +36,14 @@ shared fail-closed policy layer:
    proposed as PRs. Removals, renames, new providers, defaults, SDK changes, and
    incomplete controls remain reports.
 2. **CI Flake Investigator** — classifies qualifying CI failures and preserves
-   the first failure. It distinguishes nondeterminism from stale-head
-   cancellation, infrastructure failure, and deterministic assertion failure.
+   the first failure. It reads current-main Actions run/job/step metadata first,
+   rejects stale, cancelled, ambiguous, or infrastructure-only evidence, and
+   reruns only one exact failed Unit shard/phase up to three times. If exact
+   selection is not deterministic, it emits a metadata-only no-change report
+   and runs no tests.
 3. **Contract Drift Guardian** — runs existing executable repository contracts
-   and reports deterministic drift. It does not build a generalized analyzer.
+   weekly and reports deterministic drift. It does not build a generalized
+   analyzer or recreate daily broad CI fan-out.
 4. **Deterministic Boundary Crash Fuzzer** — sends seeded synthetic hostile
    inputs to a rotating allowlist of parser, containment, projection,
    serialization, persisted-row, and SQL-admission boundaries. It never reads a
@@ -146,9 +150,15 @@ Collection jobs use read-only permissions:
 ```yaml
 permissions:
   contents: read
-  pull-requests: read
-  actions: read
 ```
+
+Permissions are minimal per routine: only the flake investigator adds
+`actions: read`; none of the five report-only jobs needs pull-request read
+access. Manual dispatch jobs run only when `github.ref` is
+`refs/heads/main`, explicitly check out that trusted ref without persisted
+credentials, and then validate it against a freshly fetched `origin/main`.
+The model credential is scoped to a step with its own main-ref condition.
+Report-only setup and Turbo commands do not save Actions or Turbo cache state.
 
 Only a separate admitted proposal job may receive `contents: write` and
 `pull-requests: write`. Workflows do not use `pull_request_target`. They do not

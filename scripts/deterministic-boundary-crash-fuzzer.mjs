@@ -3,6 +3,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runBoundedProcess } from './agent-routines/shared/bounded-process.mjs';
+import {
+  freezeCurrentOriginMain,
+  readCurrentHeadSha,
+} from './agent-routines/shared/current-main.mjs';
+import { createRoutineResultWriter } from './agent-routines/shared/routine-result.mjs';
+import { fingerprint as terminalFingerprint } from './agent-routines/shared/shadow-report.mjs';
 
 export const BOUNDARY_FUZZ_SEED = 0x42_53_54_52;
 export const BOUNDARY_CASE_COUNTS = Object.freeze({
@@ -136,6 +142,7 @@ async function spawnVitest({ cwd, outputFile, timeoutMs }) {
 }
 
 export async function runBoundaryCrashFuzzer({
+  baseSha,
   repoRoot,
   reportDir = path.join(repoRoot, 'reports/shadow/boundary-crash-fuzzer'),
   timeoutMs = 5 * 60 * 1000,
@@ -150,6 +157,7 @@ export async function runBoundaryCrashFuzzer({
     vitestReport = null;
   }
   const report = {
+    baseSha,
     routineId: 'boundary-crash-fuzzer',
     seed: BOUNDARY_FUZZ_SEED,
     ...classifyBoundaryRun({
@@ -165,6 +173,58 @@ export async function runBoundaryCrashFuzzer({
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const report = await runBoundaryCrashFuzzer({ repoRoot });
-  process.exitCode = boundaryRunExitCode(report);
+  const terminalWriter = createRoutineResultWriter();
+  const reportDir = path.join(repoRoot, 'reports/shadow/boundary-crash-fuzzer');
+  let baseSha = /^[0-9a-f]{40}$/u.test(process.env.GITHUB_SHA ?? '')
+    ? process.env.GITHUB_SHA
+    : '0'.repeat(40);
+  let terminalResult;
+  try {
+    baseSha = await readCurrentHeadSha({ cwd: repoRoot });
+    baseSha = await freezeCurrentOriginMain({ cwd: repoRoot });
+    const report = await runBoundaryCrashFuzzer({ baseSha, repoRoot, reportDir });
+    if (report.classification === 'no-change') {
+      terminalResult = {
+        baseSha,
+        fingerprint: terminalFingerprint(['boundary-crash-fuzzer', baseSha, 'no-change']),
+        status: 'no-change',
+      };
+    } else if (report.classification === 'boundary-counterexample') {
+      terminalResult = {
+        baseSha,
+        fingerprint: terminalFingerprint([
+          'boundary-crash-fuzzer',
+          baseSha,
+          ...report.findings.map(({ fingerprint }) => fingerprint),
+        ]),
+        status: 'report',
+        summary: `${report.counts.findings} boundary counterexample(s)`,
+      };
+    } else {
+      terminalResult = {
+        baseSha,
+        fingerprint: terminalFingerprint(['boundary-crash-fuzzer', baseSha, report.classification]),
+        reasons: [`boundary fuzzer ended as ${report.classification}`],
+        status: 'blocked',
+      };
+    }
+  } catch (error) {
+    const reason = String(error);
+    await mkdir(reportDir, { recursive: true });
+    await writeFile(
+      path.join(reportDir, 'report.json'),
+      `${JSON.stringify({ baseSha, classification: 'harness-error', error: reason, routineId: 'boundary-crash-fuzzer' }, null, 2)}\n`
+    );
+    terminalResult = {
+      baseSha,
+      fingerprint: terminalFingerprint(['boundary-crash-fuzzer', baseSha, 'blocked', reason]),
+      reasons: [reason],
+      status: 'blocked',
+    };
+  }
+  terminalWriter.write(terminalResult);
+  terminalWriter.assertWritten();
+  if (terminalResult.status === 'blocked') {
+    process.exitCode = 1;
+  }
 }

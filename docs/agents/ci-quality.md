@@ -40,6 +40,22 @@ update issues, branches, PRs, deployments, or repository state. Do not add a
 fleet router, generated routine registry, routing label, committed checkpoint,
 bulletin, or a workflow that supervises other routines.
 
+Manual dispatch is trusted-default-branch only: each job rejects a dispatch
+whose ref is not `refs/heads/main`, explicitly checks out that ref without
+persisted credentials, and freezes a freshly fetched `origin/main` before any
+analysis. The secret-bearing model step repeats the main-ref gate so a model
+credential never reaches arbitrary-ref code. All five use the no-cache
+`setup-report-workspace` action; scheduled report routines must not restore or
+save Actions caches, and any Turbo invocation uses local read-only cache mode.
+
+The contract guardian runs weekly rather than daily. The flake investigator
+first reads `test.yml` run/job/step metadata with `actions: read`, selects one
+completed failed current-main `Unit (<shard>)` job whose sole failed step is an
+exact push Unit or integration phase, and reruns only that shard/phase up to
+three times. Stale/cancelled runs, setup failures, ambiguous jobs, and other
+infrastructure evidence produce no test work (or a blocked report when the
+metadata/API itself is unreadable); they are never classified as flakes.
+
 Promotion is per routine and fail-closed. Hermes evaluates historical-fixture,
 holdout, and live frozen-head reports, labels findings independently, and tunes
 only toward narrower evidence, lower noise, clearer grouping, or lower cadence.

@@ -17,18 +17,19 @@ env:
 
 jobs:
   boundary-crash-fuzzer:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           persist-credentials: false
+          ref: refs/heads/main
 
       - name: Setup workspace
-        uses: ./.github/actions/setup-workspace
-        with:
-          turbo-cache: 'false'
+        uses: ./.github/actions/setup-report-workspace
 
       - name: Run deterministic synthetic boundary corpus
         run: node scripts/deterministic-boundary-crash-fuzzer.mjs
