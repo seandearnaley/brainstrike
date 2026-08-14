@@ -1476,8 +1476,10 @@ export function WorkspaceCollectionSyncProvider({
     getBackgroundWorkArbiterSnapshot
   );
   const reportAsyncError = useCallback(
-    (operation: string, error: unknown): void => {
-      logger.error(`Workspace collection sync ${operation} failed`, { error });
+    (_operation: string, error: unknown): void => {
+      // No direct logger call: the status store's subscription durably logs
+      // the error/blocked transition set below (BST-1257) — logging here too
+      // recorded every incident twice under different scopes.
       if (isWorkspaceIndexBlockedError(error)) {
         setSyncStatus({
           activeRootPath: rootDirectoryHandle?.path ?? null,

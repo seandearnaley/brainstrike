@@ -19,6 +19,7 @@ import {
   markRootsDisconnectedExcept,
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
+import { isFileNotFoundError } from '../file-read-errors';
 
 const CORRUPT_ROOTS_LIST_STORAGE_KEY = 'rootsList.corrupt' as const;
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
@@ -400,10 +401,16 @@ export class WorkspaceRootRegistry {
     });
   }
 
-  async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+  readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+    return this.withReadDenialLogging('readDirectory', handle.path, handle.rootId, () =>
+      this.readDirectoryUnlogged(handle)
+    );
+  }
+
+  private async readDirectoryUnlogged(handle: DirectoryHandle): Promise<IFileNode[]> {
     await this.mutationTail;
     this.assertActive();
-    const resolved = await this.resolveRead(handle.path, handle.rootId, 'readDirectory');
+    const resolved = await this.resolveRead(handle.path, handle.rootId);
     const listing = await resolved.mounted.root.listDir(
       resolved.relativePath,
       MAX_DIRECTORY_ENTRIES
@@ -426,12 +433,21 @@ export class WorkspaceRootRegistry {
     return nodes;
   }
 
-  async readFile(request: FileHandle | string): Promise<string> {
-    await this.mutationTail;
-    this.assertActive();
+  readFile(request: FileHandle | string): Promise<string> {
     const requestedPath = typeof request === 'string' ? request : request.path;
     const rootId = typeof request === 'string' ? undefined : request.rootId;
-    const resolved = await this.resolveRead(requestedPath, rootId, 'readFile');
+    return this.withReadDenialLogging('readFile', requestedPath, rootId, () =>
+      this.readFileUnlogged(requestedPath, rootId)
+    );
+  }
+
+  private async readFileUnlogged(
+    requestedPath: string,
+    rootId: string | undefined
+  ): Promise<string> {
+    await this.mutationTail;
+    this.assertActive();
+    const resolved = await this.resolveRead(requestedPath, rootId);
     const { maxFileSize } = getFileSizeConfig();
     if (maxFileSize > NATIVE_MAX_READ_BYTES) {
       throw new AccessError(
@@ -871,25 +887,24 @@ export class WorkspaceRootRegistry {
   }
 
   /**
-   * Wraps `resolveReadUnlogged` so every read denial is durably logged at
-   * warn before rethrowing (BST-1257): the BST-1255 indexer halt threw
-   * AccessErrors here that crossed IPC into a renderer banner and left ZERO
-   * trace in main's logs. Logging at this chokepoint covers the default AND
-   * the injected `resolveReadPath`, plus the containment/mount checks.
+   * Durably logs every read denial at warn before rethrowing (BST-1257): the
+   * BST-1255 indexer halt threw AccessErrors that crossed IPC into a renderer
+   * banner and left ZERO trace in main's logs. Wraps the ENTIRE public read
+   * operation (review on #2433), so post-resolution denials — inaccessible
+   * directory, oversized/unreadable/symlink file results — are covered, not
+   * just path validation. Routine not-found probes (tab restoration, stale
+   * handles) stay quiet: the IPC layer converts those to a normal payload.
    */
-  private async resolveRead(
+  private async withReadDenialLogging<T>(
+    operation: 'readDirectory' | 'readFile',
     requestedPath: string,
     rootId: string | undefined,
-    operation: 'readDirectory' | 'readFile'
-  ): Promise<{
-    mounted: MountedWorkspaceRoot;
-    relativePath: string;
-    traversedSymlink: boolean;
-  }> {
+    run: () => Promise<T>
+  ): Promise<T> {
     try {
-      return await this.resolveReadUnlogged(requestedPath, rootId);
+      return await run();
     } catch (error) {
-      if (error instanceof AccessError) {
+      if (error instanceof AccessError && !isFileNotFoundError(error)) {
         logger.warn('Workspace read denied', {
           message: error.message,
           operation,
@@ -901,7 +916,7 @@ export class WorkspaceRootRegistry {
     }
   }
 
-  private async resolveReadUnlogged(
+  private async resolveRead(
     requestedPath: string,
     rootId?: string
   ): Promise<{

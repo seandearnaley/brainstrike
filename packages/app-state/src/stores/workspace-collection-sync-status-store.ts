@@ -139,7 +139,9 @@ const errorTransitionLogger = createLogger('WorkspaceCollectionSyncStatus');
  * poll loops that re-set an identical error from spamming.
  */
 useWorkspaceCollectionSyncStatusStore.subscribe((state, prevState) => {
-  if (!state.lastError) {
+  // Scoped to genuine error/blocked states: coverage audits set lastError
+  // with state 'waiting' and already warn at the producer (BST-1257 review).
+  if (!state.lastError || (state.state !== 'error' && state.state !== 'blocked')) {
     return;
   }
   const enteredErrorState =

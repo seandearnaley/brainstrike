@@ -1,4 +1,4 @@
-import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
@@ -15,7 +15,6 @@ describe('workspace-collection-sync-status-store', () => {
     let removeListener: (() => void) | null = null;
 
     beforeEach(() => {
-      setLogLevel(LogLevel.INFO);
       captured = [];
       removeListener = addLogListener((record) => {
         if (record.scope === 'WorkspaceCollectionSyncStatus') {
@@ -70,6 +69,20 @@ describe('workspace-collection-sync-status-store', () => {
         blockedReason: 'missing-provider-key',
         state: 'blocked',
       });
+    });
+
+    it('does not log waiting states that carry a coverage-audit message', () => {
+      // BST-1257 review: coverage audits set lastError with state 'waiting'
+      // and already warn at the producer — the durable-error invariant is
+      // scoped to genuine error/blocked states.
+      const store = useWorkspaceCollectionSyncStatusStore.getState();
+
+      store.setStatus({
+        lastError: 'Coverage audit incomplete for 3 files.',
+        state: 'waiting',
+      });
+
+      expect(captured).toHaveLength(0);
     });
 
     it('does not log when an error clears', () => {

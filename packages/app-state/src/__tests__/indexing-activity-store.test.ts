@@ -1,4 +1,4 @@
-import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetIndexingActivityStoreForTests,
@@ -481,7 +481,6 @@ describe('indexing-activity-store', () => {
     let removeListener: (() => void) | null = null;
 
     beforeEach(() => {
-      setLogLevel(LogLevel.INFO);
       captured = [];
       removeListener = addLogListener((record) => {
         if (record.scope === 'IndexingActivity') {
@@ -505,10 +504,34 @@ describe('indexing-activity-store', () => {
       expect(captured[0]?.level).toBe(LogLevel.ERROR);
       expect(captured[0]?.args[1]).toMatchObject({ error: 'snapshot read failed' });
 
-      store.setIndexingActivityError(null);
-      store.setIndexingActivityError('snapshot read failed');
+      store.setIndexingActivityError('a different failure');
 
       expect(captured).toHaveLength(2);
+    });
+
+    it('suppresses flapping clear/recur cycles, re-logging with a count after the window', () => {
+      // BST-1257 review: the coordinator polls every second and clears the
+      // error on success — an intermittent failure alternates null → msg and
+      // must not emit a durable record per tick.
+      vi.useFakeTimers();
+      try {
+        const store = useIndexingActivityStore.getState();
+
+        store.setIndexingActivityError('flaky read');
+        for (let tick = 0; tick < 70; tick += 1) {
+          store.setIndexingActivityError(null);
+          store.setIndexingActivityError('flaky read');
+          vi.advanceTimersByTime(1000);
+        }
+
+        expect(captured).toHaveLength(2);
+        expect(captured[1]?.args[1]).toMatchObject({
+          error: 'flaky read',
+          suppressedRepeats: expect.any(Number),
+        });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('logs an embedding-worker error transition once', () => {
@@ -543,10 +566,10 @@ describe('indexing-activity-store', () => {
       });
     });
 
-    it('logs failed embedding jobs at warn once per failure-count change', () => {
+    it('logs only genuinely NEW failed embedding jobs at warn', () => {
       const store = useIndexingActivityStore.getState();
       const baseQueue = {
-        failed: 3,
+        failed: 0,
         nextRunnableAt: null,
         queued: 0,
         running: 0,
@@ -554,12 +577,24 @@ describe('indexing-activity-store', () => {
         succeededLifetime: 0,
       };
 
-      store.setQueueSnapshot(baseQueue);
-      store.setQueueSnapshot({ ...baseQueue, queued: 1 });
+      // A null previous snapshot is "unknown", not zero: a durable backlog
+      // must not be re-announced on every app start or transient read error.
+      store.setQueueSnapshot({ ...baseQueue, failed: 3 });
+      expect(captured).toHaveLength(0);
 
+      store.setQueueSnapshot({ ...baseQueue, failed: 5 });
       expect(captured).toHaveLength(1);
       expect(captured[0]?.level).toBe(LogLevel.WARN);
-      expect(captured[0]?.args[1]).toMatchObject({ failed: 3 });
+      expect(captured[0]?.args[1]).toMatchObject({ failed: 5, newFailures: 2 });
+
+      // A decreasing count (retries/pruning) is recovery, not a new failure.
+      store.setQueueSnapshot({ ...baseQueue, failed: 1 });
+      expect(captured).toHaveLength(1);
+
+      // Flap through null (transient read error) and back: no re-announce.
+      store.setQueueSnapshot(null);
+      store.setQueueSnapshot({ ...baseQueue, failed: 1 });
+      expect(captured).toHaveLength(1);
     });
   });
 });
