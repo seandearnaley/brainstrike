@@ -199,21 +199,22 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
       duplicateCaseCount > 0 ||
       unexpectedCaseCount > 0 ||
       unsupportedStatus ||
-      (processResult.exitCode !== 0 && findings.length === 0)
+      processResult.exitCode !== 0
     ) {
       classification = 'incomplete';
     } else if (findings.length > 0) {
       classification = 'boundary-counterexample';
     }
+    const admittedFindings = classification === 'incomplete' ? [] : findings;
     return {
       classification,
       counts: {
         executed: seen.size,
         expected: expected.size,
-        findings: findings.length,
+        findings: admittedFindings.length,
         unexpected: unexpectedCaseCount,
       },
-      findings: findings.slice(0, BOUNDARY_MAX_FINDINGS),
+      findings: admittedFindings.slice(0, BOUNDARY_MAX_FINDINGS),
     };
   }
 

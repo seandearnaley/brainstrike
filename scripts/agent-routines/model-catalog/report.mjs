@@ -21,6 +21,22 @@ const DISPOSITIONS_BY_KIND = {
   unverifiable: new Set(['blocked']),
 };
 const SOURCE_STATUSES = new Set(['failed', 'skipped_missing_secret', 'success']);
+const EVIDENCE_FIELDS = new Set([
+  'catalogEligibility',
+  'catalogEligibilityReason',
+  'catalogLimitsConsistent',
+  'contextWindow',
+  'createdAt',
+  'id',
+  'inputModalities',
+  'label',
+  'maxOutputTokens',
+  'outputModalities',
+  'pricing',
+  'supportsStreaming',
+  'type',
+  'vision',
+]);
 const SUMMARY_FIELDS = [
   'aligned',
   'blocked',
@@ -33,7 +49,7 @@ const SUMMARY_FIELDS = [
   'unverifiable',
 ];
 
-function isEvidenceEntry(entry) {
+function isEvidenceEntry(entry, { generatedAt, sourceIds }) {
   if (
     !(
       hasExactKeys(entry, [
@@ -55,8 +71,9 @@ function isEvidenceEntry(entry) {
     typeof entry.retrievedAt !== 'string' ||
     !Number.isFinite(Date.parse(entry.retrievedAt)) ||
     new Date(entry.retrievedAt).toISOString() !== entry.retrievedAt ||
+    Date.parse(entry.retrievedAt) > Date.parse(generatedAt) ||
     typeof entry.sourceId !== 'string' ||
-    entry.sourceId.length === 0 ||
+    !sourceIds.has(entry.sourceId) ||
     typeof entry.sourceModelId !== 'string' ||
     entry.sourceModelId.length === 0 ||
     typeof entry.sourceUrl !== 'string'
@@ -75,23 +92,81 @@ function isEvidenceEntry(entry) {
   }
 }
 
-function isEvidenceArray(value) {
-  return Array.isArray(value) && value.length > 0 && value.every(isEvidenceEntry);
+function isEvidenceArray(value, context) {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => isEvidenceEntry(item, context))
+  );
 }
 
-function isEvidenceIndex(value) {
+function isEvidenceIndex(value, context) {
   return (
     value &&
     typeof value === 'object' &&
     !Array.isArray(value) &&
     Object.keys(value).length > 0 &&
-    Object.values(value).every(
-      (item) =>
+    Object.entries(value).every(
+      ([field, item]) =>
+        EVIDENCE_FIELDS.has(field) &&
         hasExactKeys(item, ['evidence', 'status', 'value']) &&
         ['resolved', 'stale'].includes(item.status) &&
-        isEvidenceArray(item.evidence)
+        isEvidenceArray(item.evidence, context) &&
+        item.evidence.every((entry) => JSON.stringify(entry.value) === JSON.stringify(item.value))
     )
   );
+}
+
+function isSafeAdditionEvidence(evidence) {
+  const required = [
+    'contextWindow',
+    'inputModalities',
+    'maxOutputTokens',
+    'outputModalities',
+    'pricing',
+    'supportsStreaming',
+    'type',
+    'vision',
+  ];
+  const vendorOwned = ['contextWindow', 'maxOutputTokens', 'vision'];
+  return (
+    required.every((field) => evidence[field]) &&
+    Object.values(evidence).every(
+      (item) =>
+        item.status === 'resolved' && item.evidence.every(({ freshness }) => freshness === 'live')
+    ) &&
+    vendorOwned.every((field) =>
+      evidence[field].evidence.some(({ authority }) => authority === 'vendor')
+    ) &&
+    Array.isArray(evidence.inputModalities.value) &&
+    evidence.inputModalities.value.every((modality) => ['image', 'text'].includes(modality)) &&
+    Array.isArray(evidence.outputModalities.value) &&
+    evidence.outputModalities.value.every((modality) => modality === 'text') &&
+    evidence.supportsStreaming.value === true &&
+    evidence.catalogLimitsConsistent?.value !== false
+  );
+}
+
+function validRemoteSafety(delta) {
+  if (delta.kind !== 'remote_addition_candidate') {
+    return true;
+  }
+  const blockingReason = delta.safety.reasons.some((reason) =>
+    /^(global ID collision|gateway output limit|unknown required field|unsupported input|unsupported output)/u.test(
+      reason
+    )
+  );
+  if (delta.safety.disposition === 'blocked') {
+    return blockingReason;
+  }
+  if (delta.safety.disposition === 'safe_addition') {
+    return (
+      delta.providerId === 'openrouter' &&
+      delta.safety.reasons.length === 0 &&
+      isSafeAdditionEvidence(delta.evidence)
+    );
+  }
+  return delta.providerId !== 'openrouter' || delta.safety.reasons.length > 0;
 }
 
 function hasExactKeys(value, expected) {
@@ -149,6 +224,10 @@ export function validateModelCatalogReport(report) {
   }
 
   const expectedSummary = Object.fromEntries(SUMMARY_FIELDS.map((key) => [key, 0]));
+  const evidenceContext = {
+    generatedAt: report.generatedAt,
+    sourceIds: new Set(report.sources.map(({ sourceId }) => sourceId)),
+  };
   const findingIds = new Set();
   for (const delta of report.deltas) {
     if (
@@ -178,11 +257,12 @@ export function validateModelCatalogReport(report) {
       typeof delta.modelId !== 'string' ||
       delta.modelId.length === 0 ||
       (hasField && (typeof delta.field !== 'string' || delta.field.length === 0)) ||
-      (hasField && !isEvidenceArray(delta.evidence)) ||
-      (hasEvidence && !hasField && !isEvidenceIndex(delta.evidence)) ||
+      (hasField && !isEvidenceArray(delta.evidence, evidenceContext)) ||
+      (hasEvidence && !hasField && !isEvidenceIndex(delta.evidence, evidenceContext)) ||
       !hasExactKeys(delta.safety, ['disposition', 'reasons']) ||
       !SAFETY_DISPOSITIONS.has(delta.safety.disposition) ||
       !DISPOSITIONS_BY_KIND[delta.kind].has(delta.safety.disposition) ||
+      !validRemoteSafety(delta) ||
       !Array.isArray(delta.safety.reasons) ||
       delta.safety.reasons.some((reason) => typeof reason !== 'string' || reason.length === 0) ||
       delta.findingId !== modelCatalogFindingId(delta) ||

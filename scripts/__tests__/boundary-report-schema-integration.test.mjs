@@ -55,3 +55,25 @@ test('boundary report rejects producer-impossible assertion statuses', () => {
 
   assert.throws(() => validateBoundaryCrashReport(report), /boundary crash report/u);
 });
+
+test('nonzero and duplicate failure runs round-trip only as empty incomplete reports', () => {
+  const ids = createDeterministicCaseIds();
+  const assertions = ids.map((title, index) => ({
+    status: index === 0 ? 'failed' : 'passed',
+    title,
+  }));
+  for (const [exitCode, assertionResults] of [
+    [1, assertions],
+    [0, [...assertions, assertions[0]]],
+  ]) {
+    const classified = classifyBoundaryRun({
+      expectedCaseIds: ids,
+      processResult: { exitCode, signal: null, terminationFailed: false, timedOut: false },
+      vitestReport: { testResults: [{ assertionResults }] },
+    });
+    assert.equal(classified.classification, 'incomplete');
+    assert.equal(classified.counts.findings, 0);
+    assert.deepEqual(classified.findings, []);
+    assert.doesNotThrow(() => validateBoundaryCrashReport(wrap(classified)));
+  }
+});

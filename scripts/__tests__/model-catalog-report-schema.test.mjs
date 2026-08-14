@@ -67,12 +67,36 @@ test('model report admits only producer-shaped nested evidence', () => {
   });
 
   assert.doesNotThrow(() => validateModelCatalogReport(report));
-  assert.throws(
-    () =>
-      validateModelCatalogReport({
-        ...report,
-        deltas: [{ ...report.deltas[0], evidence: 'producer-impossible' }],
-      }),
-    /model catalog report/u
-  );
+  const invalidEvidence = [
+    'producer-impossible',
+    { ...report.deltas[0].evidence, inventedField: report.deltas[0].evidence.id },
+    {
+      ...report.deltas[0].evidence,
+      id: { ...report.deltas[0].evidence.id, value: 'different-value' },
+    },
+    {
+      ...report.deltas[0].evidence,
+      id: {
+        ...report.deltas[0].evidence.id,
+        evidence: [{ ...evidence, sourceId: 'absent-source' }],
+      },
+    },
+    {
+      ...report.deltas[0].evidence,
+      id: {
+        ...report.deltas[0].evidence.id,
+        evidence: [{ ...evidence, retrievedAt: '2026-08-15T00:00:00.000Z' }],
+      },
+    },
+  ];
+  for (const candidate of invalidEvidence) {
+    assert.throws(
+      () =>
+        validateModelCatalogReport({
+          ...report,
+          deltas: [{ ...report.deltas[0], evidence: candidate }],
+        }),
+      /model catalog report/u
+    );
+  }
 });

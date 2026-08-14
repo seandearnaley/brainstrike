@@ -295,7 +295,7 @@ describe('deterministic boundary crash fuzzer harness', () => {
     const makeReport = () =>
       classifyBoundaryRun({
         expectedCaseIds: ids,
-        processResult: { exitCode: 1, signal: null, timedOut: false },
+        processResult: { exitCode: 0, signal: null, timedOut: false },
         vitestReport: {
           testResults: [
             {
