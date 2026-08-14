@@ -755,9 +755,7 @@ test('model promotion rejects canonically rehashed fabricated reports', () => {
     baseCommit: 'a'.repeat(40),
     deltas: [
       {
-        evidence: [],
-        field: 'contextWindow',
-        kind: 'field_drift',
+        kind: 'aligned',
         modelId: 'model-1',
         providerId: 'provider-1',
         safety: { disposition: 'report_only', reasons: ['structured drift'] },
@@ -807,8 +805,7 @@ test('model promotion recomputes finding IDs from delta identity', () => {
     baseCommit: 'a'.repeat(40),
     deltas: [
       {
-        evidence: [],
-        kind: 'remote_addition_candidate',
+        kind: 'aligned',
         modelId: 'model-1',
         providerId: 'provider-1',
         safety: { disposition: 'report_only', reasons: ['candidate'] },

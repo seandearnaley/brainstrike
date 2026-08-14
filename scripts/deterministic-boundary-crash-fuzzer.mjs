@@ -99,9 +99,7 @@ export function validateBoundaryCrashReport(report) {
       !hasExactKeys(finding, ['caseId', 'fingerprint', 'kind', 'status']) ||
       finding.kind !== 'boundary-counterexample' ||
       !EXPECTED_CASE_IDS.has(finding.caseId) ||
-      typeof finding.status !== 'string' ||
-      finding.status.length === 0 ||
-      finding.status === 'passed' ||
+      finding.status !== 'failed' ||
       finding.fingerprint !== boundaryFindingFingerprint(finding.caseId, finding.status) ||
       fingerprints.has(finding.fingerprint) ||
       caseIds.has(finding.caseId)
@@ -156,6 +154,11 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
   const assertions = collectAssertions(vitestReport);
   let classification = 'no-change';
   const findings = [];
+  const observedExpectedCaseIds = new Set(
+    assertions
+      ?.map((assertion) => (typeof assertion?.title === 'string' ? assertion.title : ''))
+      .filter((caseId) => expected.has(caseId)) ?? []
+  );
   const unexpectedCaseCount =
     assertions?.filter((assertion) => {
       const caseId = typeof assertion?.title === 'string' ? assertion.title : '';
@@ -178,8 +181,8 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
         duplicateCaseCount += 1;
       }
       seen.add(caseId);
-      if (assertion.status !== 'passed') {
-        const status = assertion.status ?? 'unknown';
+      if (assertion.status === 'failed') {
+        const status = 'failed';
         findings.push({
           caseId,
           fingerprint: boundaryFindingFingerprint(caseId, status),
@@ -188,10 +191,14 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
         });
       }
     }
+    const unsupportedStatus = assertions.some(
+      (assertion) => !['failed', 'passed'].includes(assertion?.status)
+    );
     if (
       seen.size !== expected.size ||
       duplicateCaseCount > 0 ||
       unexpectedCaseCount > 0 ||
+      unsupportedStatus ||
       (processResult.exitCode !== 0 && findings.length === 0)
     ) {
       classification = 'incomplete';
@@ -213,7 +220,7 @@ export function classifyBoundaryRun({ expectedCaseIds, processResult, vitestRepo
   return {
     classification,
     counts: {
-      executed: assertions?.length ?? 0,
+      executed: observedExpectedCaseIds.size,
       expected: expected.size,
       findings: 0,
       unexpected: unexpectedCaseCount,

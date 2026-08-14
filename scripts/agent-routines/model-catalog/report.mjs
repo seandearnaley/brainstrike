@@ -33,6 +33,67 @@ const SUMMARY_FIELDS = [
   'unverifiable',
 ];
 
+function isEvidenceEntry(entry) {
+  if (
+    !(
+      hasExactKeys(entry, [
+        'authority',
+        'freshness',
+        'jsonPointer',
+        'rawValueSha256',
+        'retrievedAt',
+        'sourceId',
+        'sourceModelId',
+        'sourceUrl',
+        'value',
+      ]) &&
+      ['route', 'vendor'].includes(entry.authority) &&
+      ['live', 'stale'].includes(entry.freshness)
+    ) ||
+    typeof entry.jsonPointer !== 'string' ||
+    !entry.jsonPointer.startsWith('/') ||
+    typeof entry.retrievedAt !== 'string' ||
+    !Number.isFinite(Date.parse(entry.retrievedAt)) ||
+    new Date(entry.retrievedAt).toISOString() !== entry.retrievedAt ||
+    typeof entry.sourceId !== 'string' ||
+    entry.sourceId.length === 0 ||
+    typeof entry.sourceModelId !== 'string' ||
+    entry.sourceModelId.length === 0 ||
+    typeof entry.sourceUrl !== 'string'
+  ) {
+    return false;
+  }
+  try {
+    const expectedValueSha = `sha256:${createHash('sha256')
+      .update(JSON.stringify(entry.value))
+      .digest('hex')}`;
+    return (
+      entry.rawValueSha256 === expectedValueSha && new URL(entry.sourceUrl).protocol === 'https:'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isEvidenceArray(value) {
+  return Array.isArray(value) && value.length > 0 && value.every(isEvidenceEntry);
+}
+
+function isEvidenceIndex(value) {
+  return (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).length > 0 &&
+    Object.values(value).every(
+      (item) =>
+        hasExactKeys(item, ['evidence', 'status', 'value']) &&
+        ['resolved', 'stale'].includes(item.status) &&
+        isEvidenceArray(item.evidence)
+    )
+  );
+}
+
 function hasExactKeys(value, expected) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return false;
@@ -117,6 +178,8 @@ export function validateModelCatalogReport(report) {
       typeof delta.modelId !== 'string' ||
       delta.modelId.length === 0 ||
       (hasField && (typeof delta.field !== 'string' || delta.field.length === 0)) ||
+      (hasField && !isEvidenceArray(delta.evidence)) ||
+      (hasEvidence && !hasField && !isEvidenceIndex(delta.evidence)) ||
       !hasExactKeys(delta.safety, ['disposition', 'reasons']) ||
       !SAFETY_DISPOSITIONS.has(delta.safety.disposition) ||
       !DISPOSITIONS_BY_KIND[delta.kind].has(delta.safety.disposition) ||

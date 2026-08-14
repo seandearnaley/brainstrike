@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import {
   createReport,
@@ -33,4 +34,45 @@ test('model report rejects producer-impossible safety dispositions', () => {
   };
 
   assert.throws(() => validateModelCatalogReport(impossible), /model catalog report/u);
+});
+
+test('model report admits only producer-shaped nested evidence', () => {
+  const value = 'provider/model-1';
+  const evidence = {
+    authority: 'route',
+    freshness: 'live',
+    jsonPointer: '/data/0/id',
+    rawValueSha256: `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`,
+    retrievedAt: '2026-08-14T00:00:00.000Z',
+    sourceId: 'openrouter-models',
+    sourceModelId: value,
+    sourceUrl: 'https://openrouter.ai/api/v1/models',
+    value,
+  };
+  const report = createReport({
+    baseCommit: 'b'.repeat(40),
+    deltas: [
+      {
+        evidence: { id: { evidence: [evidence], status: 'resolved', value } },
+        kind: 'remote_addition_candidate',
+        modelId: value,
+        providerId: 'provider-1',
+        safety: { disposition: 'report_only', reasons: ['candidate'] },
+      },
+    ],
+    generatedAt: '2026-08-14T00:00:00.000Z',
+    manifestSha256: `sha256:${'2'.repeat(64)}`,
+    registry: { models: [{}], providerCounts: { 'provider-1': 1 } },
+    sources: [{ required: true, sourceId: 'openrouter-models', status: 'success' }],
+  });
+
+  assert.doesNotThrow(() => validateModelCatalogReport(report));
+  assert.throws(
+    () =>
+      validateModelCatalogReport({
+        ...report,
+        deltas: [{ ...report.deltas[0], evidence: 'producer-impossible' }],
+      }),
+    /model catalog report/u
+  );
 });

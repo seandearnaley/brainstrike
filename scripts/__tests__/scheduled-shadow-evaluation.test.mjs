@@ -76,8 +76,11 @@ function mutationReport(baseSha = 'b'.repeat(40)) {
 
 function labelledEvaluation({ baseSha, findings, routineId = 'boundary-crash-fuzzer' }) {
   const reportFindings = findings.map((_, index) => {
-    const caseId = createDeterministicCaseIds()[index];
-    const status = `failed-${baseSha}-${index}`;
+    const caseId =
+      createDeterministicCaseIds()[
+        (Number.parseInt(baseSha.slice(-4), 16) + index) % createDeterministicCaseIds().length
+      ];
+    const status = 'failed';
     return {
       caseId,
       fingerprint: boundaryFindingFingerprint(caseId, status),
