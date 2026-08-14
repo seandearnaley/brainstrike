@@ -1,0 +1,41 @@
+name: Model Catalog Shadow Report
+
+on:
+  schedule:
+    - cron: '17 13 * * 1-5'
+  workflow_dispatch:
+
+concurrency:
+  group: model-catalog-shadow-report
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-workspace
+      - name: Generate report
+        run: pnpm model-catalog:report
+        env:
+          BRAINSTRIKE_MODEL_CATALOG_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Publish summary
+        if: always()
+        run: test -f reports/model-catalog/model-catalog-report.md && tee -a "$GITHUB_STEP_SUMMARY" < reports/model-catalog/model-catalog-report.md
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-catalog-shadow-report
+          path: reports/model-catalog/model-catalog-report.*
+          retention-days: 14
+          if-no-files-found: error

@@ -1,0 +1,6 @@
+[
+  {"findingId":"a","label":"correct_actionable"},
+  {"findingId":"b","label":"correct_actionable"},
+  {"findingId":"c","label":"duplicate_noise"},
+  {"findingId":"d","label":"ambiguous"}
+]

@@ -95,6 +95,7 @@
     "postinstall": "node scripts/postinstall.js",
     "predev": "node scripts/ensure-desktop-dev-deps.mjs",
     "prepare": "node scripts/postinstall.js",
+    "model-catalog:report": "node scripts/agent-routines/model-catalog/update-model-catalog.mjs --mode report",
     "profile:vitest-hotspots": "node scripts/profile-vitest-hotspots.mjs",
     "queue": "pnpm -w build --filter @brainstrike/db && node packages/db/dist/cli/queue-cli.js",
     "secrets:scan": "node scripts/secret-scan.mjs --all",
