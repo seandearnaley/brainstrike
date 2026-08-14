@@ -436,7 +436,7 @@ export const WorkspaceTabHost = memo<WorkspaceTabHostProps>(function WorkspaceTa
   const reconcileSelectionAfterBulkClose = useCallback(
     (nextActiveTabId: string | null): void => {
       const currentSelection = useWorkspaceTabSelectionStore.getState().selection;
-      if (currentSelection.kind === 'app') {
+      if (currentSelection.kind !== 'file') {
         return;
       }
       const selectedTabStillExists = useTabManagerStore
@@ -932,7 +932,7 @@ const WorkspaceBody = memo<WorkspaceBodyProps>(function WorkspaceBody({
     );
   }
 
-  const tab = tabs.find((t) => t.id === selection.tabId);
+  const tab = selection.kind === 'file' ? tabs.find((t) => t.id === selection.tabId) : undefined;
   if (!tab) {
     // Selected tab vanished (e.g. closed via cleanup). Render a friendly empty state.
     return <NoFileTabSelected />;
