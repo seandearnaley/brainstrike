@@ -47,6 +47,81 @@ export function createDeterministicCaseIds(seed = BOUNDARY_FUZZ_SEED) {
   return ids;
 }
 
+const EXPECTED_CASE_IDS = new Set(createDeterministicCaseIds());
+const EXPECTED_CASE_COUNT = EXPECTED_CASE_IDS.size;
+const BOUNDARY_CLASSIFICATIONS = new Set([
+  'boundary-counterexample',
+  'incomplete',
+  'no-change',
+  'parser-process-crash',
+]);
+
+function hasExactKeys(value, expected) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value).sort();
+  return keys.length === expected.length && keys.every((key, index) => key === expected[index]);
+}
+
+export function validateBoundaryCrashReport(report) {
+  const invalid = () => {
+    throw new Error('boundary crash report does not match the producer schema');
+  };
+  if (
+    !(
+      hasExactKeys(report, [
+        'baseSha',
+        'classification',
+        'counts',
+        'findings',
+        'routineId',
+        'seed',
+      ]) && /^[0-9a-f]{40}$/u.test(report.baseSha)
+    ) ||
+    report.routineId !== 'boundary-crash-fuzzer' ||
+    report.seed !== BOUNDARY_FUZZ_SEED ||
+    !BOUNDARY_CLASSIFICATIONS.has(report.classification) ||
+    !hasExactKeys(report.counts, ['executed', 'expected', 'findings']) ||
+    !Object.values(report.counts).every((count) => Number.isSafeInteger(count) && count >= 0) ||
+    report.counts.expected !== EXPECTED_CASE_COUNT ||
+    report.counts.executed > report.counts.expected ||
+    !Array.isArray(report.findings) ||
+    report.findings.length !== Math.min(report.counts.findings, BOUNDARY_MAX_FINDINGS)
+  ) {
+    invalid();
+  }
+
+  const fingerprints = new Set();
+  const caseIds = new Set();
+  for (const finding of report.findings) {
+    if (
+      !hasExactKeys(finding, ['caseId', 'fingerprint', 'kind']) ||
+      finding.kind !== 'boundary-counterexample' ||
+      !EXPECTED_CASE_IDS.has(finding.caseId) ||
+      !/^[0-9a-f]{64}$/u.test(finding.fingerprint) ||
+      fingerprints.has(finding.fingerprint) ||
+      caseIds.has(finding.caseId)
+    ) {
+      invalid();
+    }
+    fingerprints.add(finding.fingerprint);
+    caseIds.add(finding.caseId);
+  }
+
+  if (
+    (report.classification === 'boundary-counterexample' &&
+      (report.counts.executed !== report.counts.expected || report.findings.length === 0)) ||
+    (report.classification === 'no-change' &&
+      (report.counts.executed !== report.counts.expected || report.counts.findings !== 0)) ||
+    (report.classification === 'parser-process-crash' &&
+      (report.counts.findings !== 0 || report.findings.length !== 0))
+  ) {
+    invalid();
+  }
+  return report;
+}
+
 function fingerprint(value) {
   return createHash('sha256').update(value).digest('hex');
 }

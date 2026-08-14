@@ -1,3 +1,5 @@
+import { validateBoundaryCrashReport } from '../../deterministic-boundary-crash-fuzzer.mjs';
+import { validateMutationGapReport } from '../../mutation-gap-hardener.mjs';
 import { assertPromotionReady, createPromotionPolicy } from './policy.mjs';
 import { canonicalReportId } from './shadow-report.mjs';
 
@@ -20,6 +22,15 @@ export const SHADOW_PROMOTION_POLICIES = Object.freeze(
 );
 
 function collectExternalLabels({ labels, report, reportId, routineId }) {
+  try {
+    if (routineId === 'boundary-crash-fuzzer') {
+      validateBoundaryCrashReport(report);
+    } else if (routineId === 'mutation-gap-hardener') {
+      validateMutationGapReport(report);
+    }
+  } catch {
+    throw new Error('externally labelled report artifact is invalid');
+  }
   if (
     !(SHADOW_ROUTINE_IDS.has(routineId) && report) ||
     typeof report !== 'object' ||

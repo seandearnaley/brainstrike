@@ -11,8 +11,8 @@ import { buildEvidenceIndex } from '../agent-routines/model-catalog/evidence.mjs
 import { parseProviderRegistry } from '../agent-routines/model-catalog/registry-reader.mjs';
 import {
   createReport,
-  modelCatalogFindingId,
   renderMarkdown,
+  validateModelCatalogReport,
 } from '../agent-routines/model-catalog/report.mjs';
 import { planSafeAddition } from '../agent-routines/model-catalog/safe-addition-plan.mjs';
 import {
@@ -612,6 +612,40 @@ test('model catalog reports assign stable finding provenance IDs', () => {
   assert.equal('findingId' in delta, false);
 });
 
+test('model catalog report validation matches complete createReport output', () => {
+  const report = createReport({
+    baseCommit: 'a'.repeat(40),
+    deltas: [
+      {
+        kind: 'aligned',
+        modelId: 'model-1',
+        providerId: 'provider-1',
+        safety: { disposition: 'report_only', reasons: [] },
+      },
+    ],
+    generatedAt: '2026-08-14T00:00:00.000Z',
+    manifestSha256: `sha256:${'1'.repeat(64)}`,
+    registry: { models: [{}], providerCounts: { 'provider-1': 1 } },
+    sources: [{ required: true, sourceId: 'source-1', status: 'success' }],
+  });
+  assert.doesNotThrow(() => validateModelCatalogReport(report));
+
+  for (const invalid of [
+    { ...report, invented: true },
+    { ...report, baseCommit: 'short' },
+    { ...report, manifestSha256: 'sha256:x' },
+    { ...report, summary: { ...report.summary, aligned: 2 } },
+    { ...report, registry: { ...report.registry, modelCount: 2 } },
+    { ...report, sources: [{ ...report.sources[0], invented: true }] },
+    { ...report, deltas: [{ ...report.deltas[0], kind: 'invented' }] },
+    { ...report, deltas: [{ ...report.deltas[0], invented: true }] },
+    { ...report, deltas: [{ ...report.deltas[0], safety: undefined }] },
+    { ...report, deltas: [{ ...report.deltas[0], findingId: 'caller-invented' }] },
+  ]) {
+    assert.throws(() => validateModelCatalogReport(invalid), /model catalog report/u);
+  }
+});
+
 test('renders stable JSON-derived Markdown', () => {
   const report = createReport({
     baseCommit: 'a'.repeat(40),
@@ -670,17 +704,19 @@ test('required failures remain incomplete and Markdown escapes all external iden
 
 test('promotion labels are bound to disjoint validated report findings', () => {
   const artifact = (baseCharacter, modelIds) => {
-    const deltas = modelIds.map((modelId) => {
-      const delta = { kind: 'field_drift', modelId, providerId: 'provider-1' };
-      return { ...delta, findingId: modelCatalogFindingId(delta) };
-    });
-    const report = {
+    const report = createReport({
       baseCommit: baseCharacter.repeat(40),
-      deltas,
-      mode: 'report',
-      routineId: 'model-catalog-updater',
-      schemaVersion: 1,
-    };
+      deltas: modelIds.map((modelId) => ({
+        kind: 'aligned',
+        modelId,
+        providerId: 'provider-1',
+        safety: { disposition: 'report_only', reasons: [] },
+      })),
+      generatedAt: '2026-08-14T00:00:00.000Z',
+      manifestSha256: `sha256:${baseCharacter.repeat(64)}`,
+      registry: { models: [{}], providerCounts: { 'provider-1': 1 } },
+      sources: [{ required: true, sourceId: 'source-1', status: 'success' }],
+    });
     return {
       report,
       reportId: canonicalReportId(report),
@@ -703,76 +739,99 @@ test('promotion labels are bound to disjoint validated report findings', () => {
       }),
     /labels do not match report findings/u
   );
-  for (const reports of [
-    [artifact('a', ['duplicate', 'duplicate'])],
-    [artifact('a', ['shared']), artifact('b', ['shared'])],
-  ]) {
-    assert.throws(
-      () => evaluateLabelledReports({ labels: [], reports }),
-      /finding IDs are empty, duplicated, or shared/u
-    );
-  }
+  assert.throws(() => artifact('a', ['duplicate', 'duplicate']), /report findings are duplicated/u);
+  assert.throws(
+    () =>
+      evaluateLabelledReports({
+        labels: [],
+        reports: [artifact('a', ['shared']), artifact('b', ['shared'])],
+      }),
+    /finding IDs are empty, duplicated, or shared/u
+  );
 });
 
-test('model promotion rejects fabricated report artifacts', () => {
-  const delta = {
-    field: 'contextWindow',
-    findingId: '',
-    kind: 'field_drift',
-    modelId: 'model-1',
-    providerId: 'provider-1',
-  };
-  delta.findingId = modelCatalogFindingId(delta);
-  const report = {
+test('model promotion rejects canonically rehashed fabricated reports', () => {
+  const report = createReport({
     baseCommit: 'a'.repeat(40),
-    deltas: [delta],
-    mode: 'report',
-    routineId: 'model-catalog-updater',
-    schemaVersion: 1,
+    deltas: [
+      {
+        evidence: [],
+        field: 'contextWindow',
+        kind: 'field_drift',
+        modelId: 'model-1',
+        providerId: 'provider-1',
+        safety: { disposition: 'report_only', reasons: ['structured drift'] },
+      },
+    ],
+    generatedAt: '2026-08-14T00:00:00.000Z',
+    manifestSha256: `sha256:${'1'.repeat(64)}`,
+    registry: { models: [{}], providerCounts: { 'provider-1': 1 } },
+    sources: [{ required: true, sourceId: 'source-1', status: 'success' }],
+  });
+  const evaluationFor = (candidate) => {
+    const reportId = canonicalReportId(candidate);
+    return {
+      labels: [
+        {
+          findingId: candidate.deltas[0].findingId,
+          label: 'correct_actionable',
+          reportId,
+        },
+      ],
+      reports: [{ report: candidate, reportId, routineId: 'model-catalog-updater' }],
+    };
   };
-  const reportId = canonicalReportId(report);
-  const evaluation = {
-    labels: [{ findingId: delta.findingId, label: 'correct_actionable', reportId }],
-    reports: [{ report, reportId, routineId: 'model-catalog-updater' }],
-  };
+  const evaluation = evaluationFor(report);
 
   assert.doesNotThrow(() => evaluateLabelledReports(evaluation));
-  for (const artifact of [
+  for (const invalid of [
     { ...evaluation.reports[0], reportId: 'caller-invented' },
+    evaluationFor({ ...report, invented: true }).reports[0],
+    evaluationFor({
+      ...report,
+      deltas: [{ ...report.deltas[0], kind: 'invented' }],
+    }).reports[0],
     { ...evaluation.reports[0], report: { ...report, baseCommit: 'A'.repeat(40) } },
     { ...evaluation.reports[0], report: { ...report, deltas: [] } },
     { ...evaluation.reports[0], report: { ...report, routineId: 'unknown-routine' } },
   ]) {
     assert.throws(
-      () => evaluateLabelledReports({ ...evaluation, reports: [artifact] }),
-      /report artifacts/u
+      () => evaluateLabelledReports({ ...evaluation, reports: [invalid] }),
+      /model catalog report|report artifacts/u
     );
   }
 });
 
 test('model promotion recomputes finding IDs from delta identity', () => {
-  const delta = {
-    findingId: 'caller-invented',
-    kind: 'remote_addition_candidate',
-    modelId: 'model-1',
-    providerId: 'provider-1',
-  };
-  const report = {
+  const report = createReport({
     baseCommit: 'a'.repeat(40),
-    deltas: [delta],
-    mode: 'report',
-    routineId: 'model-catalog-updater',
-    schemaVersion: 1,
+    deltas: [
+      {
+        evidence: [],
+        kind: 'remote_addition_candidate',
+        modelId: 'model-1',
+        providerId: 'provider-1',
+        safety: { disposition: 'report_only', reasons: ['candidate'] },
+      },
+    ],
+    generatedAt: '2026-08-14T00:00:00.000Z',
+    manifestSha256: `sha256:${'1'.repeat(64)}`,
+    registry: { models: [{}], providerCounts: { 'provider-1': 1 } },
+    sources: [{ required: true, sourceId: 'source-1', status: 'success' }],
+  });
+  const invalidReport = {
+    ...report,
+    deltas: [{ ...report.deltas[0], findingId: 'caller-invented' }],
   };
-  const reportId = canonicalReportId(report);
+  const reportId = canonicalReportId(invalidReport);
 
   assert.throws(
     () =>
       evaluateLabelledReports({
-        labels: [{ findingId: delta.findingId, label: 'correct_actionable', reportId }],
-        reports: [{ report, reportId, routineId: report.routineId }],
+        labels: [{ findingId: 'caller-invented', label: 'correct_actionable', reportId }],
+        reports: [{ report: invalidReport, reportId, routineId: invalidReport.routineId }],
       }),
-    /finding IDs/u
+    /model catalog report|finding IDs/u
   );
 });
 

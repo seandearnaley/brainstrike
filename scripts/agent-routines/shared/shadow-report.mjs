@@ -8,17 +8,65 @@ export function fingerprint(parts) {
   return createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 24);
 }
 
-function canonicalJson(value) {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(',')}]`;
+function canonicalJson(value, ancestors = new Set()) {
+  if (value === null) {
+    return 'null';
   }
-  if (value !== null && typeof value === 'object') {
-    return `{${Object.keys(value)
+  if (typeof value === 'string' || typeof value === 'boolean') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new Error('canonical JSON rejects non-finite numbers');
+    }
+    return JSON.stringify(value);
+  }
+  if (typeof value !== 'object') {
+    throw new Error(`canonical JSON rejects ${typeof value} values`);
+  }
+  if (ancestors.has(value)) {
+    throw new Error('canonical JSON rejects cyclic values');
+  }
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const ownKeys = Reflect.ownKeys(value);
+      if (
+        ownKeys.some((key) => typeof key === 'symbol') ||
+        ownKeys.length !== value.length + 1 ||
+        ownKeys.some(
+          (key) =>
+            key !== 'length' &&
+            (typeof key !== 'string' ||
+              !/^(?:0|[1-9]\d*)$/u.test(key) ||
+              Number(key) >= value.length)
+        )
+      ) {
+        throw new Error('canonical JSON rejects sparse arrays and non-index array properties');
+      }
+      return `[${value.map((item) => canonicalJson(item, ancestors)).join(',')}]`;
+    }
+    if (Object.getPrototypeOf(value) !== Object.prototype) {
+      throw new Error('canonical JSON rejects non-plain objects');
+    }
+    const keys = Reflect.ownKeys(value);
+    if (keys.some((key) => typeof key === 'symbol')) {
+      throw new Error('canonical JSON rejects symbol-keyed properties');
+    }
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!(descriptor?.enumerable && Object.hasOwn(descriptor, 'value'))) {
+        throw new Error('canonical JSON rejects non-data properties');
+      }
+    }
+    return `{${keys
       .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key], ancestors)}`)
       .join(',')}}`;
+  } finally {
+    ancestors.delete(value);
   }
-  return JSON.stringify(value);
 }
 
 export function canonicalReportId(report) {

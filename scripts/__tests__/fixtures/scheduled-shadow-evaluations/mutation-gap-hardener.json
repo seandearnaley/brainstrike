@@ -2,27 +2,68 @@
   "routineId": "mutation-gap-hardener",
   "report": {
     "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "routineId": "mutation-gap-hardener",
+    "classification": "report",
     "findings": [
       {
-        "fingerprint": "mutation-correct-1"
+        "file": "packages/file-system/src/path-validation.ts",
+        "fingerprint": "65db54ef1834cea09dd804f27cb17f3b019ac8c34ff202146f8e14b658efff6e",
+        "kind": "surviving-mutant",
+        "location": {
+          "end": { "column": 3, "line": 1 },
+          "start": { "column": 1, "line": 1 }
+        },
+        "mutatorName": "EqualityOperator",
+        "replacement": "0"
       },
       {
-        "fingerprint": "mutation-duplicate-1"
+        "file": "packages/file-system/src/path-validation.ts",
+        "fingerprint": "d64361ece175129a045f73ce03d0a7dcfd16b41116b06555cf8ad9fe0076204b",
+        "kind": "uncovered-mutant",
+        "location": {
+          "end": { "column": 3, "line": 2 },
+          "start": { "column": 1, "line": 2 }
+        },
+        "mutatorName": "EqualityOperator",
+        "replacement": "1"
       },
       {
-        "fingerprint": "mutation-ambiguous-1"
+        "file": "packages/file-system/src/path-validation.ts",
+        "fingerprint": "be6ef7ce78b229e3e586100d9d32c2025f920e7324965560010dba4194ca9bc9",
+        "kind": "mutation-timeout",
+        "location": {
+          "end": { "column": 3, "line": 3 },
+          "start": { "column": 1, "line": 3 }
+        },
+        "mutatorName": "EqualityOperator",
+        "replacement": "2"
       },
       {
-        "fingerprint": "mutation-unsafe-1"
+        "file": "packages/file-system/src/path-validation.ts",
+        "fingerprint": "f1119b95ab2709cb62d035cc41b7ec389d0147e2317434001e380326b97b4cbb",
+        "kind": "surviving-mutant",
+        "location": {
+          "end": { "column": 3, "line": 4 },
+          "start": { "column": 1, "line": 4 }
+        },
+        "mutatorName": "EqualityOperator",
+        "replacement": "3"
       }
     ],
-    "routineId": "mutation-gap-hardener"
+    "totals": {
+      "compileError": 0,
+      "killed": 0,
+      "mutationTimeout": 1,
+      "survivingMutant": 2,
+      "total": 4,
+      "uncoveredMutant": 1
+    }
   },
   "labels": {
-    "mutation-correct-1": "correct/actionable",
-    "mutation-duplicate-1": "duplicate/noise",
-    "mutation-ambiguous-1": "ambiguous",
-    "mutation-unsafe-1": "unsafe"
+    "65db54ef1834cea09dd804f27cb17f3b019ac8c34ff202146f8e14b658efff6e": "correct/actionable",
+    "d64361ece175129a045f73ce03d0a7dcfd16b41116b06555cf8ad9fe0076204b": "duplicate/noise",
+    "be6ef7ce78b229e3e586100d9d32c2025f920e7324965560010dba4194ca9bc9": "ambiguous",
+    "f1119b95ab2709cb62d035cc41b7ec389d0147e2317434001e380326b97b4cbb": "unsafe"
   },
   "expectedSummary": {
     "criticalFalsePositives": 0,
@@ -34,5 +75,5 @@
     "sampleCount": 4,
     "unsafeFindings": 1
   },
-  "reportId": "950aec1562c878988322fa62"
+  "reportId": "6b6f2e48998a1aaccfbacc50"
 }

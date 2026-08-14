@@ -9,6 +9,151 @@ const SUMMARY_KEYS = {
   remote_addition_candidate: 'remoteAdditionCandidate',
   unverifiable: 'unverifiable',
 };
+const DELTA_KINDS = new Set(Object.keys(SUMMARY_KEYS));
+const SAFETY_DISPOSITIONS = new Set(['blocked', 'report_only', 'safe_addition']);
+const SOURCE_STATUSES = new Set(['failed', 'skipped_missing_secret', 'success']);
+const SUMMARY_FIELDS = [
+  'aligned',
+  'blocked',
+  'conflict',
+  'fieldDrift',
+  'ignored',
+  'registryMissingRemote',
+  'remoteAdditionCandidate',
+  'safeAdditions',
+  'unverifiable',
+];
+
+function hasExactKeys(value, expected) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value).sort();
+  return keys.length === expected.length && keys.every((key, index) => key === expected[index]);
+}
+
+export function validateModelCatalogReport(report) {
+  const invalid = () => {
+    throw new Error('model catalog report does not match createReport schema');
+  };
+  if (
+    !(
+      hasExactKeys(report, [
+        'baseCommit',
+        'deltas',
+        'generatedAt',
+        'manifestSha256',
+        'mode',
+        'registry',
+        'routineId',
+        'schemaVersion',
+        'sources',
+        'summary',
+      ]) && /^[0-9a-f]{40}$/u.test(report.baseCommit)
+    ) ||
+    report.routineId !== 'model-catalog-updater' ||
+    report.schemaVersion !== 1 ||
+    report.mode !== 'report' ||
+    typeof report.generatedAt !== 'string' ||
+    !Number.isFinite(Date.parse(report.generatedAt)) ||
+    new Date(report.generatedAt).toISOString() !== report.generatedAt ||
+    !/^sha256:[0-9a-f]{64}$/u.test(report.manifestSha256) ||
+    !Array.isArray(report.deltas) ||
+    !Array.isArray(report.sources) ||
+    !hasExactKeys(report.registry, ['modelCount', 'path', 'providerCounts']) ||
+    report.registry.path !== 'packages/assistant-contract/src/provider-registry.ts' ||
+    !Number.isSafeInteger(report.registry.modelCount) ||
+    report.registry.modelCount < 0 ||
+    !report.registry.providerCounts ||
+    typeof report.registry.providerCounts !== 'object' ||
+    Array.isArray(report.registry.providerCounts) ||
+    Object.entries(report.registry.providerCounts).some(
+      ([providerId, count]) => providerId.length === 0 || !Number.isSafeInteger(count) || count < 0
+    ) ||
+    Object.values(report.registry.providerCounts).reduce((sum, count) => sum + count, 0) !==
+      report.registry.modelCount ||
+    !hasExactKeys(report.summary, SUMMARY_FIELDS) ||
+    !Object.values(report.summary).every((count) => Number.isSafeInteger(count) && count >= 0)
+  ) {
+    invalid();
+  }
+
+  const expectedSummary = Object.fromEntries(SUMMARY_FIELDS.map((key) => [key, 0]));
+  const findingIds = new Set();
+  for (const delta of report.deltas) {
+    if (
+      !delta ||
+      typeof delta !== 'object' ||
+      Array.isArray(delta) ||
+      !DELTA_KINDS.has(delta.kind)
+    ) {
+      invalid();
+    }
+    const hasField = ['conflict', 'field_drift'].includes(delta.kind);
+    const hasEvidence =
+      hasField || ['remote_addition_candidate', 'unverifiable'].includes(delta.kind);
+    const deltaKeys = [
+      ...(hasEvidence ? ['evidence'] : []),
+      ...(hasField ? ['field'] : []),
+      'findingId',
+      'kind',
+      'modelId',
+      'providerId',
+      'safety',
+    ].sort();
+    if (
+      !hasExactKeys(delta, deltaKeys) ||
+      typeof delta.providerId !== 'string' ||
+      delta.providerId.length === 0 ||
+      typeof delta.modelId !== 'string' ||
+      delta.modelId.length === 0 ||
+      (hasField && (typeof delta.field !== 'string' || delta.field.length === 0)) ||
+      !hasExactKeys(delta.safety, ['disposition', 'reasons']) ||
+      !SAFETY_DISPOSITIONS.has(delta.safety.disposition) ||
+      !Array.isArray(delta.safety.reasons) ||
+      delta.safety.reasons.some((reason) => typeof reason !== 'string' || reason.length === 0) ||
+      delta.findingId !== modelCatalogFindingId(delta) ||
+      findingIds.has(delta.findingId)
+    ) {
+      invalid();
+    }
+    findingIds.add(delta.findingId);
+    expectedSummary[SUMMARY_KEYS[delta.kind]] += 1;
+    if (delta.safety.disposition === 'safe_addition') {
+      expectedSummary.safeAdditions += 1;
+    }
+    if (delta.safety.disposition === 'blocked') {
+      expectedSummary.blocked += 1;
+    }
+  }
+  if (SUMMARY_FIELDS.some((key) => report.summary[key] !== expectedSummary[key])) {
+    invalid();
+  }
+
+  const sourceIds = new Set();
+  for (const source of report.sources) {
+    if (!source || typeof source !== 'object' || !SOURCE_STATUSES.has(source.status)) {
+      invalid();
+    }
+    const keys =
+      source.status === 'failed'
+        ? ['error', 'required', 'sourceId', 'status']
+        : ['required', 'sourceId', 'status'];
+    if (
+      !hasExactKeys(source, keys) ||
+      typeof source.required !== 'boolean' ||
+      typeof source.sourceId !== 'string' ||
+      source.sourceId.length === 0 ||
+      sourceIds.has(source.sourceId) ||
+      (source.status === 'failed' &&
+        (typeof source.error !== 'string' || source.error.length === 0))
+    ) {
+      invalid();
+    }
+    sourceIds.add(source.sourceId);
+  }
+  return report;
+}
 
 const replaceControlCharacters = (value) =>
   [...String(value)]

@@ -70,6 +70,118 @@ function stableIdentity(file, mutant) {
   return `${file}:${start.line}:${start.column}-${end.line}:${end.column}:${mutant.mutatorName}:${mutant.replacement}`;
 }
 
+const MUTATION_CLASSIFICATIONS = new Set(['harness-error', 'incomplete', 'no-change', 'report']);
+const MUTATION_FINDING_KINDS = new Set([
+  'mutation-timeout',
+  'surviving-mutant',
+  'uncovered-mutant',
+]);
+const MUTATION_TOTAL_KEYS = [
+  'compileError',
+  'killed',
+  'mutationTimeout',
+  'survivingMutant',
+  'total',
+  'uncoveredMutant',
+];
+
+function hasExactKeys(value, expected) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const keys = Object.keys(value).sort();
+  return keys.length === expected.length && keys.every((key, index) => key === expected[index]);
+}
+
+export function validateMutationGapReport(report) {
+  const invalid = () => {
+    throw new Error('mutation gap report does not match the producer schema');
+  };
+  if (
+    !report ||
+    typeof report !== 'object' ||
+    Array.isArray(report) ||
+    !MUTATION_CLASSIFICATIONS.has(report.classification)
+  ) {
+    invalid();
+  }
+  const hasReasons = ['harness-error', 'incomplete'].includes(report.classification);
+  const topLevelKeys = hasReasons
+    ? ['baseSha', 'classification', 'findings', 'reasons', 'routineId', 'totals']
+    : ['baseSha', 'classification', 'findings', 'routineId', 'totals'];
+  if (
+    !(hasExactKeys(report, topLevelKeys) && /^[0-9a-f]{40}$/u.test(report.baseSha)) ||
+    report.routineId !== 'mutation-gap-hardener' ||
+    !hasExactKeys(report.totals, MUTATION_TOTAL_KEYS) ||
+    !Object.values(report.totals).every((count) => Number.isSafeInteger(count) && count >= 0) ||
+    report.totals.compileError +
+      report.totals.killed +
+      report.totals.mutationTimeout +
+      report.totals.survivingMutant +
+      report.totals.uncoveredMutant !==
+      report.totals.total ||
+    !Array.isArray(report.findings) ||
+    (hasReasons &&
+      (!Array.isArray(report.reasons) ||
+        report.reasons.length === 0 ||
+        report.reasons.some((reason) => typeof reason !== 'string' || reason.length === 0)))
+  ) {
+    invalid();
+  }
+
+  const reportableCount =
+    report.totals.mutationTimeout + report.totals.survivingMutant + report.totals.uncoveredMutant;
+  if (
+    report.findings.length !== Math.min(reportableCount, MUTATION_MAX_FINDINGS) ||
+    (report.classification === 'report' && reportableCount === 0) ||
+    (report.classification === 'no-change' && reportableCount !== 0) ||
+    (hasReasons && (report.totals.total !== 0 || report.findings.length !== 0))
+  ) {
+    invalid();
+  }
+
+  const fingerprints = new Set();
+  const findingCounts = {
+    'mutation-timeout': 0,
+    'surviving-mutant': 0,
+    'uncovered-mutant': 0,
+  };
+  for (const finding of report.findings) {
+    if (
+      !hasExactKeys(finding, [
+        'file',
+        'fingerprint',
+        'kind',
+        'location',
+        'mutatorName',
+        'replacement',
+      ]) ||
+      finding.file !== MUTATION_TARGET ||
+      !MUTATION_FINDING_KINDS.has(finding.kind) ||
+      !hasExactKeys(finding.location, ['end', 'start']) ||
+      !hasExactKeys(finding.location.start, ['column', 'line']) ||
+      !hasExactKeys(finding.location.end, ['column', 'line']) ||
+      !isValidMutantSchema(finding) ||
+      typeof finding.fingerprint !== 'string' ||
+      finding.fingerprint !==
+        createHash('sha256').update(stableIdentity(MUTATION_TARGET, finding)).digest('hex') ||
+      fingerprints.has(finding.fingerprint)
+    ) {
+      invalid();
+    }
+    fingerprints.add(finding.fingerprint);
+    findingCounts[finding.kind] += 1;
+  }
+  if (
+    findingCounts['mutation-timeout'] > report.totals.mutationTimeout ||
+    findingCounts['surviving-mutant'] > report.totals.survivingMutant ||
+    findingCounts['uncovered-mutant'] > report.totals.uncoveredMutant
+  ) {
+    invalid();
+  }
+  return report;
+}
+
 function compareMutants(left, right) {
   const leftLocation = left.location;
   const rightLocation = right.location;

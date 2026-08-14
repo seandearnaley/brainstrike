@@ -1,6 +1,6 @@
 import { assertPromotionReady, createPromotionPolicy } from '../shared/policy.mjs';
 import { canonicalReportId } from '../shared/shadow-report.mjs';
-import { modelCatalogFindingId } from './report.mjs';
+import { modelCatalogFindingId, validateModelCatalogReport } from './report.mjs';
 
 const LABELS = new Set(['ambiguous', 'correct_actionable', 'duplicate_noise', 'unsafe']);
 export const MODEL_CATALOG_PROMOTION_POLICY = createPromotionPolicy({
@@ -19,6 +19,7 @@ function validateReportCorpus(reports) {
   const findingIds = new Set();
   const reportFindings = new Set();
   for (const artifact of reports) {
+    validateModelCatalogReport(artifact?.report);
     if (
       artifact?.routineId !== 'model-catalog-updater' ||
       artifact.report?.routineId !== artifact.routineId ||
