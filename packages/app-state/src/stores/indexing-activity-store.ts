@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/logging';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import type { WorkspaceCollectionSyncState } from './workspace-collection-sync-status-store';
 
@@ -663,7 +664,119 @@ export const useIndexingActivityStore = create<IndexingActivityStore>()((set, ge
   snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
 }));
 
+const errorTransitionLogger = createLogger('IndexingActivity');
+
+/**
+ * Re-log suppression window for poll-driven error sources (BST-1257 review):
+ * the coordinator polls every ~1s and clears the error on success, so an
+ * intermittent failure flaps null → message every tick. A bare value-change
+ * guard would emit a durable record per tick (~60 rows/minute); instead an
+ * unchanged message re-logs at most once per window, carrying the count of
+ * suppressed repeats so occurrence volume stays visible.
+ */
+const ERROR_RELOG_INTERVAL_MS = 60_000;
+
+interface ErrorEmissionState {
+  at: number;
+  message: string;
+  suppressed: number;
+}
+
+const lastErrorEmissions = new Map<string, ErrorEmissionState>();
+
+function claimErrorEmission(source: string, message: string): { suppressedRepeats: number } | null {
+  const emittedAt = Date.now();
+  const previous = lastErrorEmissions.get(source);
+  if (
+    previous &&
+    previous.message === message &&
+    emittedAt - previous.at < ERROR_RELOG_INTERVAL_MS
+  ) {
+    previous.suppressed += 1;
+    return null;
+  }
+  const suppressedRepeats = previous?.message === message ? previous.suppressed : 0;
+  lastErrorEmissions.set(source, { at: emittedAt, message, suppressed: 0 });
+  return { suppressedRepeats };
+}
+
+function repeatContext(emission: { suppressedRepeats: number }): {
+  suppressedRepeats?: number;
+} {
+  return emission.suppressedRepeats > 0 ? { suppressedRepeats: emission.suppressedRepeats } : {};
+}
+
+/**
+ * Durable-logging invariant (BST-1257): every error SOURCE feeding the
+ * indexing status surface logs its transition at warn+ so it reaches the
+ * durable diagnostic sinks. Sources are logged individually (not the derived
+ * `snapshot.lastError`) so sync-service errors — mirrored in here as the
+ * background snapshot and already logged by the sync-status store — are not
+ * double-logged.
+ */
+useIndexingActivityStore.subscribe((state, prevState) => {
+  if (
+    state.indexingActivityError &&
+    state.indexingActivityError !== prevState.indexingActivityError
+  ) {
+    const emission = claimErrorEmission('activity', state.indexingActivityError);
+    if (emission) {
+      errorTransitionLogger.error('Indexing activity monitoring failed', {
+        error: state.indexingActivityError,
+        ...repeatContext(emission),
+      });
+    }
+  }
+
+  const worker = state.snapshot.worker;
+  const previousWorker = prevState.snapshot.worker;
+  if (
+    worker?.state === 'error' &&
+    (previousWorker?.state !== 'error' || worker.lastError !== previousWorker.lastError)
+  ) {
+    const message = worker.lastError ?? 'Embedding worker failed';
+    const emission = claimErrorEmission('worker', message);
+    if (emission) {
+      errorTransitionLogger.error('Embedding worker entered an error state', {
+        error: message,
+        ...repeatContext(emission),
+      });
+    }
+  }
+
+  const stats = state.managedCollectionStats;
+  const previousStats = prevState.managedCollectionStats;
+  if (
+    stats.status === 'error' &&
+    (previousStats.status !== 'error' || stats.error !== previousStats.error)
+  ) {
+    const message = stats.error ?? 'Managed collection stats failed';
+    const emission = claimErrorEmission('stats', message);
+    if (emission) {
+      errorTransitionLogger.error('Managed collection stats reported an error', {
+        collectionId: stats.collectionId,
+        error: stats.error,
+        ...repeatContext(emission),
+      });
+    }
+  }
+
+  // Failed-job counts: only genuinely NEW failures (count increased with a
+  // known previous snapshot). A null previous snapshot is "unknown", not
+  // zero — a durable backlog must not be re-announced on every app start or
+  // after a transient read error, and a decreasing count is recovery.
+  const queue = state.snapshot.queue;
+  const previousQueue = prevState.snapshot.queue;
+  if (queue && previousQueue && queue.failed > previousQueue.failed) {
+    errorTransitionLogger.warn('Embedding jobs failed', {
+      failed: queue.failed,
+      newFailures: queue.failed - previousQueue.failed,
+    });
+  }
+});
+
 export function __resetIndexingActivityStoreForTests(): void {
+  lastErrorEmissions.clear();
   useIndexingActivityStore.setState({
     indexingActivityError: null,
     managedCollectionStats: DEFAULT_MANAGED_COLLECTION_STATS,

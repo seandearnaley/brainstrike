@@ -4,6 +4,7 @@ import {
   getFileSizeConfig,
   setFileSizeConfig,
 } from '@brainstrike/file-system';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceRootsQueryable } from '../../assistant-server/workspace-roots';
@@ -69,6 +70,98 @@ describe('WorkspaceRootRegistry', () => {
       ...overrides,
     });
   }
+
+  it('durably logs a read denial before rethrowing (BST-1257)', async () => {
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceRootRegistry' && record.level === LogLevel.WARN) {
+        captured.push(record);
+      }
+    });
+    try {
+      const registry = createRegistry();
+      await registry.addRoot(rootHandle('/workspace'));
+
+      // Lexically inside the mounted root, but the raw path carries a real
+      // `..` segment — resolveReadPath rejects it as traversal.
+      await expect(
+        registry.readDirectory({
+          kind: 'directory',
+          name: 'etc',
+          path: '/workspace/sub/../etc',
+          platform: 'electron',
+        })
+      ).rejects.toThrow('Path validation failed');
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.args[1]).toMatchObject({
+        operation: 'readDirectory',
+        requestedPath: '/workspace/sub/../etc',
+      });
+    } finally {
+      removeListener();
+    }
+  });
+
+  it('durably logs post-resolution denials such as an inaccessible directory', async () => {
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceRootRegistry' && record.level === LogLevel.WARN) {
+        captured.push(record);
+      }
+    });
+    try {
+      const inaccessible: SecureWorkspaceRoot = {
+        ...secureRoot('/workspace'),
+        listDir: vi.fn(async () => null),
+      };
+      const registry = createRegistry({
+        createSecureRoot: async () => inaccessible,
+        resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      });
+      await registry.addRoot(rootHandle('/workspace'));
+
+      await expect(
+        registry.readDirectory({
+          kind: 'directory',
+          name: 'workspace',
+          path: '/workspace',
+          platform: 'electron',
+        })
+      ).rejects.toThrow('Directory is not accessible.');
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.args[1]).toMatchObject({ operation: 'readDirectory' });
+    } finally {
+      removeListener();
+    }
+  });
+
+  it('does not warn-log routine not-found file reads', async () => {
+    const captured: LogRecord[] = [];
+    const removeListener = addLogListener((record) => {
+      if (record.scope === 'WorkspaceRootRegistry' && record.level === LogLevel.WARN) {
+        captured.push(record);
+      }
+    });
+    try {
+      const missing: SecureWorkspaceRoot = {
+        ...secureRoot('/workspace'),
+        readFile: vi.fn(async () => ({ status: 'not-found' as const })),
+      };
+      const registry = createRegistry({
+        createSecureRoot: async () => missing,
+        resolveReadPath: async (requestedPath) => path.normalize(requestedPath),
+      });
+      await registry.addRoot(rootHandle('/workspace'));
+
+      await expect(registry.readFile('/workspace/missing.txt')).rejects.toThrow('ENOENT');
+
+      expect(captured).toHaveLength(0);
+    } finally {
+      removeListener();
+    }
+  });
 
   it('fails visibly instead of treating malformed persistence as zero roots', async () => {
     storage = createStorage({ rootsList: '{broken' });

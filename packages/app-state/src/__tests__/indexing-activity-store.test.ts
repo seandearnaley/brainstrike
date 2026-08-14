@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
@@ -472,6 +473,128 @@ describe('indexing-activity-store', () => {
 
       expect(useIndexingActivityStore.getState().snapshot.queue?.queued).toBe(4);
       expect(listener).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('durable error-state logging (BST-1257)', () => {
+    let captured: LogRecord[] = [];
+    let removeListener: (() => void) | null = null;
+
+    beforeEach(() => {
+      captured = [];
+      removeListener = addLogListener((record) => {
+        if (record.scope === 'IndexingActivity') {
+          captured.push(record);
+        }
+      });
+    });
+
+    afterEach(() => {
+      removeListener?.();
+      removeListener = null;
+    });
+
+    it('logs an activity error once, deduped until the message changes', () => {
+      const store = useIndexingActivityStore.getState();
+
+      store.setIndexingActivityError('snapshot read failed');
+      store.setIndexingActivityError('snapshot read failed');
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.level).toBe(LogLevel.ERROR);
+      expect(captured[0]?.args[1]).toMatchObject({ error: 'snapshot read failed' });
+
+      store.setIndexingActivityError('a different failure');
+
+      expect(captured).toHaveLength(2);
+    });
+
+    it('suppresses flapping clear/recur cycles, re-logging with a count after the window', () => {
+      // BST-1257 review: the coordinator polls every second and clears the
+      // error on success — an intermittent failure alternates null → msg and
+      // must not emit a durable record per tick.
+      vi.useFakeTimers();
+      try {
+        const store = useIndexingActivityStore.getState();
+
+        store.setIndexingActivityError('flaky read');
+        for (let tick = 0; tick < 70; tick += 1) {
+          store.setIndexingActivityError(null);
+          store.setIndexingActivityError('flaky read');
+          vi.advanceTimersByTime(1000);
+        }
+
+        expect(captured).toHaveLength(2);
+        expect(captured[1]?.args[1]).toMatchObject({
+          error: 'flaky read',
+          suppressedRepeats: expect.any(Number),
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('logs an embedding-worker error transition once', () => {
+      const store = useIndexingActivityStore.getState();
+      const errored = { lastError: 'worker crashed', state: 'error' as const };
+
+      store.setWorkerSnapshot(errored);
+      store.setWorkerSnapshot(errored);
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.level).toBe(LogLevel.ERROR);
+      expect(captured[0]?.args[1]).toMatchObject({ error: 'worker crashed' });
+    });
+
+    it('logs a managed-collection stats error transition once', () => {
+      const store = useIndexingActivityStore.getState();
+      const errored = {
+        collectionId: 'col-1',
+        error: 'stats query failed',
+        stats: null,
+        status: 'error' as const,
+      };
+
+      store.setManagedCollectionStats(errored);
+      store.setManagedCollectionStats(errored);
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.level).toBe(LogLevel.ERROR);
+      expect(captured[0]?.args[1]).toMatchObject({
+        collectionId: 'col-1',
+        error: 'stats query failed',
+      });
+    });
+
+    it('logs only genuinely NEW failed embedding jobs at warn', () => {
+      const store = useIndexingActivityStore.getState();
+      const baseQueue = {
+        failed: 0,
+        nextRunnableAt: null,
+        queued: 0,
+        running: 0,
+        succeeded: 0,
+        succeededLifetime: 0,
+      };
+
+      // A null previous snapshot is "unknown", not zero: a durable backlog
+      // must not be re-announced on every app start or transient read error.
+      store.setQueueSnapshot({ ...baseQueue, failed: 3 });
+      expect(captured).toHaveLength(0);
+
+      store.setQueueSnapshot({ ...baseQueue, failed: 5 });
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.level).toBe(LogLevel.WARN);
+      expect(captured[0]?.args[1]).toMatchObject({ failed: 5, newFailures: 2 });
+
+      // A decreasing count (retries/pruning) is recovery, not a new failure.
+      store.setQueueSnapshot({ ...baseQueue, failed: 1 });
+      expect(captured).toHaveLength(1);
+
+      // Flap through null (transient read error) and back: no re-announce.
+      store.setQueueSnapshot(null);
+      store.setQueueSnapshot({ ...baseQueue, failed: 1 });
+      expect(captured).toHaveLength(1);
     });
   });
 });

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
@@ -7,6 +8,103 @@ import {
 describe('workspace-collection-sync-status-store', () => {
   beforeEach(() => {
     __resetWorkspaceCollectionSyncStatusStoreForTests();
+  });
+
+  describe('durable error-state logging (BST-1257)', () => {
+    let captured: LogRecord[] = [];
+    let removeListener: (() => void) | null = null;
+
+    beforeEach(() => {
+      captured = [];
+      removeListener = addLogListener((record) => {
+        if (record.scope === 'WorkspaceCollectionSyncStatus') {
+          captured.push(record);
+        }
+      });
+    });
+
+    afterEach(() => {
+      removeListener?.();
+      removeListener = null;
+    });
+
+    it('logs an error-level record when a sync error surfaces, deduped until it changes', () => {
+      const store = useWorkspaceCollectionSyncStatusStore.getState();
+      const errorPatch = {
+        activeRootPath: '/workspace/a',
+        lastError: "AccessError: Path validation failed for '/workspace/a/.nyc_output'",
+        managedCollectionId: 'col-1',
+        state: 'error' as const,
+      };
+
+      store.setStatus(errorPatch);
+      store.setStatus(errorPatch);
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.level).toBe(LogLevel.ERROR);
+      expect(captured[0]?.args[1]).toMatchObject({
+        activeRootPath: '/workspace/a',
+        lastError: errorPatch.lastError,
+        managedCollectionId: 'col-1',
+        state: 'error',
+      });
+
+      store.setStatus({ ...errorPatch, lastError: 'a different failure' });
+
+      expect(captured).toHaveLength(2);
+    });
+
+    it('logs blocked states at warn level with the blocked reason', () => {
+      const store = useWorkspaceCollectionSyncStatusStore.getState();
+
+      store.setStatus({
+        blockedReason: 'missing-provider-key',
+        lastError: 'Embedding provider key is missing.',
+        state: 'blocked',
+      });
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.level).toBe(LogLevel.WARN);
+      expect(captured[0]?.args[1]).toMatchObject({
+        blockedReason: 'missing-provider-key',
+        state: 'blocked',
+      });
+    });
+
+    it('does not log waiting states that carry a coverage-audit message', () => {
+      // BST-1257 review: coverage audits set lastError with state 'waiting'
+      // and already warn at the producer — the durable-error invariant is
+      // scoped to genuine error/blocked states.
+      const store = useWorkspaceCollectionSyncStatusStore.getState();
+
+      store.setStatus({
+        lastError: 'Coverage audit incomplete for 3 files.',
+        state: 'waiting',
+      });
+
+      expect(captured).toHaveLength(0);
+    });
+
+    it('does not log when an error clears', () => {
+      const store = useWorkspaceCollectionSyncStatusStore.getState();
+      store.setStatus({ lastError: 'failed once', state: 'error' });
+      captured = [];
+
+      store.setStatus({ lastError: null, state: 'idle' });
+
+      expect(captured).toHaveLength(0);
+    });
+
+    it('logs again when the same error recurs after clearing', () => {
+      const store = useWorkspaceCollectionSyncStatusStore.getState();
+      store.setStatus({ lastError: 'failed once', state: 'error' });
+      store.setStatus({ lastError: null, state: 'idle' });
+      captured = [];
+
+      store.setStatus({ lastError: 'failed once', state: 'error' });
+
+      expect(captured).toHaveLength(1);
+    });
   });
 
   it('initializes with disabled status and no active root', () => {

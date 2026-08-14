@@ -19,6 +19,7 @@ import {
   markRootsDisconnectedExcept,
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
+import { isFileNotFoundError } from '../file-read-errors';
 
 const CORRUPT_ROOTS_LIST_STORAGE_KEY = 'rootsList.corrupt' as const;
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
@@ -400,7 +401,13 @@ export class WorkspaceRootRegistry {
     });
   }
 
-  async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+  readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+    return this.withReadDenialLogging('readDirectory', handle.path, handle.rootId, () =>
+      this.readDirectoryUnlogged(handle)
+    );
+  }
+
+  private async readDirectoryUnlogged(handle: DirectoryHandle): Promise<IFileNode[]> {
     await this.mutationTail;
     this.assertActive();
     const resolved = await this.resolveRead(handle.path, handle.rootId);
@@ -426,11 +433,20 @@ export class WorkspaceRootRegistry {
     return nodes;
   }
 
-  async readFile(request: FileHandle | string): Promise<string> {
-    await this.mutationTail;
-    this.assertActive();
+  readFile(request: FileHandle | string): Promise<string> {
     const requestedPath = typeof request === 'string' ? request : request.path;
     const rootId = typeof request === 'string' ? undefined : request.rootId;
+    return this.withReadDenialLogging('readFile', requestedPath, rootId, () =>
+      this.readFileUnlogged(requestedPath, rootId)
+    );
+  }
+
+  private async readFileUnlogged(
+    requestedPath: string,
+    rootId: string | undefined
+  ): Promise<string> {
+    await this.mutationTail;
+    this.assertActive();
     const resolved = await this.resolveRead(requestedPath, rootId);
     const { maxFileSize } = getFileSizeConfig();
     if (maxFileSize > NATIVE_MAX_READ_BYTES) {
@@ -867,6 +883,36 @@ export class WorkspaceRootRegistry {
         quarantineKey: CORRUPT_ROOTS_LIST_STORAGE_KEY,
       });
       return [];
+    }
+  }
+
+  /**
+   * Durably logs every read denial at warn before rethrowing (BST-1257): the
+   * BST-1255 indexer halt threw AccessErrors that crossed IPC into a renderer
+   * banner and left ZERO trace in main's logs. Wraps the ENTIRE public read
+   * operation (review on #2433), so post-resolution denials — inaccessible
+   * directory, oversized/unreadable/symlink file results — are covered, not
+   * just path validation. Routine not-found probes (tab restoration, stale
+   * handles) stay quiet: the IPC layer converts those to a normal payload.
+   */
+  private async withReadDenialLogging<T>(
+    operation: 'readDirectory' | 'readFile',
+    requestedPath: string,
+    rootId: string | undefined,
+    run: () => Promise<T>
+  ): Promise<T> {
+    try {
+      return await run();
+    } catch (error) {
+      if (error instanceof AccessError && !isFileNotFoundError(error)) {
+        logger.warn('Workspace read denied', {
+          message: error.message,
+          operation,
+          requestedPath,
+          rootId: rootId ?? null,
+        });
+      }
+      throw error;
     }
   }
 

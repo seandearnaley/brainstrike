@@ -957,11 +957,9 @@ export class WorkspaceCollectionSyncService {
       return;
     }
 
-    this.deps.log?.error('Workspace collection sync failed', {
-      error: message,
-      managedCollectionId: args.collection.id,
-      rootPath: args.rootPath,
-    });
+    // No direct log call: the status store's subscription durably logs the
+    // error transition set below (BST-1257) — logging here too recorded every
+    // incident twice under different scopes.
     this.setErrorStatus({
       activeRootPath: args.rootPath,
       managedCollectionId: args.collection.id,
