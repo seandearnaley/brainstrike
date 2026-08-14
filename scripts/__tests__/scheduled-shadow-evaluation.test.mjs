@@ -11,6 +11,7 @@ import {
   evaluateLabeledReportCorpus,
   SHADOW_PROMOTION_POLICIES,
 } from '../agent-routines/shared/evaluation.mjs';
+import { canonicalReportId } from '../agent-routines/shared/shadow-report.mjs';
 
 const fixturesDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -21,7 +22,65 @@ function fixture(name) {
   return JSON.parse(readFileSync(path.join(fixturesDir, name), 'utf8'));
 }
 
+function labelledEvaluation({ baseSha, findings, routineId = 'boundary-crash-fuzzer' }) {
+  const report = { baseSha, findings, routineId };
+  return {
+    labels: Object.fromEntries(
+      findings.map(({ fingerprint }) => [fingerprint, 'correct/actionable'])
+    ),
+    report,
+    reportId: canonicalReportId(report),
+    routineId,
+  };
+}
+
 describe('externally labelled shadow report evaluation', () => {
+  it('rejects caller-fabricated shared report artifact identities', () => {
+    const report = {
+      baseSha: 'a'.repeat(40),
+      findings: [{ fingerprint: 'finding-1' }],
+      routineId: 'boundary-crash-fuzzer',
+    };
+    const evaluation = {
+      labels: { 'finding-1': 'correct/actionable' },
+      report,
+      reportId: canonicalReportId(report),
+      routineId: 'boundary-crash-fuzzer',
+    };
+
+    assert.doesNotThrow(() => evaluateLabeledReportCorpus([evaluation]));
+    for (const invalid of [
+      { ...evaluation, reportId: 'caller-invented' },
+      { ...evaluation, report: { ...report, baseSha: 'A'.repeat(40) } },
+      { ...evaluation, report: { ...report, findings: [] } },
+      { ...evaluation, report: { ...report, routineId: 'mutation-gap-hardener' } },
+      { ...evaluation, routineId: 'unknown-routine' },
+    ]) {
+      assert.throws(() => evaluateLabeledReportCorpus([invalid]), /report artifact/u);
+    }
+  });
+
+  it('rejects repeated shared finding fingerprints across the report corpus', () => {
+    const evaluation = (baseSha) => {
+      const report = {
+        baseSha,
+        findings: [{ fingerprint: 'repeated-finding' }],
+        routineId: 'boundary-crash-fuzzer',
+      };
+      return {
+        labels: { 'repeated-finding': 'correct/actionable' },
+        report,
+        reportId: canonicalReportId(report),
+        routineId: report.routineId,
+      };
+    };
+
+    assert.throws(
+      () => evaluateLabeledReportCorpus([evaluation('a'.repeat(40)), evaluation('b'.repeat(40))]),
+      /shared finding fingerprints/u
+    );
+  });
+
   it('evaluates holdout labels independently of routine output', () => {
     for (const name of ['boundary-crash-fuzzer.json', 'mutation-gap-hardener.json']) {
       const holdout = fixture(name);
@@ -49,18 +108,12 @@ describe('externally labelled shadow report evaluation', () => {
   });
 
   it('derives the promotion report floor from distinct non-empty report IDs', () => {
-    const oneReportWithTenFindings = {
-      labels: Object.fromEntries(
-        Array.from({ length: 10 }, (_, index) => [`finding-${index}`, 'correct/actionable'])
-      ),
-      report: {
-        findings: Array.from({ length: 10 }, (_, index) => ({
-          fingerprint: `finding-${index}`,
-        })),
-      },
-      reportId: 'one-report',
-      routineId: 'boundary-crash-fuzzer',
-    };
+    const oneReportWithTenFindings = labelledEvaluation({
+      baseSha: 'a'.repeat(40),
+      findings: Array.from({ length: 10 }, (_, index) => ({
+        fingerprint: `finding-${index}`,
+      })),
+    });
     const oneReport = evaluateLabeledReportCorpus([oneReportWithTenFindings]);
     assert.equal(oneReport.reportCount, 1);
     assert.throws(
@@ -72,12 +125,12 @@ describe('externally labelled shadow report evaluation', () => {
       /not promotion-ready/u
     );
 
-    const tenReportCases = Array.from({ length: 10 }, (_, index) => ({
-      labels: { [`finding-${index}`]: 'correct/actionable' },
-      report: { findings: [{ fingerprint: `finding-${index}` }] },
-      reportId: `report-${index}`,
-      routineId: 'boundary-crash-fuzzer',
-    }));
+    const tenReportCases = Array.from({ length: 10 }, (_, index) =>
+      labelledEvaluation({
+        baseSha: index.toString(16).padStart(40, '0'),
+        findings: [{ fingerprint: `finding-${index}` }],
+      })
+    );
     const tenReports = evaluateLabeledReportCorpus(tenReportCases);
     assert.equal(tenReports.reportCount, 10);
     assert.doesNotThrow(() =>

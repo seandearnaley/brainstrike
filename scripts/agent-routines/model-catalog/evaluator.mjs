@@ -1,4 +1,6 @@
 import { assertPromotionReady, createPromotionPolicy } from '../shared/policy.mjs';
+import { canonicalReportId } from '../shared/shadow-report.mjs';
+import { modelCatalogFindingId } from './report.mjs';
 
 const LABELS = new Set(['ambiguous', 'correct_actionable', 'duplicate_noise', 'unsafe']);
 export const MODEL_CATALOG_PROMOTION_POLICY = createPromotionPolicy({
@@ -18,20 +20,31 @@ function validateReportCorpus(reports) {
   const reportFindings = new Set();
   for (const artifact of reports) {
     if (
-      !artifact ||
-      typeof artifact.reportId !== 'string' ||
-      artifact.reportId.length === 0 ||
+      artifact?.routineId !== 'model-catalog-updater' ||
+      artifact.report?.routineId !== artifact.routineId ||
+      artifact.reportId !== canonicalReportId(artifact.report) ||
       reportIds.has(artifact.reportId) ||
+      !/^[0-9a-f]{40}$/u.test(artifact.report?.baseCommit) ||
       artifact.report?.schemaVersion !== 1 ||
       artifact.report?.mode !== 'report' ||
-      !Array.isArray(artifact.report.deltas)
+      !Array.isArray(artifact.report.deltas) ||
+      artifact.report.deltas.length === 0
     ) {
       throw new Error('report artifacts are invalid or duplicated');
     }
     reportIds.add(artifact.reportId);
     for (const finding of artifact.report.deltas) {
       const findingId = finding?.findingId;
-      if (typeof findingId !== 'string' || findingId.length === 0 || findingIds.has(findingId)) {
+      if (
+        typeof finding?.providerId !== 'string' ||
+        finding.providerId.length === 0 ||
+        typeof finding.modelId !== 'string' ||
+        finding.modelId.length === 0 ||
+        typeof finding.kind !== 'string' ||
+        finding.kind.length === 0 ||
+        findingId !== modelCatalogFindingId(finding) ||
+        findingIds.has(findingId)
+      ) {
         throw new Error('report finding IDs are empty, duplicated, or shared');
       }
       findingIds.add(findingId);

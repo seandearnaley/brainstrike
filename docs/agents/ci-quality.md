@@ -70,6 +70,14 @@ any critical unsafe finding, or a failed routine-specific precision/noise
 threshold keeps `propose-pr` unreachable. Findings from one noisy report cannot
 substitute for the report-count floor.
 
+Promotion consumes validated canonical report artifacts, not caller-authored
+summaries. A supplied report ID must equal the deterministic SHA-256
+fingerprint of canonical report JSON; routine/base/schema/mode and non-empty
+finding contracts are validated first. Labels must exactly cover those report
+findings, model finding IDs are recomputed from delta identity, and duplicate
+artifact or corpus-wide finding identities fail closed. This report-only pilot
+binding is deterministic provenance, not signing or cryptographic authenticity.
+
 Automatic tuning is monotonic and auditable. The shared tuner can only raise a
 confidence floor, lengthen a deduplication window, lower a finding cap, or
 shorten a recency window within fixed bounds; every change increments a

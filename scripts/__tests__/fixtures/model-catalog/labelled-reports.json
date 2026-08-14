@@ -1,26 +1,98 @@
 {
   "reports": [
     {
-      "reportId": "report-1",
-      "report": { "schemaVersion": 1, "mode": "report", "deltas": [{ "findingId": "a" }] }
+      "report": {
+        "baseCommit": "1111111111111111111111111111111111111111",
+        "deltas": [
+          {
+            "kind": "field_drift",
+            "modelId": "model-1",
+            "providerId": "provider-1",
+            "findingId": "bbc52515da9fa125a5ce2cbe"
+          }
+        ],
+        "mode": "report",
+        "routineId": "model-catalog-updater",
+        "schemaVersion": 1
+      },
+      "reportId": "d99f716118144c1fce9e9c3e",
+      "routineId": "model-catalog-updater"
     },
     {
-      "reportId": "report-2",
-      "report": { "schemaVersion": 1, "mode": "report", "deltas": [{ "findingId": "b" }] }
+      "report": {
+        "baseCommit": "2222222222222222222222222222222222222222",
+        "deltas": [
+          {
+            "kind": "field_drift",
+            "modelId": "model-2",
+            "providerId": "provider-1",
+            "findingId": "cf8f085159308079f3a73053"
+          }
+        ],
+        "mode": "report",
+        "routineId": "model-catalog-updater",
+        "schemaVersion": 1
+      },
+      "reportId": "a30e6b16c0aad6b2943222d9",
+      "routineId": "model-catalog-updater"
     },
     {
-      "reportId": "report-3",
-      "report": { "schemaVersion": 1, "mode": "report", "deltas": [{ "findingId": "c" }] }
+      "report": {
+        "baseCommit": "3333333333333333333333333333333333333333",
+        "deltas": [
+          {
+            "kind": "field_drift",
+            "modelId": "model-3",
+            "providerId": "provider-1",
+            "findingId": "518bdb540fc822dcb007cb33"
+          }
+        ],
+        "mode": "report",
+        "routineId": "model-catalog-updater",
+        "schemaVersion": 1
+      },
+      "reportId": "df59febdc43663dae52861a8",
+      "routineId": "model-catalog-updater"
     },
     {
-      "reportId": "report-4",
-      "report": { "schemaVersion": 1, "mode": "report", "deltas": [{ "findingId": "d" }] }
+      "report": {
+        "baseCommit": "4444444444444444444444444444444444444444",
+        "deltas": [
+          {
+            "kind": "field_drift",
+            "modelId": "model-4",
+            "providerId": "provider-1",
+            "findingId": "092f96d1cd905c3842726a01"
+          }
+        ],
+        "mode": "report",
+        "routineId": "model-catalog-updater",
+        "schemaVersion": 1
+      },
+      "reportId": "047bcdb49c1003b2f1c3893a",
+      "routineId": "model-catalog-updater"
     }
   ],
   "labels": [
-    { "findingId": "a", "label": "correct_actionable", "reportId": "report-1" },
-    { "findingId": "b", "label": "correct_actionable", "reportId": "report-2" },
-    { "findingId": "c", "label": "duplicate_noise", "reportId": "report-3" },
-    { "findingId": "d", "label": "ambiguous", "reportId": "report-4" }
+    {
+      "findingId": "bbc52515da9fa125a5ce2cbe",
+      "label": "correct_actionable",
+      "reportId": "d99f716118144c1fce9e9c3e"
+    },
+    {
+      "findingId": "cf8f085159308079f3a73053",
+      "label": "correct_actionable",
+      "reportId": "a30e6b16c0aad6b2943222d9"
+    },
+    {
+      "findingId": "518bdb540fc822dcb007cb33",
+      "label": "duplicate_noise",
+      "reportId": "df59febdc43663dae52861a8"
+    },
+    {
+      "findingId": "092f96d1cd905c3842726a01",
+      "label": "ambiguous",
+      "reportId": "047bcdb49c1003b2f1c3893a"
+    }
   ]
 }

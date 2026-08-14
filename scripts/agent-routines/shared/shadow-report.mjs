@@ -8,6 +8,23 @@ export function fingerprint(parts) {
   return createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 24);
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(',')}]`;
+  }
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function canonicalReportId(report) {
+  return fingerprint([canonicalJson(report)]);
+}
+
 export function evaluateLabelledFindings(routineId, findings, labels) {
   if (!(Array.isArray(findings) && Array.isArray(labels))) {
     throw new Error('calibration data is unreadable');

@@ -143,6 +143,15 @@ Promotion labels are evaluated only against the exact validated report/finding
 pairs in a disjoint report corpus; empty, duplicate, shared, missing, or
 invented provenance blocks promotion.
 
+During the report-only pilot, evaluation binds each supplied artifact ID to a
+deterministic SHA-256 fingerprint of the report's canonical JSON content. The
+evaluator validates the known routine identity, matching report routine,
+full lowercase base commit, report schema/mode where defined, non-empty
+findings, and finding identities before accepting labels. Finding identities
+must be disjoint across the corpus, and model-catalog finding IDs are
+recomputed from delta identity. This is deterministic artifact binding, not a
+signature or claim of cryptographic authenticity.
+
 An additive catalog proposal must preserve the static-literal
 `PROVIDER_DEFINITIONS` contract, update both migration runners, preserve user
 `is_enabled` choices on conflict, add automated rows disabled by default,

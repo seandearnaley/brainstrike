@@ -10,13 +10,18 @@ import {
 } from '../agent-routines/model-catalog/evaluator.mjs';
 import { buildEvidenceIndex } from '../agent-routines/model-catalog/evidence.mjs';
 import { parseProviderRegistry } from '../agent-routines/model-catalog/registry-reader.mjs';
-import { createReport, renderMarkdown } from '../agent-routines/model-catalog/report.mjs';
+import {
+  createReport,
+  modelCatalogFindingId,
+  renderMarkdown,
+} from '../agent-routines/model-catalog/report.mjs';
 import { planSafeAddition } from '../agent-routines/model-catalog/safe-addition-plan.mjs';
 import {
   loadSourceManifest,
   validateSourceManifest,
 } from '../agent-routines/model-catalog/source-manifest.mjs';
 import { fetchSource } from '../agent-routines/model-catalog/sources/index.mjs';
+import { canonicalReportId } from '../agent-routines/shared/shadow-report.mjs';
 
 const fixture = JSON.parse(
   await readFile(new URL('./fixtures/model-catalog/openrouter-models.json', import.meta.url))
@@ -663,33 +668,111 @@ test('required failures remain incomplete and Markdown escapes all external iden
 });
 
 test('promotion labels are bound to disjoint validated report findings', () => {
-  const report = (reportId, findingIds) => ({
-    report: {
-      deltas: findingIds.map((findingId) => ({ findingId })),
+  const artifact = (baseCharacter, modelIds) => {
+    const deltas = modelIds.map((modelId) => {
+      const delta = { kind: 'field_drift', modelId, providerId: 'provider-1' };
+      return { ...delta, findingId: modelCatalogFindingId(delta) };
+    });
+    const report = {
+      baseCommit: baseCharacter.repeat(40),
+      deltas,
       mode: 'report',
+      routineId: 'model-catalog-updater',
       schemaVersion: 1,
-    },
-    reportId,
-  });
+    };
+    return {
+      report,
+      reportId: canonicalReportId(report),
+      routineId: report.routineId,
+    };
+  };
+  const real = artifact('a', ['real']);
 
   assert.throws(
     () =>
       evaluateLabelledReports({
-        labels: [{ findingId: 'invented', label: 'correct_actionable', reportId: 'report-1' }],
-        reports: [report('report-1', ['real'])],
+        labels: [
+          {
+            findingId: 'invented',
+            label: 'correct_actionable',
+            reportId: real.reportId,
+          },
+        ],
+        reports: [real],
       }),
     /labels do not match report findings/u
   );
   for (const reports of [
-    [report('report-1', [''])],
-    [report('report-1', ['duplicate', 'duplicate'])],
-    [report('report-1', ['shared']), report('report-2', ['shared'])],
+    [artifact('a', ['duplicate', 'duplicate'])],
+    [artifact('a', ['shared']), artifact('b', ['shared'])],
   ]) {
     assert.throws(
       () => evaluateLabelledReports({ labels: [], reports }),
       /finding IDs are empty, duplicated, or shared/u
     );
   }
+});
+
+test('model promotion rejects fabricated report artifacts', () => {
+  const delta = {
+    field: 'contextWindow',
+    findingId: '',
+    kind: 'field_drift',
+    modelId: 'model-1',
+    providerId: 'provider-1',
+  };
+  delta.findingId = modelCatalogFindingId(delta);
+  const report = {
+    baseCommit: 'a'.repeat(40),
+    deltas: [delta],
+    mode: 'report',
+    routineId: 'model-catalog-updater',
+    schemaVersion: 1,
+  };
+  const reportId = canonicalReportId(report);
+  const evaluation = {
+    labels: [{ findingId: delta.findingId, label: 'correct_actionable', reportId }],
+    reports: [{ report, reportId, routineId: 'model-catalog-updater' }],
+  };
+
+  assert.doesNotThrow(() => evaluateLabelledReports(evaluation));
+  for (const artifact of [
+    { ...evaluation.reports[0], reportId: 'caller-invented' },
+    { ...evaluation.reports[0], report: { ...report, baseCommit: 'A'.repeat(40) } },
+    { ...evaluation.reports[0], report: { ...report, deltas: [] } },
+    { ...evaluation.reports[0], report: { ...report, routineId: 'unknown-routine' } },
+  ]) {
+    assert.throws(
+      () => evaluateLabelledReports({ ...evaluation, reports: [artifact] }),
+      /report artifacts/u
+    );
+  }
+});
+
+test('model promotion recomputes finding IDs from delta identity', () => {
+  const delta = {
+    findingId: 'caller-invented',
+    kind: 'remote_addition_candidate',
+    modelId: 'model-1',
+    providerId: 'provider-1',
+  };
+  const report = {
+    baseCommit: 'a'.repeat(40),
+    deltas: [delta],
+    mode: 'report',
+    routineId: 'model-catalog-updater',
+    schemaVersion: 1,
+  };
+  const reportId = canonicalReportId(report);
+
+  assert.throws(
+    () =>
+      evaluateLabelledReports({
+        labels: [{ findingId: delta.findingId, label: 'correct_actionable', reportId }],
+        reports: [{ report, reportId, routineId: report.routineId }],
+      }),
+    /finding IDs/u
+  );
 });
 
 test('evaluation consumes external labels and missing labels fail closed', async () => {
@@ -712,20 +795,7 @@ test('evaluation consumes external labels and missing labels fail closed', async
     /not promotion-ready/u
   );
   assert.throws(
-    () =>
-      evaluateLabelledReports({
-        labels: [],
-        reports: [
-          {
-            report: {
-              deltas: [{ findingId: 'unlabelled' }],
-              mode: 'report',
-              schemaVersion: 1,
-            },
-            reportId: 'unlabelled-report',
-          },
-        ],
-      }),
+    () => evaluateLabelledReports({ labels: [], reports: [labelled.reports[0]] }),
     /missing external label/u
   );
 });

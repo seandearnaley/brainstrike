@@ -1,6 +1,8 @@
 import { assertPromotionReady, createPromotionPolicy } from './policy.mjs';
+import { canonicalReportId } from './shadow-report.mjs';
 
 const EXTERNAL_LABELS = new Set(['correct/actionable', 'duplicate/noise', 'ambiguous', 'unsafe']);
+const SHADOW_ROUTINE_IDS = new Set(['boundary-crash-fuzzer', 'mutation-gap-hardener']);
 
 export const SHADOW_PROMOTION_POLICIES = Object.freeze(
   Object.fromEntries(
@@ -17,18 +19,20 @@ export const SHADOW_PROMOTION_POLICIES = Object.freeze(
   )
 );
 
-function collectExternalLabels({ labels, report, routineId }) {
+function collectExternalLabels({ labels, report, reportId, routineId }) {
   if (
-    typeof routineId !== 'string' ||
-    routineId.length === 0 ||
-    !report ||
+    !(SHADOW_ROUTINE_IDS.has(routineId) && report) ||
     typeof report !== 'object' ||
+    report.routineId !== routineId ||
+    !/^[0-9a-f]{40}$/u.test(report.baseSha) ||
     !Array.isArray(report.findings) ||
+    report.findings.length === 0 ||
+    reportId !== canonicalReportId(report) ||
     !labels ||
     typeof labels !== 'object' ||
     Array.isArray(labels)
   ) {
-    throw new Error('externally labelled evaluation data is unreadable');
+    throw new Error('externally labelled report artifact is invalid');
   }
 
   const fingerprints = new Set();
@@ -57,7 +61,7 @@ function collectExternalLabels({ labels, report, routineId }) {
   if (extraLabels.length > 0) {
     throw new Error(`external labels do not match this report: ${extraLabels.join(', ')}`);
   }
-  return { collectedLabels, routineId };
+  return { collectedLabels, fingerprints, routineId };
 }
 
 function summarizeExternalLabels({ labels, reportCount, routineId }) {
@@ -107,6 +111,7 @@ export function evaluateLabeledReportCorpus(cases) {
     throw new Error('externally labelled report corpus is unreadable');
   }
   const reportIds = new Set();
+  const findingFingerprints = new Set();
   const labels = [];
   let routineId;
 
@@ -129,6 +134,12 @@ export function evaluateLabeledReportCorpus(cases) {
       routineId = collected.routineId;
     } else if (routineId !== collected.routineId) {
       throw new Error('report corpus mixes routine IDs');
+    }
+    for (const fingerprint of collected.fingerprints) {
+      if (findingFingerprints.has(fingerprint)) {
+        throw new Error('report corpus has shared finding fingerprints');
+      }
+      findingFingerprints.add(fingerprint);
     }
     labels.push(...collected.collectedLabels);
   }

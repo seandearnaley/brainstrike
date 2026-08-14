@@ -1,12 +1,22 @@
 {
   "routineId": "mutation-gap-hardener",
   "report": {
+    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "findings": [
-      { "fingerprint": "mutation-correct-1" },
-      { "fingerprint": "mutation-duplicate-1" },
-      { "fingerprint": "mutation-ambiguous-1" },
-      { "fingerprint": "mutation-unsafe-1" }
-    ]
+      {
+        "fingerprint": "mutation-correct-1"
+      },
+      {
+        "fingerprint": "mutation-duplicate-1"
+      },
+      {
+        "fingerprint": "mutation-ambiguous-1"
+      },
+      {
+        "fingerprint": "mutation-unsafe-1"
+      }
+    ],
+    "routineId": "mutation-gap-hardener"
   },
   "labels": {
     "mutation-correct-1": "correct/actionable",
@@ -23,5 +33,6 @@
     "routineId": "mutation-gap-hardener",
     "sampleCount": 4,
     "unsafeFindings": 1
-  }
+  },
+  "reportId": "950aec1562c878988322fa62"
 }

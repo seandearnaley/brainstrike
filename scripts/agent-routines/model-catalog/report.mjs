@@ -21,7 +21,7 @@ const replaceControlCharacters = (value) =>
 const markdownText = (value) =>
   replaceControlCharacters(value).replaceAll(/([\\`*_[\]{}()#+.!|<>])/gu, '\\$1');
 
-const findingId = (delta) =>
+export const modelCatalogFindingId = (delta) =>
   createHash('sha256')
     .update(JSON.stringify([delta.providerId, delta.modelId, delta.kind, delta.field ?? null]))
     .digest('hex')
@@ -35,7 +35,10 @@ export function createReport({
   sources,
   deltas,
 }) {
-  const reportDeltas = deltas.map((delta) => ({ ...delta, findingId: findingId(delta) }));
+  const reportDeltas = deltas.map((delta) => ({
+    ...delta,
+    findingId: modelCatalogFindingId(delta),
+  }));
   if (new Set(reportDeltas.map((delta) => delta.findingId)).size !== reportDeltas.length) {
     throw new Error('model catalog report findings are duplicated');
   }
@@ -70,6 +73,7 @@ export function createReport({
       path: 'packages/assistant-contract/src/provider-registry.ts',
       providerCounts: registry.providerCounts,
     },
+    routineId: 'model-catalog-updater',
     schemaVersion: 1,
     sources: [...sources]
       .sort((a, b) => a.sourceId.localeCompare(b.sourceId))
