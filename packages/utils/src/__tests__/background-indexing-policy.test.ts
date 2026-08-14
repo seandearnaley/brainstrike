@@ -139,6 +139,21 @@ describe('background-indexing-policy', () => {
     expect(splitSpy).not.toHaveBeenCalled();
   });
 
+  it('excludes nyc coverage output directories under both presets', () => {
+    // BST-1257: .nyc_output holds coverage artifacts (including path-mangled
+    // dir names like "..__..__var" that triggered BST-1255) — never index it.
+    for (const preset of ['balanced', 'full-root'] as const) {
+      const policy = createBackgroundIndexingEntryPolicy({ preset });
+
+      expect(
+        policy.shouldTraverseDirectory({
+          directoryName: '.nyc_output',
+          relativePath: '.nyc_output',
+        })
+      ).toBe(false);
+    }
+  });
+
   it('balanced policy excludes Python environment and bytecode-cache directories', () => {
     const policy = createBackgroundIndexingEntryPolicy({ preset: 'balanced' });
 

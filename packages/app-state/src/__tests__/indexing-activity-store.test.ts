@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetIndexingActivityStoreForTests,
   type IndexingDatabaseWorkPriorityStats,
@@ -472,6 +473,93 @@ describe('indexing-activity-store', () => {
 
       expect(useIndexingActivityStore.getState().snapshot.queue?.queued).toBe(4);
       expect(listener).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('durable error-state logging (BST-1257)', () => {
+    let captured: LogRecord[] = [];
+    let removeListener: (() => void) | null = null;
+
+    beforeEach(() => {
+      setLogLevel(LogLevel.INFO);
+      captured = [];
+      removeListener = addLogListener((record) => {
+        if (record.scope === 'IndexingActivity') {
+          captured.push(record);
+        }
+      });
+    });
+
+    afterEach(() => {
+      removeListener?.();
+      removeListener = null;
+    });
+
+    it('logs an activity error once, deduped until the message changes', () => {
+      const store = useIndexingActivityStore.getState();
+
+      store.setIndexingActivityError('snapshot read failed');
+      store.setIndexingActivityError('snapshot read failed');
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.level).toBe(LogLevel.ERROR);
+      expect(captured[0]?.args[1]).toMatchObject({ error: 'snapshot read failed' });
+
+      store.setIndexingActivityError(null);
+      store.setIndexingActivityError('snapshot read failed');
+
+      expect(captured).toHaveLength(2);
+    });
+
+    it('logs an embedding-worker error transition once', () => {
+      const store = useIndexingActivityStore.getState();
+      const errored = { lastError: 'worker crashed', state: 'error' as const };
+
+      store.setWorkerSnapshot(errored);
+      store.setWorkerSnapshot(errored);
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.level).toBe(LogLevel.ERROR);
+      expect(captured[0]?.args[1]).toMatchObject({ error: 'worker crashed' });
+    });
+
+    it('logs a managed-collection stats error transition once', () => {
+      const store = useIndexingActivityStore.getState();
+      const errored = {
+        collectionId: 'col-1',
+        error: 'stats query failed',
+        stats: null,
+        status: 'error' as const,
+      };
+
+      store.setManagedCollectionStats(errored);
+      store.setManagedCollectionStats(errored);
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.level).toBe(LogLevel.ERROR);
+      expect(captured[0]?.args[1]).toMatchObject({
+        collectionId: 'col-1',
+        error: 'stats query failed',
+      });
+    });
+
+    it('logs failed embedding jobs at warn once per failure-count change', () => {
+      const store = useIndexingActivityStore.getState();
+      const baseQueue = {
+        failed: 3,
+        nextRunnableAt: null,
+        queued: 0,
+        running: 0,
+        succeeded: 0,
+        succeededLifetime: 0,
+      };
+
+      store.setQueueSnapshot(baseQueue);
+      store.setQueueSnapshot({ ...baseQueue, queued: 1 });
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.level).toBe(LogLevel.WARN);
+      expect(captured[0]?.args[1]).toMatchObject({ failed: 3 });
     });
   });
 });

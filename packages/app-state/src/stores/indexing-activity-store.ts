@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/logging';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import type { WorkspaceCollectionSyncState } from './workspace-collection-sync-status-store';
 
@@ -662,6 +663,56 @@ export const useIndexingActivityStore = create<IndexingActivityStore>()((set, ge
   },
   snapshot: DEFAULT_INDEXING_ACTIVITY_SNAPSHOT,
 }));
+
+const errorTransitionLogger = createLogger('IndexingActivity');
+
+/**
+ * Durable-logging invariant (BST-1257): every error SOURCE feeding the
+ * indexing status surface logs its transition at warn+ so it reaches the
+ * durable diagnostic sinks. Sources are logged individually (not the derived
+ * `snapshot.lastError`) so sync-service errors — mirrored in here as the
+ * background snapshot and already logged by the sync-status store — are not
+ * double-logged. Value-change guards keep poll loops from spamming.
+ */
+useIndexingActivityStore.subscribe((state, prevState) => {
+  if (
+    state.indexingActivityError &&
+    state.indexingActivityError !== prevState.indexingActivityError
+  ) {
+    errorTransitionLogger.error('Indexing activity monitoring failed', {
+      error: state.indexingActivityError,
+    });
+  }
+
+  const worker = state.snapshot.worker;
+  const previousWorker = prevState.snapshot.worker;
+  if (
+    worker?.state === 'error' &&
+    (previousWorker?.state !== 'error' || worker.lastError !== previousWorker.lastError)
+  ) {
+    errorTransitionLogger.error('Embedding worker entered an error state', {
+      error: worker.lastError ?? 'Embedding worker failed',
+    });
+  }
+
+  const stats = state.managedCollectionStats;
+  const previousStats = prevState.managedCollectionStats;
+  if (
+    stats.status === 'error' &&
+    (previousStats.status !== 'error' || stats.error !== previousStats.error)
+  ) {
+    errorTransitionLogger.error('Managed collection stats reported an error', {
+      collectionId: stats.collectionId,
+      error: stats.error,
+    });
+  }
+
+  const failed = state.snapshot.queue?.failed ?? 0;
+  const previousFailed = prevState.snapshot.queue?.failed ?? 0;
+  if (failed > 0 && failed !== previousFailed) {
+    errorTransitionLogger.warn('Embedding jobs failed', { failed });
+  }
+});
 
 export function __resetIndexingActivityStoreForTests(): void {
   useIndexingActivityStore.setState({

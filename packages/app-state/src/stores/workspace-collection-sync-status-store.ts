@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/logging';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 export type WorkspaceCollectionSyncState =
@@ -126,6 +127,43 @@ export const useWorkspaceCollectionSyncStatusStore = create<WorkspaceCollectionS
     setStatus: (patch: WorkspaceCollectionSyncStatusPatch) => set(() => patch),
   })
 );
+
+const errorTransitionLogger = createLogger('WorkspaceCollectionSyncStatus');
+
+/**
+ * Durable-logging invariant (BST-1257): any transition of the sync surface
+ * into an error/blocked state is logged at warn+ so it reaches the durable
+ * diagnostic sinks — the BST-1255 indexer halt surfaced ONLY in the status
+ * banner and left zero durable trace. Subscribing at the store keeps this a
+ * single chokepoint no status writer can bypass; the value-change guard keeps
+ * poll loops that re-set an identical error from spamming.
+ */
+useWorkspaceCollectionSyncStatusStore.subscribe((state, prevState) => {
+  if (!state.lastError) {
+    return;
+  }
+  const enteredErrorState =
+    state.state !== prevState.state && (state.state === 'error' || state.state === 'blocked');
+  const changed =
+    state.lastError !== prevState.lastError ||
+    state.blockedReason !== prevState.blockedReason ||
+    enteredErrorState;
+  if (!changed) {
+    return;
+  }
+  const context = {
+    activeRootPath: state.activeRootPath,
+    blockedReason: state.blockedReason,
+    lastError: state.lastError,
+    managedCollectionId: state.managedCollectionId,
+    state: state.state,
+  };
+  if (state.state === 'blocked') {
+    errorTransitionLogger.warn('Workspace collection sync blocked', context);
+    return;
+  }
+  errorTransitionLogger.error('Workspace collection sync entered an error state', context);
+});
 
 export function __resetWorkspaceCollectionSyncStatusStoreForTests(): void {
   useWorkspaceCollectionSyncStatusStore.setState({

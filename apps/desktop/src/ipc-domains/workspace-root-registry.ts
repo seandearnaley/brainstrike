@@ -403,7 +403,7 @@ export class WorkspaceRootRegistry {
   async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
     await this.mutationTail;
     this.assertActive();
-    const resolved = await this.resolveRead(handle.path, handle.rootId);
+    const resolved = await this.resolveRead(handle.path, handle.rootId, 'readDirectory');
     const listing = await resolved.mounted.root.listDir(
       resolved.relativePath,
       MAX_DIRECTORY_ENTRIES
@@ -431,7 +431,7 @@ export class WorkspaceRootRegistry {
     this.assertActive();
     const requestedPath = typeof request === 'string' ? request : request.path;
     const rootId = typeof request === 'string' ? undefined : request.rootId;
-    const resolved = await this.resolveRead(requestedPath, rootId);
+    const resolved = await this.resolveRead(requestedPath, rootId, 'readFile');
     const { maxFileSize } = getFileSizeConfig();
     if (maxFileSize > NATIVE_MAX_READ_BYTES) {
       throw new AccessError(
@@ -870,7 +870,38 @@ export class WorkspaceRootRegistry {
     }
   }
 
+  /**
+   * Wraps `resolveReadUnlogged` so every read denial is durably logged at
+   * warn before rethrowing (BST-1257): the BST-1255 indexer halt threw
+   * AccessErrors here that crossed IPC into a renderer banner and left ZERO
+   * trace in main's logs. Logging at this chokepoint covers the default AND
+   * the injected `resolveReadPath`, plus the containment/mount checks.
+   */
   private async resolveRead(
+    requestedPath: string,
+    rootId: string | undefined,
+    operation: 'readDirectory' | 'readFile'
+  ): Promise<{
+    mounted: MountedWorkspaceRoot;
+    relativePath: string;
+    traversedSymlink: boolean;
+  }> {
+    try {
+      return await this.resolveReadUnlogged(requestedPath, rootId);
+    } catch (error) {
+      if (error instanceof AccessError) {
+        logger.warn('Workspace read denied', {
+          message: error.message,
+          operation,
+          requestedPath,
+          rootId: rootId ?? null,
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async resolveReadUnlogged(
     requestedPath: string,
     rootId?: string
   ): Promise<{
