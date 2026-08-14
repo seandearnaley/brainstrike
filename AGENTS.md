@@ -55,6 +55,7 @@ disagree with a historical document.
 | Changeset/git diff engine, git inventory + worktree trust, the `changes` IPC domain, the Changes surface, or the git panel's Changes/History tabs | `docs/agents/changeset-diff.md` |
 | Tree views (shared TreeTable), right-click / context action system, z-index of any dialog/popover/menu/tooltip | `docs/agents/ui-conventions.md` |
 | GitHub workflows, React Doctor, knip | `docs/agents/ci-quality.md` |
+| Scheduled repository-maintenance routines, their autonomy or proposal policy | `docs/adr/0004-scheduled-maintenance-routines.md` plus `docs/agents/ci-quality.md` |
 | Logging, factory reset, adding any new persistence | `docs/agents/platform-contracts.md` |
 
 Cross-cutting invariants (full detail + rationale in the docs):
