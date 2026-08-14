@@ -628,6 +628,25 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
       {
+        // Capabilities and limits: official Google model page, last updated
+        // 2026-08-13. Route and gateway pricing: OpenRouter Models API,
+        // retrieved 2026-08-14 (BST-1265).
+        contextWindow: 1_048_576,
+        id: 'google/gemini-3.7-flash',
+        label: 'Gemini 3.7 Flash (OpenRouter)',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.375, outputPerMTok: 1.875 },
+        reasoning: {
+          defaultEffort: 'medium',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['high', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
         contextWindow: 262_144,
         id: 'inclusionai/ling-3.0-flash:free',
         label: 'Ling 3.0 Flash Free (OpenRouter)',
