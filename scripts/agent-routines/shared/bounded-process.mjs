@@ -4,6 +4,8 @@ import { createSpawnInvocation } from '../../spawn-command.mjs';
 
 const TAIL_BYTES = 64 * 1024;
 const TERMINATION_GRACE_MS = 250;
+const TERMINATION_VERIFICATION_MS = 250;
+const TERMINATION_POLL_MS = 10;
 
 function signalProcessTree(child, signal) {
   if (process.platform === 'win32') {
@@ -17,6 +19,21 @@ function signalProcessTree(child, signal) {
     if (error?.code !== 'ESRCH') {
       throw error;
     }
+  }
+}
+
+function isProcessTreeAlive(child) {
+  try {
+    process.kill(-child.pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ESRCH') {
+      return false;
+    }
+    if (error?.code === 'EPERM') {
+      return true;
+    }
+    throw error;
   }
 }
 
@@ -67,11 +84,24 @@ export function runBoundedProcess({ command, cwd = process.cwd(), env = {}, time
     child.stderr.on('data', (chunk) => {
       stderr = appendTail(stderr, chunk);
     });
+    let closeResult;
     let killTimer;
+    let verificationTimer;
     const timer = setTimeout(() => {
       timedOut = true;
       signalProcessTree(child, 'SIGTERM');
-      killTimer = setTimeout(() => signalProcessTree(child, 'SIGKILL'), TERMINATION_GRACE_MS);
+      killTimer = setTimeout(() => {
+        signalProcessTree(child, 'SIGKILL');
+        const verificationDeadline = performance.now() + TERMINATION_VERIFICATION_MS;
+        const verifyTermination = () => {
+          if (!isProcessTreeAlive(child) || performance.now() >= verificationDeadline) {
+            finish(closeResult ?? { exitCode: null, outcome: 'timed-out', signal: 'SIGKILL' });
+            return;
+          }
+          verificationTimer = setTimeout(verifyTermination, TERMINATION_POLL_MS);
+        };
+        verifyTermination();
+      }, TERMINATION_GRACE_MS);
     }, timeoutMs);
     const finish = (value) => {
       if (settled) {
@@ -80,6 +110,7 @@ export function runBoundedProcess({ command, cwd = process.cwd(), env = {}, time
       settled = true;
       clearTimeout(timer);
       clearTimeout(killTimer);
+      clearTimeout(verificationTimer);
       resolve({
         durationMs: Math.round(performance.now() - started),
         exitCode: value.exitCode,
@@ -94,11 +125,16 @@ export function runBoundedProcess({ command, cwd = process.cwd(), env = {}, time
       finish({ exitCode: null, outcome: 'spawn-error', signal: null });
     });
     child.once('close', (code, signal) => {
-      finish({
+      const result = {
         exitCode: code,
         outcome: timedOut ? 'timed-out' : signal ? 'signalled' : code === 0 ? 'passed' : 'failed',
         signal,
-      });
+      };
+      if (timedOut && process.platform !== 'win32') {
+        closeResult = result;
+        return;
+      }
+      finish(result);
     });
   });
 }

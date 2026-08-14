@@ -41,14 +41,60 @@ test('bounded process runner kills descendants that retain inherited pipes', asy
   const started = performance.now();
   const result = await runBoundedProcess({
     command: [process.execPath, '-e', parentSource],
-    timeoutMs: 50,
+    timeoutMs: 1000,
   });
   const elapsedMs = performance.now() - started;
 
   assert.equal(result.outcome, 'timed-out');
-  assert.ok(elapsedMs < 1000, `timeout took ${elapsedMs.toFixed(0)}ms`);
+  assert.ok(elapsedMs < 2000, `timeout took ${elapsedMs.toFixed(0)}ms`);
   const grandchildPid = Number.parseInt(result.stdoutTail.trim(), 10);
   assert.ok(Number.isSafeInteger(grandchildPid));
+  assert.throws(() => process.kill(grandchildPid, 0), { code: 'ESRCH' });
+});
+
+test('bounded process runner waits for escalation after the direct child exits', async (context) => {
+  if (process.platform === 'win32') {
+    context.skip('POSIX process-group behavior');
+    return;
+  }
+
+  const grandchildSource = `
+    process.on('SIGTERM', () => {});
+    process.kill(process.ppid, 'SIGUSR1');
+    setInterval(() => {}, 10000);
+  `;
+  const parentSource = `
+    const { spawn } = require('node:child_process');
+    process.once('SIGUSR1', () => process.stdout.write('ready\\n'));
+    const child = spawn(process.execPath, ['-e', ${JSON.stringify(grandchildSource)}], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+    process.stdout.write(String(child.pid) + '\\n');
+    setInterval(() => {}, 10000);
+  `;
+  let grandchildPid;
+  context.after(() => {
+    if (Number.isSafeInteger(grandchildPid)) {
+      try {
+        process.kill(grandchildPid, 'SIGKILL');
+      } catch (error) {
+        if (error?.code !== 'ESRCH') {
+          throw error;
+        }
+      }
+    }
+  });
+
+  const result = await runBoundedProcess({
+    command: [process.execPath, '-e', parentSource],
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.outcome, 'timed-out');
+  const [pidLine, readyLine] = result.stdoutTail.trim().split('\n');
+  grandchildPid = Number.parseInt(pidLine, 10);
+  assert.ok(Number.isSafeInteger(grandchildPid));
+  assert.equal(readyLine, 'ready');
   assert.throws(() => process.kill(grandchildPid, 0), { code: 'ESRCH' });
 });
 
