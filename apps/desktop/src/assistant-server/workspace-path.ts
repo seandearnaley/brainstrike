@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 
 const DOT_CHAR_CODE = 46;
 const SLASH_CHAR_CODE = 47;
@@ -104,18 +105,14 @@ export function isHiddenPath(entryPath: string): boolean {
 /**
  * Pure containment check: is `canonicalTargetPath` the root itself or a
  * descendant of `canonicalRootPath`? Both arguments must be canonical absolute
- * paths (e.g. from `fs.realpath`). Uses `path.relative`/`path.isAbsolute`, so it
- * respects the host's separator and is correct on every OS (including a Windows
- * path that resolves onto a different drive).
+ * paths (e.g. from `fs.realpath`). Delegates to `isPathInsideRoot` from
+ * `@brainstrike/file-system/path-validation`, which respects the host's
+ * separator and is correct on every OS (including a Windows path that resolves
+ * onto a different drive).
  */
 export function isWithinRoot(canonicalRootPath: string, canonicalTargetPath: string): boolean {
-  if (canonicalTargetPath === canonicalRootPath) {
-    return true;
-  }
-  const relativeFromRoot = path.relative(canonicalRootPath, canonicalTargetPath);
-  return (
-    relativeFromRoot.length > 0 &&
-    !relativeFromRoot.startsWith('..') &&
-    !path.isAbsolute(relativeFromRoot)
-  );
+  // Delegates to the canonical helper (BST-1256): a bare
+  // `relative.startsWith('..')` misclassifies in-root children whose NAME
+  // starts with ".." (e.g. nyc's "..__..__var" coverage dirs) as outside.
+  return isPathInsideRoot(canonicalRootPath, canonicalTargetPath);
 }

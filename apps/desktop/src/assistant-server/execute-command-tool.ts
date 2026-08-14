@@ -11,6 +11,7 @@ import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
+import { isWithinRoot } from './workspace-path';
 import {
   describeOpenRootTopology,
   type OpenRootTopology,
@@ -236,13 +237,7 @@ async function resolveCommandCwd(
     }
     throw error;
   }
-  const relativeFromRoot = path.relative(canonicalRootPath, canonicalCwd);
-  const withinRoot =
-    canonicalCwd === canonicalRootPath ||
-    (relativeFromRoot.length > 0 &&
-      !relativeFromRoot.startsWith('..') &&
-      !path.isAbsolute(relativeFromRoot));
-  if (!withinRoot) {
+  if (!isWithinRoot(canonicalRootPath, canonicalCwd)) {
     throw new Error(
       `cwd "${requestedCwd}" resolves outside the workspace root "${root.displayName}". A command's start directory must be inside an open folder.`
     );

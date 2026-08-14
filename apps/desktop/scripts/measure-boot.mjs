@@ -102,15 +102,28 @@ function resolveDefaultElectronBinary() {
   return electronBinary;
 }
 
+/**
+ * Whole-`..`-segment containment check (BST-1256): a bare `startsWith('..')`
+ * misreads in-tree names like "..cache" as an escape. Mirrors the canonical
+ * `isPathInsideRoot` in `@brainstrike/file-system/path-validation` (kept
+ * inline because this script runs standalone, before any package build).
+ */
+function isInsideDir(parentDir, candidate) {
+  const relative = path.relative(parentDir, candidate);
+  return (
+    relative === '' ||
+    !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+  );
+}
+
 export function toRepoRelative(absolutePath) {
-  const relative = path.relative(repoRoot, absolutePath);
   // Never leak a path outside the repo (or the machine-specific prefix that
   // implies) into committed results -- fall back to just the basename. On
   // Windows a target on a different drive comes back drive-qualified and
-  // absolute (no '..' prefix), so treat that as outside the repo too.
-  return relative.startsWith('..') || path.isAbsolute(relative)
-    ? path.basename(absolutePath)
-    : relative;
+  // absolute, so treat that as outside the repo too.
+  return isInsideDir(repoRoot, absolutePath)
+    ? path.relative(repoRoot, absolutePath)
+    : path.basename(absolutePath);
 }
 
 /**
@@ -131,7 +144,7 @@ function detectAppCommit(appPath) {
     // the recorded sha".
     const statusArgs = ['status', '--porcelain', '--'];
     const measuredTreeTop = runGit(['rev-parse', '--show-toplevel']);
-    const resultsInsideMeasuredTree = !path.relative(measuredTreeTop, resultsPath).startsWith('..');
+    const resultsInsideMeasuredTree = isInsideDir(measuredTreeTop, resultsPath);
     statusArgs.push(resultsInsideMeasuredTree ? `:(exclude)${resultsPath}` : '.');
     return {
       dirty: runGit(statusArgs).length > 0,

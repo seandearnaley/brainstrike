@@ -48,6 +48,20 @@ const SKIPPED_DIRECTORIES = new Set([
 ]);
 
 /**
+ * Whole-`..`-segment containment check (BST-1256): a bare `startsWith('..')`
+ * misreads in-tree names like "..fixtures" as an escape. Mirrors the canonical
+ * `isPathInsideRoot` in `@brainstrike/file-system/path-validation` (kept
+ * inline because this guard runs standalone, before any package build).
+ */
+function isInsideRoot(rootDir, candidate) {
+  const relative = path.relative(rootDir, candidate);
+  return (
+    relative === '' ||
+    !(relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+  );
+}
+
+/**
  * Walks up from `startDirectory` to `stopDirectory` (inclusive) and returns the
  * first package.json found. Mirrors Playwright's `fileIsModule` lookup.
  */
@@ -371,7 +385,7 @@ export function findEscapingImportViolations(repoRoot) {
         if (!resolved) {
           continue;
         }
-        if (!path.relative(e2eRoot, resolved).startsWith('..')) {
+        if (isInsideRoot(e2eRoot, resolved)) {
           continue; // stays inside the ESM root
         }
 
@@ -392,12 +406,7 @@ export function findEscapingImportViolations(repoRoot) {
           }
           visited.add(current);
 
-          if (
-            e2eRoots.some((root) => {
-              const relative = path.relative(root, current);
-              return relative === '' || !(relative.startsWith('..') || path.isAbsolute(relative));
-            })
-          ) {
+          if (e2eRoots.some((root) => isInsideRoot(root, current))) {
             continue;
           }
 

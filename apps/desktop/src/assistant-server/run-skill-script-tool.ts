@@ -13,6 +13,7 @@ import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import { runDetachedProcess, type ShellOutputStreamer } from './execute-command-tool';
+import { isWithinRoot } from './workspace-path';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('RunSkillScriptTool');
@@ -34,11 +35,6 @@ export interface RunSkillScriptToolResult {
   readonly timedOut: boolean;
   readonly truncated: boolean;
   readonly workingDirectory: string;
-}
-
-function isWithin(parent: string, child: string): boolean {
-  const relative = path.relative(parent, child);
-  return relative === '' || !(relative.startsWith('..') || path.isAbsolute(relative));
 }
 
 async function resolveWorkingDirectory(
@@ -63,14 +59,14 @@ async function resolveWorkingDirectory(
     }
     throw error;
   }
-  if (!isWithin(canonicalRoot, canonicalCwd)) {
+  if (!isWithinRoot(canonicalRoot, canonicalCwd)) {
     throw new ToolInputError(
       `cwd "${input.cwd}" resolves outside mounted root "${root.displayName}".`
     );
   }
   const canonicalSkillRoot = await fsPromises.realpath(resolved.skillRootPath);
   const canonicalScript = await fsPromises.realpath(resolved.absolutePath);
-  if (!isWithin(canonicalSkillRoot, canonicalScript)) {
+  if (!isWithinRoot(canonicalSkillRoot, canonicalScript)) {
     throw new ToolInputError(
       `Resolved skill script "${resolved.scriptPath}" escapes skill "${resolved.skillName}".`
     );

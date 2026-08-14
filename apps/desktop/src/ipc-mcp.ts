@@ -6,6 +6,7 @@ import {
   saveToolPreferences,
   type ToolPreferences,
 } from '@brainstrike/agent';
+import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
 import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { disposeClients, getClient, initClients } from './mcp';
@@ -129,11 +130,6 @@ function notifyMcpToolsUpdated(): void {
   }
 }
 
-function isPathInside(parent: string, candidate: string): boolean {
-  const relative = path.relative(parent, candidate);
-  return relative === '' || !(relative.startsWith('..') || path.isAbsolute(relative));
-}
-
 function resolveAllowedMcpConfigPath(configPath: string | null): string | null {
   if (configPath === null) {
     return null;
@@ -146,7 +142,7 @@ function resolveAllowedMcpConfigPath(configPath: string | null): string | null {
   const userData = app.getPath('userData');
   const mcpUserDataRoot = path.join(userData, 'mcp');
   const resolvedPath = path.resolve(trimmedPath);
-  if (isPathInside(mcpUserDataRoot, resolvedPath)) {
+  if (isPathInsideRoot(mcpUserDataRoot, resolvedPath)) {
     return resolvedPath;
   }
   if (lastUserSelectedConfigPath && resolvedPath === lastUserSelectedConfigPath) {
