@@ -25,7 +25,7 @@ import {
   DataStreamDecoder,
   toGenericMessages,
   // assistant-stream is pinned in lockstep with @assistant-ui/core's own
-  // range (0.3.34 as of the 0.15.8 upgrade): two coexisting assistant-stream
+  // range (0.3.37 as of the 0.15.13 upgrade): two coexisting assistant-stream
   // instances make this import's `Tool` type structurally incompatible with
   // the one inside @assistant-ui/core. Tool result streaming is still exported
   // behind the unstable API surface.

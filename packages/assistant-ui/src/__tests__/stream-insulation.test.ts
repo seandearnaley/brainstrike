@@ -15,6 +15,14 @@ const wire = (code: string, value: unknown): Uint8Array =>
 const tick = (): Promise<void> => Promise.resolve().then(() => undefined);
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 25));
 
+/**
+ * Upper bound on the scheduler turns a decoder settlement may take. Generous —
+ * the pipeline settles in single digits — but finite, so a broken expectation
+ * fails the assertion instead of spinning the worker forever. Mostly microtask
+ * turns, with a macrotask yield every 100th (see the loop below).
+ */
+const MAX_EXECUTE_WAIT_TICKS = 1000;
+
 interface ControlledBody {
   readonly cancelReasons: unknown[];
   readonly controller: () => ReadableStreamDefaultController<Uint8Array>;
@@ -225,10 +233,29 @@ describe('insulateAssistantStreamPipeline', () => {
 
     body.controller().enqueue(wire('b', { toolCallId: 't1', toolName: 'web_search' }));
     body.controller().enqueue(wire('c', { argsTextDelta: '{"q":"x"}', toolCallId: 't1' }));
-    body.controller().enqueue(wire('0', 'closes the args stream '));
-    while (!executeCalled) {
-      await tick();
+    // The complete `9` frame is what closes the call's argsText, which is what
+    // makes the decoder execute the tool. Until assistant-stream 0.3.34 a bare
+    // text delta closed it implicitly (TOOL_CALL_ARGS_CLOSING_CHUNKS); 0.3.35
+    // removed that heuristic, so args now close only on an explicit frame. This
+    // mirrors the wire packages/agent actually emits — `9` right after the last
+    // `c` (data-stream-mapper.ts handleToolProgress, `input_stream_end`).
+    body
+      .controller()
+      .enqueue(wire('9', { args: { q: 'x' }, toolCallId: 't1', toolName: 'web_search' }));
+    body.controller().enqueue(wire('0', 'text after the tool call '));
+    // BOUNDED, and not microtask-only. An unbounded microtask spin starves the
+    // event loop outright, so vitest's own timeout (a macrotask) can never
+    // fire: a wire-contract change hangs the whole worker forever instead of
+    // failing this test. Bounding alone fixes the hang but leaves the loop
+    // microtask-only for its whole duration, so a settlement path needing even
+    // one macrotask turn would fail at the bound and point at the assertion
+    // rather than at the scheduling. Every 100th turn therefore yields to the
+    // macrotask queue. The happy path settles in single digits and never
+    // reaches the first yield.
+    for (let attempt = 0; !executeCalled && attempt < MAX_EXECUTE_WAIT_TICKS; attempt += 1) {
+      await (attempt % 100 === 99 ? new Promise((resolve) => setTimeout(resolve, 0)) : tick());
     }
+    expect(executeCalled).toBe(true);
     // Consumer walks away mid-execution (rapid supersede)…
     stop = true;
     await reader.cancel('superseded');

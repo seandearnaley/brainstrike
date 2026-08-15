@@ -253,7 +253,9 @@ Only a non-empty raw value outside the SDK/Brainstrike union becomes the
 internal `'unrecognized'` sentinel, emits `run.failed`, surfaces the explicit
 "unrecognized finish reason" message, and persists `thread_runs` as failed.
 Before data-stream serialization, internal `absent` becomes assistant-stream
-0.3.34's completed wire value (behavior verified at 0.3.25, unchanged by the 0.3.34 lockstep bump) `unknown`; internal `unrecognized` becomes the
+0.3.37's completed wire value (behavior verified at 0.3.25, unchanged by the
+0.3.34 and 0.3.37 lockstep bumps — `unknown` is still in the completed-status
+union at 0.3.37) `unknown`; internal `unrecognized` becomes the
 terminal wire value `error`. Intermediate steps start as `absent`, never as the
 SDK-owned `unknown`. Keep these internal sentinels out of the legacy data-stream
 protocol and never infer provider failure from the AI SDK `unknown` value.
@@ -639,40 +641,79 @@ while a text/reasoning part is streaming and flushes them at the next boundary
 (tool start, approval, finish, error, stream end) — never drop them, never
 emit them mid-part (proof: data-stream-text-continuity.spec.ts).
 
-Open tool-call args streams have the SAME contract with a harder failure mode
-(BST-962): assistant-stream 0.3.34's `DataStreamDecoder` closes the ACTIVE
-call's argsText controller on every frame in its `TOOL_CALL_ARGS_CLOSING_CHUNKS`
-set (`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/`aui-text-delta`/`aui-reasoning-delta`/
-`aui-data`), so ANY such frame between a call's `b` and its `9` makes the next
+Open tool-call args streams have a related ordering contract (BST-962), whose
+decoder-side justification CHANGED at assistant-stream 0.3.35 — read this whole
+paragraph before reasoning about the mapper's deferral machinery.
+
+Through 0.3.34 the `DataStreamDecoder` closed the ACTIVE call's argsText
+controller on every frame in a `TOOL_CALL_ARGS_CLOSING_CHUNKS` set
+(`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/`aui-text-delta`/`aui-reasoning-delta`/
+`aui-data`), so ANY such frame between a call's `b` and its `9` made the next
 `c` args delta append to a closed controller — an unhandled "Cannot enqueue a
-chunk into a readable stream that is closed" TypeError that errors the whole
-renderer pipeline (the visible chat dies with the enqueue error) while the
-agent-side run completes invisibly. This is NOT the BST-704 cancellation class
-and the stream-insulation boundary correctly treats it as a real fault — the
-producer must never emit the poisoned ordering. The mapper therefore (a) defers
-aui-data parts (run events, shell output, context breakdown, child-run usage)
-while `openArgsCallId` is set, flushing after that call's `9`; (b) closes an
-open args stream — emitting its `9` with the accumulated args — before
-text/reasoning deltas, error/finish frames, and approval/suspend notices
+chunk into a readable stream that is closed" TypeError that errored the whole
+renderer pipeline (the visible chat died with the enqueue error) while the
+agent-side run completed invisibly.
+
+**0.3.35 removed that set entirely** — `TOOL_CALL_ARGS_CLOSING_CHUNKS` does not
+exist anywhere in the pinned 0.3.37 dist. At 0.3.37 an argsText closes ONLY on
+an explicit frame: the complete `9`; a `c` delta carrying `isFinal: true`; the
+call's `a` result (which marks it closed); and the stream-wide
+`closeOpenToolCallArgs()` that `3`/`e`/`d` and decoder flush run. A `0`/`g`/`h`/
+`aui-data`/`aui-text-delta`/`aui-reasoning-delta` frame between a call's `b` and
+its `9` now closes nothing. Two further consequences, both verified against the
+0.3.37 decoder source rather than inferred:
+
+- The crash class is GONE as described. A `c` delta for an already-closed args
+  stream is now dropped behind a one-shot `console.warn` ("Dropped tool-call
+  args delta for closed args stream"), not an unhandled TypeError. What STILL
+  throws in strict mode (the default) is a duplicate `b` tool-call id, and a
+  `c`/`a` naming an id the decoder never saw.
+- Interleaved args across PARALLEL calls (`b`-A, `b`-B, `c`-A) is no longer
+  decoder-lethal: distinct ids get distinct controllers and `c`-A still resolves
+  to A's open controller. The previous "already lethal at the `b`" note applied
+  to the pre-0.3.35 decoder and is retained below only as history.
+
+The mapper's obligations are UNCHANGED by this bump — deliberately. It still
+(a) defers aui-data parts (run events, shell output, context breakdown,
+child-run usage) while `openArgsCallId` is set, flushing after that call's `9`;
+(b) closes an open args stream — emitting its `9` with the accumulated args —
+before text/reasoning deltas, error/finish frames, and approval/suspend notices
 (pauses produce no later boundary, so the notice cannot be deferred);
-(c) prefers DEFERRAL over premature flushing everywhere: a late data part
-flushes at the next boundary, a premature one crashes the run; (d) closes the
-window EAGERLY (`b` immediately followed by its `9`) when a tool start already
-carries the complete input — the non-streaming provider path (`tool-call` part,
-no `input_stream_*` events) — so the window never spans tool EXECUTION, which
-would buffer live shell output and run events until the result; a late
-`input_stream_end` after any forced close is dropped by the `argsEmitted`
-guard (re-emitting the `9` is itself an args-closing frame). The incident
-producer was an OM-observer run event landing mid `updateWorkingMemory` args
-(debug bundle 2026-07-28T15-43-22Z). Known remaining hole, deliberately
-unfixed: interleaved args deltas ACROSS parallel calls (`b`-A, `b`-B, `c`-A)
-are already decoder-lethal at the `b`, but providers stream args sequentially
-per response and the pinned parallel-call contract assembles late-arriving
-args, so only the tracked id moves forward (see `openArgsCallId` doc comment).
-Proof: the BST-962 describe block in data-stream-text-continuity.spec.ts,
-including the `expectDecoderSafeArgsStream` invariant sweep. The renderer's
+(c) prefers DEFERRAL over premature flushing everywhere; (d) closes the window
+EAGERLY (`b` immediately followed by its `9`) when a tool start already carries
+the complete input — the non-streaming provider path (`tool-call` part, no
+`input_stream_*` events) — so the window never spans tool EXECUTION, which would
+buffer live shell output and run events until the result; a late
+`input_stream_end` after any forced close is dropped by the `argsEmitted` guard.
+
+Which of those still carry a LIVE justification at 0.3.37, so a future reader
+does not delete them as dead weight:
+
+- (b) is still load-bearing for `3`/`e`/`d`: `closeOpenToolCallArgs()` closes the
+  argsText WITHOUT any `9`, so a call whose args were never completed settles
+  with partial args. Emitting the `9` first is what preserves them.
+- (d) is still load-bearing for LATENCY, independent of any decoder behavior: an
+  args window spanning execution buffers live shell output and run events until
+  the result.
+- (a) and (c) keep an independent justification from the paragraph above — an
+  `aui-data` part CLOSES the active text/reasoning append in the ACCUMULATOR,
+  which 0.3.35 did not touch — but their args-specific half is now strictly more
+  conservative than the pinned decoder requires.
+
+That conservatism is intentional and is why this bump needed no mapper change:
+the emitted wire stays valid against both the pre-0.3.35 and post-0.3.35
+decoders. Whether the args-specific half of (a)/(c) should be relaxed now that
+the crash class is gone is a real question, but NOT one to settle inside a
+dependency bump — it needs its own ticket and its own evidence.
+
+The incident producer was an OM-observer run event landing mid
+`updateWorkingMemory` args (debug bundle 2026-07-28T15-43-22Z). Proof: the
+BST-962 describe block in data-stream-text-continuity.spec.ts, including the
+`expectDecoderSafeArgsStream` invariant sweep — which asserts the mapper's
+stricter ordering, and whose docblock records that it now outruns what the
+decoder needs. The renderer's
 data-stream runtime also defers assistant-stream's decoded `message-finish` until
-decoder flush: assistant-stream 0.3.34 emits that marker before its trailing
+decoder flush: assistant-stream 0.3.37 emits that marker before its trailing
 `part-finish`, and exposing completion early lets an immediate next turn abort a
 still-draining text controller. Aborted runs propagate the authoritative abort
 reason without surfacing cancellation teardown as a new assistant error; server
@@ -728,7 +769,7 @@ activity UI, but user expansion must show accumulated text before, during, and
 after intervening tool calls; the active icon clears only on a real terminal
 part.
 
-Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.34's
+Renderer stream-insulation boundary (BST-704, LIVE): assistant-stream 0.3.37's
 decoder/tool pipeline hand-rolls nested stream controllers (merge streams,
 tool-call sub-streams) whose settlement paths (`setResponse`, detached
 part-finish continuations) enqueue with NO cancellation guard — if downstream
@@ -2339,14 +2380,22 @@ behaviour.
 
 **Tool-call args-stream discipline (BST-940 field failure, 2026-07-27).** The
 renderer's assistant-stream decoder closes a call's argsText controller on the
-complete `9` frame, THROWS on duplicate tool call ids, and appending into a
-closed controller is an unhandled TypeError that fails the whole run. GLM-5.2
+complete `9` frame and THROWS in strict mode (the default) on a duplicate tool
+call id or on a `c`/`a` naming an id it never saw. GLM-5.2
 via OpenRouter emits trailing `tool-call-delta` parts after the complete tool
 call and after the result. `data-stream-mapper.ts` therefore (1) emits the `c`
 args-delta frame only while `toolState` exists AND `argsEmitted` is false, and
 (2) tracks `settledToolCallIds` so a late progress event for a settled call is
 dropped instead of auto-starting a duplicate `b`. Pinned by the "drops trailing
 args deltas" case in `data-stream-session.spec.ts`.
+
+Guard (2) is pinned by that still-live duplicate-id throw. Guard (1) changed
+severity at assistant-stream 0.3.35: appending into a CLOSED controller used to
+be an unhandled TypeError that failed the whole run, and is now dropped behind a
+one-shot `console.warn` (see the BST-962 paragraph above). The guard stays —
+silently discarded args are still a correctness bug, just no longer a visible
+crash, which makes the guard MORE valuable, not less, because the failure it
+prevents is now quiet.
 
 Mastra's dynamic `data-om-*` stream chunks are handled by prefix in
 `agent-streaming.ts`: `-failed` variants map to a durable
