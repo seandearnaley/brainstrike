@@ -50,14 +50,16 @@ describe('workspaceAddMenuItems', () => {
     expect(items[0]?.id).toBe(CONTEXT_EXPLORER_APP_ID);
   });
 
-  it('decorates Files and Terminal with shortcut descriptors; others carry none', () => {
+  it('decorates ONLY chords that reproduce the item action (Terminal); Files carries none', () => {
+    // ⌘P is quick-open (opens a FILE tab), not "open the Files app" — a chip
+    // there would advertise a different behavior than the item performs.
     const items = workspaceAddMenuItems([
       app(CONTEXT_EXPLORER_APP_ID, 'Files'),
       app(CHANGES_APP_ID, 'Changes'),
       app(TERMINAL_APP_ID, 'Terminal'),
     ]);
 
-    expect(items[0]?.shortcut).toEqual({ key: 'p', modifiers: ['primary'] });
+    expect(items[0]?.shortcut).toBeUndefined();
     expect(items[1]?.shortcut).toBeUndefined();
     expect(items[2]?.shortcut).toEqual({ key: 't', modifiers: ['primary'] });
   });

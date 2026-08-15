@@ -22,7 +22,9 @@ describe('WorkspaceAddTabMenu', () => {
     const trigger = screen.getByRole('button', { name: 'Add workspace tab' });
     fireEvent.pointerDown(trigger, { button: 0, pointerId: 1, pointerType: 'mouse' });
 
-    expect(screen.getByRole('menuitem', { name: /Files/ })).toBeInTheDocument();
+    const filesItem = screen.getByRole('menuitem', { name: /Files/ });
+    expect(filesItem).toBeInTheDocument();
+    expect(filesItem.textContent).not.toMatch(/⌘P|Ctrl\+P/);
     const terminalItem = screen.getByRole('menuitem', { name: /Terminal/ });
     expect(terminalItem).toBeInTheDocument();
     // Shortcut chips render through the shared platform-aware formatter.

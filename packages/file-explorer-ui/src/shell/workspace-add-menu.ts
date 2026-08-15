@@ -1,5 +1,5 @@
 import type { ActionShortcut } from '@brainstrike/context-actions';
-import { CONTEXT_EXPLORER_APP_ID, TERMINAL_APP_ID, type WorkspaceApp } from './workspace-app';
+import { TERMINAL_APP_ID, type WorkspaceApp } from './workspace-app';
 
 /**
  * "+" add-tab menu model (BST-1270). Items derive 1:1 from the REGISTERED app
@@ -15,8 +15,10 @@ export interface WorkspaceAddMenuItem {
   readonly shortcut?: ActionShortcut;
 }
 
+// Only chords that reproduce the ITEM's action decorate it. ⌘P is quick-open
+// (the file-finder palette), which opens a FILE tab — not the Files app — so
+// the Files item carries no chip (review finding).
 const APP_SHORTCUTS: Readonly<Record<string, ActionShortcut>> = {
-  [CONTEXT_EXPLORER_APP_ID]: { key: 'p', modifiers: ['primary'] },
   [TERMINAL_APP_ID]: { key: 't', modifiers: ['primary'] },
 };
 

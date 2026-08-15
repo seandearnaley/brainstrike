@@ -216,8 +216,9 @@ export interface RootLayoutContentProps {
   /**
    * Optional Terminal surface (desktop-only). Supplied by the desktop wrapper
    * when the `window.terminal` bridge is present; web never constructs it
-   * (capability gating, not an isElectron check). When absent, no Terminal nav
-   * item is rendered.
+   * (capability gating, not an isElectron check). Registered as a closable
+   * singleton workspace app tab (BST-1270); when absent, no Terminal tab,
+   * launcher card, or "+"-menu entry renders at all.
    */
   readonly terminalPageContent?: ReactNode;
 }
@@ -228,8 +229,9 @@ const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/notes': 'notes',
   '/settings': 'settings',
   // '/terminal' intentionally absent (BST-1270): Terminal is a workspace app
-  // now; PanelTab keeps the 'terminal' member so persisted layouts stay
-  // type-representable, and a stale persisted tab resolves to 'explorer'.
+  // now. activeTab is SESSION-ONLY (panel-layout-store partializes it away)
+  // and no call site can produce 'terminal' anymore; the PanelTab member is
+  // kept only to avoid churning its consumers — removing it is safe follow-up.
 };
 
 function resolveActiveTabForPath(path: string): PanelTab {
@@ -696,7 +698,7 @@ export function RootLayoutContent({
       {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
           Changes tab-switch + pending-changeset handoff. `null` value (no
           changesPageContent) makes the link render nothing — same capability
-          gating as the git/terminal/notes nav items below. */}
+          gating as the git/notes nav items below. */}
       <ChangesReviewProvider value={changesReviewValue}>
         {/* Binds the assistant panel's "Restore to before this message"
             affordance (BST-1115). The modal it raises is mounted below, as a
