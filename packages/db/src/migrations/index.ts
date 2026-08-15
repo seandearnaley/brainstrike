@@ -94,6 +94,7 @@ import { migration092ToolCallTelemetrySubstrateSplit } from './092-tool-call-tel
 import { migration093AssistantRunTreatments } from './093-assistant-run-treatments.js';
 import { migration094OpenRouterGemini37Flash } from './094-openrouter-gemini-3-7-flash.js';
 import { migration095AssistantThreadWorkspaces } from './095-assistant-thread-workspaces.js';
+import { migration096OpenRouterQwen3827B } from './096-openrouter-qwen-3-8-27b.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -194,6 +195,7 @@ export const migrations: Migration[] = [
   migration093AssistantRunTreatments,
   migration094OpenRouterGemini37Flash,
   migration095AssistantThreadWorkspaces,
+  migration096OpenRouterQwen3827B,
 ];
 
 // Export base migrations (without chunks table) for test environments
