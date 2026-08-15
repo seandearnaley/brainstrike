@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -19,15 +19,35 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 // either — it hides APIs that do exist, pushing authors toward casts.
 const CATALOG_PACKAGE = '@types/node';
 
-// Every manifest that declares a Node engine range. These were tightened to a
-// single bounded major by BST-1275 (#2442); this contract is what keeps them
-// tightened, because an unbounded floor like `>=24.15.0` silently re-admits
-// Node 26 and makes the alignment claim meaningless again.
-const ENGINE_MANIFESTS = [
-  'package.json',
-  'apps/desktop/package.json',
-  'apps/e2e-test-utils/package.json',
-];
+// The manifests that must pin exactly ONE Node major: the repo root plus every
+// app. These were tightened to a single bounded major by BST-1275 (#2442); this
+// contract is what keeps them tightened, because an unbounded floor like
+// `>=24.15.0` silently re-admits Node 26 and makes the alignment claim
+// meaningless again.
+//
+// DISCOVERED, not hardcoded. A hardcoded list is exactly the drift this file
+// exists to prevent, and it had already gone stale on arrival: `apps/web`
+// (engines.node "24.x", a direct consumer of the catalog `@types/node`) was
+// missing, so pointing the web runtime at another major would have left this
+// test green. `apps/*` mirrors the pnpm-workspace.yaml glob, so a new app is
+// covered the day it lands.
+//
+// Deliberately EXCLUDED: the 26 `packages/*` manifests that declare the
+// library-consumer floor `>=22` (19 more declare no engines at all). That range
+// is unbounded BY DESIGN — they are libraries, and a consumer on any Node >=22
+// may use them — so it implies no single major and would fail
+// `impliedEngineMajor`. The alignment claim is about the Node this repo RUNS,
+// which the root and the apps are what actually name.
+function discoverEngineManifests() {
+  const apps = readdirSync(path.join(repoRoot, 'apps'), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `apps/${entry.name}/package.json`)
+    .filter((manifest) => existsSync(path.join(repoRoot, manifest)))
+    .sort();
+  return ['package.json', ...apps];
+}
+
+const ENGINE_MANIFESTS = discoverEngineManifests();
 
 // Scope note, deliberately narrow: this contract governs the catalog, the
 // lockfile's catalog resolution, and the workspace importers that DECLARE
@@ -36,6 +56,33 @@ const ENGINE_MANIFESTS = [
 // `@vercel/node@5.8.22` hard-depends on `@types/node@20.11.0` — and a
 // transitive pin like that cannot change what `tsc` loads for our sources, so
 // reporting it here would fail the lane for someone else's dependency graph.
+//
+// The same reasoning covers a case that LOOKS like a gap and is not. Six
+// packages (assistant-contract, assistant-wire, config, indexing-contract,
+// local-runtime, pipeline) take `vitest` from the catalog but do not declare
+// `@types/node` themselves. `@types/node` is an optional PEER of vite/vitest,
+// and a catalog does not govern peers it is not asked about, so pnpm resolves
+// those peers from the registry at the newest satisfying version and keeps a
+// second copy — `@types/node@26.1.0` — in the store. It is real; it is not in
+// any compile graph. Measured with `tsc --noEmit --traceResolution` in all six:
+// zero references to the `@types+node@26.1.0` store path, 2.1k to 24.13.3.
+//
+// The mechanism, from the trace in packages/config: `vite/dist/node/index.d.ts`
+// — served out of the 26.1.0-keyed vite copy — really does emit
+// `/// <reference types="node" />`. But a type reference directive resolves
+// against `typeRoots`, which are anchored at the TSCONFIG directory and walk
+// UP (config/node_modules/@types → packages/node_modules/@types →
+// <root>/node_modules/@types), never at the directory of the file that asked.
+// The first two do not exist, so it lands on the root copy — 24.13.3, logged
+// `primary: true`. The containing-file-relative fallback that would have found
+// 26.1.0 never runs. All 40 package-local `@types/node` links are 24.13.3 too,
+// so no package shadows the root. Bare `node:*` specifiers never resolve as
+// modules at all; they are satisfied by the ambient `declare module` blocks in
+// the single `@types/node` the program loaded.
+//
+// So the duplicate is dev-only install weight, not a types skew. Reproduce with:
+//   cd packages/config && pnpm exec tsc --noEmit --traceResolution \
+//     | grep -c '@types+node@26\.1\.0/'   # -> 0
 function parseMajor(version) {
   const match = /^(?<major>\d+)\./u.exec(String(version ?? ''));
   return match?.groups ? Number(match.groups.major) : null;
@@ -138,7 +185,7 @@ function collectViolations({ nvmrc, engines, catalogRange, lockfileCatalog, impo
   return violations;
 }
 
-function loadActualState() {
+function readActualState() {
   const lockfile = parseYaml(readFileSync(path.join(repoRoot, 'pnpm-lock.yaml'), 'utf8'));
   const workspace = parseYaml(readFileSync(path.join(repoRoot, 'pnpm-workspace.yaml'), 'utf8'));
   const importerVersions = Object.entries(lockfile.importers ?? {})
@@ -161,6 +208,16 @@ function loadActualState() {
   };
 }
 
+// `pnpm-lock.yaml` is ~19k lines and this suite runs uncached in the required
+// Static lane, so parse it once and hand every test the same snapshot. Lazy
+// rather than module-scope so a malformed file fails the test that needs it
+// instead of aborting the whole file at import time.
+let cachedActualState;
+function loadActualState() {
+  cachedActualState ??= readActualState();
+  return cachedActualState;
+}
+
 test('real tree: @types/node tracks the Node major this repo actually runs', () => {
   assert.deepEqual(collectViolations(loadActualState()), []);
 });
@@ -169,13 +226,17 @@ test('real tree: every workspace package declaring @types/node goes through the 
   // The catalog only governs packages that opt in with "catalog:". A package
   // that hard-pins its own range keeps compiling against whatever it named, so
   // assert the resolutions rather than trusting the catalog entry alone.
-  const { importerVersions } = loadActualState();
+  const { importerVersions, lockfileCatalog } = loadActualState();
+  assert.ok(
+    lockfileCatalog?.version,
+    `pnpm-lock.yaml has no resolved catalog version for ${CATALOG_PACKAGE}; run pnpm install`
+  );
   assert.ok(
     importerVersions.length > 0,
     'expected at least one workspace package to declare @types/node; if that is genuinely no longer true, this contract needs rewriting around the new layout'
   );
   assert.deepEqual([...new Set(importerVersions.map((entry) => entry.version))].sort(), [
-    loadActualState().lockfileCatalog.version,
+    lockfileCatalog.version,
   ]);
 });
 
