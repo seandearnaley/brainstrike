@@ -341,11 +341,31 @@ test('the real repo configures a minimumReleaseAge floor, and it clears the expi
   // relaxed or removed. Equality would also fail when someone STRENGTHENS the
   // policy, and the failure message would tell them to undo a change that makes
   // the repo safer. Removal fails too — readMinimumReleaseAgeFloorDays returns
-  // null, and `null >= 3` is false.
+  // null, and `null >= MINIMUM_POLICY_FLOOR_DAYS` is false.
+  //
+  // RE-DECIDED 2026-08-15 (BST-1302): 3 -> 1 day. This tripwire did its job —
+  // it caught the change and forced the decision to be made here, in the open,
+  // rather than in a one-character yaml edit. The reasoning, recorded so the
+  // next person can weigh it rather than inherit it:
+  //
+  //   The 2026-08 dependency sweep hit the 3-day floor on 25 of 94 outdated
+  //   packages at once (mastra, the PGlite triple, all three AI SDK providers,
+  //   stryker, pragmatic-dnd, swc, turbo). None could land in that pass, and
+  //   each would otherwise need its own pinned exclusion plus ledger record —
+  //   so the floor's practical effect was to push toward blanket exclusions,
+  //   which are strictly worse than a shorter floor. 1 day still refuses the
+  //   same-day malicious publish, which is where most compromised-maintainer
+  //   and typosquat publishes are caught and unpublished; what it gives up is
+  //   the tail of that detection window.
+  //
+  // This is a real loosening of a security control, not a tuning tweak. If the
+  // upgrade cadence stops justifying it, raise it back — that is a one-line
+  // change and this test will not object to it.
+  const MINIMUM_POLICY_FLOOR_DAYS = 1;
   const floorDays = readMinimumReleaseAgeFloorDays(repoRoot);
   assert.ok(
-    floorDays >= 3,
-    `pnpm-workspace.yaml must keep a minimumReleaseAge floor of at least 3 days (read ${floorDays}). Raising it ` +
+    floorDays >= MINIMUM_POLICY_FLOOR_DAYS,
+    `pnpm-workspace.yaml must keep a minimumReleaseAge floor of at least ${MINIMUM_POLICY_FLOOR_DAYS} day(s) (read ${floorDays}). Raising it ` +
       'is fine; lowering or removing it is a supply-chain relaxation that has to be re-decided here.'
   );
   // The window is DERIVED from the floor, so the inversion this used to assert
