@@ -4,7 +4,7 @@ import {
   LogLevel,
 } from '@brainstrike/logging';
 import type { IpcMainInvokeEvent } from 'electron';
-import { ipcMain, webContents } from 'electron';
+import { ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   cloneLoggingPreferences,
@@ -13,7 +13,10 @@ import {
   registerLoggingIpcHandlers,
 } from '../../logging-ipc';
 import type { LoggingSettingsPayload } from '../../logging-shared';
-import { resetElectronMainTestHarness } from '../helpers/electron-main-test-harness';
+import {
+  resetElectronMainTestHarness,
+  setMockWebContents,
+} from '../helpers/electron-main-test-harness';
 
 function createDeferred<T>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => {};
@@ -126,11 +129,7 @@ describe('logging-ipc', () => {
       send: vi.fn(),
     };
 
-    vi.mocked(webContents.getAllWebContents).mockReturnValue([
-      windowContents,
-      webviewContents,
-      backgroundContents,
-    ] as unknown as Electron.WebContents[]);
+    setMockWebContents([windowContents, webviewContents, backgroundContents]);
 
     registerLoggingIpcHandlers(handlers as unknown as LoggingIpcHandlers);
 
@@ -181,10 +180,7 @@ describe('logging-ipc', () => {
       send: vi.fn(),
     };
 
-    vi.mocked(webContents.getAllWebContents).mockReturnValue([
-      destroyedContents,
-      liveContents,
-    ] as unknown as Electron.WebContents[]);
+    setMockWebContents([destroyedContents, liveContents]);
 
     registerLoggingIpcHandlers(handlers as unknown as LoggingIpcHandlers);
 
@@ -230,10 +226,7 @@ describe('logging-ipc', () => {
       send: vi.fn(),
     };
 
-    vi.mocked(webContents.getAllWebContents).mockReturnValue([
-      workerContents,
-      liveContents,
-    ] as unknown as Electron.WebContents[]);
+    setMockWebContents([workerContents, liveContents]);
 
     registerLoggingIpcHandlers(handlers as unknown as LoggingIpcHandlers);
 

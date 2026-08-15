@@ -3,9 +3,9 @@ import type { ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { SupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { vi } from 'vitest';
 
-// Mock Electron module for tests that transitively import main-process modules.
-// The shared harness owns the complete default surface plus observable IPC
-// registration and WebContents state for tests that need those assertions.
+// Mock Electron for tests that transitively import main-process modules. The
+// harness layers observable IPC and WebContents controls over the inert default
+// surface in electron-test-stub.mts, so that stub remains the surface authority.
 vi.mock(
   'electron',
   async () => (await import('./helpers/electron-main-test-harness')).electronMainMock
