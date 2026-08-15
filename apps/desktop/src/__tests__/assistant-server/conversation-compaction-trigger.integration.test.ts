@@ -328,47 +328,50 @@ describe('pre-request conversation compaction trigger', () => {
       },
       'conversation_compaction_baseline_corrupt',
     ],
-  ] as const)('warns distinctly when the baseline lookup %s', async (_label, resolveBaseline, code) => {
-    const records: LogRecord[] = [];
-    const removeLogListener = addLogListener((record) => records.push(record));
-    const deps = dependencies({
-      estimateVisibleTokens: vi.fn(() => 89),
-      resolvePromptBaselineTokens: vi.fn(resolveBaseline),
-    });
+  ] as const)(
+    'warns distinctly when the baseline lookup %s',
+    async (_label, resolveBaseline, code) => {
+      const records: LogRecord[] = [];
+      const removeLogListener = addLogListener((record) => records.push(record));
+      const deps = dependencies({
+        estimateVisibleTokens: vi.fn(() => 89),
+        resolvePromptBaselineTokens: vi.fn(resolveBaseline),
+      });
 
-    try {
-      await expect(
-        runPreRequestCompaction(
-          {
-            memoryStore: fakeStore() as never,
-            requestMessages: [],
-            runId: 'run-baseline-failure',
-            runtimeData: {
-              memory: { resourceId: 'resource-1', threadId: 'thread-1' },
-              model: 'gpt-5.2',
-              provider: 'openai',
+      try {
+        await expect(
+          runPreRequestCompaction(
+            {
+              memoryStore: fakeStore() as never,
+              requestMessages: [],
+              runId: 'run-baseline-failure',
+              runtimeData: {
+                memory: { resourceId: 'resource-1', threadId: 'thread-1' },
+                model: 'gpt-5.2',
+                provider: 'openai',
+              },
+              signal: new AbortController().signal,
             },
-            signal: new AbortController().signal,
-          },
-          { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
-        )
-      ).resolves.toEqual({ kind: 'noop' });
-    } finally {
-      removeLogListener();
-    }
+            { ...deps, resolveInputBudget: vi.fn(() => 100) } as never
+          )
+        ).resolves.toEqual({ kind: 'noop' });
+      } finally {
+        removeLogListener();
+      }
 
-    // Behavior is unchanged (fall back to baseline 0) — only visibility
-    // changed, from debug to warn under a distinct code.
-    expect(deps.runRecencyPrune).not.toHaveBeenCalled();
-    const matches = records.filter((record) =>
-      record.args.some(
-        (arg) =>
-          Boolean(arg && typeof arg === 'object') && (arg as { code?: unknown }).code === code
-      )
-    );
-    expect(matches).toHaveLength(1);
-    expect(matches[0]?.level).toBe(LogLevel.WARN);
-  });
+      // Behavior is unchanged (fall back to baseline 0) — only visibility
+      // changed, from debug to warn under a distinct code.
+      expect(deps.runRecencyPrune).not.toHaveBeenCalled();
+      const matches = records.filter((record) =>
+        record.args.some(
+          (arg) =>
+            Boolean(arg && typeof arg === 'object') && (arg as { code?: unknown }).code === code
+        )
+      );
+      expect(matches).toHaveLength(1);
+      expect(matches[0]?.level).toBe(LogLevel.WARN);
+    }
+  );
 
   it('still runs recency pruning and the deterministic path, but skips only the agentic summarizer, when the baseline alone exceeds target', async () => {
     const records: LogRecord[] = [];

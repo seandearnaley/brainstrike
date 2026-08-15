@@ -339,45 +339,44 @@ describe('RendererHostLifecycle', () => {
     );
   });
 
-  it.each([
-    'chunking-host',
-    'embedding-host',
-    'llm-host',
-  ] as const)('pins the %s window to the narrow hidden-host preload manifest', async (role) => {
-    const hostWindow = createFakeWindow(411);
-    hostWindow.loadURL.mockResolvedValue(undefined);
-    MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
-      Object.assign(this, hostWindow);
-    });
-    Object.assign(BrowserWindow, {
-      getAllWindows: vi.fn(() => [hostWindow]),
-    });
-    const lifecycle = new RendererHostLifecycle({
-      createStatus,
-      createStoppedStatus: () =>
-        createStatus({
-          active: false,
-          lastError: null,
-          runtimeId: `${role}:stopped`,
-          state: 'stopped',
-        }),
-      mode: role,
-      role,
-      statusEventName: `${role}:status`,
-      timeoutMessage: 'timeout',
-    });
+  it.each(['chunking-host', 'embedding-host', 'llm-host'] as const)(
+    'pins the %s window to the narrow hidden-host preload manifest',
+    async (role) => {
+      const hostWindow = createFakeWindow(411);
+      hostWindow.loadURL.mockResolvedValue(undefined);
+      MockBrowserWindow.mockImplementation(function (this: FakeWindow) {
+        Object.assign(this, hostWindow);
+      });
+      Object.assign(BrowserWindow, {
+        getAllWindows: vi.fn(() => [hostWindow]),
+      });
+      const lifecycle = new RendererHostLifecycle({
+        createStatus,
+        createStoppedStatus: () =>
+          createStatus({
+            active: false,
+            lastError: null,
+            runtimeId: `${role}:stopped`,
+            state: 'stopped',
+          }),
+        mode: role,
+        role,
+        statusEventName: `${role}:status`,
+        timeoutMessage: 'timeout',
+      });
 
-    await lifecycle.ensureStarted({ waitForRunning: false });
+      await lifecycle.ensureStarted({ waitForRunning: false });
 
-    expect(BrowserWindow).toHaveBeenCalledWith(
-      expect.objectContaining({
-        webPreferences: expect.objectContaining({
-          additionalArguments: [`--brainstrike-hidden-renderer-role=${role}`],
-          preload: path.join('/tmp/brainstrike/dist/hidden-preload.js'),
-        }),
-      })
-    );
-  });
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          webPreferences: expect.objectContaining({
+            additionalArguments: [`--brainstrike-hidden-renderer-role=${role}`],
+            preload: path.join('/tmp/brainstrike/dist/hidden-preload.js'),
+          }),
+        })
+      );
+    }
+  );
 
   it('encodes dev host query parameters before loading the renderer url', async () => {
     const hostWindow = createFakeWindow(42);

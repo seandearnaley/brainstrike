@@ -685,13 +685,13 @@ describe('resolveShellInvocation — per-platform shell selection', () => {
 
   afterEach(() => {
     if (originalShell === undefined) {
-      // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+      // must truly unset env var, not assign "undefined"
       delete process.env['SHELL'];
     } else {
       process.env['SHELL'] = originalShell;
     }
     if (originalComSpec === undefined) {
-      // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+      // must truly unset env var, not assign "undefined"
       delete process.env['ComSpec'];
     } else {
       process.env['ComSpec'] = originalComSpec;
@@ -699,7 +699,7 @@ describe('resolveShellInvocation — per-platform shell selection', () => {
   });
 
   it('uses cmd.exe with /d /s /c on win32 (NOT /bin/sh — the ENOENT bug)', () => {
-    // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+    // must truly unset env var, not assign "undefined"
     delete process.env['SHELL']; // SHELL is normally unset on Windows.
     process.env['ComSpec'] = 'C:\\Windows\\System32\\cmd.exe';
     const { shell, args } = resolveShellInvocation('echo hi', 'win32');
@@ -709,7 +709,7 @@ describe('resolveShellInvocation — per-platform shell selection', () => {
   });
 
   it('falls back to cmd.exe on win32 when ComSpec is unset', () => {
-    // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+    // must truly unset env var, not assign "undefined"
     delete process.env['ComSpec'];
     const { shell, args } = resolveShellInvocation('echo hi', 'win32');
     expect(shell).toBe('cmd.exe');
@@ -726,7 +726,7 @@ describe('resolveShellInvocation — per-platform shell selection', () => {
   });
 
   it('falls back to /bin/sh on POSIX when SHELL is unset', () => {
-    // biome-ignore lint/performance/noDelete: must truly unset env var, not assign "undefined"
+    // must truly unset env var, not assign "undefined"
     delete process.env['SHELL'];
     const { shell, args } = resolveShellInvocation('echo hi', 'linux');
     expect(shell).toBe('/bin/sh');

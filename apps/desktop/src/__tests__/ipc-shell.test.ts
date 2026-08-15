@@ -71,37 +71,27 @@ describe('shell IPC handlers', () => {
     expect(statPath).not.toHaveBeenCalled();
   });
 
-  it.each([
-    '',
-    '   ',
-    'relative/path.ts',
-    42,
-    null,
-    undefined,
-    { path: '/x' },
-  ])('rejects invalid showItemInFolder payload %p without touching shell', async (payload) => {
-    const shell = makeShell();
-    const handlers = makeHandlers(shell);
-    const result = await handlers.showItemInFolder(payload);
-    expect(result.ok).toBe(false);
-    expect(shell.showItemInFolder).not.toHaveBeenCalled();
-  });
+  it.each(['', '   ', 'relative/path.ts', 42, null, undefined, { path: '/x' }])(
+    'rejects invalid showItemInFolder payload %p without touching shell',
+    async (payload) => {
+      const shell = makeShell();
+      const handlers = makeHandlers(shell);
+      const result = await handlers.showItemInFolder(payload);
+      expect(result.ok).toBe(false);
+      expect(shell.showItemInFolder).not.toHaveBeenCalled();
+    }
+  );
 
-  it.each([
-    '',
-    '   ',
-    'relative/path.ts',
-    42,
-    null,
-    undefined,
-    { path: '/x' },
-  ])('rejects invalid openPath payload %p without touching shell', async (payload) => {
-    const shell = makeShell();
-    const handlers = makeHandlers(shell);
-    const result = await handlers.openPath(payload);
-    expect(result.ok).toBe(false);
-    expect(shell.openPath).not.toHaveBeenCalled();
-  });
+  it.each(['', '   ', 'relative/path.ts', 42, null, undefined, { path: '/x' }])(
+    'rejects invalid openPath payload %p without touching shell',
+    async (payload) => {
+      const shell = makeShell();
+      const handlers = makeHandlers(shell);
+      const result = await handlers.openPath(payload);
+      expect(result.ok).toBe(false);
+      expect(shell.openPath).not.toHaveBeenCalled();
+    }
+  );
 
   it('propagates shell.openPath error strings as failures', async () => {
     const shell = makeShell();

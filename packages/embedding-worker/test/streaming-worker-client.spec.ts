@@ -760,15 +760,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
     expect(onBatch).toHaveBeenCalledTimes(1);
     expect(
       worker.postMessage.mock.calls.filter(([message]) => message?.type === 'stream-ack')
-    ).toEqual([
-      [
-        {
-          batchIndex: 0,
-          id: 'embed-1',
-          type: 'stream-ack',
-        },
-      ],
-    ]);
+    ).toEqual([[{ batchIndex: 0, id: 'embed-1', type: 'stream-ack' }]]);
     await expect(streamOutcome).resolves.toMatchObject({
       message: 'Embedding worker batch vector dimensions changed from 3 to 2.',
     });
@@ -791,59 +783,54 @@ describe('StreamingEmbeddingWorkerClient', () => {
       { batchIndex: 1, endIndex: 3, startIndex: 1 },
       'endIndex 3 exceeds request text count 2',
     ],
-  ])('terminally rejects an internally consistent batch with a %s', async (_condition, override, expectedMessage) => {
-    const worker = new MockWorker();
-    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
-    const onBatch = vi.fn();
-    const request = { ...createRequest(), texts: ['hello', 'world'] };
-    const streamPromise = client.stream(request, { onBatch });
-    await flushMicrotasks();
+  ])(
+    'terminally rejects an internally consistent batch with a %s',
+    async (_condition, override, expectedMessage) => {
+      const worker = new MockWorker();
+      const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+      const onBatch = vi.fn();
+      const request = { ...createRequest(), texts: ['hello', 'world'] };
+      const streamPromise = client.stream(request, { onBatch });
+      await flushMicrotasks();
 
-    worker.emitMessage({
-      batchIndex: 0,
-      endIndex: 1,
-      id: 'embed-1',
-      peakVectorsInFlight: 1,
-      startIndex: 0,
-      transferBytes: 12,
-      type: 'batch',
-      vectors: [new Float32Array([1, 2, 3])],
-      vectorsInFlight: 1,
-    } satisfies EmbedWorkerBatch);
-    await flushMicrotasks();
+      worker.emitMessage({
+        batchIndex: 0,
+        endIndex: 1,
+        id: 'embed-1',
+        peakVectorsInFlight: 1,
+        startIndex: 0,
+        transferBytes: 12,
+        type: 'batch',
+        vectors: [new Float32Array([1, 2, 3])],
+        vectorsInFlight: 1,
+      } satisfies EmbedWorkerBatch);
+      await flushMicrotasks();
 
-    const vectorCount = override.endIndex - override.startIndex;
-    worker.emitMessage({
-      batchIndex: override.batchIndex,
-      endIndex: override.endIndex,
-      id: 'embed-1',
-      peakVectorsInFlight: vectorCount,
-      startIndex: override.startIndex,
-      transferBytes: vectorCount * 12,
-      type: 'batch',
-      vectors: Array.from({ length: vectorCount }, () => new Float32Array([4, 5, 6])),
-      vectorsInFlight: vectorCount,
-    } satisfies EmbedWorkerBatch);
+      const vectorCount = override.endIndex - override.startIndex;
+      worker.emitMessage({
+        batchIndex: override.batchIndex,
+        endIndex: override.endIndex,
+        id: 'embed-1',
+        peakVectorsInFlight: vectorCount,
+        startIndex: override.startIndex,
+        transferBytes: vectorCount * 12,
+        type: 'batch',
+        vectors: Array.from({ length: vectorCount }, () => new Float32Array([4, 5, 6])),
+        vectorsInFlight: vectorCount,
+      } satisfies EmbedWorkerBatch);
 
-    await expect(streamPromise).rejects.toThrow(expectedMessage);
-    expect(onBatch).toHaveBeenCalledTimes(1);
-    expect(
-      worker.postMessage.mock.calls.filter(([message]) => message?.type === 'stream-ack')
-    ).toEqual([
-      [
-        {
-          batchIndex: 0,
-          id: 'embed-1',
-          type: 'stream-ack',
-        },
-      ],
-    ]);
-    expect(worker.terminate).toHaveBeenCalledTimes(1);
-    expect(getEmbeddingTelemetrySnapshot()).toMatchObject({
-      batchTransfer: { batchCount: 0, totalBytes: 0 },
-      peakVectorsInFlight: 0,
-    });
-  });
+      await expect(streamPromise).rejects.toThrow(expectedMessage);
+      expect(onBatch).toHaveBeenCalledTimes(1);
+      expect(
+        worker.postMessage.mock.calls.filter(([message]) => message?.type === 'stream-ack')
+      ).toEqual([[{ batchIndex: 0, id: 'embed-1', type: 'stream-ack' }]]);
+      expect(worker.terminate).toHaveBeenCalledTimes(1);
+      expect(getEmbeddingTelemetrySnapshot()).toMatchObject({
+        batchTransfer: { batchCount: 0, totalBytes: 0 },
+        peakVectorsInFlight: 0,
+      });
+    }
+  );
 
   it('terminally rejects completion before every requested text has a vector', async () => {
     const worker = new MockWorker();

@@ -206,40 +206,39 @@ describe('clearPersistentUiState IndexedDB handling', () => {
       expectedMessage: 'blocked',
       failure: null,
     },
-  ])('reports an incomplete reset when IndexedDB deletion emits $event', async ({
-    event,
-    expectedMessage,
-    failure,
-  }) => {
-    deleteDatabaseMock.mockImplementationOnce(() => {
-      const request: FakeRequest = {
-        error: failure,
-        onblocked: null,
-        onerror: null,
-        onsuccess: null,
-      };
-      queueMicrotask(() => {
-        if (event === 'error') {
-          request.onerror?.(new Event('error'));
-        } else {
-          request.onblocked?.(new Event('blocked'));
-        }
+  ])(
+    'reports an incomplete reset when IndexedDB deletion emits $event',
+    async ({ event, expectedMessage, failure }) => {
+      deleteDatabaseMock.mockImplementationOnce(() => {
+        const request: FakeRequest = {
+          error: failure,
+          onblocked: null,
+          onerror: null,
+          onsuccess: null,
+        };
+        queueMicrotask(() => {
+          if (event === 'error') {
+            request.onerror?.(new Event('error'));
+          } else {
+            request.onblocked?.(new Event('blocked'));
+          }
+        });
+        return request as unknown as IDBOpenDBRequest;
       });
-      return request as unknown as IDBOpenDBRequest;
-    });
 
-    const result = await clearPersistentUiStateWithResult();
+      const result = await clearPersistentUiStateWithResult();
 
-    expect(result.success).toBe(false);
-    expect(result.failures).toEqual([
-      expect.objectContaining({
-        name: FALLBACK_INDEXED_DB_NAMES[0],
-        operation: 'delete',
-        target: 'indexed-db',
-      }),
-    ]);
-    expect(String(result.failures[0]?.error)).toContain(expectedMessage);
-  });
+      expect(result.success).toBe(false);
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          name: FALLBACK_INDEXED_DB_NAMES[0],
+          operation: 'delete',
+          target: 'indexed-db',
+        }),
+      ]);
+      expect(String(result.failures[0]?.error)).toContain(expectedMessage);
+    }
+  );
 
   it('reports an incomplete reset when IndexedDB deletion throws synchronously', async () => {
     const deletionFailure = new Error('IndexedDB bridge crashed');

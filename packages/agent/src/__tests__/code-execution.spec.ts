@@ -63,18 +63,12 @@ describe('parseExecutorKind', () => {
     expect(parseExecutorKind('vm')).toBe('vm');
   });
 
-  it.each([
-    'docker',
-    '',
-    'FENCE',
-    0,
-    null,
-    undefined,
-    {},
-    Symbol('fence'),
-  ])('throws the contracted error on unsupported value %j', (value) => {
-    expect(() => parseExecutorKind(value)).toThrowError(/not a supported code-execution mode/);
-  });
+  it.each(['docker', '', 'FENCE', 0, null, undefined, {}, Symbol('fence')])(
+    'throws the contracted error on unsupported value %j',
+    (value) => {
+      expect(() => parseExecutorKind(value)).toThrowError(/not a supported code-execution mode/);
+    }
+  );
 
   it('throws the contracted error for a BigInt rather than a serialization TypeError', () => {
     expect(() => parseExecutorKind(1n)).toThrowError(/not a supported code-execution mode/);
@@ -141,21 +135,17 @@ describe('execPolicySchema', () => {
     ).toThrowError();
   });
 
-  it.each([
-    'not a domain!',
-    'http://example.com',
-    '*.*',
-    'exa mple.com',
-    '*.com',
-    '*.io',
-  ])('rejects malformed or over-broad domain %j', (domain) => {
-    expect(() =>
-      execPolicySchema.parse({
-        allowedDomains: [domain],
-        allowWrite: ['/tmp/scratch'],
-      })
-    ).toThrowError();
-  });
+  it.each(['not a domain!', 'http://example.com', '*.*', 'exa mple.com', '*.com', '*.io'])(
+    'rejects malformed or over-broad domain %j',
+    (domain) => {
+      expect(() =>
+        execPolicySchema.parse({
+          allowedDomains: [domain],
+          allowWrite: ['/tmp/scratch'],
+        })
+      ).toThrowError();
+    }
+  );
 
   it('rejects an over-long entry list', () => {
     expect(() =>
@@ -172,18 +162,14 @@ describe('execInputSchema', () => {
     expect(() => execInputSchema.parse(validInput())).not.toThrow();
   });
 
-  it.each([
-    0,
-    -1,
-    1.5,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-    MAX_EXEC_TIMEOUT_MS + 1,
-  ])('rejects timeoutMs %j', (timeoutMs) => {
-    expect(() =>
-      execInputSchema.parse(validInput({ timeoutMs } as Partial<ExecInput>))
-    ).toThrowError();
-  });
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, MAX_EXEC_TIMEOUT_MS + 1])(
+    'rejects timeoutMs %j',
+    (timeoutMs) => {
+      expect(() =>
+        execInputSchema.parse(validInput({ timeoutMs } as Partial<ExecInput>))
+      ).toThrowError();
+    }
+  );
 
   it.each([0, -1, Number.NaN])('rejects maxOutputBytes %j', (maxOutputBytes) => {
     expect(() =>

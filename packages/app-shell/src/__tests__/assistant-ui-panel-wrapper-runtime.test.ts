@@ -235,43 +235,43 @@ describe('assistant runtime helpers', () => {
     ).toBeUndefined();
   });
 
-  it.each([
-    'idle',
-    'loading',
-  ] as const)('keeps assistant memory disabled while restored thread metadata is %s', (status) => {
-    expect(
-      resolveAssistantMemoryDisabledReason({
-        ...baseMemoryReasonArgs,
-        memoryLoadState: { status },
-      })
-    ).toBe('Assistant memory is loading from PGlite.');
-  });
+  it.each(['idle', 'loading'] as const)(
+    'keeps assistant memory disabled while restored thread metadata is %s',
+    (status) => {
+      expect(
+        resolveAssistantMemoryDisabledReason({
+          ...baseMemoryReasonArgs,
+          memoryLoadState: { status },
+        })
+      ).toBe('Assistant memory is loading from PGlite.');
+    }
+  );
 
-  it.each([
-    'idle',
-    'loading',
-  ] as const)('keeps zero-root restored threads disabled while thread metadata is %s', (status) => {
-    expect(
-      resolveAssistantMemoryDisabledReason({
-        ...baseMemoryReasonArgs,
-        memoryLoadState: { status },
-        workspaceRootPath: null,
-      })
-    ).toBe('Assistant memory is loading from PGlite.');
-  });
+  it.each(['idle', 'loading'] as const)(
+    'keeps zero-root restored threads disabled while thread metadata is %s',
+    (status) => {
+      expect(
+        resolveAssistantMemoryDisabledReason({
+          ...baseMemoryReasonArgs,
+          memoryLoadState: { status },
+          workspaceRootPath: null,
+        })
+      ).toBe('Assistant memory is loading from PGlite.');
+    }
+  );
 
-  it.each([
-    'idle',
-    'loading',
-  ] as const)('surfaces database failures while thread metadata is %s', (status) => {
-    expect(
-      resolveAssistantMemoryDisabledReason({
-        ...baseMemoryReasonArgs,
-        dbError: new Error('open failed'),
-        memoryLoadState: { status },
-      })
-    ).toBe('Assistant memory database failed to initialize: open failed');
-  });
+  it.each(['idle', 'loading'] as const)(
+    'surfaces database failures while thread metadata is %s',
+    (status) => {
+      expect(
+        resolveAssistantMemoryDisabledReason({
+          ...baseMemoryReasonArgs,
+          dbError: new Error('open failed'),
+          memoryLoadState: { status },
+        })
+      ).toBe('Assistant memory database failed to initialize: open failed');
+    }
+  );
 
   it('blocks unsupported semantic recall embedding providers', () => {
     expect(

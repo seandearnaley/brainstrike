@@ -93,36 +93,39 @@ describe('desktop IPC registry', () => {
   it.each([
     ['a hidden sender', 8102, 'embedding-host'],
     ['an untracked sender', 8103, null],
-  ] as const)('rejects %s before invoking an authorized handler', async (_label, senderId, role) => {
-    const ipcMain = createMockIpcMain();
-    const registry = createDesktopIpcRegistry({
-      ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
-    });
-    if (role) {
-      assignWindowRole(
-        {
-          isDestroyed: () => false,
-          once: vi.fn(),
-          webContents: { id: senderId },
-        } as never,
-        role
+  ] as const)(
+    'rejects %s before invoking an authorized handler',
+    async (_label, senderId, role) => {
+      const ipcMain = createMockIpcMain();
+      const registry = createDesktopIpcRegistry({
+        ipcMain: ipcMain as unknown as Parameters<typeof createDesktopIpcRegistry>[0]['ipcMain'],
+      });
+      if (role) {
+        assignWindowRole(
+          {
+            isDestroyed: () => false,
+            once: vi.fn(),
+            webContents: { id: senderId },
+          } as never,
+          role
+        );
+      }
+      const handler = vi.fn();
+      registry.registerAuthorizedInvoke(
+        'agent',
+        'assistant:get-auth',
+        { roles: ['visible-ui'] },
+        handler
       );
-    }
-    const handler = vi.fn();
-    registry.registerAuthorizedInvoke(
-      'agent',
-      'assistant:get-auth',
-      { roles: ['visible-ui'] },
-      handler
-    );
-    const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
+      const registeredHandler = ipcMain.handle.mock.calls[0]?.[1];
 
-    await expect(registeredHandler?.({ sender: { id: senderId } })).rejects.toThrow(
-      'Desktop IPC assistant:get-auth requires sender role visible-ui.'
-    );
-    expect(handler).not.toHaveBeenCalled();
-    clearWindowRoleByWebContentsId(senderId);
-  });
+      await expect(registeredHandler?.({ sender: { id: senderId } })).rejects.toThrow(
+        'Desktop IPC assistant:get-auth requires sender role visible-ui.'
+      );
+      expect(handler).not.toHaveBeenCalled();
+      clearWindowRoleByWebContentsId(senderId);
+    }
+  );
 
   it('rejects empty and duplicate sender-role policies at registration', () => {
     const ipcMain = createMockIpcMain();

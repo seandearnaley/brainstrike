@@ -58,17 +58,14 @@ describe('resolveOpenRouterCodingMaxOutputTokens', () => {
     expect(resolveOpenRouterCodingMaxOutputTokens(128_000)).toBe(32_000);
   });
 
-  it.each([
-    0,
-    -1,
-    1.5,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-  ])('rejects malformed model completion limit %s', (limit) => {
-    expect(() => resolveOpenRouterCodingMaxOutputTokens(limit)).toThrow(
-      /modelMaxOutputTokens must be a positive integer/
-    );
-  });
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects malformed model completion limit %s',
+    (limit) => {
+      expect(() => resolveOpenRouterCodingMaxOutputTokens(limit)).toThrow(
+        /modelMaxOutputTokens must be a positive integer/
+      );
+    }
+  );
 });
 
 describe('resolveOpenRouterAutoRuntimeProfile', () => {
@@ -400,23 +397,20 @@ describe('reasoning-aware OpenRouter output window (BST-1170)', () => {
     ).toBe(65_536);
   });
 
-  it.each([
-    0,
-    -1,
-    1.5,
-    Number.NaN,
-    Number.POSITIVE_INFINITY,
-  ])('rejects a malformed recorded vendor window %s at its source', (vendorDefaultOutputTokens) => {
-    expect(() =>
-      resolveOpenRouterOutputWindow(
-        {
-          id: 'bad/entry',
-          reasoning: { defaultEnabled: true, mandatory: false, vendorDefaultOutputTokens },
-        },
-        true
-      )
-    ).toThrow(/vendorDefaultOutputTokens must be a positive integer/);
-  });
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects a malformed recorded vendor window %s at its source',
+    (vendorDefaultOutputTokens) => {
+      expect(() =>
+        resolveOpenRouterOutputWindow(
+          {
+            id: 'bad/entry',
+            reasoning: { defaultEnabled: true, mandatory: false, vendorDefaultOutputTokens },
+          },
+          true
+        )
+      ).toThrow(/vendorDefaultOutputTokens must be a positive integer/);
+    }
+  );
 });
 
 describe('resolveOpenRouterReasoningActive', () => {

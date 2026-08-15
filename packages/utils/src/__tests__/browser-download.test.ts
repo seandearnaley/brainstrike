@@ -165,13 +165,16 @@ describe('downloadBlobFile (desktop bridge route)', () => {
   it.each([
     ['an empty object', {}],
     ['null (present-but-broken, not absent)', null],
-  ])('throws on a present-but-malformed bridge (%s) instead of degrading to the anchor route', async (_label, bridge) => {
-    stubWindowWithBridge(bridge);
+  ])(
+    'throws on a present-but-malformed bridge (%s) instead of degrading to the anchor route',
+    async (_label, bridge) => {
+      stubWindowWithBridge(bridge);
 
-    await expect(downloadBlobFile({ blob: new Blob(['x']), filename: 'x.md' })).rejects.toThrow(
-      'window.fileExports bridge is malformed'
-    );
-  });
+      await expect(downloadBlobFile({ blob: new Blob(['x']), filename: 'x.md' })).rejects.toThrow(
+        'window.fileExports bridge is malformed'
+      );
+    }
+  );
 
   it('still refuses to run without a document when neither bridge nor DOM exists', async () => {
     await expect(downloadBlobFile({ blob: new Blob(['x']), filename: 'x.md' })).rejects.toThrow(

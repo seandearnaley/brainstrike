@@ -52,14 +52,12 @@ describe('asMastraStreamPart', () => {
     expect(asMastraStreamPart(part)).toBe(part);
   });
 
-  it.each([
-    [null],
-    [undefined],
-    ['text-delta'],
-    [42],
-  ])('maps the non-object %p to an unknown-typed part', (value) => {
-    expect(asMastraStreamPart(value)).toEqual({ type: 'unknown' });
-  });
+  it.each([[null], [undefined], ['text-delta'], [42]])(
+    'maps the non-object %p to an unknown-typed part',
+    (value) => {
+      expect(asMastraStreamPart(value)).toEqual({ type: 'unknown' });
+    }
+  );
 });
 
 describe('readFinishReason', () => {
@@ -570,13 +568,14 @@ describe('purity', () => {
     ],
   ];
 
-  it.each(
-    cases
-  )('%s is referentially transparent and never mutates a frozen argument', (_name, run) => {
-    // A deep-frozen argument makes any in-place write throw in ESM strict
-    // mode, and two identical results rule out a clock/uuid/counter.
-    expect(run()).toEqual(run());
-  });
+  it.each(cases)(
+    '%s is referentially transparent and never mutates a frozen argument',
+    (_name, run) => {
+      // A deep-frozen argument makes any in-place write throw in ESM strict
+      // mode, and two identical results rule out a clock/uuid/counter.
+      expect(run()).toEqual(run());
+    }
+  );
 });
 
 describe('purity is structural, not just observed', () => {

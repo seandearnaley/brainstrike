@@ -237,15 +237,14 @@ describe('buildSandboxRuntimeConfig', () => {
   // kept in `assertPolicyPathShape` deliberately: this module hands paths to a
   // security boundary and should assert its own preconditions rather than
   // assume an upstream validator ran.
-  it.each([
-    'allowWrite',
-    'allowRead',
-    'denyRead',
-  ] as const)('rejects a relative %s entry rather than letting srt resolve it against this process cwd', async (field) => {
-    await expect(
-      build({ allowedDomains: [], allowWrite: [], [field]: ['../out'] })
-    ).rejects.toThrow();
-  });
+  it.each(['allowWrite', 'allowRead', 'denyRead'] as const)(
+    'rejects a relative %s entry rather than letting srt resolve it against this process cwd',
+    async (field) => {
+      await expect(
+        build({ allowedDomains: [], allowWrite: [], [field]: ['../out'] })
+      ).rejects.toThrow();
+    }
+  );
 
   it('rejects a .. segment so the written policy and the effective policy agree', async () => {
     await expect(

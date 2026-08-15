@@ -398,19 +398,19 @@ function expectSessionDeletedLast(requests: readonly RecordedRequest[], pathname
 }
 
 describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
-  it.each([
-    'file:///tmp/mcp.sock',
-    'ftp://example.test/mcp',
-  ])('rejects the non-HTTP remote URL %s', (url) => {
-    expect(
-      () =>
-        new ExplicitHttpMcpClient({
-          name: 'invalid-url-canary',
-          transport: 'streamable-http',
-          url,
-        })
-    ).toThrow('MCP HTTP URL must use http: or https:');
-  });
+  it.each(['file:///tmp/mcp.sock', 'ftp://example.test/mcp'])(
+    'rejects the non-HTTP remote URL %s',
+    (url) => {
+      expect(
+        () =>
+          new ExplicitHttpMcpClient({
+            name: 'invalid-url-canary',
+            transport: 'streamable-http',
+            url,
+          })
+      ).toThrow('MCP HTTP URL must use http: or https:');
+    }
+  );
 
   it('rejects embedded URL credentials before making a request', () => {
     expect(
@@ -423,29 +423,26 @@ describe('ExplicitHttpMcpClient integration', { timeout: 30_000 }, () => {
     ).toThrow('MCP HTTP URL must not include credentials');
   });
 
-  it.each([
-    'Accept',
-    'content-TYPE',
-    'MCP-Session-Id',
-    'mcp-PROTOCOL-version',
-    'Last-Event-ID',
-  ])('rejects the protocol-owned configured header %s before requesting', (header) => {
-    let fetchCalled = false;
-    expect(
-      () =>
-        new ExplicitHttpMcpClient({
-          fetch: async () => {
-            fetchCalled = true;
-            return new Response(null, { status: 500 });
-          },
-          headers: { [header]: 'caller-controlled-value' },
-          name: 'protocol-header-canary',
-          transport: 'streamable-http',
-          url: 'https://example.test/mcp',
-        })
-    ).toThrow(`Configured MCP header "${header}" is protocol-owned`);
-    expect(fetchCalled).toBe(false);
-  });
+  it.each(['Accept', 'content-TYPE', 'MCP-Session-Id', 'mcp-PROTOCOL-version', 'Last-Event-ID'])(
+    'rejects the protocol-owned configured header %s before requesting',
+    (header) => {
+      let fetchCalled = false;
+      expect(
+        () =>
+          new ExplicitHttpMcpClient({
+            fetch: async () => {
+              fetchCalled = true;
+              return new Response(null, { status: 500 });
+            },
+            headers: { [header]: 'caller-controlled-value' },
+            name: 'protocol-header-canary',
+            transport: 'streamable-http',
+            url: 'https://example.test/mcp',
+          })
+      ).toThrow(`Configured MCP header "${header}" is protocol-owned`);
+      expect(fetchCalled).toBe(false);
+    }
+  );
 
   it('uses Streamable HTTP at a misleading /sse path without transport inference', async () => {
     const requests: RecordedRequest[] = [];

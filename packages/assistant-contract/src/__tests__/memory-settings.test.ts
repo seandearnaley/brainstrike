@@ -28,14 +28,17 @@ describe('resolveAutoObservationalMemoryModelTarget (privacy: chat provider only
     ['anthropic', 'anthropic/claude-haiku-4-5'],
     ['openai', 'openai/gpt-5.4-mini'],
     ['openrouter', 'openrouter/google/gemini-2.5-flash'],
-  ])('resolves a keyed %s chat to its own Mastra-tested fast observer', (chatProvider, expected) => {
-    expect(
-      resolveAutoObservationalMemoryModelTarget({
-        chatProvider,
-        providersWithKeys: ['google', 'anthropic', 'openai', 'openrouter'],
-      })
-    ).toBe(expected);
-  });
+  ])(
+    'resolves a keyed %s chat to its own Mastra-tested fast observer',
+    (chatProvider, expected) => {
+      expect(
+        resolveAutoObservationalMemoryModelTarget({
+          chatProvider,
+          providersWithKeys: ['google', 'anthropic', 'openai', 'openrouter'],
+        })
+      ).toBe(expected);
+    }
+  );
 
   it('never selects an observer from a provider other than the chat provider', () => {
     // Anthropic chat + only a Google key: resolving to Google would create new

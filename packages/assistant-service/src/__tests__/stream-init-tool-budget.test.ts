@@ -67,23 +67,22 @@ describe('resolveToolBuildBudget', () => {
     );
   });
 
-  it.each([
-    undefined,
-    '',
-    'not-a-provider',
-  ])('falls back visibly to the anchor for invalid provider %j', (provider) => {
-    logger.warn = vi.fn();
+  it.each([undefined, '', 'not-a-provider'])(
+    'falls back visibly to the anchor for invalid provider %j',
+    (provider) => {
+      logger.warn = vi.fn();
 
-    expect(resolveToolBuildBudget(provider === undefined ? {} : { provider }, logger)).toEqual(
-      resolveScaledToolResultBudget(TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW)
-    );
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Cannot resolve tool-result budget for tool construction; using anchor fallback.',
-      expect.objectContaining({
-        code: 'tool_result_budget_invalid_provider_fallback',
-      })
-    );
-  });
+      expect(resolveToolBuildBudget(provider === undefined ? {} : { provider }, logger)).toEqual(
+        resolveScaledToolResultBudget(TOOL_RESULT_BUDGET_ANCHOR_CONTEXT_WINDOW)
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Cannot resolve tool-result budget for tool construction; using anchor fallback.',
+        expect.objectContaining({
+          code: 'tool_result_budget_invalid_provider_fallback',
+        })
+      );
+    }
+  );
 });
 
 describe('webExtract artifact settlement budget', () => {

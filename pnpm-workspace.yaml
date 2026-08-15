@@ -78,13 +78,13 @@ catalog:
   idb: ^8.0.3
   jsdom: 29.1.1
   jszip: ^3.10.1
-  knip: ^6.24.0
+  knip: ^6.32.2
   lucide-react: ^1.23.0
   mermaid: ^11.16.0
   minimatch: ^10.2.5
   node-addon-api: 8.9.0
   node-gyp: 13.0.1
-  oxc-parser: ^0.138.0
+  oxc-parser: ^0.144.0
   pino: ^10.3.1
   playwright: ^1.61.1
   react-helmet-async: ^2.0.5

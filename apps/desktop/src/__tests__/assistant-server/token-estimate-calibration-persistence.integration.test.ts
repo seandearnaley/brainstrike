@@ -150,21 +150,21 @@ describe('persistDesktopTokenEstimateCalibration against real PGlite', () => {
     }
   });
 
-  it.each([
-    'missing provider usage',
-    'failed measurement',
-  ])('writes zero rows when emission omitted the sample for %s', async () => {
-    const db = await wasmLoader.createPGlite(
-      `memory://token-calibration-omitted-${crypto.randomUUID()}`
-    );
-    try {
-      await seedRun(db, 'run-calibration-omitted', 'thread-calibration-omitted');
-      await drain(db, 'run-calibration-omitted', undefined);
+  it.each(['missing provider usage', 'failed measurement'])(
+    'writes zero rows when emission omitted the sample for %s',
+    async () => {
+      const db = await wasmLoader.createPGlite(
+        `memory://token-calibration-omitted-${crypto.randomUUID()}`
+      );
+      try {
+        await seedRun(db, 'run-calibration-omitted', 'thread-calibration-omitted');
+        await drain(db, 'run-calibration-omitted', undefined);
 
-      const result = await db.query('SELECT id FROM brainstrike_token_estimate_calibration');
-      expect(result.rows).toHaveLength(0);
-    } finally {
-      await db.close();
+        const result = await db.query('SELECT id FROM brainstrike_token_estimate_calibration');
+        expect(result.rows).toHaveLength(0);
+      } finally {
+        await db.close();
+      }
     }
-  });
+  );
 });

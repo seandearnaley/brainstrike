@@ -193,20 +193,19 @@ describe('LocalRuntimeSettingsSection', () => {
         state: 'unavailable' as const,
       },
     },
-  ])('renders the descriptor for $name status returned by the probe', async ({
-    status,
-    expectedLabel,
-    expectedDetail,
-  }) => {
-    vi.mocked(LocalRuntimeDiscoveryService.prototype.probeRuntime).mockResolvedValue(status);
-    render(<LocalRuntimeSettingsSection />);
+  ])(
+    'renders the descriptor for $name status returned by the probe',
+    async ({ status, expectedLabel, expectedDetail }) => {
+      vi.mocked(LocalRuntimeDiscoveryService.prototype.probeRuntime).mockResolvedValue(status);
+      render(<LocalRuntimeSettingsSection />);
 
-    await waitFor(() => {
-      // Both runtimes share the same probe mock, so we expect 2 badges.
-      expect(screen.getAllByText(expectedLabel).length).toBeGreaterThanOrEqual(1);
-    });
-    expect(screen.getAllByText(expectedDetail).length).toBeGreaterThanOrEqual(1);
-  });
+      await waitFor(() => {
+        // Both runtimes share the same probe mock, so we expect 2 badges.
+        expect(screen.getAllByText(expectedLabel).length).toBeGreaterThanOrEqual(1);
+      });
+      expect(screen.getAllByText(expectedDetail).length).toBeGreaterThanOrEqual(1);
+    }
+  );
 
   it('shows the "Force-enabled (not reachable)" label when activation=on and the probe fails', async () => {
     // The 'on' tri-state is documented as "Always offer the provider, even if

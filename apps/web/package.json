@@ -44,7 +44,7 @@
     "@babel/core": "catalog:",
     "@babel/plugin-transform-runtime": "catalog:",
     "@babel/runtime": "catalog:",
-    "@biomejs/biome": "2.5.2",
+    "@biomejs/biome": "2.5.8",
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/e2e-test-utils": "workspace:*",

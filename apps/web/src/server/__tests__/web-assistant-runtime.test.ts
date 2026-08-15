@@ -80,28 +80,27 @@ describe('resolveWebAssistantRuntime (web permission trust boundary)', () => {
     expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
   });
 
-  it.each([
-    '__proto__',
-    'constructor',
-    'prototype',
-  ])('rejects the special per-tool override key %s instead of stripping or inheriting it', (specialKey) => {
-    vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
-    const perToolOverrides = JSON.parse(`{"${specialKey}":"deny"}`) as Record<string, unknown>;
+  it.each(['__proto__', 'constructor', 'prototype'])(
+    'rejects the special per-tool override key %s instead of stripping or inheriting it',
+    (specialKey) => {
+      vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
+      const perToolOverrides = JSON.parse(`{"${specialKey}":"deny"}`) as Record<string, unknown>;
 
-    expect(() =>
-      resolveWebAssistantRuntime(
-        asRuntimeData({
-          permissionPolicyRequest: {
-            enforce: true,
-            perToolOverrides,
-            policies: validPolicies,
-          },
-        }),
-        'key-special'
-      )
-    ).toThrow('Unsupported web assistant runtime field: permissionPolicyRequest');
-    expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
-  });
+      expect(() =>
+        resolveWebAssistantRuntime(
+          asRuntimeData({
+            permissionPolicyRequest: {
+              enforce: true,
+              perToolOverrides,
+              policies: validPolicies,
+            },
+          }),
+          'key-special'
+        )
+      ).toThrow('Unsupported web assistant runtime field: permissionPolicyRequest');
+      expect(resolveRequestPermissionPolicy).not.toHaveBeenCalled();
+    }
+  );
 
   it('keeps cost, model, and tool policy out of client control for an enabled provider', () => {
     vi.mocked(resolveRequestPermissionPolicy).mockReturnValue(undefined);
@@ -411,15 +410,14 @@ describe('filterWebAssistantPayload (the preparation filterPayload hook)', () =>
     ).toThrow('Invalid web assistant runtime field: provider');
   });
 
-  it.each([
-    'local',
-    'ollama',
-    'lmstudio',
-  ])('rejects the keyless local-server provider %s (the reason this boundary exists)', (provider) => {
-    expect(() =>
-      filterWebAssistantPayload(payloadWith({ provider }), ['openai', 'anthropic'])
-    ).toThrow('Invalid web assistant runtime field: provider');
-  });
+  it.each(['local', 'ollama', 'lmstudio'])(
+    'rejects the keyless local-server provider %s (the reason this boundary exists)',
+    (provider) => {
+      expect(() =>
+        filterWebAssistantPayload(payloadWith({ provider }), ['openai', 'anthropic'])
+      ).toThrow('Invalid web assistant runtime field: provider');
+    }
+  );
 
   it('rejects an unsupported data field', () => {
     expect(() =>

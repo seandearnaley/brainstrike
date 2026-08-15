@@ -200,36 +200,36 @@ describe('DbProvider lifecycle', () => {
       };
     }
 
-    it.each([
-      'idb://testdb',
-      'opfs-ahp://testdb',
-    ])('calls wasmLoader.closeCached for %s browser persistent databases in production', async (dbPath) => {
-      const mockDb = createMockDb();
-      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGliteClient').mockResolvedValue(
-        mockDb as unknown as Awaited<ReturnType<typeof wasmLoaderModule.wasmLoader.createPGlite>>
-      );
-      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
-      vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
-      const closeCachedSpy = vi
-        .spyOn(wasmLoaderModule.wasmLoader, 'closeCached')
-        .mockResolvedValue(undefined);
+    it.each(['idb://testdb', 'opfs-ahp://testdb'])(
+      'calls wasmLoader.closeCached for %s browser persistent databases in production',
+      async (dbPath) => {
+        const mockDb = createMockDb();
+        vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGliteClient').mockResolvedValue(
+          mockDb as unknown as Awaited<ReturnType<typeof wasmLoaderModule.wasmLoader.createPGlite>>
+        );
+        vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
+        vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
+        const closeCachedSpy = vi
+          .spyOn(wasmLoaderModule.wasmLoader, 'closeCached')
+          .mockResolvedValue(undefined);
 
-      const { result, unmount } = renderHook(() => useFileRecordRepository(), {
-        wrapper: directWrapper(dbPath),
-      });
+        const { result, unmount } = renderHook(() => useFileRecordRepository(), {
+          wrapper: directWrapper(dbPath),
+        });
 
-      await waitFor(() => expect(result.current).toBeDefined(), {
-        timeout: 10_000,
-      });
+        await waitFor(() => expect(result.current).toBeDefined(), {
+          timeout: 10_000,
+        });
 
-      unmount();
+        unmount();
 
-      await waitFor(() => expect(closeCachedSpy).toHaveBeenCalledWith(dbPath), {
-        timeout: 1000,
-      });
-      // db.close() should NOT be called directly for cached browser storage paths
-      expect(mockDb.close).not.toHaveBeenCalled();
-    });
+        await waitFor(() => expect(closeCachedSpy).toHaveBeenCalledWith(dbPath), {
+          timeout: 1000,
+        });
+        // db.close() should NOT be called directly for cached browser storage paths
+        expect(mockDb.close).not.toHaveBeenCalled();
+      }
+    );
 
     it('calls db.close() for memory databases in production', async () => {
       const mockDb = createMockDb();

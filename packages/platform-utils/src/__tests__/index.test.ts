@@ -372,34 +372,29 @@ describe('Platform Utils', () => {
       ).toThrow('PORT must be a positive integer, received "9090abc".');
     });
 
-    it.each([
-      '0',
-      '-1',
-      '1e3',
-      '0x10',
-      '9007199254740992',
-    ])('should reject non-positive, non-decimal, and unsafe integer raw values: %s', (rawValue: string) => {
-      expect(() =>
-        parsePositiveIntegerConfig({
-          name: 'PORT',
-          rawValue,
-        })
-      ).toThrow(`PORT must be a positive integer, received "${rawValue}".`);
-    });
+    it.each(['0', '-1', '1e3', '0x10', '9007199254740992'])(
+      'should reject non-positive, non-decimal, and unsafe integer raw values: %s',
+      (rawValue: string) => {
+        expect(() =>
+          parsePositiveIntegerConfig({
+            name: 'PORT',
+            rawValue,
+          })
+        ).toThrow(`PORT must be a positive integer, received "${rawValue}".`);
+      }
+    );
 
-    it.each([
-      0,
-      -1,
-      Number.MAX_SAFE_INTEGER + 1,
-      Number.NaN,
-    ])('should reject invalid numeric raw values: %s', (rawValue: number) => {
-      expect(() =>
-        parsePositiveIntegerConfig({
-          name: 'idlePollInitialMs',
-          rawValue,
-        })
-      ).toThrow(`idlePollInitialMs must be a positive integer, received "${rawValue}".`);
-    });
+    it.each([0, -1, Number.MAX_SAFE_INTEGER + 1, Number.NaN])(
+      'should reject invalid numeric raw values: %s',
+      (rawValue: number) => {
+        expect(() =>
+          parsePositiveIntegerConfig({
+            name: 'idlePollInitialMs',
+            rawValue,
+          })
+        ).toThrow(`idlePollInitialMs must be a positive integer, received "${rawValue}".`);
+      }
+    );
 
     it('should accept numeric raw values at compile time for runtime options', () => {
       const parseNumericRawValue = (): number =>

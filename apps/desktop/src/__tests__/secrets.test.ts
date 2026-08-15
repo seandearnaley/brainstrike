@@ -94,19 +94,20 @@ describe('SecretReadError structural conformance (BST-972 A3)', () => {
   // compile fine and silently stop every classifier from matching — this is
   // the test that goes red instead. Driven per code because the constructor's
   // detail branch treats the codes asymmetrically.
-  it.each(
-    SECRET_READ_ERROR_CODES
-  )('the real class matches assistant-contract matchSecretReadError (%s)', (code) => {
-    const error = new SecretReadError(code, 'openai');
-    // The matcher keys on the `name` OWN property — `this.name = ...` in the
-    // constructor. Asserted directly because it is the field most likely to
-    // be dropped by an unrelated refactor (constructor.name does NOT cover
-    // it after minification).
-    expect(error.name).toBe('SecretReadError');
-    expect(matchSecretReadError(error)).toEqual({
-      code,
-      message: error.message,
-      provider: 'openai',
-    });
-  });
+  it.each(SECRET_READ_ERROR_CODES)(
+    'the real class matches assistant-contract matchSecretReadError (%s)',
+    (code) => {
+      const error = new SecretReadError(code, 'openai');
+      // The matcher keys on the `name` OWN property — `this.name = ...` in the
+      // constructor. Asserted directly because it is the field most likely to
+      // be dropped by an unrelated refactor (constructor.name does NOT cover
+      // it after minification).
+      expect(error.name).toBe('SecretReadError');
+      expect(matchSecretReadError(error)).toEqual({
+        code,
+        message: error.message,
+        provider: 'openai',
+      });
+    }
+  );
 });

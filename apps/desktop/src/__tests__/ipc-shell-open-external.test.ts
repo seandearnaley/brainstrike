@@ -10,13 +10,12 @@ function makeShell() {
 }
 
 describe('validateExternalUrl', () => {
-  it.each([
-    'https://example.com/a?b=1',
-    'http://localhost:8080',
-    'mailto:a@b.com',
-  ])('allows %s', (url) => {
-    expect(validateExternalUrl(url)).toEqual({ ok: true, url: expect.any(String) });
-  });
+  it.each(['https://example.com/a?b=1', 'http://localhost:8080', 'mailto:a@b.com'])(
+    'allows %s',
+    (url) => {
+      expect(validateExternalUrl(url)).toEqual({ ok: true, url: expect.any(String) });
+    }
+  );
 
   it.each([
     'javascript:alert(1)',

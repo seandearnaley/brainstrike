@@ -331,16 +331,16 @@ describe('useFileExplorer (context)', () => {
     expect(mockRefreshTree).not.toHaveBeenCalled();
   });
 
-  it.each([
-    'completed',
-    'cancelled',
-  ] as const)('refreshFileExplorer passes through a %s tree refresh outcome', async (status) => {
-    mockRefreshTree.mockResolvedValueOnce({ status });
-    const { result } = renderHook(() => useFileExplorer());
+  it.each(['completed', 'cancelled'] as const)(
+    'refreshFileExplorer passes through a %s tree refresh outcome',
+    async (status) => {
+      mockRefreshTree.mockResolvedValueOnce({ status });
+      const { result } = renderHook(() => useFileExplorer());
 
-    await expect(result.current.refreshFileExplorer()).resolves.toEqual({ status });
-    expect(mockRefreshTree).toHaveBeenCalledOnce();
-  });
+      await expect(result.current.refreshFileExplorer()).resolves.toEqual({ status });
+      expect(mockRefreshTree).toHaveBeenCalledOnce();
+    }
+  );
 
   it('refreshFileExplorer passes through the exact tree refresh error', async () => {
     const refreshError = new Error('tree refresh failed');

@@ -595,20 +595,18 @@ describe('createGitInventoryService', () => {
   });
 
   describe('getSnapshot() maxAgeMs validation (BST-1112 review Minor 8)', () => {
-    it.each([
-      Number.NaN,
-      -1,
-      Number.POSITIVE_INFINITY,
-      Number.NEGATIVE_INFINITY,
-    ])('throws for invalid maxAgeMs %p instead of silently coercing it', async (maxAgeMs) => {
-      const fake = createFakeWatchDirectory();
-      const service = makeService({
-        loadRootsSpy: vi.fn(() => Promise.resolve([])),
-        watchDirectory: fake.watchDirectory,
-      });
+    it.each([Number.NaN, -1, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+      'throws for invalid maxAgeMs %p instead of silently coercing it',
+      async (maxAgeMs) => {
+        const fake = createFakeWatchDirectory();
+        const service = makeService({
+          loadRootsSpy: vi.fn(() => Promise.resolve([])),
+          watchDirectory: fake.watchDirectory,
+        });
 
-      await expect(service.getSnapshot({ maxAgeMs })).rejects.toThrow(/invalid maxAgeMs/);
-    });
+        await expect(service.getSnapshot({ maxAgeMs })).rejects.toThrow(/invalid maxAgeMs/);
+      }
+    );
 
     it('still treats maxAgeMs: 0 as a valid "force rebuild" value, not an invalid one', async () => {
       const loadRootsSpy = vi.fn(() => Promise.resolve([]));

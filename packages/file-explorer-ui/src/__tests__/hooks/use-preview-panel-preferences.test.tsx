@@ -78,13 +78,16 @@ describe('usePreviewPanelPreferences', () => {
   it.each([
     ['positive overflow', '{"footerHeight":1e400,"footerMode":"compact"}'],
     ['negative overflow', '{"footerHeight":-1e400,"footerMode":"compact"}'],
-  ] as const)('ignores a non-finite legacy footer height from %s and preserves a valid stored mode', (_case, storedPreferences) => {
-    localStorage.setItem('previewPanelPreferences.v1', storedPreferences);
+  ] as const)(
+    'ignores a non-finite legacy footer height from %s and preserves a valid stored mode',
+    (_case, storedPreferences) => {
+      localStorage.setItem('previewPanelPreferences.v1', storedPreferences);
 
-    const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
+      const { result } = renderHook(() => usePreviewPanelPreferences(defaults));
 
-    expect(result.current.footerMode).toBe('compact');
-  });
+      expect(result.current.footerMode).toBe('compact');
+    }
+  );
 
   it('hydrates valid persisted values and saves preference updates after the debounce', async () => {
     vi.useFakeTimers();

@@ -140,19 +140,16 @@ describe('applyProviderNativeWebSearch — selection table', () => {
     expect(hasExecute(result[SANITIZED_ID])).toBe(true);
   });
 
-  it.each([
-    'google',
-    'openrouter',
-    'ollama',
-    'lmstudio',
-    'local',
-  ])('provider %s + allow → keeps the Tavily (execute-backed) tool unchanged', (provider) => {
-    const params = baseParams({ provider });
-    const result = applyProviderNativeWebSearch(params);
-    // Same object reference, untouched.
-    expect(result[SANITIZED_ID]).toBe(params.tools[SANITIZED_ID]);
-    expect(hasExecute(result[SANITIZED_ID])).toBe(true);
-  });
+  it.each(['google', 'openrouter', 'ollama', 'lmstudio', 'local'])(
+    'provider %s + allow → keeps the Tavily (execute-backed) tool unchanged',
+    (provider) => {
+      const params = baseParams({ provider });
+      const result = applyProviderNativeWebSearch(params);
+      // Same object reference, untouched.
+      expect(result[SANITIZED_ID]).toBe(params.tools[SANITIZED_ID]);
+      expect(hasExecute(result[SANITIZED_ID])).toBe(true);
+    }
+  );
 
   it('CRITICAL: anthropic + ask (in askTools) → keeps Tavily so the run can suspend for approval', () => {
     // A provider-native tool has no execute and CANNOT be approval-gated. When

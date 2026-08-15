@@ -266,22 +266,25 @@ describe('mastra error processors (real @mastra/core/agent loop)', () => {
         cause: Object.assign(new Error('Unauthorized'), { statusCode: 401 }),
       }),
     ],
-  ] as const)('surfaces a known authorization failure immediately — %s', async (_label, authError) => {
-    const model = createScriptedModel({
-      attempts: Array.from({ length: 5 }, () => ({ error: authError, kind: 'error' as const })),
-      finalText: 'never reached',
-    });
-    modelHolder.current = model;
+  ] as const)(
+    'surfaces a known authorization failure immediately — %s',
+    async (_label, authError) => {
+      const model = createScriptedModel({
+        attempts: Array.from({ length: 5 }, () => ({ error: authError, kind: 'error' as const })),
+        finalText: 'never reached',
+      });
+      modelHolder.current = model;
 
-    const iterator = await streamMastraAgent(
-      [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
-      { runtime: { apiKey: 'bad-key', provider: 'openai' } }
-    );
-    const { text } = await drain(iterator);
+      const iterator = await streamMastraAgent(
+        [{ id: 'u1', parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
+        { runtime: { apiKey: 'bad-key', provider: 'openai' } }
+      );
+      const { text } = await drain(iterator);
 
-    expect(model.calls).toBe(1);
-    expect(text).not.toContain('never reached');
-  });
+      expect(model.calls).toBe(1);
+      expect(text).not.toContain('never reached');
+    }
+  );
 
   it('recovers a reloaded-thread assistant-prefill rejection (fixup, not blind retry)', async () => {
     // The REAL Mastra PrefillErrorHandler pattern (confirmed against the compiled

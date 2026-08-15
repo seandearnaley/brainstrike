@@ -95,25 +95,15 @@ describe('test timeouts', () => {
       expect(getTimeoutMultiplier()).toBe(3);
     });
 
-    it.each([
-      '',
-      '0',
-      '-1',
-      ' 2',
-      '2 ',
-      '01',
-      '1e2',
-      '10.1',
-      '100000',
-      'Infinity',
-      'NaN',
-      'two',
-    ])('should fail loudly for malformed explicit multiplier %j', (configuredMultiplier) => {
-      process.env['TEST_TIMEOUT_MULTIPLIER'] = configuredMultiplier;
-      expect(() => getTimeoutMultiplier()).toThrowError(
-        `Invalid TEST_TIMEOUT_MULTIPLIER ${JSON.stringify(configuredMultiplier)}; expected a positive decimal number no greater than 10.`
-      );
-    });
+    it.each(['', '0', '-1', ' 2', '2 ', '01', '1e2', '10.1', '100000', 'Infinity', 'NaN', 'two'])(
+      'should fail loudly for malformed explicit multiplier %j',
+      (configuredMultiplier) => {
+        process.env['TEST_TIMEOUT_MULTIPLIER'] = configuredMultiplier;
+        expect(() => getTimeoutMultiplier()).toThrowError(
+          `Invalid TEST_TIMEOUT_MULTIPLIER ${JSON.stringify(configuredMultiplier)}; expected a positive decimal number no greater than 10.`
+        );
+      }
+    );
 
     it('should prioritize CI over DEBUG', () => {
       process.env['CI'] = 'true';

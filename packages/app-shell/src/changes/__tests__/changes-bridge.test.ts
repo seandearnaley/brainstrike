@@ -84,20 +84,24 @@ describe('resolveChangesBridge', () => {
   // interface (e.g. the BST-1115 rewind methods) appears in this loop
   // automatically — and if it was forgotten in `REQUIRED_METHODS`, dropping it
   // still resolves a "full" bridge and the case fails.
-  it.each(
-    Object.keys(fullBridge()) as (keyof ChangesBridge)[]
-  )('rejects a bridge missing %s (REQUIRED_METHODS covers the full interface)', (method) => {
-    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
-    const bridge: Partial<ChangesBridge> = fullBridge();
-    delete bridge[method];
-    (window as unknown as { changes?: Partial<ChangesBridge> }).changes = bridge;
+  it.each(Object.keys(fullBridge()) as (keyof ChangesBridge)[])(
+    'rejects a bridge missing %s (REQUIRED_METHODS covers the full interface)',
+    (method) => {
+      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+      const bridge: Partial<ChangesBridge> = fullBridge();
+      delete bridge[method];
+      (window as unknown as { changes?: Partial<ChangesBridge> }).changes = bridge;
 
-    expect(resolveChangesBridge()).toBeNull();
-    expect(errorSpy).toHaveBeenCalledWith('window.changes bridge is malformed; changes disabled', {
-      missing: [method],
-    });
-    expect(isChangesBridgeAvailable()).toBe(false);
-  });
+      expect(resolveChangesBridge()).toBeNull();
+      expect(errorSpy).toHaveBeenCalledWith(
+        'window.changes bridge is malformed; changes disabled',
+        {
+          missing: [method],
+        }
+      );
+      expect(isChangesBridgeAvailable()).toBe(false);
+    }
+  );
 
   // BST-1161: the live-refresh subscription joined `REQUIRED_METHODS` in the
   // same commit that added it to the preload. A pre-1161 bridge must read as
@@ -135,18 +139,19 @@ describe('resolveChangesBridge', () => {
   // `finalizeRewinds` (W5 T4b) joined on the same terms: a bridge that can
   // rewind but cannot finalize leaves the redo window permanently open and the
   // tombstoned messages permanently undeleted.
-  it.each([
-    'applyRewind',
-    'finalizeRewinds',
-    'redoRewind',
-    'rewindPreview',
-  ] as const)('rejects a pre-rewind bridge that is missing %s', (method) => {
-    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
-    (window as unknown as { changes?: Partial<ChangesBridge> }).changes = bridgeWithout(method);
+  it.each(['applyRewind', 'finalizeRewinds', 'redoRewind', 'rewindPreview'] as const)(
+    'rejects a pre-rewind bridge that is missing %s',
+    (method) => {
+      const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+      (window as unknown as { changes?: Partial<ChangesBridge> }).changes = bridgeWithout(method);
 
-    expect(resolveChangesBridge()).toBeNull();
-    expect(errorSpy).toHaveBeenCalledWith('window.changes bridge is malformed; changes disabled', {
-      missing: [method],
-    });
-  });
+      expect(resolveChangesBridge()).toBeNull();
+      expect(errorSpy).toHaveBeenCalledWith(
+        'window.changes bridge is malformed; changes disabled',
+        {
+          missing: [method],
+        }
+      );
+    }
+  );
 });

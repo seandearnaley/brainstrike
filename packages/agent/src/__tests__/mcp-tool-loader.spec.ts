@@ -1321,51 +1321,51 @@ describe('mcp-tool-loader', () => {
       await expect(tool.execute()).resolves.toEqual(rawOutput);
     });
 
-    it.each([
-      false,
-      true,
-    ])('fails visibly when MCP inline media exceeds its ceiling (durable settlement: %s)', async (durableArtifactSettlement) => {
-      const mockMcpClient = createMockMcpClient({
-        remote: {
-          oversized_media: {
-            description: 'return oversized media',
-            execute: vi.fn(async () => ({
-              content: [
-                {
-                  data: 'x'.repeat(14_000_000),
-                  mimeType: 'image/png',
-                  type: 'image',
-                },
-              ],
-            })),
-            id: 'oversized_media',
-          },
-        },
-      });
-
-      const result = await collectCombinedTools({
-        durableArtifactSettlement,
-        mcpClient: mockMcpClient as unknown as McpRuntimeClient,
-        mcpConfig: {
-          servers: [
-            {
-              command: 'echo',
-              name: 'remote',
-              transport: 'stdio' as const,
+    it.each([false, true])(
+      'fails visibly when MCP inline media exceeds its ceiling (durable settlement: %s)',
+      async (durableArtifactSettlement) => {
+        const mockMcpClient = createMockMcpClient({
+          remote: {
+            oversized_media: {
+              description: 'return oversized media',
+              execute: vi.fn(async () => ({
+                content: [
+                  {
+                    data: 'x'.repeat(14_000_000),
+                    mimeType: 'image/png',
+                    type: 'image',
+                  },
+                ],
+              })),
+              id: 'oversized_media',
             },
-          ],
-        },
-        sanitizedLocalTools: undefined,
-        scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
-        timeoutOverrideMs: undefined,
-        toolNameMap: new Map(),
-      });
+          },
+        });
 
-      const tool = result['remote_oversized_media'] as { execute: () => Promise<unknown> };
-      await expect(tool.execute()).rejects.toThrow(
-        'MCP tool remote.oversized_media returned 14000000 inline media characters'
-      );
-    });
+        const result = await collectCombinedTools({
+          durableArtifactSettlement,
+          mcpClient: mockMcpClient as unknown as McpRuntimeClient,
+          mcpConfig: {
+            servers: [
+              {
+                command: 'echo',
+                name: 'remote',
+                transport: 'stdio' as const,
+              },
+            ],
+          },
+          sanitizedLocalTools: undefined,
+          scaledDefaultTokens: MAX_TOOL_RESULT_TOKENS,
+          timeoutOverrideMs: undefined,
+          toolNameMap: new Map(),
+        });
+
+        const tool = result['remote_oversized_media'] as { execute: () => Promise<unknown> };
+        await expect(tool.execute()).rejects.toThrow(
+          'MCP tool remote.oversized_media returned 14000000 inline media characters'
+        );
+      }
+    );
 
     it('fails visibly when MCP media metadata hides an oversized text payload', async () => {
       const mockMcpClient = createMockMcpClient({
