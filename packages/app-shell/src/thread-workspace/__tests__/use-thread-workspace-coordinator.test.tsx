@@ -36,6 +36,7 @@ function createHarness() {
       state.activeTabId = activeTabId;
       applied.push('fileTabs');
     }),
+    applyPanes: vi.fn(),
     applyRootViews: vi.fn(),
     getEditorState: vi.fn(() => ({})),
     getExpandedDirectoryPaths: vi.fn(() => new Set<string>()),

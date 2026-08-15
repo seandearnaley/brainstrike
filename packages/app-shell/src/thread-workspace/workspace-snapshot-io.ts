@@ -1,6 +1,7 @@
 import type {
   WorkspaceSnapshotEditor,
   WorkspaceSnapshotFileTab,
+  WorkspaceSnapshotPane,
   WorkspaceSnapshotSelection,
   WorkspaceSnapshotV1,
 } from '@brainstrike/assistant-data';
@@ -25,6 +26,12 @@ export interface WorkspaceStateFacade {
   applyExpandedPaths(paths: Set<string>): void;
   applyExplorerScrollTop(scrollTop: number | undefined): void;
   applyFileTabs(tabs: readonly WorkspaceSnapshotFileTab[], activeTabId: string | null): void;
+  /**
+   * WHOLESALE pane replacement (BST-1269): keys absent from the record are
+   * dropped by the receiving store. Panes are per-thread state; per-key
+   * application would leak the previous thread's panes across a switch.
+   */
+  applyPanes(panes: Readonly<Record<string, WorkspaceSnapshotPane>>): void;
   applyRootViews(focusedRootId: string | null, visibleRootIds: readonly string[] | null): void;
   getEditorState(compositeKey: string): WorkspaceSnapshotEditor;
   getExpandedDirectoryPaths(): ReadonlySet<string>;
@@ -111,7 +118,12 @@ export function applyWorkspaceSnapshot(
   facade.applyExpandedPaths(expandedUnion);
   facade.applyExplorerScrollTop(snapshot.explorer.scrollTop);
   facade.applyRootViews(snapshot.roots.focusedRootId, snapshot.roots.visibleRootIds);
+  const panes: Record<string, WorkspaceSnapshotPane> = {};
   for (const [compositeKey, editor] of Object.entries(snapshot.editors)) {
     facade.applyEditorState(compositeKey, editor);
+    if (editor.pane) {
+      panes[compositeKey] = editor.pane;
+    }
   }
+  facade.applyPanes(panes);
 }
