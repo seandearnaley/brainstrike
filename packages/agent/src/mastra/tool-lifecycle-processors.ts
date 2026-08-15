@@ -252,7 +252,20 @@ function makeToolLifecycleRunEventChunk(
       }
       lifecycleState.terminalToolCallStates.set(toolCallId, 'failed');
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
-      return makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata);
+      // A declined `requireApproval` call (@mastra/core 1.59 `tool-output-denied`)
+      // keeps the `tool.failed` KIND deliberately, and only relabels. The kind is
+      // what `getMatchingFailedKind` pairs `tool.started` against and what
+      // `collectToolDurations` / `RUN_LEDGER_AGGREGATION_SQL` close a call out
+      // on — and here the call really IS over: the framework consumed the
+      // decline, the tool never runs, and no later terminal part carries this id.
+      // That is the opposite of `tool.resume.unsupported` (BST-558), whose run
+      // stays suspended and can still emit the real terminal later.
+      return makeRunEventChunk(
+        'tool.failed',
+        'failed',
+        mastraPartType === 'tool-output-denied' ? 'Tool call declined' : 'Tool failed',
+        metadata
+      );
     }
     case 'progress':
       return;

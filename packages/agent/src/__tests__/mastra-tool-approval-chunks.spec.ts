@@ -23,6 +23,10 @@ import {
   streamMastraToolApprovalAction,
   streamMastraToolResumeAction,
 } from '../mastra/agent-streaming';
+import { TOOL_CALL_DECLINED_MESSAGE } from '../mastra/tool-event-mapper';
+import { DataStreamCode } from '../stream/data-stream-codes';
+import { DataStreamMapper } from '../stream/data-stream-mapper';
+import type { StreamChunk } from '../types';
 import {
   agentInstances,
   expectLeadingContextBreakdown,
@@ -1242,6 +1246,83 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
     expect(declineGate({ toolName: 'updateWorkingMemory' })).toBe(false);
     expect(declineGate({ toolName: 'shell_tool' })).toBe(true);
     expect(chunks).toContainEqual({ type: 'text-delta', value: 'Declined and continued.' });
+  });
+
+  it('settles the declined tool call from the 1.59 tool-output-denied chunk instead of leaving it pending', async () => {
+    // BST-1282. `@mastra/core` 1.59 added `tool-output-denied` (mastra #20886)
+    // precisely so a declined `requireApproval` call RESOLVES: the tool never
+    // runs and no later `tool-result`/`tool-error` carries this id, so treating
+    // the chunk as `'ignored'` would strand the renderer's tool part pending
+    // forever. Proven across BOTH R6 stages — the Mastra→StreamChunk mapping
+    // here, and the StreamChunk→frame mapping that actually settles the call.
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      {
+        payload: {
+          approval: { approved: false, id: 'approval-decline-1', reason: 'not this path' },
+          args: { command: 'echo declined' },
+          toolCallId: 'tool-call-2',
+          toolName: 'shell_tool',
+        },
+        type: 'tool-output-denied',
+      },
+      { textDelta: 'Understood, skipping that.', type: 'text-delta' },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 2, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      {
+        action: 'decline',
+        runId: 'run-approval-2',
+        toolCallId: 'tool-call-2',
+      },
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: storage as never,
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk as StreamChunk);
+    }
+
+    // Stage 1 — the Mastra boundary maps it to a TERMINAL error tool event.
+    expect(chunks).toContainEqual({
+      name: 'shell_tool',
+      payload: {
+        args: { command: 'echo declined' },
+        callId: 'tool-call-2',
+        declined: true,
+        error: `${TOOL_CALL_DECLINED_MESSAGE} Reason: not this path`,
+        toolCallId: 'tool-call-2',
+      },
+      status: 'error',
+      type: 'tool-event',
+    });
+    // …and closes the durable timeline row out, relabelled as a decline.
+    const failedEvents = findRunEventChunks(chunks, 'tool.failed');
+    expect(failedEvents).toHaveLength(1);
+    expect(failedEvents[0]?.event).toMatchObject({
+      label: 'Tool call declined',
+      metadata: { toolCallId: 'tool-call-2', toolName: 'shell_tool' },
+      status: 'failed',
+    });
+
+    // Stage 2 — the call SETTLES on the wire: an error `toolCallResult` frame
+    // for this id, which is what stops the renderer's part spinning. Its
+    // absence is exactly the hang this chunk exists to fix.
+    const mapper = new DataStreamMapper('message-declined');
+    const frames = chunks.flatMap((chunk) => [...mapper.handleChunk(chunk)]);
+    expect(frames).toContainEqual({
+      code: DataStreamCode.toolCallResult,
+      value: {
+        isError: true,
+        result: `${TOOL_CALL_DECLINED_MESSAGE} Reason: not this path`,
+        toolCallId: 'tool-call-2',
+      },
+    });
   });
 
   it('fails visibly before approval when the suspended snapshot cannot restore tool arguments', async () => {

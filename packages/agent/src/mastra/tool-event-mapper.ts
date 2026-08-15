@@ -16,6 +16,8 @@ type ToolEventPart = {
 
 const PROGRESS_START_STEP = 'input_stream_start';
 const PROGRESS_END_STEP = 'input_stream_end';
+export const TOOL_CALL_DECLINED_MESSAGE =
+  'The user declined this tool call, so it was not executed.';
 const logger = createLogger('MastraToolEventMapper');
 
 export function mapMastraToolEvent(
@@ -84,6 +86,32 @@ export function mapMastraToolEvent(
     }
     case 'tool-output': {
       return mapToolOutputEvent(candidate, displayName, callId);
+    }
+    case 'tool-output-denied': {
+      // @mastra/core 1.59 `ToolOutputDeniedPayload`:
+      // `{ toolCallId, toolName, args?, approval: { id, approved: false, reason? } }`.
+      // Mapped as a terminal ERROR tool event so `handleToolError` downstream
+      // emits the call's `toolCallResult` and marks the id settled — a declined
+      // call must RESOLVE, not sit pending. `declined: true` keeps the reason
+      // for the decision legible to consumers that care (the approval card owns
+      // the primary UX); the text is model-safe because it contains only the
+      // decision and the user's own optional reason, never tool internals.
+      const approval = readMastraStreamPartValue(candidate, 'approval');
+      const reason = readMastraStreamPartString(approval, 'reason');
+      return {
+        name: displayName,
+        payload: {
+          args: readMastraStreamPartValue(candidate, 'args'),
+          callId,
+          declined: true,
+          error: reason
+            ? `${TOOL_CALL_DECLINED_MESSAGE} Reason: ${reason}`
+            : TOOL_CALL_DECLINED_MESSAGE,
+          toolCallId: callId,
+        },
+        status: 'error',
+        type: 'tool-event',
+      } satisfies StreamChunk;
     }
     case 'tool-error': {
       const error =
