@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -108,12 +108,41 @@ export function normalizeOpenPullRequestPages(pages) {
   return pullRequests;
 }
 
-function listOpenPullRequests() {
-  const result = spawnSync('gh', GITHUB_OPEN_PULL_REQUEST_ARGS, { encoding: 'utf8' });
-
-  if (result.error) {
-    throw new Error(`Unable to run GitHub CLI: ${result.error.message}`, { cause: result.error });
+export function collectChildProcessOutput(child) {
+  if (!(child?.stdout && child.stderr) || typeof child.once !== 'function') {
+    throw new TypeError('Expected a child process with piped stdout and stderr.');
   }
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.stdout.once('error', rejectPromise);
+    child.stderr.once('error', rejectPromise);
+    child.once('error', rejectPromise);
+    child.once('close', (status, signal) => {
+      resolvePromise({ signal, status, stderr, stdout });
+    });
+  });
+}
+
+async function listOpenPullRequests() {
+  let result;
+  try {
+    result = await collectChildProcessOutput(spawn('gh', GITHUB_OPEN_PULL_REQUEST_ARGS));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to run GitHub CLI: ${message}`, { cause: error });
+  }
+
   if (result.status !== 0) {
     const termination = result.signal ? `signal ${result.signal}` : `exit ${result.status}`;
     throw new Error(`GitHub CLI failed with ${termination}: ${result.stderr.trim()}`);
@@ -126,12 +155,12 @@ function listOpenPullRequests() {
   }
 }
 
-export function main() {
-  const findings = findUnlinkedPullRequests(listOpenPullRequests());
+export async function main() {
+  const findings = findUnlinkedPullRequests(await listOpenPullRequests());
   process.stdout.write(`${formatConformanceReport(findings)}\n`);
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : undefined;
 if (invokedPath === fileURLToPath(import.meta.url)) {
-  main();
+  await main();
 }

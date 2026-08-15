@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import test from 'node:test';
 
 import {
+  collectChildProcessOutput,
   findUnlinkedPullRequests,
   formatConformanceReport,
   GITHUB_OPEN_PULL_REQUEST_ARGS,
@@ -109,6 +111,18 @@ test('GitHub invocation exhausts pagination instead of imposing a silent item li
   assert.ok(GITHUB_OPEN_PULL_REQUEST_ARGS.includes('--paginate'));
   assert.ok(GITHUB_OPEN_PULL_REQUEST_ARGS.includes('--slurp'));
   assert.equal(GITHUB_OPEN_PULL_REQUEST_ARGS.includes('--limit'), false);
+});
+
+test('streamed GitHub output is not capped at spawnSync default buffer size', async () => {
+  const outputBytes = 2 * 1024 * 1024;
+  const child = spawn(process.execPath, ['-e', `process.stdout.write('x'.repeat(${outputBytes}))`]);
+
+  const result = await collectChildProcessOutput(child);
+
+  assert.equal(result.status, 0);
+  assert.equal(result.signal, null);
+  assert.equal(result.stderr, '');
+  assert.equal(result.stdout.length, outputBytes);
 });
 
 test('clean report states that every inspected PR is linked', () => {
