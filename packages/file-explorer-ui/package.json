@@ -62,6 +62,14 @@
       "types": "./dist/workspace-context-curation-store.d.ts",
       "import": "./dist/workspace-context-curation-store.js"
     },
+    "./workspace-tab-selection-store": {
+      "types": "./dist/workspace-tab-selection-store.d.ts",
+      "import": "./dist/workspace-tab-selection-store.js"
+    },
+    "./tab-manager-store": {
+      "types": "./dist/tab-manager-store.d.ts",
+      "import": "./dist/tab-manager-store.js"
+    },
     "./shell": {
       "types": "./dist/shell/index.d.ts",
       "import": "./dist/shell/index.js"

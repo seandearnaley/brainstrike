@@ -651,7 +651,7 @@ interface TruncatedPreviewText {
 /**
  * Slices `raw` to at most `cap` chars, never splitting a UTF-16 surrogate
  * pair at the boundary (mirrors the DOM-paint cap in
- * `workspace-tab-host.tsx`'s `getDisplayContent`). Returns the shown/total
+ * `file-tab-body.tsx`'s `getDisplayContent`). Returns the shown/total
  * char counts so callers can render an honest "N of M" truncation note.
  */
 function truncatePreviewText(

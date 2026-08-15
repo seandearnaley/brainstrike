@@ -1,25 +1,33 @@
 import { INACCESSIBLE_CONTENT_PREFIX, type TabFileStatus } from '@brainstrike/file-explorer-hooks';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { LayoutGrid } from 'lucide-react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseTabManagerReturn } from '../hooks/use-tab-manager';
-import type { WorkspaceApp } from '../shell/workspace-app';
-import { WorkspaceTabHost } from '../shell/workspace-tab-host';
 import { useEditorViewStateStore } from '../stores/editor-view-state-store';
 import { __resetTabManagerStoreForTests, useTabManagerStore } from '../stores/tab-manager-store';
 import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '../stores/workspace-tab-selection-store';
-import { FileExplorerTestWrapper } from './test-helpers';
+import { DEMO_APP, FILES_APP, renderWorkspace } from './workspace-tabs-test-support';
 
-// Mock the preview-panel surface (Context Explorer body) — same pattern as existing tests
+async function openThreeTabsWithDemoAppSelected(): Promise<void> {
+  const tabModule = await import('../hooks/use-tab-manager');
+  vi.mocked(tabModule.useTabManager).mockRestore();
+  __resetTabManagerStoreForTests();
+  const store = useTabManagerStore.getState();
+  store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
+  store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
+  store.openTab('src/c.ts', 'folderA|@|src/c.ts', 'folderA|@|src/c.ts');
+  useWorkspaceTabSelectionStore.getState().selectApp(DEMO_APP.id);
+}
+
+// Mock the preview-panel surface (Files app body) — same pattern as existing tests
 vi.mock('../preview/preview-panel', () => ({
   PreviewPanel: vi.fn(() => <div data-testid="preview-panel">PreviewPanel</div>),
 }));
 
-// Mock useFileExplorer — minimal shape used by the host
+// Mock useFileExplorer — minimal shape used by the controller
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({
     canLoadWithoutTree: false,
@@ -58,25 +66,7 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
   };
 });
 
-const DEMO_APP: WorkspaceApp = {
-  icon: LayoutGrid,
-  id: 'demo-app',
-  label: 'Demo App',
-  render: () => <div data-testid="demo-app-body">Demo body</div>,
-};
-
-async function openThreeTabsWithDemoAppSelected(): Promise<void> {
-  const tabModule = await import('../hooks/use-tab-manager');
-  vi.mocked(tabModule.useTabManager).mockRestore();
-  __resetTabManagerStoreForTests();
-  const store = useTabManagerStore.getState();
-  store.openTab('src/a.ts', 'folderA|@|src/a.ts', 'folderA|@|src/a.ts');
-  store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
-  store.openTab('src/c.ts', 'folderA|@|src/c.ts', 'folderA|@|src/c.ts');
-  useWorkspaceTabSelectionStore.getState().selectApp(DEMO_APP.id);
-}
-
-describe('WorkspaceTabHost', () => {
+describe('workspace tabs — file tab operations', () => {
   let useTabFileRestoration: typeof import('@brainstrike/file-explorer-hooks').useTabFileRestoration;
 
   beforeAll(async () => {
@@ -117,35 +107,6 @@ describe('WorkspaceTabHost', () => {
     __resetWorkspaceTabSelectionStoreForTests();
   });
 
-  it('renders Context Explorer as a pinned tab and shows its body by default', async () => {
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
-
-    // Pinned app tab
-    const explorerTab = await screen.findByRole('tab', { name: /context explorer/i });
-    expect(explorerTab).toBeInTheDocument();
-    expect(explorerTab).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByTestId('workspace-tab-strip')).toHaveClass('h-9', 'flex-shrink-0');
-
-    // Body: the preview panel
-    expect(await screen.findByTestId('preview-panel')).toBeInTheDocument();
-  });
-
-  it('does not show a "console" / south panel — file tabs live above the preview', async () => {
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
-
-    // The legacy console / south "Show File Editor" affordance must not exist
-    expect(screen.queryByRole('button', { name: /show file editor/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /close file editor/i })).not.toBeInTheDocument();
-  });
-
   it('renders a file tab when one is open and switches to it on click', async () => {
     const user = userEvent.setup();
     const setActiveTab = vi.fn();
@@ -170,23 +131,15 @@ describe('WorkspaceTabHost', () => {
       updateTabContent: vi.fn(),
     });
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
-    // Context Explorer is selected by default
     expect(await screen.findByTestId('preview-panel')).toBeInTheDocument();
 
-    // File tab visible in the strip
     const fileTab = await screen.findByRole('tab', { name: /index\.ts/i });
-    expect(fileTab).toBeInTheDocument();
     expect(fileTab).toHaveAttribute('aria-selected', 'false');
 
     await user.click(fileTab);
 
-    // Tab manager active tab updated and workspace mode switched to file
     expect(setActiveTab).toHaveBeenCalledWith('folderA|@|src/index.ts');
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
@@ -245,11 +198,7 @@ describe('WorkspaceTabHost', () => {
       updateTabContent: vi.fn(),
     });
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     await user.click(await screen.findByRole('tab', { name: /a\.ts/i }));
     await user.click(await screen.findByRole('tab', { name: /b\.ts/i }));
@@ -267,63 +216,8 @@ describe('WorkspaceTabHost', () => {
     });
   });
 
-  it('uses the current selection when restoration closes a stale tab', async () => {
-    let closeRestoredTab: ((tabId: string) => void) | undefined;
-    vi.mocked(useTabFileRestoration).mockImplementation((_tabs, onCloseTab) => {
-      closeRestoredTab = onCloseTab;
-      return {
-        getStatusMessage: () => null,
-        isRestoring: false,
-        needsUserAction: () => false,
-        requestTabPermission: vi.fn().mockResolvedValue(true),
-        restoreTabs: vi.fn().mockResolvedValue(undefined),
-        tabStatuses: new Map<string, TabFileStatus>(),
-      };
-    });
-
-    const closeTab = vi.fn(() => null);
-    const tabModule = await import('../hooks/use-tab-manager');
-    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
-      activeTabId: 'folderA|@|src/a.ts',
-      clearTabs: vi.fn(),
-      closeTab,
-      openTab: vi.fn(),
-      setActiveTab: vi.fn(),
-      setTabError: vi.fn(),
-      setTabLoading: vi.fn(),
-      tabs: [
-        {
-          compositeKey: 'folderA|@|src/a.ts',
-          content: null,
-          id: 'folderA|@|src/a.ts',
-          isLoading: false,
-          path: 'src/a.ts',
-        },
-      ],
-      updateTabContent: vi.fn(),
-    });
-
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
-
-    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/a.ts');
-    act(() => {
-      closeRestoredTab?.('folderA|@|src/a.ts');
-    });
-
-    expect(closeTab).toHaveBeenCalledWith('folderA|@|src/a.ts');
-    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
-      appId: 'context-explorer',
-      kind: 'app',
-    });
-  });
-
-  it('clicking the Context Explorer tab swaps back to the preview body', async () => {
+  it('clicking the Files tab swaps back to the preview body', async () => {
     const user = userEvent.setup();
-    // Start in file mode
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/index.ts');
 
     const tabModule = await import('../hooks/use-tab-manager');
@@ -358,20 +252,16 @@ describe('WorkspaceTabHost', () => {
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
-    // File mode body — preview panel hidden
     await screen.findByText(/export const file/);
-    expect(screen.queryByTestId('preview-panel')).not.toBeInTheDocument();
+    // Files was activated at the session default, so it stays MOUNTED but
+    // hidden while a file tab is showing (keep-alive contract).
+    expect(screen.getByTestId('preview-panel')).not.toBeVisible();
 
-    const explorerTab = await screen.findByRole('tab', { name: /context explorer/i });
-    await user.click(explorerTab);
+    await user.click(await screen.findByRole('tab', { name: /files/i }));
 
-    expect(await screen.findByTestId('preview-panel')).toBeInTheDocument();
+    expect(await screen.findByTestId('preview-panel')).toBeVisible();
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
         appId: 'context-explorer',
@@ -415,11 +305,7 @@ describe('WorkspaceTabHost', () => {
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     const surface = await screen.findByTestId('file-code-surface');
     expect(surface).toHaveAttribute('data-language', 'TypeScript');
@@ -430,12 +316,6 @@ describe('WorkspaceTabHost', () => {
   });
 
   it('consumes the one-shot target line after the opening render so switching away and back does not re-scroll to it', async () => {
-    // Regression test for a real remount, not merely a rerender of the same
-    // instance: CodeSurface is keyed on `tab.compositeKey` in WorkspaceBody, so
-    // switching to another tab and back forces a fresh CodeSurface instance
-    // whose mount effect re-reads whatever `initialLine` prop it is given. The
-    // fix must clear the store's one-shot target after the opening render so
-    // that fresh instance receives `undefined`, not the stale line.
     const user = userEvent.setup();
     const indexKey = 'folderA|@|src/index.ts';
     const otherKey = 'folderA|@|src/other.ts';
@@ -495,28 +375,16 @@ describe('WorkspaceTabHost', () => {
       return <OriginalCodeSurface {...props} />;
     });
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     await screen.findByTestId('file-code-surface');
-    // Opening render is line-targeted...
     expect(indexSurfaceInitialLines[0]).toBe(42);
-    // ...and the one-shot target is consumed right after (not left dangling for
-    // a future remount to pick up).
     await waitFor(() =>
       expect(useEditorViewStateStore.getState().getTarget(indexKey)).toBeUndefined()
     );
 
     indexSurfaceInitialLines = [];
 
-    // Switch to the other tab, then back — CodeSurface for index.ts unmounts
-    // (key changes away from indexKey) and later remounts (key changes back).
-    // CodeMirror splits line text across nested spans, so assert via
-    // `toHaveTextContent` (aggregated textContent) rather than `findByText`
-    // (which requires a single element's own text to match).
     await user.click(await screen.findByRole('tab', { name: /other\.ts/i }));
     await waitFor(() => {
       expect(screen.getByTestId('file-code-surface')).toHaveTextContent(
@@ -531,7 +399,6 @@ describe('WorkspaceTabHost', () => {
       );
     });
 
-    // The remounted surface must NOT receive the stale target line again.
     expect(indexSurfaceInitialLines.length).toBeGreaterThan(0);
     expect(indexSurfaceInitialLines.every((line) => line === undefined)).toBe(true);
   });
@@ -585,15 +452,10 @@ describe('WorkspaceTabHost', () => {
       return <OriginalCodeSurface {...props} />;
     });
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     await screen.findByTestId('file-code-surface');
     expect(capturedSelections[0]).toEqual({ endLine: 12, startLine: 8 });
-    // Consumed after the opening render, like the line target.
     await waitFor(() =>
       expect(useEditorViewStateStore.getState().getTarget(indexKey)).toBeUndefined()
     );
@@ -621,7 +483,6 @@ describe('WorkspaceTabHost', () => {
       updateTabContent: vi.fn(),
     });
 
-    // Restoration still in progress (no status emitted yet, isRestoring true)
     vi.mocked(useTabFileRestoration).mockReturnValue({
       getStatusMessage: () => 'Restoring...',
       isRestoring: true,
@@ -633,19 +494,13 @@ describe('WorkspaceTabHost', () => {
 
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/index.ts');
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     expect(await screen.findByText(/restoring/i)).toBeInTheDocument();
     expect(screen.queryByText(/file not found or unable to load/i)).not.toBeInTheDocument();
   });
 
-  it('closing the active file tab hops to the next sibling tab, not back to Context Explorer', async () => {
-    // Use the REAL tab-manager store so closeTab's successor logic actually runs and we
-    // verify the workspace selection consumes the store's authoritative activeTabId.
+  it('closing the active file tab hops to the next sibling tab, not back to Files', async () => {
     const tabModule = await import('../hooks/use-tab-manager');
     vi.mocked(tabModule.useTabManager).mockRestore();
 
@@ -658,20 +513,13 @@ describe('WorkspaceTabHost', () => {
     useTabManagerStore.getState().setActiveTab('folderA|@|src/b.ts');
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/b.ts');
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
-    const closeButton = await screen.findByRole('button', { name: /close b\.ts/i });
-    await user.click(closeButton);
+    await user.click(await screen.findByRole('button', { name: /close b\.ts/i }));
 
-    // tab-manager-store's closeTab moves activeTabId to the row that took the closed position
     await waitFor(() => {
       expect(useTabManagerStore.getState().activeTabId).toBe('folderA|@|src/c.ts');
     });
-    // Workspace selection mirrors that — not Context Explorer
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
         kind: 'file',
@@ -682,24 +530,20 @@ describe('WorkspaceTabHost', () => {
     __resetTabManagerStoreForTests();
   });
 
-  it('closing the last file tab falls back to Context Explorer', async () => {
+  it('closing the last file tab falls back to the first open app', async () => {
     const tabModule = await import('../hooks/use-tab-manager');
     vi.mocked(tabModule.useTabManager).mockRestore();
 
     const user = userEvent.setup();
     __resetTabManagerStoreForTests();
-    const store = useTabManagerStore.getState();
-    store.openTab('src/only.ts', 'folderA|@|src/only.ts', 'folderA|@|src/only.ts');
+    useTabManagerStore
+      .getState()
+      .openTab('src/only.ts', 'folderA|@|src/only.ts', 'folderA|@|src/only.ts');
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/only.ts');
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
-    const closeButton = await screen.findByRole('button', { name: /close only\.ts/i });
-    await user.click(closeButton);
+    await user.click(await screen.findByRole('button', { name: /close only\.ts/i }));
 
     await waitFor(() => {
       expect(useTabManagerStore.getState().activeTabId).toBeNull();
@@ -714,7 +558,31 @@ describe('WorkspaceTabHost', () => {
     __resetTabManagerStoreForTests();
   });
 
-  it('"Close All Tabs" overflow action clears every file tab and routes to Context Explorer', async () => {
+  it('closing the last file tab with NO open apps lands on the launcher', async () => {
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.mocked(tabModule.useTabManager).mockRestore();
+
+    const user = userEvent.setup();
+    __resetTabManagerStoreForTests();
+    useTabManagerStore
+      .getState()
+      .openTab('src/only.ts', 'folderA|@|src/only.ts', 'folderA|@|src/only.ts');
+    useWorkspaceTabSelectionStore.getState().closeApp('context-explorer');
+    useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/only.ts');
+
+    renderWorkspace();
+
+    await user.click(await screen.findByRole('button', { name: /close only\.ts/i }));
+
+    await waitFor(() => {
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({ kind: 'empty' });
+    });
+    expect(await screen.findByTestId('workspace-launcher')).toBeInTheDocument();
+
+    __resetTabManagerStoreForTests();
+  });
+
+  it('"Close All Tabs" overflow action clears every file tab and routes to the first open app', async () => {
     const tabModule = await import('../hooks/use-tab-manager');
     vi.mocked(tabModule.useTabManager).mockRestore();
 
@@ -725,11 +593,7 @@ describe('WorkspaceTabHost', () => {
     store.openTab('src/b.ts', 'folderA|@|src/b.ts', 'folderA|@|src/b.ts');
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/b.ts');
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     await user.click(await screen.findByRole('button', { name: /more tab actions/i }));
     await user.click(await screen.findByRole('menuitem', { name: /close all tabs/i }));
@@ -737,7 +601,6 @@ describe('WorkspaceTabHost', () => {
     await waitFor(() => {
       expect(useTabManagerStore.getState().tabs).toEqual([]);
     });
-    // Workspace selection routes back to Context Explorer when the active tab vanishes.
     await waitFor(() => {
       expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
         appId: 'context-explorer',
@@ -750,11 +613,7 @@ describe('WorkspaceTabHost', () => {
 
   it('"Close All Tabs" is disabled when no file tabs are open', async () => {
     const user = userEvent.setup();
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     await user.click(await screen.findByRole('button', { name: /more tab actions/i }));
     const closeAll = await screen.findByRole('menuitem', { name: /close all tabs/i });
@@ -771,11 +630,7 @@ describe('WorkspaceTabHost', () => {
     store.openTab('src/c.ts', 'folderA|@|src/c.ts', 'folderA|@|src/c.ts');
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/c.ts');
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close' }));
@@ -802,11 +657,7 @@ describe('WorkspaceTabHost', () => {
     store.openTab('src/c.ts', 'folderA|@|src/c.ts', 'folderA|@|src/c.ts');
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/c.ts');
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
@@ -822,13 +673,9 @@ describe('WorkspaceTabHost', () => {
     });
   });
 
-  it('keeps a pinned app selected when Close Others changes background file tabs', async () => {
+  it('keeps an app selected when Close Others changes background file tabs', async () => {
     await openThreeTabsWithDemoAppSelected();
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost extraApps={[DEMO_APP]} />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace([FILES_APP, DEMO_APP]);
 
     fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
@@ -840,13 +687,9 @@ describe('WorkspaceTabHost', () => {
     });
   });
 
-  it('keeps a pinned app selected when closing background file tabs to the right', async () => {
+  it('keeps an app selected when closing background file tabs to the right', async () => {
     await openThreeTabsWithDemoAppSelected();
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost extraApps={[DEMO_APP]} />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace([FILES_APP, DEMO_APP]);
 
     fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close Tabs to the Right' }));
@@ -861,13 +704,9 @@ describe('WorkspaceTabHost', () => {
     });
   });
 
-  it('keeps a pinned app selected when closing all background file tabs', async () => {
+  it('keeps an app selected when closing all background file tabs', async () => {
     await openThreeTabsWithDemoAppSelected();
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost extraApps={[DEMO_APP]} />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace([FILES_APP, DEMO_APP]);
 
     fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Close All Tabs' }));
@@ -881,11 +720,7 @@ describe('WorkspaceTabHost', () => {
 
   it('disables file-tab actions when their claimed target becomes stale', async () => {
     await openThreeTabsWithDemoAppSelected();
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost extraApps={[DEMO_APP]} />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace([FILES_APP, DEMO_APP]);
 
     fireEvent.contextMenu(await screen.findByRole('tab', { name: /b\.ts/i }));
     const close = await screen.findByRole('menuitem', { name: 'Close' });
@@ -896,17 +731,6 @@ describe('WorkspaceTabHost', () => {
     await waitFor(() => {
       expect(close).toHaveAttribute('data-disabled');
     });
-  });
-
-  it('does not invent a context menu for pinned workspace app tabs', async () => {
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
-
-    fireEvent.contextMenu(await screen.findByRole('tab', { name: /context explorer/i }));
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
   it('registers openFileInTab and loads newly opened file content once', async () => {
@@ -946,11 +770,7 @@ describe('WorkspaceTabHost', () => {
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     if (!registeredOpenFile) {
       throw new Error('Expected openFileInTab registration');
@@ -969,21 +789,6 @@ describe('WorkspaceTabHost', () => {
     );
     expect(loadFileContent).toHaveBeenCalledTimes(1);
     expect(loadFileContent).toHaveBeenCalledWith('folderA|@|src/new.ts');
-  });
-
-  it('renders missing app fallback for an unknown persisted app selection', async () => {
-    useWorkspaceTabSelectionStore.getState().selectApp('missing-app');
-
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
-
-    expect(await screen.findByText('App unavailable')).toBeInTheDocument();
-    expect(
-      screen.getByText('No registered workspace app matches the saved selection.')
-    ).toBeInTheDocument();
   });
 
   it('renders permission-required restoration status without auto-loading content', async () => {
@@ -1040,68 +845,11 @@ describe('WorkspaceTabHost', () => {
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     expect(await screen.findByText('File Access Required')).toBeInTheDocument();
     expect(screen.getByText('Permission was denied')).toBeInTheDocument();
     expect(loadFileContent).not.toHaveBeenCalled();
-  });
-
-  it('renders not-found restoration status with the decoded file path', async () => {
-    const compositeKey = 'folderA|@|src/missing.ts';
-    useWorkspaceTabSelectionStore.getState().selectFile(compositeKey);
-    vi.mocked(useTabFileRestoration).mockReturnValue({
-      getStatusMessage: () => 'File disappeared',
-      isRestoring: false,
-      needsUserAction: () => false,
-      requestTabPermission: vi.fn().mockResolvedValue(true),
-      restoreTabs: vi.fn().mockResolvedValue(undefined),
-      tabStatuses: new Map<string, TabFileStatus>([
-        [
-          compositeKey,
-          {
-            compositeKey,
-            error: 'File disappeared',
-            status: 'not-found',
-          },
-        ],
-      ]),
-    });
-
-    const tabModule = await import('../hooks/use-tab-manager');
-    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
-      activeTabId: compositeKey,
-      clearTabs: vi.fn(),
-      closeTab: vi.fn(),
-      openTab: vi.fn(),
-      setActiveTab: vi.fn(),
-      setTabError: vi.fn(),
-      setTabLoading: vi.fn(),
-      tabs: [
-        {
-          compositeKey,
-          content: null,
-          id: compositeKey,
-          isLoading: false,
-          path: 'src/missing.ts',
-        },
-      ],
-      updateTabContent: vi.fn(),
-    });
-
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
-
-    expect(await screen.findByText('File Not Found')).toBeInTheDocument();
-    expect(screen.getByText('src/missing.ts')).toBeInTheDocument();
-    expect(screen.getByText('File disappeared')).toBeInTheDocument();
   });
 
   it('renders inaccessible file content as a browser permission message', async () => {
@@ -1141,25 +889,9 @@ describe('WorkspaceTabHost', () => {
       rootDirectoryHandle: null,
     } as unknown as ReturnType<typeof fileExplorerModule.useFileExplorer>);
 
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost />
-      </FileExplorerTestWrapper>
-    );
+    renderWorkspace();
 
     expect(await screen.findByText(inaccessibleContent)).toBeInTheDocument();
     expect(screen.getByText(/please open the folder again/i)).toBeInTheDocument();
-  });
-
-  it('accepts an extensible apps list — additional pinned apps render in tab order', async () => {
-    render(
-      <FileExplorerTestWrapper>
-        <WorkspaceTabHost extraApps={[DEMO_APP]} />
-      </FileExplorerTestWrapper>
-    );
-
-    const tabs = await screen.findAllByRole('tab');
-    expect(tabs[0]).toHaveAccessibleName(/context explorer/i);
-    expect(tabs[1]).toHaveAccessibleName(/demo app/i);
   });
 });

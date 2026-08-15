@@ -93,7 +93,7 @@ import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-expl
 import { fileEntryActions } from '../../context-actions/file-entry-actions';
 import { MarkdownPreviewCapabilitiesProvider } from '../../contexts/markdown-preview-capabilities';
 import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
-import { FileTabBodyForTesting as FileTabBody } from '../workspace-tab-host';
+import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
 
 const MD_KEY = encodeFileSelection('folder-1', '/root/docs/readme.md');
 const TS_KEY = encodeFileSelection('folder-1', '/root/src/main.ts');

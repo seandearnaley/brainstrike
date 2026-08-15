@@ -434,8 +434,9 @@ Rules:
 - Context triggers must stop before native editable/selection surfaces. Thread
   row menus wrap only the non-editing display (rename inputs keep the native
   edit menu), thread-tab menus wrap only the tab lane (assistant message content
-  keeps its native selection menu), and pinned workspace app tabs are not file
-  targets.
+  keeps its native selection menu), and workspace app tabs are not file
+  targets — as of BST-1258 they are closable singletons with an inline close
+  button (and Delete-key close), deliberately WITHOUT a context menu.
 - Multi-tab actions execute atomically in the owning Zustand store. Preserve a
   selected pinned app while mutating background file tabs; assistant bulk closes
   update open/active/selected maps together and never mutate durable thread

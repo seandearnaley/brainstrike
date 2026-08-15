@@ -24,32 +24,34 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
+  ContextExplorerAppBody: () => (
+    <div data-testid="context-explorer-app-body">Context Explorer App Body</div>
+  ),
   FileExplorerPanel: () => <div data-testid="file-explorer-panel">Panel</div>,
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
-  WorkspaceTabHost: () => <div data-testid="workspace-tab-host">Workspace Tab Host</div>,
 }));
 
 describe('ContextExplorerPageContent', () => {
   it('should render without crashing', () => {
     render(<ContextExplorerPageContent />);
-    expect(screen.getByTestId('workspace-tab-host')).toBeInTheDocument();
+    expect(screen.getByTestId('context-explorer-app-body')).toBeInTheDocument();
   });
 
   it('should set correct page title', () => {
     render(<ContextExplorerPageContent />);
     // Note: In a real test environment, you might want to test the actual title
     // For now, we'll just ensure the component renders
-    expect(screen.getByTestId('workspace-tab-host')).toBeInTheDocument();
+    expect(screen.getByTestId('context-explorer-app-body')).toBeInTheDocument();
   });
 
   it('should render loading fallback when suspended', () => {
     // This test would be more complex in a real scenario with actual Suspense
     render(<ContextExplorerPageContent />);
-    expect(screen.getByTestId('workspace-tab-host')).toBeInTheDocument();
+    expect(screen.getByTestId('context-explorer-app-body')).toBeInTheDocument();
   });
 
   it('should render DesktopFileExplorer component', () => {
     render(<ContextExplorerPageContent />);
-    expect(screen.getByTestId('workspace-tab-host')).toBeInTheDocument();
+    expect(screen.getByTestId('context-explorer-app-body')).toBeInTheDocument();
   });
 });

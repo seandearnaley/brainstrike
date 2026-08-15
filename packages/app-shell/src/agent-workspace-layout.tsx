@@ -6,6 +6,13 @@ export interface AgentWorkspaceLayoutProps {
   readonly assistantContent: ReactNode;
   readonly sidebarContent: ReactNode;
   readonly workspaceContent: ReactNode;
+  /**
+   * Rendered in the workspace panel's HEADER row via IdeLayout's
+   * `headerContent` chrome seam (BST-1258) — the workspace tab strip lives
+   * here, sharing the row with the collapse button. Omit to keep the plain
+   * icon+title header.
+   */
+  readonly workspaceHeaderContent?: ReactNode;
 }
 
 const AGENT_LEFT_PANEL_CHROME = {
@@ -38,6 +45,7 @@ export function AgentWorkspaceLayout({
   sidebarContent,
   assistantContent,
   workspaceContent,
+  workspaceHeaderContent,
 }: AgentWorkspaceLayoutProps): ReactElement {
   return (
     <IdeLayout
@@ -45,7 +53,11 @@ export function AgentWorkspaceLayout({
       leftPanelContent={sidebarContent}
       panelConstraints={AGENT_PANEL_CONSTRAINTS}
       panelIdPrefix="agent-workspace"
-      rightPanelChrome={AGENT_RIGHT_PANEL_CHROME}
+      rightPanelChrome={
+        workspaceHeaderContent
+          ? { ...AGENT_RIGHT_PANEL_CHROME, headerContent: workspaceHeaderContent }
+          : AGENT_RIGHT_PANEL_CHROME
+      }
       rightPanelContent={
         <div className="h-full min-h-0" data-testid="workspace-surface-panel">
           {workspaceContent}

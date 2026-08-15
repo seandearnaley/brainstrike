@@ -22,7 +22,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import { fileEntryActions } from '../../context-actions/file-entry-actions';
 import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
-import { FileTabBodyForTesting as FileTabBody } from '../workspace-tab-host';
+import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
 
 const BINARY_KEY = encodeFileSelection('folder-1', '/root/assets/logo.png');
 const RELATIVE_BINARY_KEY = encodeFileSelection('folder-1', 'assets/logo.png');

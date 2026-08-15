@@ -22,7 +22,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
  * Top-level shell routes selected from the left nav rail. `'changes'` is NOT
  * a member — the Changes surface (BST-1114 smoke-test feedback) lives as a
  * tab INSIDE the workspace panel on the `'explorer'` route instead of its own
- * nav-rail page; see `packages/app-shell/src/workspace-panel-tabs.tsx`.
+ * nav-rail page; it is a workspace app tab (BST-1258, `useWorkspaceTabSelectionStore`).
  */
 export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'notes' | 'browser';
 

@@ -1,3 +1,4 @@
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { Changeset } from '@brainstrike/types';
 import { create } from 'zustand';
 
@@ -63,18 +64,14 @@ import { create } from 'zustand';
  * BST-1161's larger job; this is the smallest honest mechanism using a seam
  * the renderer already has.
  *
- * `activeWorkspacePanelTab`/`changesTabMounted` own WHICH tab of the
- * workspace panel (`workspace-panel-tabs.tsx`) is showing. React Doctor
- * flagged an earlier shape of this fix (BST-1114 smoke feedback,
- * `no-adjust-state-on-prop-change`): `WorkspacePanelTabs` held its own
- * `activeTab` local state and used a `useEffect` watching a bumped
- * `openRequestId` counter to sync it — the classic "adjust state after a
- * prop changes" bug, which paints one stale frame of the previous tab before
- * the effect corrects it. The fix is the same one this store already applied
- * to `activeChangeset` above: ONE owned value, written directly by every
- * event that changes it (`openChangeset` for the external "→ Review" handoff,
- * `setActiveWorkspacePanelTab` for the user's own tab click) instead of one
- * component deriving its state from another's.
+ * WHICH workspace tab is showing no longer lives here (BST-1258): the unified
+ * workspace tab panel owns it in `useWorkspaceTabSelectionStore`
+ * (`@brainstrike/file-explorer-ui`), where Changes and Canvas are closable
+ * singleton app tabs. `openChangeset`/`openCanvasPanel` route activation
+ * through that store's `openApp` — one owned value, written directly by every
+ * event that changes it (the React Doctor `no-adjust-state-on-prop-change`
+ * ruling that shaped the previous `activeWorkspacePanelTab` field carries
+ * over unchanged).
  */
 export interface ChangesHandoffThreadIdentity {
   readonly latestRunId: string;
@@ -91,21 +88,11 @@ export interface ChangesActiveThreadIdentity {
   readonly threadId: string;
 }
 
-/** Which tab of the workspace panel is active — see this file's doc comment. */
-export type WorkspacePanelTab = 'canvas' | 'changes' | 'context-explorer';
-
 export interface ChangesNavigationState {
   /** The changeset the surface is showing, or `null` before anything is picked. */
   readonly activeChangeset: Changeset | null;
   /** The active thread's standing identity — see this file's doc comment. */
   readonly activeThreadIdentity: ChangesActiveThreadIdentity | null;
-  /**
-   * Which workspace-panel tab is currently shown. Defaults to
-   * `'context-explorer'`. Written directly by `setActiveWorkspacePanelTab`
-   * (the user's own click) and by `openChangeset` (an external "→ Review"
-   * handoff) — never derived from a prop inside `WorkspacePanelTabs` itself.
-   */
-  readonly activeWorkspacePanelTab: WorkspacePanelTab;
   /**
    * Monotonic counter the Canvas panel re-queries on (BST-1173). Bumped by
    * `requestCanvasRefresh` when a `manageCanvas` completion crosses the
@@ -113,20 +100,6 @@ export interface ChangesNavigationState {
    * {@link ChangesNavigationState.liveRefreshNonce}.
    */
   readonly canvasRefreshNonce: number;
-  /**
-   * Same sticky mount contract as {@link ChangesNavigationState.changesTabMounted}
-   * for the Canvas tab (BST-1173) — the canvas iframe must not reload on
-   * every tab switch. Sticky: `true` once shown, cleared only by `reset()`.
-   */
-  readonly canvasTabMounted: boolean;
-  /**
-   * Once the Changes tab has been shown at least once, its content stays
-   * mounted (mirrors the old `KeepMountedRoute` contract for the top-level
-   * Changes route this replaced) so switching away and back doesn't lose the
-   * surface's scroll/selection state. Sticky: sets to `true` and never back
-   * to `false` outside of `reset()`.
-   */
-  readonly changesTabMounted: boolean;
   /** Thread/run identity from the most recent `agent-run` handoff, if any. */
   readonly handoffThreadIdentity: ChangesHandoffThreadIdentity | null;
   /** Whether the current selection is "Last Turn" — see this file's doc comment. */
@@ -141,26 +114,25 @@ export interface ChangesNavigationState {
    */
   readonly liveRefreshNonce: number;
   /**
-   * Switch the workspace panel to the Canvas tab. External entry points only
+   * Open + activate the Canvas workspace app tab (BST-1258: routed through
+   * `useWorkspaceTabSelectionStore.openApp`). External entry points only
    * (BST-1173) — e.g. a "canvas updated" affordance near the assistant turn.
    * Same unconditional-write reasoning as {@link ChangesNavigationState.openChangeset}.
    */
   readonly openCanvasPanel: () => void;
   /**
-   * Show `changeset` on the Changes surface AND switch the workspace panel
-   * to the Changes tab. Used ONLY by external entry points — today the
+   * Show `changeset` on the Changes surface AND open/activate the Changes
+   * workspace app tab. Used ONLY by external entry points — today the
    * assistant turn footer's "→ Review" link (BST-1114 smoke feedback:
    * `useChangesReviewValue` in `root-layout-content.tsx`) and the git
    * panel's worktree dropdown (BST-1116 W6, `git-workbench-header.tsx`).
    * Both pair this call with a SHELL-route switch to `explorer` via
    * `usePanelLayoutStore.setActiveTab`, since the workspace panel only
-   * exists on that route; this action owns only the panel-tab half. Sets
-   * `activeWorkspacePanelTab: 'changes'` UNCONDITIONALLY on every call, so a
-   * second "Review" click for the same changeset still re-activates the tab
-   * even if the user had since clicked back to Context Explorer — no
-   * separate "did this already fire" counter needed, because the write is
-   * direct and idempotent-safe (re-setting an already-active tab to the same
-   * value is simply a no-op re-render, not a bug).
+   * exists on that route; this action owns only the panel-tab half. The tab
+   * activation (BST-1258: `useWorkspaceTabSelectionStore.openApp('changes')`)
+   * is UNCONDITIONAL on every call, so a second "Review" click for the same
+   * changeset still re-activates the tab even if the user had since clicked
+   * away — the write is direct and idempotent-safe.
    */
   readonly openChangeset: (changeset: Changeset) => void;
   /** Ask the Canvas panel to re-query because a canvas mutation completed. */
@@ -214,26 +186,21 @@ export interface ChangesNavigationState {
    * (`isOnLastTurn: false`), is never touched.
    */
   readonly setActiveThreadIdentity: (identity: ChangesActiveThreadIdentity | null) => void;
-  /** Switch the workspace panel to `tab`. The user's own tab-click event. */
-  readonly setActiveWorkspacePanelTab: (tab: WorkspacePanelTab) => void;
 }
 
 export const useChangesNavigationStore = create<ChangesNavigationState>((set, get) => ({
   activeChangeset: null,
   activeThreadIdentity: null,
-  activeWorkspacePanelTab: 'context-explorer',
   canvasRefreshNonce: 0,
-  canvasTabMounted: false,
-  changesTabMounted: false,
   handoffThreadIdentity: null,
   isOnLastTurn: false,
   liveRefreshNonce: 0,
   openCanvasPanel: () => {
-    set({ activeWorkspacePanelTab: 'canvas', canvasTabMounted: true });
+    useWorkspaceTabSelectionStore.getState().openApp('canvas');
   },
   openChangeset: (changeset) => {
     get().requestChangeset(changeset);
-    set({ activeWorkspacePanelTab: 'changes', changesTabMounted: true });
+    useWorkspaceTabSelectionStore.getState().openApp('changes');
   },
   requestCanvasRefresh: () =>
     set((state) => ({ canvasRefreshNonce: state.canvasRefreshNonce + 1 })),
@@ -265,10 +232,7 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
     set({
       activeChangeset: null,
       activeThreadIdentity: null,
-      activeWorkspacePanelTab: 'context-explorer',
       canvasRefreshNonce: 0,
-      canvasTabMounted: false,
-      changesTabMounted: false,
       handoffThreadIdentity: null,
       isOnLastTurn: false,
       liveRefreshNonce: 0,
@@ -305,10 +269,4 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
       }
       return { activeThreadIdentity: identity };
     }),
-  setActiveWorkspacePanelTab: (tab) =>
-    set((state) => ({
-      activeWorkspacePanelTab: tab,
-      canvasTabMounted: state.canvasTabMounted || tab === 'canvas',
-      changesTabMounted: state.changesTabMounted || tab === 'changes',
-    })),
 }));

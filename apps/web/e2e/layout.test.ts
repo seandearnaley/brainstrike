@@ -137,11 +137,12 @@ test.describe('Application Layout', () => {
       await togglePanelVisibility(elements.showAgentPanelShim, elements.leftPanel, true);
     });
 
-    test('should render workspace tab host in the main Context Explorer surface', async ({
+    test('should render the Files workspace app surface with its tab in the header strip', async ({
       page,
     }) => {
       await expect(page.getByTestId('workspace-app-tab-context-explorer')).toBeVisible();
-      await expect(page.getByRole('tabpanel', { name: /context explorer/i })).toBeVisible();
+      // BST-1258: the app tab is labeled "Files"; its tabpanel takes that name.
+      await expect(page.getByRole('tabpanel', { name: /files/i })).toBeVisible();
       await expect(page.getByTestId('show-console-panel')).toHaveCount(0);
     });
 

@@ -21,6 +21,8 @@ const APP_STATE_KEYS = [
   'logging-preferences.v1',
   'model-registry-storage',
   'native-tool-preferences.v1',
+  'tab-manager.v1',
+  'workspace-tab-selection.v1',
 ] as const;
 
 const INDEXED_DB_NAMES = ['brainstrike-file-handles'] as const;

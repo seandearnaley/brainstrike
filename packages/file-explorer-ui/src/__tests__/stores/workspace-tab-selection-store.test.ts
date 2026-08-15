@@ -165,6 +165,55 @@ describe('workspace-tab-selection-store', () => {
     });
   });
 
+  describe('mountedAppIds (session keep-alive tracking)', () => {
+    it('seeds with the default selection app', () => {
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual(['context-explorer']);
+    });
+
+    it('grows when an app is activated and never shrinks on close', () => {
+      useWorkspaceTabSelectionStore.getState().openApp('canvas');
+      useWorkspaceTabSelectionStore.getState().closeApp('canvas');
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual([
+        'context-explorer',
+        'canvas',
+      ]);
+    });
+
+    it('is not persisted, but rehydrating an app selection seeds it', async () => {
+      localStorage.setItem(
+        STORE_KEY,
+        JSON.stringify({
+          state: {
+            mountedAppIds: ['changes', 'canvas'],
+            openAppIds: ['canvas'],
+            selection: { appId: 'canvas', kind: 'app' },
+          },
+          version: 2,
+        })
+      );
+      await rehydrate();
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual(['canvas']);
+    });
+
+    it('rehydrating a file selection seeds an empty mounted set', async () => {
+      localStorage.setItem(
+        STORE_KEY,
+        JSON.stringify({
+          state: { openAppIds: ['context-explorer'], selection: { kind: 'file', tabId: 't' } },
+          version: 2,
+        })
+      );
+      await rehydrate();
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual([]);
+    });
+
+    it('reset restores the default mounted set', () => {
+      useWorkspaceTabSelectionStore.getState().openApp('changes');
+      useWorkspaceTabSelectionStore.getState().reset();
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual(['context-explorer']);
+    });
+  });
+
   describe('selectEmpty / reset', () => {
     it('selectEmpty sets the empty selection', () => {
       useWorkspaceTabSelectionStore.getState().selectEmpty();

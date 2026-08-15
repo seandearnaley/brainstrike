@@ -191,7 +191,13 @@ describe('file-explorer-ui index exports', () => {
       ['use-file-system-context.ts', 'shell/use-file-system-context.ts'],
       ['use-selection-manager-context.ts', 'shell/use-selection-manager-context.ts'],
       ['workspace-app.ts', 'shell/workspace-app.ts'],
-      ['workspace-tab-host.tsx', 'shell/workspace-tab-host.tsx'],
+      // BST-1258 split the former workspace-tab-host.tsx into a controller
+      // context, strip, body, launcher, and file-tab-body — all shell-sliced.
+      ['workspace-tabs-context.tsx', 'shell/workspace-tabs-context.tsx'],
+      ['workspace-tab-strip.tsx', 'shell/workspace-tab-strip.tsx'],
+      ['workspace-body.tsx', 'shell/workspace-body.tsx'],
+      ['workspace-launcher.tsx', 'shell/workspace-launcher.tsx'],
+      ['file-tab-body.tsx', 'shell/file-tab-body.tsx'],
     ] as const;
 
     const legacyFiles = shellImplementationMoves
@@ -242,7 +248,9 @@ describe('file-explorer-ui index exports', () => {
 
     expect(shell.FileExplorerProvider).toBe(index.FileExplorerProvider);
     expect(shell.FileExplorerPanel).toBe(index.FileExplorerPanel);
-    expect(shell.WorkspaceTabHost).toBe(index.WorkspaceTabHost);
+    expect(shell.WorkspaceTabsProvider).toBe(index.WorkspaceTabsProvider);
+    expect(shell.WorkspaceTabStrip).toBe(index.WorkspaceTabStrip);
+    expect(shell.WorkspaceBody).toBe(index.WorkspaceBody);
     expect(shell.useFileExplorer).toBe(index.useFileExplorer);
     expect(shell.useFileSystem).toBe(index.useFileSystem);
     expect(shell.useSelectionManager).toBe(index.useSelectionManager);

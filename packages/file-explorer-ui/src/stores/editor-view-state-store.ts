@@ -40,7 +40,7 @@ interface EditorViewStateActions {
   clear: (key?: Key) => void;
   /**
    * Consume the one-shot view target for a key WITHOUT touching scrollTop or
-   * the persisted selection. Callers (e.g. workspace-tab-host's FileTabBody)
+   * the persisted selection. Callers (e.g. the workspace FileTabBody)
    * call this right after the opening render has used the target, so a later
    * remount of the same key (tab switch away/back, close/reopen) reads no target
    * and falls back to the restored scroll position instead of re-applying it.

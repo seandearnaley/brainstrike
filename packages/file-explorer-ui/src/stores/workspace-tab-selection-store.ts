@@ -22,6 +22,14 @@ interface WorkspaceTabSelectionState {
    * then prefer the active FILE tab, which this store cannot see.
    */
   closeApp: (appId: string) => string | null;
+  /**
+   * Apps that have been ACTIVATED at least once this session — the keep-alive
+   * set the workspace body renders hidden-but-mounted (Canvas's sandboxed
+   * iframe and the explorer layout must never remount). Session-only (not
+   * persisted; a rehydrated app selection re-seeds it); grows on activation,
+   * never shrinks on close.
+   */
+  mountedAppIds: readonly string[];
   /** Open (add if missing) AND activate an app tab. Singleton: re-open activates. */
   openApp: (appId: string) => void;
   /**
@@ -142,22 +150,40 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
         });
         return successor;
       },
+      mountedAppIds: DEFAULT_OPEN_APP_IDS,
       openApp: (appId) =>
         set((state) => ({
+          mountedAppIds: state.mountedAppIds.includes(appId)
+            ? state.mountedAppIds
+            : [...state.mountedAppIds, appId],
           openAppIds: state.openAppIds.includes(appId)
             ? state.openAppIds
             : [...state.openAppIds, appId],
           selection: { appId, kind: 'app' },
         })),
       openAppIds: DEFAULT_OPEN_APP_IDS,
-      reset: () => set({ openAppIds: DEFAULT_OPEN_APP_IDS, selection: DEFAULT_SELECTION }),
+      reset: () =>
+        set({
+          mountedAppIds: DEFAULT_OPEN_APP_IDS,
+          openAppIds: DEFAULT_OPEN_APP_IDS,
+          selection: DEFAULT_SELECTION,
+        }),
       selectApp: (appId) => get().openApp(appId),
       selectEmpty: () => set({ selection: { kind: 'empty' } }),
       selectFile: (tabId) => set({ selection: { kind: 'file', tabId } }),
       selection: DEFAULT_SELECTION,
     }),
     {
-      merge: (persisted, current) => ({ ...current, ...coercePersisted(persisted) }),
+      merge: (persisted, current) => {
+        const coerced = coercePersisted(persisted);
+        // mountedAppIds is session-only: seed it from the restored selection so
+        // the restored app renders, and nothing else mounts until activated.
+        return {
+          ...current,
+          ...coerced,
+          mountedAppIds: coerced.selection.kind === 'app' ? [coerced.selection.appId] : [],
+        };
+      },
       migrate: (persisted, fromVersion) => {
         if (fromVersion >= 2) {
           return persisted as PersistedWorkspaceTabState;
@@ -185,6 +211,7 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
 /** Test-only helper to reset store and persisted value between tests. */
 export function __resetWorkspaceTabSelectionStoreForTests(): void {
   useWorkspaceTabSelectionStore.setState({
+    mountedAppIds: DEFAULT_OPEN_APP_IDS,
     openAppIds: DEFAULT_OPEN_APP_IDS,
     selection: DEFAULT_SELECTION,
   });
