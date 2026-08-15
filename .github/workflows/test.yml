@@ -914,17 +914,50 @@ jobs:
   # in 2.5.8) and #2440's formatter drift in file-system's
   # path-validation.test.ts (fixed by #2452).
   #
-  # SCOPE — the three DETERMINISTIC required checks only. `web-e2e` and
-  # `desktop-e2e` are deliberately excluded: those are the documented
-  # flaky-headless class (AGENTS.md), and a canary that cries wolf gets
-  # ignored, which is precisely the failure this job exists to prevent. A red
-  # smoke lane on `main` is not the everyone-trips-over-it breakage class;
-  # persistent E2E breakage is still caught within 24h by the scheduled
+  # SCOPE — the REQUIRED-CHECK line, minus the two flaky lanes. The ruleset
+  # requires exactly Static, Unit, Build, Web E2E and Desktop E2E, so those
+  # five are the only checks that can block every branch, which is the
+  # everyone-trips-over-it breakage class this job targets. `web-e2e` and
+  # `desktop-e2e` are then excluded on a second, separate ground: they are the
+  # documented flaky-headless class (AGENTS.md), and a canary that cries wolf
+  # gets ignored, which is precisely the failure this job exists to prevent.
+  # Persistent E2E breakage is still caught within 24h by the scheduled
   # notifiers in web-e2e.yml / desktop-e2e.yml.
   #
-  # `== 'failure'` and NOT `!= 'success'`: a cancelled or skipped `main` run
-  # carries no verdict about the code and must not open an issue. `main` is
-  # pushed often enough that the next merge produces a real verdict.
+  # `browser-tests`, `native-windows` and `native-electron` also run on pushes
+  # to `main` and are also NOT notified — not on flakiness grounds, but because
+  # none of them is a required check. A red one of those does not block anyone
+  # else's branch, so it is not this job's class of problem. (`browser-tests`
+  # additionally "must first prove itself deterministic" per its own header
+  # before it could ever be a candidate.)
+  #
+  # WHY `!cancelled()` AND NOT `always()` — this is load-bearing, do not
+  # "simplify" it back. `== 'failure'` alone does NOT mean "the code failed",
+  # because neither `static`/`build`'s admission gate nor `unit` is a leaf
+  # verdict:
+  #   * every gated job opens with a "Require successful admission" step that
+  #     `exit 1`s whenever `needs.admission.result != 'success'`, and
+  #   * `unit` is a fan-in whose check is `[ "$SHARD_RESULT" != "success" ] &&
+  #     exit 1` — the very `!= 'success'` shape this condition avoids.
+  # Both therefore LAUNDER a cancelled upstream into a `failure` result. This
+  # is observed, not theoretical: in runs 31903009051, 31900478128 and
+  # 31900226011 (all 2026-08-15) a cancel landed while `admission` was in its
+  # 120-second sleep, `always()` still dispatched the downstream jobs, and
+  # Static, Unit AND Build all reported `failure` on a run that tested nothing.
+  # Under `always()` this job would have filed "main is red: Static, Unit,
+  # Build failed" for a cancellation. `!cancelled()` is the discriminator:
+  # it still runs when a need FAILED (that is the whole point), but never when
+  # the run was cancelled. Those three runs were `pull_request` events that the
+  # push guard would also have caught; the mechanism is not PR-specific, and
+  # relying on the push guard for it would be an accident, not a design.
+  #
+  # Residual, accepted and deliberately NOT suppressed: if `admission` ever
+  # genuinely FAILS on a push (never observed), all three gated jobs report
+  # `failure` and this job files an issue whose body blames the code. That is
+  # loud rather than silent, "Static, Unit and Build all failed at once" is
+  # itself the tell, and the linked run shows the real cause immediately.
+  # Adding an `admission` success gate here would trade a rare wrong-hypothesis
+  # issue for a silent `main` with no verdict at all — the wrong direction.
   #
   # NOT a required status check and NOT a new trigger. See coverage.yml's
   # header for why adding a trigger to this file is a footgun — this job adds
@@ -936,7 +969,7 @@ jobs:
     name: Notify main failure
     needs: [static, unit, build]
     if: >-
-      always() &&
+      !cancelled() &&
       github.event_name == 'push' &&
       (needs.static.result == 'failure' ||
        needs.unit.result == 'failure' ||
@@ -954,11 +987,31 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          gh label create "main-broken" \
+          set -euo pipefail
+
+          # NO `2>/dev/null || true` HERE, unlike the four sibling notifiers.
+          # That idiom swallows the expected "label already exists" AND a real
+          # failure (token not elevated, API 5xx, org label restrictions)
+          # indistinguishably. The label does not exist until the first red
+          # `main`, so a swallowed failure on that very first run means the
+          # next step's `gh issue create --label` hard-fails (gh does not
+          # create missing labels), `set -euo pipefail` aborts, this job goes
+          # red and NOTHING IS FILED — reproducing one level up the exact "red
+          # run sits unseen in the Actions tab" outcome the job exists to
+          # remove. AGENTS.md: no silent fallbacks.
+          #
+          # `--force` removes the need to suppress anything: it PATCHes the
+          # label when it already exists instead of erroring, so a non-zero
+          # exit now means only a genuine failure and is allowed to be fatal,
+          # loudly and at the step that caused it.
+          if ! gh label create "main-broken" \
             --repo "$REPO" \
+            --force \
             --color b60205 \
-            --description "Auto-opened by test.yml when a push to main fails Static, Unit or Build" \
-            2>/dev/null || true
+            --description "Auto-opened by test.yml when a push to main fails Static, Unit or Build"; then
+            echo "::error::Could not ensure the 'main-broken' label exists, so the tracking issue can be neither filed nor de-duplicated. main IS RED — see the run this job belongs to."
+            exit 1
+          fi
 
       - name: Open or update tracking issue
         env:
@@ -995,8 +1048,11 @@ jobs:
           whether a lint/format/toolchain PR landed between the offending PR's
           last green run and its merge.
 
-          This issue stays open while \`main\` is red and gets a new comment on each
-          subsequent failure. Close it once \`main\` is green again."
+          This issue tracks THIS incident only. It gets a new comment on each
+          subsequent failing push, and \`notify-main-recovery\` closes it
+          automatically on the next push where Static, Unit and Build are all
+          green — so the next incident opens a fresh issue with its own title
+          and date instead of being appended to this one."
 
           existing=$(gh issue list --repo "$REPO" \
             --label "main-broken" --state open \
@@ -1009,3 +1065,80 @@ jobs:
               --label "main-broken" \
               --body "$body"
           fi
+
+  # BST-1301, second half: close the loop the label-keyed de-duplication opens.
+  #
+  # `notify-main-failure` above keys de-duplication on an open `main-broken`
+  # issue, which is the same shape the nightly notifiers use — but the
+  # LIFECYCLES DIFFER, and copying the shape without this job would turn the
+  # canary into a stale-issue trap. For `web-e2e`/`nightly-coverage` the
+  # failure recurs on a 24-hour cadence, so the de-duplication window and the
+  # incident window are roughly the same thing. A red `main` is the opposite:
+  # the incident is typically over within the hour (force-fix or revert) while
+  # the issue stays open until a human remembers to close it. Without an
+  # automatic close, incident #2 three weeks later would NOT open an issue —
+  # it would append a comment to a stale issue still titled with incident #1's
+  # failing check and date. It would never surface in triage, and anyone who
+  # unsubscribed from the first incident would hear nothing at all. That is the
+  # canary getting muted: the exact failure the header above argues against for
+  # the E2E lanes.
+  #
+  # So: green `main` closes the issue, and the de-duplication window becomes
+  # the incident window. Push runs on `main` share the concurrency group
+  # `Test-refs/heads/main` with `cancel-in-progress: false`, so they are
+  # serialized and this cannot race the notifier above.
+  #
+  # `!cancelled()` here is belt-and-braces rather than load-bearing (the three
+  # `== 'success'` clauses already cannot hold on a cancelled run), but it
+  # keeps both halves reading the same way. Closing is idempotent: with no open
+  # `main-broken` issue — the overwhelmingly common case, since `main` is
+  # usually green — this job makes one read-only API call and exits.
+  notify-main-recovery:
+    name: Notify main recovery
+    needs: [static, unit, build]
+    if: >-
+      !cancelled() &&
+      github.event_name == 'push' &&
+      needs.static.result == 'success' &&
+      needs.unit.result == 'success' &&
+      needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Close the tracking issue once main is green
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # Deliberately NOT `.[0]`: the notifier keeps at most one open issue,
+          # so a second one means the invariant already broke somewhere. `main`
+          # is green, therefore nothing carrying this label is still true, and
+          # closing every one of them makes the invariant self-healing instead
+          # of leaving a decoy behind. `gh issue list` on a label that does not
+          # exist yet returns an empty list with exit 0 (verified against this
+          # repo with gh 2.97.0), so no label bootstrapping is needed here.
+          open_issues=$(gh issue list --repo "$REPO" \
+            --label "main-broken" --state open \
+            --json number --jq '.[].number')
+
+          if [ -z "$open_issues" ]; then
+            echo "No open main-broken issue; main was already green."
+            exit 0
+          fi
+
+          for number in $open_issues; do
+            echo "Closing #${number}: main is green again."
+            gh issue close "$number" --repo "$REPO" --reason completed \
+              --comment "\`main\` is green again — Static, Unit and Build all passed on ${COMMIT_URL}.
+
+          Run: ${RUN_URL}
+
+          Closed automatically by \`notify-main-recovery\`. The next red push to \`main\` opens a NEW issue with its own title and date rather than commenting here, so this one stays a record of a single incident."
+          done

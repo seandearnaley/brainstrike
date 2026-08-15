@@ -23,8 +23,9 @@ Rules:
 - Full web and desktop E2E regression runs on `schedule` or explicit
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke. A
-  failing static/unit/build verdict there opens a `main-broken` tracking issue
-  — see "A red `main` announces itself" below.
+  failing static/unit/build verdict there opens a `main-broken` tracking issue,
+  and the next all-green push closes it — see "A red `main` announces itself"
+  below.
 
 ### Open PR to Linear conformance (BST-521)
 
@@ -331,32 +332,126 @@ ESLint, TypeScript, or a lint-rule guard script.
 from `static`, `unit` and `build`; when any of them reports `failure` on a
 `push`, it opens (or comments on) a single `main-broken` tracking issue naming
 the failed checks, the commit, the run, and the toolchain-drift hypothesis to
-check first.
+check first. Its sibling `notify-main-recovery` closes that issue on the next
+push where all three are green.
 
-What it deliberately does **not** cover:
+#### The scope line is required-check status, not "important lanes"
 
-- **`Web E2E` / `Desktop E2E`.** Those are the documented flaky-headless class,
-  and a canary that cries wolf gets muted — which is the exact failure this job
-  exists to prevent. Persistent E2E breakage is still caught within 24h by the
-  scheduled notifiers in `web-e2e.yml` / `desktop-e2e.yml`.
-- **Cancelled or skipped runs.** The condition tests `== 'failure'`, never
-  `!= 'success'`: a cancelled run carries no verdict about the code, and `main`
-  is pushed often enough that the next merge produces a real one.
-- **Prevention.** This is detection only. Requiring branches to be up to date
-  before merge would stop a stale-based PR from landing in the first place, but
-  that is a branch-protection setting and therefore the repo owner's call, not
-  a workflow's.
+The ruleset requires exactly **Static, Unit, Build, Web E2E and Desktop E2E**.
+Those five are the only checks that can block *every* branch, which is the
+everyone-trips-over-it breakage class this job targets — so required-check
+status, not perceived importance, is where the line is drawn. The two E2E lanes
+are then excluded on a **second, independent** ground: they are the documented
+flaky-headless class, and a canary that cries wolf gets muted, which is the
+exact failure this job exists to prevent. Persistent E2E breakage is still
+caught within 24h by the scheduled notifiers in `web-e2e.yml` /
+`desktop-e2e.yml`.
 
-Constraints this job respects, and that any change to it must preserve: it adds
-**no new trigger** to `test.yml` (see `coverage.yml`'s header for why a new
-trigger here greys out the merge box), it is **not a required status check**,
-and it stays off the Ubicloud pool, which `ubicloud-runner-contract.test.mjs`
-limits to the five measured jobs. Its two `gh` steps are reporting rather than
-gating, so they are listed in `check-ci-parity.test.mjs`'s
-`PROVISIONING_STEPS` — `pnpm check` must not mirror them, because running them
-locally would file GitHub issues. Contract coverage lives in
+That leaves `Browser tests`, `Native Windows` and `Native Electron Package`,
+which also run on pushes to `main` and are also **not** notified. Not on
+flakiness grounds — `browser-tests` "must first prove itself deterministic"
+per its own header, which makes it *pending*, not excluded — but because none
+of them is a required check. A red one does not block anyone else's branch, so
+it is not this job's class of problem. If any of them is ever promoted into the
+ruleset, it belongs in the notifier's `needs:` at the same time.
+
+#### `== 'failure'` is necessary but NOT sufficient — `!cancelled()` is what makes cancelled runs silent
+
+This was previously documented the other way round, and the claim was wrong.
+`needs.<job>.result == 'failure'` does **not** by itself mean "the code
+failed", because neither watched job is a leaf verdict:
+
+- every admission-gated job (`static`, `build`, `unit-shard`, …) opens with a
+  `Require successful admission` step that `exit 1`s whenever
+  `needs.admission.result != 'success'`; and
+- `unit` is a ~5-minute fan-in over the `unit-shard` matrix whose check is
+  `[ "$SHARD_RESULT" != "success" ] && exit 1` — the very `!= 'success'` shape
+  the notifier's own condition avoids.
+
+Both therefore **launder a cancelled upstream into a `failure` result**. This
+is observed, not theoretical: on runs `31903009051`, `31900478128` and
+`31900226011` (all 2026-08-15) a cancel landed while `admission` was in its
+120-second sleep, `always()` still dispatched the downstream jobs, and Static,
+Unit **and** Build all reported `failure` on a run that tested nothing. Under
+`always()` the notifier would have filed *"main is red: Static, Unit, Build
+failed"* for a cancellation. (Those three were `pull_request` events that the
+push guard would also have caught — but the mechanism is not PR-specific, and
+leaning on the push guard for it would be an accident rather than a design.)
+
+The actual guard is therefore **`if: !cancelled()`**, not `always()`: it still
+runs when a need *failed*, which is the whole point, but never when the run was
+cancelled. `== 'failure'` is retained as the necessary half.
+
+Two related properties worth knowing:
+
+- `unit`'s `!= 'success'` check is **deliberately left alone**. Its shape is a
+  branch-protection contract (`test.yml`'s fan-in comment): anything but
+  success must fail the required `Unit` check *loudly* rather than grey out the
+  merge box. Compensating in the notifier is the change that does not alter
+  what a required check reports.
+- Residual, accepted, and deliberately not suppressed: if `admission` ever
+  genuinely **fails** on a push (never yet observed), all three gated jobs
+  report `failure` and the issue body blames the code. That is loud rather than
+  silent, "all three at once" is itself the tell, and the linked run shows the
+  real cause. Gating the notifier on admission success would trade a rare
+  wrong-hypothesis issue for a silent `main` with no verdict at all.
+
+#### Green `main` closes the issue
+
+Label-keyed de-duplication was copied from the nightly notifiers, but the
+**lifecycles differ**. For `web-e2e` / `nightly-coverage` the failure recurs on
+a 24h cadence and the issue closes when fixed, so the de-duplication window is
+roughly the incident window. A red `main` is the opposite: the incident is
+typically over within the hour (force-fix or revert) while the issue stays open
+until a human closes it.
+
+Left alone, that degrades into a stale-issue trap. Incident #1 leaves an open
+issue titled `main is red: Static failed (2026-08-15)`; incident #2 three weeks
+later — a Build failure, say — would open nothing and instead append a comment
+to that mistitled, wrong-dated issue. It would never surface in triage, and
+anyone who unsubscribed from the first would hear nothing. That is the canary
+getting muted: the same failure mode the E2E exclusion above argues against.
+
+`notify-main-recovery` closes the loop, so the de-duplication window equals the
+incident window and each incident gets its own correctly-titled issue. It
+closes *every* open `main-broken` issue rather than the first, so the
+"at most one open" invariant is self-healing. Push runs on `main` share the
+concurrency group `Test-refs/heads/main` with `cancel-in-progress: false` and
+are therefore serialized, so recovery cannot race the notifier.
+
+#### Prevention is out of scope
+
+This is detection only. Requiring branches to be up to date before merge would
+stop a stale-based PR from landing in the first place, but that is a
+branch-protection setting and therefore the repo owner's call, not a workflow's.
+
+#### Constraints any change must preserve
+
+It adds **no new trigger** to `test.yml` (see `coverage.yml`'s header for why a
+new trigger here greys out the merge box), neither job is a **required status
+check**, and both stay off the Ubicloud pool, which
+`ubicloud-runner-contract.test.mjs` limits to the five measured jobs. The `gh`
+steps are reporting rather than gating, so they are listed in
+`check-ci-parity.test.mjs`'s `PROVISIONING_STEPS` — `pnpm check` must not
+mirror them, because running them locally would file and close GitHub issues.
+
+The label step uses `gh label create --force` and **no** `2>/dev/null || true`,
+unlike the four sibling notifiers. That idiom absorbs the expected "label
+already exists" and a genuine failure (token not elevated, API 5xx, org label
+restrictions) indistinguishably; since the label does not exist until the first
+red `main`, a swallowed failure on that very first run makes the next step's
+`gh issue create --label` hard-fail and nothing gets filed — reproducing the
+"red run sits unseen in the Actions tab" outcome one level up. `--force`
+PATCHes an existing label instead of erroring, so a non-zero exit means only a
+genuine failure and is allowed to be fatal, loudly and at the step that caused
+it.
+
+Contract coverage lives in
 `scripts/__tests__/main-failure-notifier-contract.test.mjs` and runs in the
-Static job through `pnpm test:scripts`.
+Static job through `pnpm test:scripts`. Its control tests pin all four
+properties above: dropping a watched job, reverting `!cancelled()` to
+`always()`, restoring the `|| true` suppression, or deleting the recovery job
+each make the contract fail.
 
 ### Biome pinned at 2.5.8 — the 2.5.3/2.5.4 module-graph panic is fixed (2026-08-15, BST-1273)
 
