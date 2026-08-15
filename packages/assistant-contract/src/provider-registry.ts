@@ -653,6 +653,28 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         vision: 'supported',
       },
       {
+        // Identity, modalities, context extension, mandatory thinking, and
+        // effort levels: official Qwen model card at revision 207bd685,
+        // retrieved 2026-08-15. Route, effective gateway limits, and pricing:
+        // OpenRouter Models API, retrieved 2026-08-15 (BST-1306).
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-2.4t-a95b',
+        label: 'Qwen3.8 2.4T A95B (OpenRouter)',
+        maxOutputTokens: 262_144,
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          // Qwen requires thinking for every interaction. Its official effort
+          // ladder deliberately skips `high`; Auto follows the xhigh default.
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
+      },
+      {
         // Capabilities and limits: official Google model page, last updated
         // 2026-08-13. Route and gateway pricing: OpenRouter Models API,
         // retrieved 2026-08-14 (BST-1265).

@@ -69,6 +69,7 @@ describe('frontier models migrations', () => {
       'inclusionai/ling-3.0-flash:free',
       'poolside/laguna-s-2.1',
       'poolside/laguna-xs-2.1',
+      'qwen/qwen3.8-2.4t-a95b',
       'google/gemini-3.7-flash',
       'google/gemini-3.6-flash',
       'google/gemini-3.5-flash-lite',
@@ -584,5 +585,103 @@ describe('frontier models migrations', () => {
     await runner.down(migrations, 95);
     expect(await readQwen()).toBeUndefined();
     expect(await sortOrderOf('google/gemini-3.7-flash')).toBe(1);
+  });
+
+  it('adds Qwen3.8 2.4T disabled, preserves its toggle, and rolls back faithfully', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations);
+
+    const readRows = async (): Promise<
+      Array<{
+        capabilities: { streaming: boolean; type: string; vision: boolean };
+        id: string;
+        is_enabled: boolean;
+        sort_order: number;
+      }>
+    > => {
+      const result = await db.query<{
+        capabilities: { streaming: boolean; type: string; vision: boolean };
+        id: string;
+        is_enabled: boolean;
+        sort_order: number;
+      }>(`
+        SELECT id, capabilities, is_enabled, sort_order
+        FROM models
+        WHERE provider_id = 'openrouter'
+          AND id IN ('qwen/qwen3.8-2.4t-a95b', 'google/gemini-3.7-flash')
+        ORDER BY sort_order
+      `);
+      return result.rows;
+    };
+
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'qwen/qwen3.8-2.4t-a95b',
+        is_enabled: false,
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'google/gemini-3.7-flash',
+        is_enabled: false,
+        sort_order: 3,
+      },
+    ]);
+
+    await db.query("UPDATE models SET is_enabled = true WHERE id = 'qwen/qwen3.8-2.4t-a95b'");
+    await runner.down(migrations, 95);
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'google/gemini-3.7-flash',
+        is_enabled: false,
+        sort_order: 1,
+      },
+    ]);
+
+    await db.query(`
+      INSERT INTO models
+        (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled)
+      VALUES
+        (
+          'qwen/qwen3.8-2.4t-a95b',
+          'openrouter',
+          'stale name',
+          'stale tagline',
+          '[]',
+          '{"type":"llm","streaming":false,"vision":true}',
+          99,
+          true
+        )
+    `);
+    await runner.up(migrations);
+
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: false },
+        id: 'qwen/qwen3.8-2.4t-a95b',
+        is_enabled: true,
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'google/gemini-3.7-flash',
+        is_enabled: false,
+        sort_order: 3,
+      },
+    ]);
+
+    await runner.down(migrations, 95);
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'google/gemini-3.7-flash',
+        is_enabled: false,
+        sort_order: 1,
+      },
+    ]);
   });
 });
