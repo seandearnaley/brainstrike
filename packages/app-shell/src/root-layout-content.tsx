@@ -12,7 +12,18 @@ import {
 } from '@brainstrike/assistant-ui';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
-import { RootDataDeletionProvider, useFileSystem } from '@brainstrike/file-explorer-ui/shell';
+import {
+  CANVAS_APP_ID,
+  CHANGES_APP_ID,
+  CONTEXT_EXPLORER_APP_ID,
+  RootDataDeletionProvider,
+  useFileSystem,
+  type WorkspaceApp,
+  WorkspaceBody,
+  WorkspaceOpenFileBridge,
+  WorkspaceTabStrip,
+  WorkspaceTabsProvider,
+} from '@brainstrike/file-explorer-ui/shell';
 import { FileTreeProvider } from '@brainstrike/file-explorer-ui/tree';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import/chunking-worker-context';
 import type { QueueAdapter } from '@brainstrike/queue';
@@ -30,6 +41,7 @@ import {
   IndexingActivityCoordinator,
   SearchEmbedderProvider,
 } from '@brainstrike/vector-management';
+import { Files, GitCompare, PanelsTopLeft } from 'lucide-react';
 import {
   memo,
   type ReactElement,
@@ -65,7 +77,6 @@ import { QuickOpenHost } from './quick-open-host';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
-import { WorkspacePanelTabs } from './workspace-panel-tabs';
 // Side-effect: register session-only stores with the factory-reset pipeline.
 import './register-factory-reset-session-stores';
 
@@ -164,12 +175,11 @@ export interface RootLayoutContentProps {
   /**
    * Optional Changes surface (desktop-only). Supplied by the desktop wrapper
    * when the `window.changes` bridge is present; web never constructs it
-   * (capability gating, not an isElectron check). Rendered as a tab INSIDE
-   * the workspace panel, next to Context Explorer (BST-1114 smoke-test
-   * feedback relocation — see `workspace-panel-tabs.tsx`), not as its own
-   * nav-rail page. When absent, no Changes tab trigger renders at all, and
-   * the "→ Review" assistant-turn footer link stays hidden (its provider
-   * binds to this same presence check).
+   * (capability gating, not an isElectron check). Registered as a closable
+   * singleton workspace app tab (BST-1258 unified workspace tab panel), not
+   * as its own nav-rail page. When absent, no Changes tab or launcher card
+   * renders at all, and the "→ Review" assistant-turn footer link stays
+   * hidden (its provider binds to this same presence check).
    */
   readonly changesPageContent?: ReactNode;
   readonly contextExplorerPageContent: ReactNode;
@@ -267,16 +277,15 @@ function KeepMountedRoute({
  * cognitive complexity under the lint budget — the logic itself is a
  * straight capability-presence gate, same shape as `gitPageContent`/etc.
  *
- * The Changes surface now lives as a tab inside the workspace panel
- * (`workspace-panel-tabs.tsx`), not its own top-level route, so opening it
- * from here is two steps: bring the shell back to the `explorer` route (in
- * case the user is on Settings/Git/etc — the workspace panel only exists on
- * that route), and hand the changeset to `openChangeset`, which writes
- * `activeWorkspacePanelTab: 'changes'` directly on the navigation store (see
- * that store action's doc comment for why `openChangeset`, not
- * `requestChangeset`, is the one external callers use, and why the tab lives
- * on the store rather than as local state `WorkspacePanelTabs` would have to
- * derive from a prop).
+ * The Changes surface lives as a closable singleton workspace app tab
+ * (BST-1258 unified workspace tab panel), not its own top-level route, so
+ * opening it from here is two steps: bring the shell back to the `explorer`
+ * route (in case the user is on Settings/Git/etc — the workspace panel only
+ * exists on that route), and hand the changeset to `openChangeset`, which
+ * opens/activates the Changes app tab through
+ * `useWorkspaceTabSelectionStore.openApp` (see that store action's doc
+ * comment for why `openChangeset`, not `requestChangeset`, is the one
+ * external callers use).
  */
 function useChangesReviewValue(
   changesPageContent: ReactNode,
@@ -427,35 +436,24 @@ function ContextExplorerSurface({
       contextExplorerPanelContent ?? <ExplorerSearchTabs loadEmbeddingQueue={loadEmbeddingQueue} />,
     [contextExplorerPanelContent, loadEmbeddingQueue]
   );
-  // Platform-injected markdown preview capabilities (external links, image src
-  // resolution). Detected by the `window.platform` bridge (capability presence,
-  // not isElectron); WorkspaceTabHost consumes this via the nullable hook.
-  const markdownPreviewCapabilities = useMarkdownPreviewCapabilitiesValue();
 
   return (
-    <FileTreeWrapper>
-      {/* The outer shell owns workspace-vs-assistant geometry; this nested provider owns
-          the route-local context explorer panes inside that workspace surface. The
-          editor area itself hosts the Context Explorer app and any open file tabs;
-          there is no longer a south "console" panel. */}
-      <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
-        <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
-          <IdeLayout
-            panelConstraints={CONTEXT_EXPLORER_PANEL_CONSTRAINTS}
-            panelIdPrefix="context-explorer"
-            rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
-            rightPanelContent={resolvedPanelContent}
-          >
-            {/* The ⌘P quick-open host mounts INSIDE IdeLayout so it can reach the
-                file-open seam (IdeFileEditorContext, registered by the tab host).
-                This subtree is always mounted (the explorer route is only toggled
-                hidden), so ⌘P works from any tab. */}
-            <QuickOpenHost />
-            {contextExplorerPageContent}
-          </IdeLayout>
-        </MarkdownPreviewCapabilitiesProvider>
-      </PanelLayoutProvider>
-    </FileTreeWrapper>
+    // The outer shell owns workspace-vs-assistant geometry; this nested provider owns
+    // the route-local context explorer panes inside the Files workspace app (BST-1258).
+    // File tabs no longer render here — they are siblings of this app in the outer
+    // workspace tab panel, so the nested layout INHERITS the outer file-open seam
+    // (a fresh IdeFileEditorContext here would strand the tree's openFileInTab calls).
+    <PanelLayoutProvider controlledState={panelState} onChange={handlePanelLayoutChange}>
+      <IdeLayout
+        inheritFileEditorContext
+        panelConstraints={CONTEXT_EXPLORER_PANEL_CONSTRAINTS}
+        panelIdPrefix="context-explorer"
+        rightPanelChrome={EXPLORER_RIGHT_PANEL_CHROME}
+        rightPanelContent={resolvedPanelContent}
+      >
+        {contextExplorerPageContent}
+      </IdeLayout>
+    </PanelLayoutProvider>
   );
 }
 
@@ -478,51 +476,108 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly preloadDatabaseTabOnMount: boolean;
   readonly visible: boolean;
 }): ReactElement {
+  // Platform-injected markdown preview capabilities (external links, image src
+  // resolution). Detected by the `window.platform` bridge (capability presence,
+  // not isElectron); file tab bodies consume this via the nullable hook. Hoisted
+  // above the whole layout because file bodies now render at the workspace level.
+  const markdownPreviewCapabilities = useMarkdownPreviewCapabilitiesValue();
+
+  // The workspace app registry (BST-1258): canonical display order Files,
+  // Changes, Canvas. Optional surfaces register only when their content prop
+  // exists — capability gating by omission, never a stub (web passes neither).
+  const workspaceApps = useMemo<readonly WorkspaceApp[]>(() => {
+    const apps: WorkspaceApp[] = [
+      {
+        icon: Files,
+        id: CONTEXT_EXPLORER_APP_ID,
+        label: 'Files',
+        render: () => (
+          <ContextExplorerSurface
+            contextExplorerPageContent={contextExplorerPageContent}
+            contextExplorerPanelContent={contextExplorerPanelContent}
+            loadEmbeddingQueue={loadEmbeddingQueue}
+          />
+        ),
+      },
+    ];
+    if (changesPageContent) {
+      apps.push({
+        icon: GitCompare,
+        id: CHANGES_APP_ID,
+        label: 'Changes',
+        render: () => changesPageContent,
+      });
+    }
+    if (canvasPanelContent) {
+      apps.push({
+        icon: PanelsTopLeft,
+        id: CANVAS_APP_ID,
+        label: 'Canvas',
+        render: () => canvasPanelContent,
+      });
+    }
+    return apps;
+  }, [
+    contextExplorerPageContent,
+    contextExplorerPanelContent,
+    loadEmbeddingQueue,
+    changesPageContent,
+    canvasPanelContent,
+  ]);
+
   return (
     <div className="h-full min-h-0" data-testid="explorer-section">
-      <AgentWorkspaceLayout
-        assistantContent={
-          <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
-        }
-        sidebarContent={
-          <AgentSidebarPanel
-            databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-            preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-            promptsContent={(isActive) => (
-              <Suspense
-                fallback={
-                  <div
-                    className="grid h-full place-items-center text-muted-foreground text-xs"
-                    data-testid="prompt-workbench-lazy-fallback"
-                    role="status"
-                  >
-                    Opening Prompt Workbench…
-                  </div>
-                }
-              >
-                <ConnectedPromptManagerLazy
-                  loadEmbeddingQueue={loadEmbeddingQueue}
-                  suggestionsEnabled={visible && isActive}
+      {/* FileTreeWrapper + markdown capabilities wrap the WHOLE layout (not just
+          the Files app) because the tab strip lives in the panel HEADER and file
+          bodies render at the workspace level — both need the file-explorer
+          context from a common ancestor. */}
+      <FileTreeWrapper>
+        <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
+          <WorkspaceTabsProvider apps={workspaceApps}>
+            <AgentWorkspaceLayout
+              assistantContent={
+                <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
+              }
+              sidebarContent={
+                <AgentSidebarPanel
+                  databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                  preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                  promptsContent={(isActive) => (
+                    <Suspense
+                      fallback={
+                        <div
+                          className="grid h-full place-items-center text-muted-foreground text-xs"
+                          data-testid="prompt-workbench-lazy-fallback"
+                          role="status"
+                        >
+                          Opening Prompt Workbench…
+                        </div>
+                      }
+                    >
+                      <ConnectedPromptManagerLazy
+                        loadEmbeddingQueue={loadEmbeddingQueue}
+                        suggestionsEnabled={visible && isActive}
+                      />
+                    </Suspense>
+                  )}
+                  threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
                 />
-              </Suspense>
-            )}
-            threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-          />
-        }
-        workspaceContent={
-          <WorkspacePanelTabs
-            canvasPanelContent={canvasPanelContent}
-            changesPageContent={changesPageContent}
-            contextExplorerContent={
-              <ContextExplorerSurface
-                contextExplorerPageContent={contextExplorerPageContent}
-                contextExplorerPanelContent={contextExplorerPanelContent}
-                loadEmbeddingQueue={loadEmbeddingQueue}
-              />
-            }
-          />
-        }
-      />
+              }
+              workspaceContent={
+                <>
+                  {/* ⌘P quick-open + the open-file registration both mount INSIDE
+                      the outer IdeLayout so they reach its IdeFileEditorContext;
+                      the nested explorer layout inherits the same seam. */}
+                  <QuickOpenHost />
+                  <WorkspaceOpenFileBridge />
+                  <WorkspaceBody />
+                </>
+              }
+              workspaceHeaderContent={<WorkspaceTabStrip />}
+            />
+          </WorkspaceTabsProvider>
+        </MarkdownPreviewCapabilitiesProvider>
+      </FileTreeWrapper>
     </div>
   );
 });

@@ -1,3 +1,7 @@
+import {
+  __resetWorkspaceTabSelectionStoreForTests,
+  useWorkspaceTabSelectionStore,
+} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { Changeset } from '@brainstrike/types';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useChangesNavigationStore } from '../changes-navigation-store';
@@ -16,18 +20,15 @@ describe('useChangesNavigationStore', () => {
     useChangesNavigationStore.setState({
       activeChangeset: null,
       activeThreadIdentity: null,
-      activeWorkspacePanelTab: 'context-explorer',
-      changesTabMounted: false,
       handoffThreadIdentity: null,
       isOnLastTurn: false,
     });
+    __resetWorkspaceTabSelectionStoreForTests();
   });
 
-  it('starts with nothing selected and Context Explorer active', () => {
+  it('starts with nothing selected', () => {
     expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
     expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
-    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
-    expect(useChangesNavigationStore.getState().changesTabMounted).toBe(false);
   });
 
   it('makes a requested changeset the active one', () => {
@@ -36,12 +37,12 @@ describe('useChangesNavigationStore', () => {
     expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
   });
 
-  it('does NOT switch the workspace-panel tab on a plain requestChangeset call', () => {
+  it('does NOT open the Changes workspace tab on a plain requestChangeset call', () => {
     // The surface's own internal source picker calls this while already
     // visible — there is nothing to switch to.
     useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
 
-    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+    expect(useWorkspaceTabSelectionStore.getState().openAppIds).not.toContain('changes');
   });
 
   it('records the thread identity an agent-run handoff carried', () => {
@@ -94,17 +95,14 @@ describe('useChangesNavigationStore', () => {
     expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
   });
 
-  it('reset() clears the active changeset, handoff identity, and workspace-panel tab', () => {
+  it('reset() clears the active changeset and handoff identity', () => {
     useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
     expect(useChangesNavigationStore.getState().activeChangeset).not.toBeNull();
-    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
 
     useChangesNavigationStore.getState().reset();
 
     expect(useChangesNavigationStore.getState().activeChangeset).toBeNull();
     expect(useChangesNavigationStore.getState().handoffThreadIdentity).toBeNull();
-    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
-    expect(useChangesNavigationStore.getState().changesTabMounted).toBe(false);
   });
 
   it('reset() also clears the standing active-thread identity and the "on Last Turn" flag', () => {
@@ -264,43 +262,39 @@ describe('useChangesNavigationStore', () => {
       });
     });
 
-    it('switches the workspace-panel tab to "changes" and marks it mounted, unlike a plain requestChangeset call', () => {
+    it('opens and activates the Changes workspace app tab, unlike a plain requestChangeset call', () => {
       useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
 
-      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
-      expect(useChangesNavigationStore.getState().changesTabMounted).toBe(true);
+      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toContain('changes');
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        appId: 'changes',
+        kind: 'app',
+      });
     });
 
-    it('re-activates the "changes" tab on a second click for the SAME changeset, even after the user switched away', () => {
+    it('re-activates the Changes tab on a second click for the SAME changeset, even after the user switched away', () => {
       useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
-      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('context-explorer');
-      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+      useWorkspaceTabSelectionStore.getState().selectApp('context-explorer');
 
       useChangesNavigationStore.getState().openChangeset(AGENT_RUN);
 
-      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        appId: 'changes',
+        kind: 'app',
+      });
       expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
     });
   });
 
-  describe('setActiveWorkspacePanelTab', () => {
-    it('switches tabs without touching the active changeset', () => {
-      useChangesNavigationStore.getState().requestChangeset(AGENT_RUN);
+  describe('openCanvasPanel', () => {
+    it('opens and activates the Canvas workspace app tab', () => {
+      useChangesNavigationStore.getState().openCanvasPanel();
 
-      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('changes');
-
-      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
-      expect(useChangesNavigationStore.getState().activeChangeset).toEqual(AGENT_RUN);
-    });
-
-    it('marks changesTabMounted sticky — it does not revert to false when switching back', () => {
-      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('changes');
-      expect(useChangesNavigationStore.getState().changesTabMounted).toBe(true);
-
-      useChangesNavigationStore.getState().setActiveWorkspacePanelTab('context-explorer');
-
-      expect(useChangesNavigationStore.getState().changesTabMounted).toBe(true);
-      expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('context-explorer');
+      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toContain('canvas');
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        appId: 'canvas',
+        kind: 'app',
+      });
     });
   });
 

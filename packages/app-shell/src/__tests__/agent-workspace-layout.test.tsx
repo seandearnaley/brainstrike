@@ -64,4 +64,36 @@ describe('AgentWorkspaceLayout', () => {
       rightPanelMinSize: '15%',
     });
   });
+
+  it('threads workspaceHeaderContent into the right panel chrome as headerContent', () => {
+    render(
+      <AgentWorkspaceLayout
+        assistantContent={<div>Assistant</div>}
+        sidebarContent={<div>Library</div>}
+        workspaceContent={<div>Workspace</div>}
+        workspaceHeaderContent={<div data-testid="strip">Strip</div>}
+      />
+    );
+
+    const props = ideLayoutProps.at(-1) as {
+      rightPanelChrome: { headerContent?: ReactNode; title: string };
+    };
+    expect(props.rightPanelChrome.title).toBe('Workspace');
+    expect(props.rightPanelChrome.headerContent).toBeTruthy();
+  });
+
+  it('omits headerContent from the right panel chrome when no strip is provided', () => {
+    render(
+      <AgentWorkspaceLayout
+        assistantContent={<div>Assistant</div>}
+        sidebarContent={<div>Library</div>}
+        workspaceContent={<div>Workspace</div>}
+      />
+    );
+
+    const props = ideLayoutProps.at(-1) as {
+      rightPanelChrome: { headerContent?: ReactNode };
+    };
+    expect(props.rightPanelChrome.headerContent).toBeUndefined();
+  });
 });

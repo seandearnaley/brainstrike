@@ -1,4 +1,4 @@
-import { WorkspaceTabHost } from '@brainstrike/file-explorer-ui/shell';
+import { ContextExplorerAppBody } from '@brainstrike/file-explorer-ui/shell';
 import { Suspense } from 'react';
 import { Helmet } from 'react-helmet-async';
 
@@ -18,7 +18,7 @@ export default function ContextExplorerPageContent() {
       <Suspense
         fallback={<div className="flex h-full items-center justify-center">Loading...</div>}
       >
-        <WorkspaceTabHost className="h-full" />
+        <ContextExplorerAppBody />
       </Suspense>
     </>
   );

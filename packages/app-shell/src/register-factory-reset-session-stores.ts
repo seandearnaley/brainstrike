@@ -4,7 +4,9 @@ import { resetContextUsageStore } from '@brainstrike/assistant-ui/context-usage-
 import { resetFollowUpQueueStore } from '@brainstrike/assistant-ui/follow-up-queue-store';
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
 import { resetDatabaseDemoStoreToDefault } from '@brainstrike/db-explorer/database-demo-store';
+import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/workspace-context-curation-store';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { resetNotesVaultSessionState } from '@brainstrike/notes-vault/store-reset';
 import { useChunkSelectionStore } from '@brainstrike/workspace-search/chunk-selection-store';
 import { useWorkspaceSearchStore } from '@brainstrike/workspace-search/workspace-search-store';
@@ -52,6 +54,15 @@ registerFactoryResetSessionStore(() => {
 
 registerFactoryResetSessionStore(() => {
   useWorkspaceContextCurationStore.getState().reset();
+});
+
+registerFactoryResetSessionStore(() => {
+  // BST-1258 unified workspace tabs. Both stores PERSIST (localStorage is
+  // cleared by the blanket wipe), but the LIVE instances must reset too or a
+  // reset-without-reload on web resurrects the open tab set on the next
+  // persist write — the resetDatabaseDemoStoreToDefault bug class.
+  useWorkspaceTabSelectionStore.getState().reset();
+  useTabManagerStore.getState().clearTabs();
 });
 
 registerFactoryResetSessionStore(() => {

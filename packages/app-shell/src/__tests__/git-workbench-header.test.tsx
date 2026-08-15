@@ -15,6 +15,10 @@
  * so assertions read actual store state rather than a spy.
  */
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import {
+  __resetWorkspaceTabSelectionStoreForTests,
+  useWorkspaceTabSelectionStore,
+} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { GitInventory, WorktreeDescriptor } from '@brainstrike/types';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -162,10 +166,9 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
     usePanelLayoutStore.setState({ activeTab: 'git' });
     useChangesNavigationStore.setState({
       activeChangeset: null,
-      activeWorkspacePanelTab: 'context-explorer',
-      changesTabMounted: false,
       handoffThreadIdentity: null,
     });
+    __resetWorkspaceTabSelectionStoreForTests();
   });
 
   it('navigates a validated in-root worktree to its scoped Changes surface and switches to the explorer route', async () => {
@@ -184,7 +187,10 @@ describe('GitWorkbenchHeader worktree dropdown', () => {
       scope: { kind: 'uncommitted' },
       worktreePath: '/abs/repo',
     });
-    expect(useChangesNavigationStore.getState().activeWorkspacePanelTab).toBe('changes');
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      appId: 'changes',
+      kind: 'app',
+    });
     expect(usePanelLayoutStore.getState().activeTab).toBe('explorer');
   });
 

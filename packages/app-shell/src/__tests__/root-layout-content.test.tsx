@@ -3,7 +3,7 @@ import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-
 import type { QueueAdapter } from '@brainstrike/queue';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { PanelLayoutState } from '@brainstrike/ui';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type React from 'react';
 import { useState } from 'react';
@@ -24,16 +24,48 @@ vi.mock('@brainstrike/file-explorer-hooks', async () => {
   };
 });
 
+interface CapturedWorkspaceApp {
+  readonly id: string;
+  readonly label: string;
+  readonly render: () => React.ReactNode;
+}
+let capturedWorkspaceApps: readonly CapturedWorkspaceApp[] = [];
+
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
+  CANVAS_APP_ID: 'canvas',
+  CHANGES_APP_ID: 'changes',
+  CONTEXT_EXPLORER_APP_ID: 'context-explorer',
+  ContextExplorerAppBody: () => <div data-testid="context-explorer-app-body" />,
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
   RootDataDeletionProvider: ({ children }: { children: React.ReactNode }) => children,
   useFileSystem: () => ({
     rootDirectoryHandle: null,
   }),
-  WorkspaceTabHost: ({ className }: { className?: string }) => (
-    <div className={className} data-testid="workspace-tab-host" />
+  // The real strip/body/provider are exercised in file-explorer-ui's own
+  // suite; here we only assert the REGISTRY the shell passes down and that
+  // each app body renders through the workspace body slot.
+  WorkspaceBody: () => (
+    <div data-testid="workspace-body-stub">
+      {capturedWorkspaceApps.map((app) => (
+        <div data-app-id={app.id} key={app.id}>
+          {app.render()}
+        </div>
+      ))}
+    </div>
   ),
+  WorkspaceOpenFileBridge: () => null,
+  WorkspaceTabStrip: () => <div data-testid="workspace-tab-strip-stub" />,
+  WorkspaceTabsProvider: ({
+    apps,
+    children,
+  }: {
+    apps: readonly CapturedWorkspaceApp[];
+    children: React.ReactNode;
+  }) => {
+    capturedWorkspaceApps = apps;
+    return <>{children}</>;
+  },
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
@@ -78,6 +110,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       children,
       leftPanelContent,
       rightPanelContent,
+      rightPanelChrome,
       consoleContent,
       panelConstraints,
       panelIdPrefix,
@@ -85,6 +118,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       children: React.ReactNode;
       leftPanelContent?: React.ReactNode;
       rightPanelContent?: React.ReactNode;
+      rightPanelChrome?: { headerContent?: React.ReactNode };
       consoleContent?: React.ReactNode;
       panelConstraints?: { mainContentMinSize?: string; rightPanelMinSize?: string };
       panelIdPrefix?: string;
@@ -92,6 +126,9 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       mockHandlers.ideLayoutProps.push({ panelConstraints, panelIdPrefix });
       return (
         <div data-testid="ide-layout">
+          {rightPanelChrome?.headerContent ? (
+            <div data-testid="ide-right-panel-header-slot">{rightPanelChrome.headerContent}</div>
+          ) : null}
           {leftPanelContent}
           {children}
           {rightPanelContent}
@@ -654,58 +691,42 @@ describe('RootLayoutContent', () => {
     expect(clearTimeoutSpy).toHaveBeenCalled();
   });
 
-  it('renders Changes as a tab inside the workspace panel, not a nav-rail route, and switches to it on click', () => {
+  it('registers Changes as a workspace app (not a nav-rail route) when changesPageContent is present', () => {
     renderComponent({ changesPageContent: <div data-testid="changes-page">Changes</div> });
 
-    // No nav-rail item and no top-level KeepMountedRoute for Changes anymore
-    // (BST-1114 smoke-feedback relocation) — it lives inside the workspace
-    // panel's own tab strip instead.
+    // No nav-rail item and no top-level KeepMountedRoute for Changes —
+    // it registers as a workspace app tab (BST-1258).
     expect(screen.queryByTestId('changes-route')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('changes-page')).not.toBeInTheDocument();
-
-    const changesTab = screen.getByRole('tab', { name: 'Changes' });
-    expect(changesTab).toHaveAttribute('data-state', 'inactive');
-
-    act(() => {
-      fireEvent.mouseDown(changesTab, { button: 0, ctrlKey: false });
-    });
-
-    expect(changesTab).toHaveAttribute('data-state', 'active');
+    expect(capturedWorkspaceApps.map((app) => app.id)).toEqual(['context-explorer', 'changes']);
+    // The registry renders each app body through the workspace body slot.
     expect(screen.getByTestId('changes-page')).toBeInTheDocument();
-    // The explorer route itself is still the active shell route — the
-    // workspace panel's inner tab switched, not the outer shell.
-    expect(screen.getByTestId('explorer-route')).not.toHaveClass('hidden');
   });
 
-  it('keeps the workspace-panel Changes tab mounted but hidden after switching back to Context Explorer', () => {
-    renderComponent({ changesPageContent: <div data-testid="changes-page">Changes</div> });
-
-    act(() => {
-      fireEvent.mouseDown(screen.getByRole('tab', { name: 'Changes' }), {
-        button: 0,
-        ctrlKey: false,
-      });
-    });
-    act(() => {
-      fireEvent.mouseDown(screen.getByRole('tab', { name: 'Context Explorer' }), {
-        button: 0,
-        ctrlKey: false,
-      });
+  it('registers the full desktop registry in canonical order with the Files label', () => {
+    renderComponent({
+      canvasPanelContent: <div data-testid="canvas-page">Canvas</div>,
+      changesPageContent: <div data-testid="changes-page">Changes</div>,
     });
 
-    expect(screen.getByTestId('changes-page')).toBeInTheDocument();
-    expect(screen.getByTestId('changes-page')).not.toBeVisible();
-    expect(screen.getByTestId('context-explorer-page')).toBeVisible();
+    expect(capturedWorkspaceApps.map((app) => app.id)).toEqual([
+      'context-explorer',
+      'changes',
+      'canvas',
+    ]);
+    expect(capturedWorkspaceApps.map((app) => app.label)).toEqual(['Files', 'Changes', 'Canvas']);
+    expect(screen.getByTestId('canvas-page')).toBeInTheDocument();
+    // The Files app body is the nested explorer surface (still hosting the
+    // contextExplorerPageContent the app wrappers pass in).
+    expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
+    // The strip renders in the panel header slot (workspaceHeaderContent).
+    expect(screen.getByTestId('workspace-tab-strip-stub')).toBeInTheDocument();
   });
 
-  it('renders no Changes tab trigger at all when changesPageContent is absent (capability gate)', () => {
+  it('registers only the Files app when optional surfaces are absent (capability gate)', () => {
     renderComponent();
 
-    expect(screen.queryByRole('tab', { name: 'Changes' })).not.toBeInTheDocument();
-    // No workspace-panel tab chrome at all for a single-tab surface — this is
-    // distinct from ExplorerSearchTabs' own "Explorer"/"Search" tablist,
-    // which still renders (unrelated tab strip, one level deeper).
-    expect(screen.queryByTestId('workspace-panel-tabs-list')).not.toBeInTheDocument();
-    expect(screen.getByTestId('context-explorer-page')).toBeVisible();
+    expect(capturedWorkspaceApps.map((app) => app.id)).toEqual(['context-explorer']);
+    expect(capturedWorkspaceApps[0]?.label).toBe('Files');
+    expect(screen.getByTestId('context-explorer-page')).toBeInTheDocument();
   });
 });

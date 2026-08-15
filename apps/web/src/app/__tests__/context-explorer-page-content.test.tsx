@@ -6,8 +6,10 @@ import ContextExplorerPageContent from '../context-explorer-page-content';
 // Mock the file explorer components
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   __esModule: true,
+  ContextExplorerAppBody: () => (
+    <div data-testid="context-explorer-app-body">Context Explorer App Body</div>
+  ),
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
-  WorkspaceTabHost: () => <div data-testid="workspace-tab-host">Workspace Tab Host</div>,
 }));
 
 // Mock the adapters
@@ -39,13 +41,13 @@ vi.mock('@brainstrike/storage', () => ({
 }));
 
 describe('ContextExplorerPageContent', () => {
-  it('renders the WorkspaceTabHost', () => {
+  it('renders the ContextExplorerAppBody', () => {
     const { getByTestId } = render(
       <HelmetProvider>
         <ContextExplorerPageContent />
       </HelmetProvider>
     );
 
-    expect(getByTestId('workspace-tab-host')).toBeInTheDocument();
+    expect(getByTestId('context-explorer-app-body')).toBeInTheDocument();
   });
 });

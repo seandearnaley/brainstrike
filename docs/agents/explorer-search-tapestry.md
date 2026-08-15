@@ -44,7 +44,8 @@ The Explorer|Search panel (`packages/workspace-search`, composed by
   where `target = { line; selection? }` (match rows pass `{ line }`; chunk rows
   ALSO pass `selection: { startLine, endLine }`) → controller
   `openFileInTab(compositeKey, { line, selection? })` (ide-layout seam) →
-  `workspace-tab-host` records a one-shot view target (transient, non-persisted
+  the workspace tabs controller (`workspace-tabs-context.tsx`, BST-1258)
+  records a one-shot view target (transient, non-persisted
   `targets` slice of `editor-view-state-store`) → `CodeSurface` `initialLine`
   scrolls to the match, and `initialSelection` scrolls to AND selects the chunk's
   full line range (a real read-only CodeMirror selection, so the block is

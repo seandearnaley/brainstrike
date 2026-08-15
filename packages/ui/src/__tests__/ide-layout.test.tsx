@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import * as panelPersistence from '../hooks/use-panel-persistence';
@@ -332,6 +332,108 @@ describe('IdeLayout', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open registered file' }));
 
     expect(openFile).toHaveBeenCalledWith('workspace:file.ts');
+  });
+
+  it('renders rightPanelChrome.headerContent in the right panel header, replacing the title but keeping the collapse button', () => {
+    render(
+      <IdeLayout
+        rightPanelChrome={{
+          headerContent: <div data-testid="custom-header-strip">strip</div>,
+          hideButtonTestId: 'hide-x-panel',
+          title: 'ShouldNotRender',
+        }}
+        rightPanelContent={rightContent}
+      >
+        <div>Main Content</div>
+      </IdeLayout>
+    );
+
+    const header = screen.getByTestId('right-panel-header');
+    expect(within(header).getByTestId('custom-header-strip')).toBeInTheDocument();
+    expect(within(header).queryByText('ShouldNotRender')).not.toBeInTheDocument();
+    expect(within(header).getByTestId('hide-x-panel')).toBeInTheDocument();
+  });
+
+  it('keeps the icon+title header when headerContent is absent', () => {
+    render(
+      <IdeLayout rightPanelChrome={{ title: 'Workspace' }} rightPanelContent={rightContent}>
+        <div>Main Content</div>
+      </IdeLayout>
+    );
+
+    expect(
+      within(screen.getByTestId('right-panel-header')).getByText('Workspace')
+    ).toBeInTheDocument();
+  });
+
+  it('inheritFileEditorContext reuses the parent layout file-open seam across a nested IdeLayout', () => {
+    const opened: string[] = [];
+
+    function OuterRegister() {
+      const { registerOpenFileInTab } = useIdeFileEditor();
+      useEffect(() => {
+        registerOpenFileInTab((key) => {
+          opened.push(key);
+        });
+      }, [registerOpenFileInTab]);
+      return null;
+    }
+
+    function InnerOpener() {
+      const { openFileInTab } = useIdeFileEditor();
+      return (
+        <button onClick={() => openFileInTab?.('k1')} type="button">
+          open inner
+        </button>
+      );
+    }
+
+    render(
+      <IdeLayout>
+        <OuterRegister />
+        <IdeLayout inheritFileEditorContext>
+          <InnerOpener />
+        </IdeLayout>
+      </IdeLayout>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'open inner' }));
+    expect(opened).toEqual(['k1']);
+  });
+
+  it('a nested IdeLayout WITHOUT inheritFileEditorContext shadows the parent seam (regression guard)', () => {
+    const opened: string[] = [];
+
+    function OuterRegister() {
+      const { registerOpenFileInTab } = useIdeFileEditor();
+      useEffect(() => {
+        registerOpenFileInTab((key) => {
+          opened.push(key);
+        });
+      }, [registerOpenFileInTab]);
+      return null;
+    }
+
+    function InnerOpener() {
+      const { openFileInTab } = useIdeFileEditor();
+      return (
+        <button onClick={() => openFileInTab?.('k2')} type="button">
+          open shadowed
+        </button>
+      );
+    }
+
+    render(
+      <IdeLayout>
+        <OuterRegister />
+        <IdeLayout>
+          <InnerOpener />
+        </IdeLayout>
+      </IdeLayout>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'open shadowed' }));
+    expect(opened).toEqual([]);
   });
 
   it('routes panel changes through controlled provider state', () => {
