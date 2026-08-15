@@ -1342,11 +1342,16 @@ export function WorkspaceCollectionSyncProvider({
   // The callback therefore reads the live values through render-synced refs
   // and keys on the SET identity alone (sorted root ids).
   const rootDirectoryHandleRef = useRef(rootDirectoryHandle);
-  rootDirectoryHandleRef.current = rootDirectoryHandle;
   const rootDirectoryHandlesRef = useRef(rootDirectoryHandles);
-  rootDirectoryHandlesRef.current = rootDirectoryHandles;
   const rootIdByPathRef = useRef(rootIdByPath);
-  rootIdByPathRef.current = rootIdByPath;
+  // Effect-synced (not render-synced): every consumer is post-render (event
+  // listeners, async sync loops, effects declared BELOW this one), so the
+  // commit-time sync keeps them fresh without a render-phase ref write.
+  useEffect(() => {
+    rootDirectoryHandleRef.current = rootDirectoryHandle;
+    rootDirectoryHandlesRef.current = rootDirectoryHandles;
+    rootIdByPathRef.current = rootIdByPath;
+  });
   const rootSetKey = useMemo(
     () =>
       rootDirectoryHandles

@@ -56,7 +56,11 @@ export function useThreadWorkspaceCoordinator({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchIntentRef = useRef(0);
   const facadeRef = useRef(facade);
-  facadeRef.current = facade;
+  // FIRST effect on purpose: later effects in this hook read facadeRef, and
+  // same-commit effect order is declaration order.
+  useEffect(() => {
+    facadeRef.current = facade;
+  });
 
   // ---- Debounced continuous save for the active thread ----
   useEffect(() => {

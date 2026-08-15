@@ -100,7 +100,9 @@ export function useWrapperRewindWiring({
   // while active.
   const isActiveThread = useActiveAssistantThreadId() === threadId && threadId !== undefined;
   const isActiveThreadRef = useRef(isActiveThread);
-  isActiveThreadRef.current = isActiveThread;
+  useEffect(() => {
+    isActiveThreadRef.current = isActiveThread;
+  });
   useEffect(() => {
     if (!(isActiveThread && threadId)) {
       return;
