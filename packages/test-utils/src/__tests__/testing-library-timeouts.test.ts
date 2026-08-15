@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { getConfig } from '@testing-library/dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ASYNC_UTIL_TIMEOUT, getAsyncUtilTimeout } from '../test-timeouts.js';
@@ -122,12 +124,21 @@ describe('async-utility timeout wiring', () => {
       // unscalable 1s default, which is how BST-1299 went unnoticed. Locally
       // (multiplier 1) the ambient assertion above cannot see that, because
       // the scaled budget and the library default coincide — this one can.
-      process.env['TEST_TIMEOUT_MULTIPLIER'] = '4';
-      vi.resetModules();
+      //
+      // STATIC on purpose. vitest.setup.ts is not a pure module: re-evaluating
+      // it here would attach its beforeEach(resetStore)/afterEach(cleanup)
+      // hooks to the root suite for every test that follows, re-run
+      // expect.extend, re-apply its DOM polyfills, and double-wrap
+      // globalThis.fetch (the `nativeFetch` capture would bind the already
+      // wrapped one). The test above already proves the timeouts module works
+      // when re-evaluated; all that is left to check is that vitest.setup
+      // reaches it, and that is a fact about the source text.
+      // A plain path, not `new URL(..., import.meta.url)`: this lane runs on
+      // happy-dom, whose global `URL` is not node:fs's `URL`, so readFile
+      // rejects it with "The URL must be of scheme file".
+      const source = await readFile(join(import.meta.dirname, '..', 'vitest.setup.ts'), 'utf8');
 
-      await import('../vitest.setup.js');
-
-      expect(getConfig().asyncUtilTimeout).toBe(4000);
+      expect(source).toMatch(/^import '\.\/vitest\.timeouts\.setup\.js';$/m);
     });
   });
 });

@@ -9,6 +9,11 @@ const browserProject = createBrowserProject({
   // does not exist and @testing-library/dom would otherwise sit on its
   // unscalable 1s waitFor default (BST-1299).
   asyncUtilTimeout: getAsyncUtilTimeout(),
+  // Owned by the caller, not defaulted inside @brainstrike/config: that
+  // package is `tooling` and cannot depend on @brainstrike/test-utils, and a
+  // factory default would be silently droppable by the `...browserProject.test`
+  // spread below.
+  setupFiles: ['@brainstrike/test-utils/vitest.browser.setup'],
   testPattern: 'src/**/*.browser.test.{ts,tsx}',
 });
 
@@ -108,6 +113,12 @@ export default defineConfig({
         optimizeDeps: {
           include: [
             '@tanstack/react-virtual',
+            // The browser setup file imports @testing-library/dom DIRECTLY, a
+            // specifier no suite here writes. Listed so it is pre-bundled with
+            // (not discovered after, and re-optimized alongside) the copy
+            // @testing-library/react resolves — a split there would apply the
+            // async-util budget to an instance no `waitFor` reads.
+            '@testing-library/dom',
             '@testing-library/jest-dom/vitest',
             '@testing-library/react',
             'react',

@@ -50,6 +50,28 @@ export interface BrowserProjectConfig extends BrowserTestConfig {
    * before BST-1299.
    */
   asyncUtilTimeout: number;
+  /**
+   * Vitest setup files for the browser project. MUST include a setup file that
+   * applies `asyncUtilTimeout` inside the page — in this repo that is
+   * '@brainstrike/test-utils/vitest.browser.setup'.
+   *
+   * Caller-resolved for the same boundary reason as `asyncUtilTimeout`: a
+   * hard-coded '@brainstrike/test-utils/…' string here would be a real
+   * dependency from `tooling` onto a workspace package, merely invisible to
+   * the domain-boundary contract because it is not an `import`.
+   * @brainstrike/config does not declare that package, and a future browser
+   * project whose own manifest does not either would fail to resolve a
+   * specifier it never wrote.
+   *
+   * Required, never defaulted, and never merged with a hidden entry: consumers
+   * spread `...browserProject.test` into their own project object, so a
+   * factory-supplied default could be silently dropped by a later `setupFiles`
+   * key — reinstating the unscalable 1s budget without a word. Owning the whole
+   * list means a caller can only lose the wiring by deleting its own argument;
+   * the per-lane timing proof (`async-util-timeout-wiring.browser.test.ts`) is
+   * what catches it if they do.
+   */
+  setupFiles: readonly string[];
 }
 
 /**
@@ -233,6 +255,32 @@ export function createPlaywrightOptions(config?: BrowserTestConfig): PlaywrightP
 const TEST_TIMEOUT_PER_ASYNC_UTIL_BUDGET = 5;
 
 /**
+ * Validates the caller-owned setup-file list and returns a mutable copy, so a
+ * consumer that appends to `browserProject.test.setupFiles` cannot mutate the
+ * array it passed in.
+ *
+ * An empty list is rejected rather than accepted as "this lane wants none":
+ * the async-utility budget can only be applied from a setup file, so a browser
+ * project without one is by construction back on @testing-library/dom's
+ * unscalable 1s default — the BST-1299 defect.
+ */
+function resolveSetupFiles(setupFiles: readonly string[]): string[] {
+  if (
+    !(Array.isArray(setupFiles) && setupFiles.every((file) => typeof file === 'string' && file))
+  ) {
+    throw new TypeError(
+      `createBrowserProject requires setupFiles to be an array of non-empty specifiers, received ${JSON.stringify(setupFiles)}. Pass ['@brainstrike/test-utils/vitest.browser.setup'].`
+    );
+  }
+  if (setupFiles.length === 0) {
+    throw new RangeError(
+      "createBrowserProject requires at least one setup file: asyncUtilTimeout can only be applied from inside the page, so a browser project with no setup file silently keeps @testing-library/dom's 1s default. Pass ['@brainstrike/test-utils/vitest.browser.setup']."
+    );
+  }
+  return [...setupFiles];
+}
+
+/**
  * Creates a browser test project configuration for Vitest 4
  *
  * @example
@@ -251,7 +299,10 @@ const TEST_TIMEOUT_PER_ASYNC_UTIL_BUDGET = 5;
  *           include: ['**\/*.test.ts'],
  *         },
  *       },
- *       createBrowserProject({ asyncUtilTimeout: getAsyncUtilTimeout() }),
+ *       createBrowserProject({
+ *         asyncUtilTimeout: getAsyncUtilTimeout(),
+ *         setupFiles: ['@brainstrike/test-utils/vitest.browser.setup'],
+ *       }),
  *     ],
  *   },
  * });
@@ -272,6 +323,7 @@ export function createBrowserProject(config: BrowserProjectConfig) {
       `createBrowserProject requires a positive asyncUtilTimeout in milliseconds, received ${JSON.stringify(asyncUtilTimeout)}. Pass getAsyncUtilTimeout() from @brainstrike/test-utils.`
     );
   }
+  const setupFiles = resolveSetupFiles(config.setupFiles);
 
   return {
     test: {
@@ -301,7 +353,7 @@ export function createBrowserProject(config: BrowserProjectConfig) {
       // published beside `test` (a Vite-level `define`, say) would be dropped
       // without a word.
       provide: { asyncUtilTimeout },
-      setupFiles: ['@brainstrike/test-utils/vitest.browser.setup'],
+      setupFiles,
       testTimeout: asyncUtilTimeout * TEST_TIMEOUT_PER_ASYNC_UTIL_BUDGET,
     },
   };

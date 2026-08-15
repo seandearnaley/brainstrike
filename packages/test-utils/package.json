@@ -31,6 +31,7 @@
     "./vitest.browser.setup": "./src/vitest.browser.setup.ts",
     "./vitest.timeouts.setup": "./src/vitest.timeouts.setup.ts",
     "./vitest-provided-context": "./src/vitest-provided-context.ts",
+    "./async-util-timeout-proof": "./src/async-util-timeout-proof.ts",
     "./test-timeouts": "./src/test-timeouts.ts",
     "./vitest.base": {
       "types": "./dist/vitest.base.d.ts",

@@ -30,6 +30,11 @@ const browserProject = createBrowserProject({
   headless: isCI,
   isCI,
   launchArgs: isCI ? [...WEBGPU_CI_LAUNCH_ARGS] : undefined,
+  // Owned by the caller, not defaulted inside @brainstrike/config: that
+  // package is `tooling` and cannot depend on @brainstrike/test-utils, and a
+  // factory default would be silently droppable by the `...browserProject.test`
+  // spread below.
+  setupFiles: ['@brainstrike/test-utils/vitest.browser.setup'],
   testPattern: 'test/**/*.browser.test.{ts,tsx}',
 });
 

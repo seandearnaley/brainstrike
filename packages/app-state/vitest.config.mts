@@ -34,7 +34,12 @@ export default defineConfig({
     globals: true,
     maxWorkers: process.env['CI'] ? '50%' : '100%',
     pool: 'threads',
-    setupFiles: [],
+    // Hook-free: applies TEST_TIMEOUT_MULTIPLIER to @testing-library/dom's
+    // waitFor/findBy budget and nothing else (BST-1299). This lane opts out
+    // of the shared vitest.setup (which registers beforeEach/afterEach
+    // hooks), but its suites still use waitFor and would otherwise sit on
+    // the library's unscalable 1s default.
+    setupFiles: ['@brainstrike/test-utils/vitest.timeouts.setup'],
     testTimeout: 15_000,
   },
 });

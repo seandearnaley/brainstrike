@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { playwright as playwrightProvider } from '@vitest/browser-playwright';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  type BrowserProjectConfig,
   bindTraceChunkNameBounding,
   boundTraceChunkName,
   createBrowserProject,
@@ -12,6 +13,14 @@ import {
 } from '../src/vitest-browser';
 
 const byteLength = (value: string): number => new TextEncoder().encode(value).length;
+
+/**
+ * The setup-file list every browser project must now own (BST-1299). Passed
+ * explicitly at each call site because `setupFiles` is required: the factory
+ * deliberately has no default for a consumer's `...browserProject.test` spread
+ * to drop silently.
+ */
+const SETUP_FILES = ['@brainstrike/test-utils/vitest.browser.setup'];
 
 const ENV_KEYS = ['CI', 'DEBUG', 'GITHUB_ACTIONS', 'TEST_TIMEOUT_MULTIPLIER'] as const;
 const originalEnv: Record<(typeof ENV_KEYS)[number], string | undefined> = {
@@ -96,6 +105,7 @@ describe('createBrowserProject', () => {
     const project = createBrowserProject({
       asyncUtilTimeout: 1000,
       isCI: false,
+      setupFiles: SETUP_FILES,
     });
 
     expect(project.test.name).toBe('browser');
@@ -114,6 +124,7 @@ describe('createBrowserProject', () => {
       headless: false,
       isCI: true,
       launchArgs: ['--custom-browser-arg'],
+      setupFiles: SETUP_FILES,
       testPattern: 'src/**/*.browser.test.ts',
       trace: 'on-first-retry',
       traceOutputDir: '.trace-output',
@@ -127,7 +138,11 @@ describe('createBrowserProject', () => {
   });
 
   it('defaults trace mode to retain-on-failure when CI is true', () => {
-    const project = createBrowserProject({ asyncUtilTimeout: 1000, isCI: true });
+    const project = createBrowserProject({
+      asyncUtilTimeout: 1000,
+      isCI: true,
+      setupFiles: SETUP_FILES,
+    });
     expect(project.test.browser.trace).toBe('retain-on-failure');
   });
 
@@ -135,7 +150,7 @@ describe('createBrowserProject', () => {
     Reflect.deleteProperty(process.env, 'CI');
     process.env['GITHUB_ACTIONS'] = 'true';
 
-    const project = createBrowserProject({ asyncUtilTimeout: 1000 });
+    const project = createBrowserProject({ asyncUtilTimeout: 1000, setupFiles: SETUP_FILES });
     expect(project.test.browser.trace).toBe('retain-on-failure');
   });
 
@@ -287,7 +302,11 @@ describe('createBrowserProject trace name bounding', () => {
       config: { browser: { name: 'chromium' } },
     };
 
-    const project = createBrowserProject({ asyncUtilTimeout: 1000, isCI: true });
+    const project = createBrowserProject({
+      asyncUtilTimeout: 1000,
+      isCI: true,
+      setupFiles: SETUP_FILES,
+    });
     const provider = project.test.browser.provider.providerFactory(fakeProject as never);
 
     expect(provider).toBeDefined();
@@ -303,20 +322,64 @@ describe('createBrowserProject trace name bounding', () => {
 });
 
 describe('createBrowserProject async-utility timeout wiring (BST-1299)', () => {
-  it('loads the browser setup file that applies the budget', () => {
+  it('loads exactly the setup files the caller owns', () => {
     // The shared Node setup imports node:buffer and cannot run in a page, so
-    // before this the browser lane had no setup file at all — and therefore no
-    // way to call @testing-library/dom's configure(), the library's only entry
-    // point for asyncUtilTimeout.
-    expect(createBrowserProject({ asyncUtilTimeout: 1000 }).test.setupFiles).toEqual([
-      '@brainstrike/test-utils/vitest.browser.setup',
-    ]);
+    // before BST-1299 the browser lane had no setup file at all — and therefore
+    // no way to call @testing-library/dom's configure(), the library's only
+    // entry point for asyncUtilTimeout.
+    //
+    // The list passes through verbatim: @brainstrike/config is `tooling` and
+    // does not depend on @brainstrike/test-utils, so that specifier is the
+    // caller's to write — the same boundary that makes asyncUtilTimeout
+    // caller-resolved.
+    const setupFiles = [...SETUP_FILES, './extra-setup.ts'];
+
+    expect(createBrowserProject({ asyncUtilTimeout: 1000, setupFiles }).test.setupFiles).toEqual(
+      setupFiles
+    );
+  });
+
+  it('copies the list so a consumer appending to it cannot mutate the caller', () => {
+    const setupFiles = [...SETUP_FILES];
+    const project = createBrowserProject({ asyncUtilTimeout: 1000, setupFiles });
+
+    project.test.setupFiles.push('./late-addition.ts');
+
+    expect(setupFiles).toEqual(SETUP_FILES);
+  });
+
+  it.each([
+    ['a missing list', undefined],
+    ['a bare specifier', '@brainstrike/test-utils/vitest.browser.setup'],
+    ['an empty specifier', ['']],
+    ['a non-string entry', [42]],
+  ])('refuses %s instead of substituting a default', (_label, setupFiles) => {
+    // No default exists to substitute, deliberately: a factory-supplied entry
+    // would be dropped without a word by a consumer writing
+    // `{ ...browserProject.test, setupFiles: ['./mine.ts'] }`, putting the lane
+    // back on the unscalable 1s budget — the BST-1299 defect reintroduced.
+    expect(() =>
+      createBrowserProject({
+        asyncUtilTimeout: 1000,
+        setupFiles,
+      } as unknown as BrowserProjectConfig)
+    ).toThrow(TypeError);
+  });
+
+  it('refuses an empty setup-file list', () => {
+    // asyncUtilTimeout can only be applied from inside the page, so a browser
+    // project with no setup file at all is unscalable by construction.
+    expect(() => createBrowserProject({ asyncUtilTimeout: 1000, setupFiles: [] })).toThrow(
+      RangeError
+    );
   });
 
   it('publishes the caller-resolved budget over test.provide', () => {
     // Verbatim: the caller has already applied TEST_TIMEOUT_MULTIPLIER, and
     // re-deriving or clamping it here would make the knob a suggestion.
-    expect(createBrowserProject({ asyncUtilTimeout: 2000 }).test.provide).toEqual({
+    expect(
+      createBrowserProject({ asyncUtilTimeout: 2000, setupFiles: SETUP_FILES }).test.provide
+    ).toEqual({
       asyncUtilTimeout: 2000,
     });
   });
@@ -324,15 +387,19 @@ describe('createBrowserProject async-utility timeout wiring (BST-1299)', () => {
   it('derives the project test timeout from the budget it was given', () => {
     // 1000 x 5 = 5000 reproduces Vitest's default exactly, so an unscaled lane
     // behaves as it did before this wiring existed.
-    expect(createBrowserProject({ asyncUtilTimeout: 1000 }).test.testTimeout).toBe(5000);
-    expect(createBrowserProject({ asyncUtilTimeout: 2000 }).test.testTimeout).toBe(10_000);
+    expect(
+      createBrowserProject({ asyncUtilTimeout: 1000, setupFiles: SETUP_FILES }).test.testTimeout
+    ).toBe(5000);
+    expect(
+      createBrowserProject({ asyncUtilTimeout: 2000, setupFiles: SETUP_FILES }).test.testTimeout
+    ).toBe(10_000);
   });
 
   it('keeps asyncUtilTimeout under testTimeout for every budget', () => {
     // Otherwise Vitest's timeout fires first and swallows waitFor's report of
     // the last assertion that failed.
     for (const asyncUtilTimeout of [500, 1000, 2000, 5000, 10_000]) {
-      const project = createBrowserProject({ asyncUtilTimeout }).test;
+      const project = createBrowserProject({ asyncUtilTimeout, setupFiles: SETUP_FILES }).test;
       expect(project.provide.asyncUtilTimeout).toBeLessThan(project.testTimeout);
     }
   });
@@ -341,17 +408,21 @@ describe('createBrowserProject async-utility timeout wiring (BST-1299)', () => {
     // ui / assistant-ui / embedding-worker all spread `...browserProject.test`
     // into their own project object; anything published beside `test` would be
     // dropped without a word.
-    const spreadByConsumers = { ...createBrowserProject({ asyncUtilTimeout: 1000 }).test };
+    const spreadByConsumers = {
+      ...createBrowserProject({ asyncUtilTimeout: 1000, setupFiles: SETUP_FILES }).test,
+    };
 
     expect(spreadByConsumers.provide).toEqual({ asyncUtilTimeout: 1000 });
-    expect(spreadByConsumers.setupFiles).toEqual(['@brainstrike/test-utils/vitest.browser.setup']);
+    expect(spreadByConsumers.setupFiles).toEqual(SETUP_FILES);
     expect(spreadByConsumers.testTimeout).toBe(5000);
   });
 
   it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
     'refuses the unusable budget %p instead of substituting a default',
     (asyncUtilTimeout) => {
-      expect(() => createBrowserProject({ asyncUtilTimeout })).toThrow(RangeError);
+      expect(() => createBrowserProject({ asyncUtilTimeout, setupFiles: SETUP_FILES })).toThrow(
+        RangeError
+      );
     }
   );
 });
