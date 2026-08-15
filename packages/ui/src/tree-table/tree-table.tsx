@@ -793,6 +793,7 @@ export function TreeTable<T>({
   columnSizes,
   onColumnSizesChange,
   scrollParentRef,
+  treeTableRef,
 }: TreeTableProps<T>) {
   const tableAriaRole = resolveTableAriaRole(ariaRole);
   const parentRef = React.useRef<HTMLDivElement>(null);
@@ -1134,6 +1135,8 @@ export function TreeTable<T>({
       scrollParentRef,
     ]
   );
+
+  React.useImperativeHandle(treeTableRef, () => ({ revealNode: scrollToNode }), [scrollToNode]);
 
   // `displayedRows` is intentionally included so this runs after page-slice DOM updates.
   React.useEffect(() => {
