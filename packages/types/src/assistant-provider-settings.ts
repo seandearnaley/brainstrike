@@ -30,9 +30,14 @@ export type OpenAiReasoningEffort =
   | 'max';
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 /**
- * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.8).
+ * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39).
  * `xhigh`/`max` are real wire values — omitting them made the picker offer a
  * strictly narrower range than the provider accepts.
+ *
+ * The provider ships this as a zod schema it never exports as a value, so the
+ * union is retyped by hand. It is no longer only a comment:
+ * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs` compares this
+ * declaration — and the version named above — against the installed package.
  */
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';

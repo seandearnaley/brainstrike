@@ -291,17 +291,19 @@ export interface OpenRouterProviderOptions extends JSONObject {
   };
 }
 
-/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.8). */
+/** Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39). */
 export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.8). `display` governs whether reasoning is
+ * `@ai-sdk/anthropic` (4.0.39). `display` governs whether reasoning is
  * RETURNED and defaults to `omitted` provider-side, so it must be asked for.
  * Kept in step with the identical declaration in
  * `@brainstrike/assistant-contract` — this package is what actually hands
  * `providerOptions` to the SDK, so a narrower type here would silently fail
- * to represent what the app sends.
+ * to represent what the app sends. Both this copy and that one are compared
+ * against the installed provider by
+ * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
  */
 export type AnthropicThinkingOptions =
   | { type: 'adaptive'; display?: 'omitted' | 'summarized' }
