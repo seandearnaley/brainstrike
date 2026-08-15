@@ -125,6 +125,7 @@ describe('frontier model refresh (2026-07)', () => {
           'inclusionai/ling-3.0-flash:free',
           'poolside/laguna-s-2.1',
           'poolside/laguna-xs-2.1',
+          'google/gemini-3.7-flash',
           'google/gemini-3.6-flash',
           'google/gemini-3.5-flash-lite',
           'meituan/longcat-2.0',
@@ -239,6 +240,27 @@ describe('frontier model refresh (2026-07)', () => {
           mandatory: true,
           supportedEfforts: ['high', 'medium', 'low'],
         },
+        vision: 'supported',
+      });
+    });
+
+    it('declares Gemini 3.7 Flash from vendor capabilities and gateway metadata', () => {
+      const gemini = getLlmModelDefinition('openrouter', 'google/gemini-3.7-flash');
+
+      expect(gemini).toEqual({
+        contextWindow: 1_048_576,
+        id: 'google/gemini-3.7-flash',
+        label: 'Gemini 3.7 Flash (OpenRouter)',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.375, outputPerMTok: 1.875 },
+        reasoning: {
+          defaultEffort: 'medium',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['high', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
         vision: 'supported',
       });
     });

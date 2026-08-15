@@ -92,6 +92,7 @@ import { migration090CompactionSummaryRunUsageKind } from './090-compaction-summ
 import { migration091TokenEstimateCalibrationPromptBaseline } from './091-token-estimate-calibration-prompt-baseline.js';
 import { migration092ToolCallTelemetrySubstrateSplit } from './092-tool-call-telemetry-substrate-split.js';
 import { migration093AssistantRunTreatments } from './093-assistant-run-treatments.js';
+import { migration094OpenRouterGemini37Flash } from './094-openrouter-gemini-3-7-flash.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -190,6 +191,7 @@ export const migrations: Migration[] = [
   migration091TokenEstimateCalibrationPromptBaseline,
   migration092ToolCallTelemetrySubstrateSplit,
   migration093AssistantRunTreatments,
+  migration094OpenRouterGemini37Flash,
 ];
 
 // Export base migrations (without chunks table) for test environments

@@ -83,6 +83,7 @@ import { migration090CompactionSummaryRunUsageKind } from '../migrations/090-com
 import { migration091TokenEstimateCalibrationPromptBaseline } from '../migrations/091-token-estimate-calibration-prompt-baseline.js';
 import { migration092ToolCallTelemetrySubstrateSplit } from '../migrations/092-tool-call-telemetry-substrate-split.js';
 import { migration093AssistantRunTreatments } from '../migrations/093-assistant-run-treatments.js';
+import { migration094OpenRouterGemini37Flash } from '../migrations/094-openrouter-gemini-3-7-flash.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -304,6 +305,7 @@ const customMigrations: Migration[] = [
     migration092ToolCallTelemetrySubstrateSplit
   ),
   customMigration('custom-093-assistant-run-treatments', migration093AssistantRunTreatments),
+  customMigration('custom-094-openrouter-gemini-3-7-flash', migration094OpenRouterGemini37Flash),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

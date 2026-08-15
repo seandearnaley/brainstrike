@@ -68,6 +68,7 @@ describe('frontier models migrations', () => {
       'inclusionai/ling-3.0-flash:free',
       'poolside/laguna-s-2.1',
       'poolside/laguna-xs-2.1',
+      'google/gemini-3.7-flash',
       'google/gemini-3.6-flash',
       'google/gemini-3.5-flash-lite',
       'meituan/longcat-2.0',
@@ -414,7 +415,7 @@ describe('frontier models migrations', () => {
     await runner.up(migrations.filter((migration) => migration.version <= 71));
     await db.query("UPDATE models SET is_enabled = true WHERE id = 'meta/muse-spark-1.1'");
 
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 72));
 
     const rows = await db.query<{
       capabilities: { vision?: boolean };
@@ -442,5 +443,69 @@ describe('frontier models migrations', () => {
         sort_order: 11,
       },
     ]);
+  });
+
+  it('adds Gemini 3.7 Flash disabled, preserves its toggle, and rolls back faithfully', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations.filter((migration) => migration.version <= 94));
+
+    const readGemini = async (): Promise<
+      | {
+          capabilities: { streaming: boolean; type: string; vision: boolean };
+          is_enabled: boolean;
+          sort_order: number;
+        }
+      | undefined
+    > => {
+      const result = await db.query<{
+        capabilities: { streaming: boolean; type: string; vision: boolean };
+        is_enabled: boolean;
+        sort_order: number;
+      }>(`
+        SELECT capabilities, is_enabled, sort_order
+        FROM models
+        WHERE provider_id = 'openrouter'
+          AND id = 'google/gemini-3.7-flash'
+      `);
+      return result.rows[0];
+    };
+
+    expect(await readGemini()).toEqual({
+      capabilities: { streaming: true, type: 'llm', vision: true },
+      is_enabled: false,
+      sort_order: 1,
+    });
+
+    await db.query("UPDATE models SET is_enabled = true WHERE id = 'google/gemini-3.7-flash'");
+    await runner.down(migrations, 93);
+    expect(await readGemini()).toBeUndefined();
+
+    await db.query(`
+      INSERT INTO models
+        (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled)
+      VALUES
+        (
+          'google/gemini-3.7-flash',
+          'openrouter',
+          'stale name',
+          'stale tagline',
+          '[]',
+          '{"type":"llm","streaming":false,"vision":false}',
+          99,
+          true
+        )
+    `);
+    await runner.up(migrations.filter((migration) => migration.version <= 94));
+
+    expect(await readGemini()).toEqual({
+      capabilities: { streaming: true, type: 'llm', vision: true },
+      is_enabled: true,
+      sort_order: 1,
+    });
+
+    await runner.down(migrations, 93);
+    expect(await readGemini()).toBeUndefined();
   });
 });
