@@ -137,4 +137,29 @@ test.describe('Unified workspace tab panel', () => {
     );
     expect(scrollbarWidth.trim()).toBe('none');
   });
+
+  test("the '+' menu lists only registered apps and re-activates the singleton (BST-1270)", async ({
+    page,
+  }) => {
+    const addButton = page.getByTestId('workspace-add-tab');
+    await expect(addButton).toBeVisible();
+    await addButton.click();
+
+    // Web registers Files only — capability gating by omission, so no
+    // Changes/Canvas/Terminal items and no disabled stubs.
+    const menu = page.getByRole('menu');
+    await expect(menu.getByRole('menuitem', { name: /Files/ })).toBeVisible();
+    await expect(menu.getByRole('menuitem')).toHaveCount(1);
+
+    await menu.getByRole('menuitem', { name: /Files/ }).click();
+    await expect(page.getByTestId('workspace-app-tab-context-explorer')).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+
+    // Singleton: picking Files again re-activates the SAME tab, never a second.
+    await addButton.click();
+    await page.getByRole('menu').getByRole('menuitem', { name: /Files/ }).click();
+    await expect(page.getByTestId('workspace-app-tab-context-explorer')).toHaveCount(1);
+  });
 });

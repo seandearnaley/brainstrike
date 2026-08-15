@@ -301,12 +301,13 @@ describe('RootLayoutContent', () => {
     expect(screen.queryByTestId('terminal-page-slot')).not.toBeInTheDocument();
   });
 
-  it('surfaces the Terminal nav item + mounts the terminal page when window.terminal is available', () => {
+  it('passes the terminal surface WITHOUT a nav item when window.terminal is available (BST-1270)', () => {
+    // Terminal became a workspace app: the desktop still constructs the
+    // surface (capability-gated), but the sidebar nav no longer lists it —
+    // the workspace "+" menu / ⌘T own the entry points now.
     terminalBridgeAvailableMock.mockReturnValue(true);
     render(<RootLayoutContent />);
-    const terminalNavItem = screen.getByTestId('nav-item-/terminal');
-    expect(terminalNavItem).toBeInTheDocument();
-    expect(terminalNavItem).toHaveTextContent('Terminal');
+    expect(screen.queryByTestId('nav-item-/terminal')).not.toBeInTheDocument();
     const terminalSlot = screen.getByTestId('terminal-page-slot');
     expect(terminalSlot).toBeInTheDocument();
     expect(within(terminalSlot).getByTestId('terminal-page-content')).toBeInTheDocument();

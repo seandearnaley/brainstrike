@@ -14,9 +14,6 @@ import {
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import {
-  CANVAS_APP_ID,
-  CHANGES_APP_ID,
-  CONTEXT_EXPLORER_APP_ID,
   RootDataDeletionProvider,
   useFileSystem,
   type WorkspaceApp,
@@ -42,7 +39,6 @@ import {
   IndexingActivityCoordinator,
   SearchEmbedderProvider,
 } from '@brainstrike/vector-management';
-import { Files, GitCompare, PanelsTopLeft } from 'lucide-react';
 import {
   memo,
   type ReactElement,
@@ -62,6 +58,7 @@ import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { AssistantChatPanel } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
+import { buildWorkspaceApps } from './build-workspace-apps';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useRewindStore } from './changes/rewind-store';
 import { RewindConfirmDialogLazy } from './changes/ui/rewind-confirm-dialog-lazy';
@@ -219,8 +216,9 @@ export interface RootLayoutContentProps {
   /**
    * Optional Terminal surface (desktop-only). Supplied by the desktop wrapper
    * when the `window.terminal` bridge is present; web never constructs it
-   * (capability gating, not an isElectron check). When absent, no Terminal nav
-   * item is rendered.
+   * (capability gating, not an isElectron check). Registered as a closable
+   * singleton workspace app tab (BST-1270); when absent, no Terminal tab,
+   * launcher card, or "+"-menu entry renders at all.
    */
   readonly terminalPageContent?: ReactNode;
 }
@@ -230,7 +228,10 @@ const NAV_PATH_TO_TAB: Record<string, PanelTab> = {
   '/git': 'git',
   '/notes': 'notes',
   '/settings': 'settings',
-  '/terminal': 'terminal',
+  // '/terminal' intentionally absent (BST-1270): Terminal is a workspace app
+  // now. activeTab is SESSION-ONLY (panel-layout-store partializes it away)
+  // and no call site can produce 'terminal' anymore; the PanelTab member is
+  // kept only to avoid churning its consumers — removing it is safe follow-up.
 };
 
 function resolveActiveTabForPath(path: string): PanelTab {
@@ -467,6 +468,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   loadEmbeddingQueue,
   loadLocalLlmBackend,
   preloadDatabaseTabOnMount,
+  terminalPageContent,
   visible,
 }: {
   readonly canvasPanelContent?: ReactNode;
@@ -476,6 +478,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
   readonly preloadDatabaseTabOnMount: boolean;
+  readonly terminalPageContent?: ReactNode;
   readonly visible: boolean;
 }): ReactElement {
   // Platform-injected markdown preview capabilities (external links, image src
@@ -484,48 +487,32 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
   // above the whole layout because file bodies now render at the workspace level.
   const markdownPreviewCapabilities = useMarkdownPreviewCapabilitiesValue();
 
-  // The workspace app registry (BST-1258): canonical display order Files,
-  // Changes, Canvas. Optional surfaces register only when their content prop
-  // exists — capability gating by omission, never a stub (web passes neither).
-  const workspaceApps = useMemo<readonly WorkspaceApp[]>(() => {
-    const apps: WorkspaceApp[] = [
-      {
-        icon: Files,
-        id: CONTEXT_EXPLORER_APP_ID,
-        label: 'Files',
-        render: () => (
+  // The workspace app registry (BST-1258; Terminal joined as a workspace app
+  // in BST-1270, replacing its nav route). Construction is the pure
+  // buildWorkspaceApps helper — capability gating by omission.
+  const workspaceApps = useMemo<readonly WorkspaceApp[]>(
+    () =>
+      buildWorkspaceApps({
+        ...(canvasPanelContent ? { canvasPanelContent } : {}),
+        ...(changesPageContent ? { changesPageContent } : {}),
+        filesContent: (
           <ContextExplorerSurface
             contextExplorerPageContent={contextExplorerPageContent}
             contextExplorerPanelContent={contextExplorerPanelContent}
             loadEmbeddingQueue={loadEmbeddingQueue}
           />
         ),
-      },
-    ];
-    if (changesPageContent) {
-      apps.push({
-        icon: GitCompare,
-        id: CHANGES_APP_ID,
-        label: 'Changes',
-        render: () => changesPageContent,
-      });
-    }
-    if (canvasPanelContent) {
-      apps.push({
-        icon: PanelsTopLeft,
-        id: CANVAS_APP_ID,
-        label: 'Canvas',
-        render: () => canvasPanelContent,
-      });
-    }
-    return apps;
-  }, [
-    contextExplorerPageContent,
-    contextExplorerPanelContent,
-    loadEmbeddingQueue,
-    changesPageContent,
-    canvasPanelContent,
-  ]);
+        ...(terminalPageContent ? { terminalPageContent } : {}),
+      }),
+    [
+      contextExplorerPageContent,
+      contextExplorerPanelContent,
+      loadEmbeddingQueue,
+      changesPageContent,
+      canvasPanelContent,
+      terminalPageContent,
+    ]
+  );
 
   return (
     <div className="h-full min-h-0" data-testid="explorer-section">
@@ -711,7 +698,7 @@ export function RootLayoutContent({
       {/* Binds the assistant turn footer's "→ Review" link (packages/ui) to the
           Changes tab-switch + pending-changeset handoff. `null` value (no
           changesPageContent) makes the link render nothing — same capability
-          gating as the git/terminal/notes nav items below. */}
+          gating as the git/notes nav items below. */}
       <ChangesReviewProvider value={changesReviewValue}>
         {/* Binds the assistant panel's "Restore to before this message"
             affordance (BST-1115). The modal it raises is mounted below, as a
@@ -750,6 +737,7 @@ export function RootLayoutContent({
                         loadEmbeddingQueue={loadEmbeddingQueue}
                         {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
                         preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                        terminalPageContent={terminalPageContent}
                         visible={shellTab === 'explorer'}
                       />
                     </PanelLayoutProvider>
@@ -771,12 +759,6 @@ export function RootLayoutContent({
                     mountedTabs={mountedTabs}
                     shellTab={shellTab}
                     tab="git"
-                  />
-                  <KeepMountedRoute
-                    content={terminalPageContent}
-                    mountedTabs={mountedTabs}
-                    shellTab={shellTab}
-                    tab="terminal"
                   />
                   <KeepMountedRoute
                     content={notesPageContent}

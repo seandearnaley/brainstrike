@@ -32,6 +32,8 @@ const DOCUMENT_META: Readonly<Record<PanelTab, DocumentMeta>> = {
     description: 'Customize your application settings',
     title: 'Settings - BrainStrike.ai',
   },
+  // Unreachable since BST-1270 (Terminal is a workspace app; no call site
+  // produces the 'terminal' tab) but required while PanelTab keeps the member.
   terminal: { description: APP_DESCRIPTION, title: 'Terminal - BrainStrike.ai' },
 };
 

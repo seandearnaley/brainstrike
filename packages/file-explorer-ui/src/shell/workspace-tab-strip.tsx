@@ -36,6 +36,7 @@ import { fileTabToTarget } from '../context-actions/file-surface-target';
 import type { FileTab } from '../hooks/use-tab-manager';
 import { useTabManagerStore } from '../stores/tab-manager-store';
 import { useWorkspaceTabs } from './use-workspace-tabs';
+import { WorkspaceAddTabMenu } from './workspace-add-tab-menu';
 import type { WorkspaceApp } from './workspace-app';
 import { getFileName, getTabRootPath } from './workspace-tab-utils';
 
@@ -53,6 +54,7 @@ const logger = createLogger('WorkspaceTabStrip');
  */
 export function WorkspaceTabStrip(): ReactElement {
   const {
+    apps,
     getTabStatusMessage,
     loadingFiles,
     onCloseAllFileTabs,
@@ -341,6 +343,7 @@ export function WorkspaceTabStrip(): ReactElement {
             <ChevronRight className="h-4 w-4" />
           </Button>
         ) : null}
+        <WorkspaceAddTabMenu apps={apps} onOpenApp={onOpenApp} />
         {hasAnyTab ? (
           <TabStripOverflowMenu hasFileTabs={tabs.length > 0} onCloseAll={onCloseAllFileTabs} />
         ) : null}
