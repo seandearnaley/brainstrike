@@ -130,7 +130,6 @@ const CORE_APP_OPTIMIZE_DEPS_INCLUDE = [
   'idb',
   'minimatch',
   'pino',
-  'react-helmet-async',
   'react-hotkeys-hook',
   'react-router-dom',
   'tiktoken',

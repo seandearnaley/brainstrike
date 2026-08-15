@@ -357,7 +357,7 @@ test('every real override key survives validation (the 6 classification cases)',
       '  "@types/node": ^26.1.0\n' +
       '  react@^19: ^19.2.4\n' +
       '  "@types/node@^26": ^26.1.0\n' +
-      '  react-helmet-async>react: ^19.0.0\n' +
+      '  react-hotkeys-hook>react: ^19.0.0\n' +
       '  foo@1.0.0>bar: ^2.0.0\n',
     packages: bulkPackages(),
   });
@@ -367,7 +367,7 @@ test('every real override key survives validation (the 6 classification cases)',
       '@types/node',
       'react@^19',
       '@types/node@^26',
-      'react-helmet-async>react',
+      'react-hotkeys-hook>react',
       'foo@1.0.0>bar',
     ]);
     // Only the three BARE keys targeting react shadow it; the subtree-scoped
@@ -430,7 +430,7 @@ test('RULE: only BARE override keys shadow; subtree-scoped (parent>child) do not
   assert.equal(bareOverrideTarget('@types/node'), '@types/node');
   assert.equal(bareOverrideTarget('react@^19'), 'react');
   assert.equal(bareOverrideTarget('@types/node@^26'), '@types/node');
-  assert.equal(bareOverrideTarget('react-helmet-async>react'), null);
+  assert.equal(bareOverrideTarget('react-hotkeys-hook>react'), null);
   assert.equal(bareOverrideTarget('foo@1.0.0>bar'), null);
 });
 
@@ -461,7 +461,7 @@ test('the real overrides block still carries the load-bearing react pins', () =>
 test('BLIND SPOT: a catalog entry shadowed by a bare override IS detected', () => {
   const dir = makeFixture({
     catalog: bulkCatalog({ react: '^19.2.7' }),
-    extraYaml: 'overrides:\n  react: ^19.2.4\n  react-helmet-async>react: ^19.0.0\n',
+    extraYaml: 'overrides:\n  react: ^19.2.4\n  react-hotkeys-hook>react: ^19.0.0\n',
     packages: bulkPackages(),
   });
   try {

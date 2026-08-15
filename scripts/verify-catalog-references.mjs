@@ -98,7 +98,7 @@ const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
  * have. For react/react-dom the override is therefore load-bearing (it is what
  * guarantees ONE react instance), so they are deliberately NOT catalogued.
  *
- * SUBTREE-SCOPED overrides (`react-helmet-async>react`) are NOT a conflict: they
+ * SUBTREE-SCOPED overrides (`react-hotkeys-hook>react`) are NOT a conflict: they
  * retarget one dep inside one subtree and leave the catalog governing everywhere
  * else. Only bare, global override keys shadow a catalog entry.
  */

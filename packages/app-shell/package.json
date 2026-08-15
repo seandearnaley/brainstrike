@@ -135,6 +135,10 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
     },
+    "./use-document-title": {
+      "types": "./dist/use-document-title.d.ts",
+      "import": "./dist/use-document-title.js"
+    },
     "./styles.css": "./styles.css"
   },
   "files": [

@@ -1,5 +1,4 @@
 import { render } from '@testing-library/react';
-import { HelmetProvider } from 'react-helmet-async';
 import { describe, expect, it, vi } from 'vitest';
 import ContextExplorerPageContent from '../context-explorer-page-content';
 
@@ -42,11 +41,7 @@ vi.mock('@brainstrike/storage', () => ({
 
 describe('ContextExplorerPageContent', () => {
   it('renders the ContextExplorerAppBody', () => {
-    const { getByTestId } = render(
-      <HelmetProvider>
-        <ContextExplorerPageContent />
-      </HelmetProvider>
-    );
+    const { getByTestId } = render(<ContextExplorerPageContent />);
 
     expect(getByTestId('context-explorer-app-body')).toBeInTheDocument();
   });

@@ -33,6 +33,7 @@ describe('@brainstrike/app-shell package contract', () => {
         './terminal-panel',
         './terminal-panel/availability',
         './types',
+        './use-document-title',
         './user-commands-bridge',
       ].sort()
     );

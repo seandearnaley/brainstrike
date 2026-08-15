@@ -25,7 +25,7 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 | `vercel` (CLI) | 50.44.0 | 54.10.2 | Deploy scripts, CLI flags, remote project behavior |
 | `knip` | ~~5.88.1~~ 6.24.0 | 6.24.0 | Unused-code analysis, JSON reporters, Node engine — **DONE**, see Knip section below |
 | `@codecov/vite-plugin` | 1.9.1 | 2.0.1 | Vite build + Codecov upload wiring |
-| `react-helmet-async` | 2.0.5 | 3.0.0 | SSR helmet types / peer range (React 19) |
+| ~~`react-helmet-async`~~ | 2.0.5 | 3.0.0 | **REMOVED** 2026-08-15 (BST-1281) — replaced by a single-writer `useDocumentTitle` hook; see section below |
 | `@commitlint/cli` | 20.5.0 | 21.0.2 | Git hook / CI commit-message validation |
 | `@commitlint/config-conventional` | 20.5.0 | 21.0.2 | Conventional commit rule defaults |
 | `@commitlint/types` | 20.5.0 | 21.0.1 | Commitlint TypeScript API consumers |
@@ -212,9 +212,23 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
 
 ---
 
-## react-helmet-async (`react-helmet-async` 2.x → 3.x)
+## react-helmet-async — REMOVED (not upgraded)
 
-**Why it matters:** Mostly type/API cleanup and React 19–oriented peer dependency alignment. 3.0.0 is still the latest release as of 2026-07-06 (verified via `npm view react-helmet-async versions`) — no newer version has shipped since this pin was made.
+**Outcome (2026-08-15, BST-1281):** `react-helmet-async` is **gone from the repo**. There is no version of it to upgrade to or stay pinned on; the 2.x → 3.x question below is retained only as the evidence trail for why removal was the answer.
+
+**Why removal rather than the 3.x bump:** the blocker recorded further down is architectural, not a packaging bug. 3.x's `React19Dispatcher` does not dedupe `<title>`/`<meta>` across simultaneously-mounted `Helmet` instances, and `packages/app-shell/src/root-layout-content.tsx` keeps every visited tab mounted (`mountedTabs`) — so the app really does have several writers alive at once. Swapping to React 19's native document metadata directly is the *same* mechanism (that is precisely what `React19Dispatcher` delegates to) and React documents the behaviour of multiple simultaneous `<title>` tags as undefined, so it would inherit the identical defect. The only construction that is correct under React 19 is **one writer**, which is what replaced the library.
+
+**Replacement:** `useDocumentTitle` (`packages/app-shell/src/use-document-title.ts`) — a single hook keyed on the panel-layout store's `activeTab`/`settingsOpen`, mounted exactly once in `apps/web/src/app/root-layout-content.tsx`. It writes `document.title` and one `<meta name="description">`; every page component (`layout.tsx`, `context-explorer-page-content.tsx`, `settings/page-content.tsx`) now writes no document metadata at all. `lang="en"` needed no runtime writer either — `apps/web/index.html` already carries it as static markup.
+
+**Test gap closed:** the "invisible to this repo's existing tests" bullet below was the real hazard. `apps/web/src/app/__tests__/document-title.test.tsx` now mounts both tab surfaces simultaneously and asserts **exactly one** `<title>` and one `<meta name="description">`, plus that neither page component emits either tag on its own; `packages/app-shell/src/__tests__/use-document-title.test.tsx` covers the route mapping and the settings-overlay precedence. A future per-surface metadata writer fails these.
+
+**Also removed with it:** `apps/web/src/react-helmet-async.d.ts` (the hand-written React 19 type shim), the `catalog:` entry plus the `react-helmet-async>react` / `>react-dom` `overrides` in `pnpm-workspace.yaml`, the dependency in `apps/web/package.json` and `apps/desktop/package.json` (desktop declared it but never imported it), the `knip.jsonc` `ignoreDependencies` entry, and the `optimizeDeps` prebundle entry in `packages/build-utils/src/vite.ts`.
+
+---
+
+### Historical evidence (2026-07-06 investigation of the 2.x → 3.x bump)
+
+**Why it mattered:** Mostly type/API cleanup and React 19–oriented peer dependency alignment. 3.0.0 was still the latest release as of 2026-07-06 (verified via `npm view react-helmet-async versions`).
 
 **Status (verified 2026-07-06):** The `preserveSymlinks: true` + `exports`-field failure is **real and still reproducible**, but it is scoped to `apps/web/vitest.config.mts` only (the only place in the repo that sets `preserveSymlinks`) — neither `apps/web/vite.config.mts` nor `apps/desktop/vite.config.mts`/`vitest.config.mts` set it, and `apps/web`'s production `vite build` with react-helmet-async@3.0.0 succeeds cleanly. Vite is already at 8.1.3 in this repo (well past the version current when the pin was first made); the newer Vite did **not** fix the underlying resolution behavior.
 
@@ -232,13 +246,13 @@ These rows are **major** semver bumps (`current` → `latest`) at the time the r
   - Confirmed by direct reproduction (isolated jsdom probe, two simultaneously-mounted `<Helmet>` instances with different `<title>`/`<meta name="description">`): **2.0.5** collapses to exactly 1 `<title>` and 1 `<meta name="description">` in the DOM (last-mounted wins — correct). **3.0.0** leaves **2 of each tag coexisting in the DOM with no cross-instance dedup** — a reachable SEO/DOM-correctness regression the moment a user has visited more than one tab.
   - Invisible to this repo's existing tests: `layout.test.tsx` and `context-explorer-page-content.test.tsx` each render their `Helmet` in isolation — no test exercises two simultaneously-mounted `Helmet`s, so this would have shipped silently.
   - Side effect of the same dispatcher swap: `onChangeClientState` and `prioritizeSeoTags` are referenced only by the legacy `HelmetDispatcher`, not by the new `React19Dispatcher` — both become silent no-ops under 3.0.0 on React 19. Not currently used by this repo's call sites (verified by grep), so no live breakage today, but worth knowing if either is ever adopted.
-  - **Conclusion:** stay pinned at `^2.0.5`. The `preserveSymlinks` issue is a solved problem (3-line workaround above); the `React19Dispatcher` dedup regression is not something this repo can work around without either (a) upstream fixing cross-instance title/meta dedup under the new dispatcher, or (b) this repo moving away from keeping inactive tabs mounted (out of scope for a dependency bump). Re-check upstream's changelog for a dedup fix before attempting this again.
+  - **Conclusion at the time:** stay pinned at `^2.0.5`. The `preserveSymlinks` issue is a solved problem (3-line workaround above); the `React19Dispatcher` dedup regression is not something this repo can work around without either (a) upstream fixing cross-instance title/meta dedup under the new dispatcher, or (b) this repo moving away from keeping inactive tabs mounted (out of scope for a dependency bump). **Superseded 2026-08-15 by option (c): stop needing cross-instance dedup at all** — one writer, no library. See the outcome at the top of this section.
 
 **What to verify**
 
 - If you use advanced SSR types, note removals/changes around server state helpers (`HelmetServerState.titleAttributes`, `MappedServerState` export). **Not applicable to this repo**: grepped for `HelmetServerState`, `MappedServerState`, `toComponent()`, and any `renderToString`/`entry-server` SSR usage — none found. `apps/web` renders `Helmet`/`HelmetProvider` client-side only (`main.tsx`, `layout.tsx`, `settings/page-content.tsx`, `context-explorer-page-content.tsx`), using only `htmlAttributes`, `<title>`, and `<meta>` children, all of which are unaffected by the 3.0.0 API changes and pass in the reproduction above.
 - `HelmetDatum.toComponent()` typing now reflects array elements—adjust any custom wrappers. **Not applicable**: no code in the repo calls `toComponent()` or imports `HelmetDatum`.
-- `apps/desktop/package.json` also pins `react-helmet-async` but has **no direct import of it anywhere in `apps/desktop/src`** (only a stale mention in `apps/desktop/src/__tests__/README.md` about mocking it) and neither of desktop's Vite configs set `preserveSymlinks` — desktop is unaffected either way and can be bumped alongside web with no special handling.
+- `apps/desktop/package.json` also pinned `react-helmet-async` but had **no direct import of it anywhere in `apps/desktop/src`** and neither of desktop's Vite configs set `preserveSymlinks` — desktop was unaffected either way. Its declaration and the stale mention in `apps/desktop/src/__tests__/README.md` were dropped with the removal; desktop's document title stays whatever `apps/desktop/index.html` sets, unchanged by BST-1281.
 
 **Pointers**
 
@@ -587,8 +601,9 @@ Tracked decisions where we intentionally hold a dependency below its latest vers
 
 | Package | Pinned at | Reason | Tracking |
 | --- | --- | --- | --- |
-| `react-helmet-async` | `^2.0.5` | Re-verified 2026-07-06: the original `preserveSymlinks`/`exports` break is real but now has a verified 3-line `resolve.alias` workaround. However, a NEW and more serious blocker was found on adversarial review: 3.0.0's `React19Dispatcher` does not dedup `<title>`/`<meta>` across simultaneously-mounted `Helmet` instances, and this app keeps inactive tabs mounted (`root-layout-content.tsx`'s `mountedTabs`) — reproduced live, 2 co-existing `<title>` tags in the DOM once 2 tabs have been visited. This is the actual reason to stay pinned; the exports/symlink issue alone would no longer block it. | (covered in react-helmet-async section above) |
 | `web-tree-sitter` | `^0.25.10` | Blocker cleared on the grammar side by BST-1277: the vendored Python grammar is now `tree-sitter-python@0.25.0` (`dylink.0`, ABI 15), which 0.26.10 loads. What remains is the range bump itself plus a re-check of the rest of the 0.26 API surface. | (covered in web-tree-sitter section above) |
+
+**Resolved:** `react-helmet-async` was pinned at `^2.0.5` because 3.0.0's `React19Dispatcher` stopped deduping `<title>`/`<meta>` across simultaneously-mounted instances. Rather than unpin, the dependency was **removed** 2026-08-15 (BST-1281) in favour of a single-writer `useDocumentTitle` hook — see the react-helmet-async section above.
 
 **Resolved:** `typescript` was pinned at `^5.9.3` pending a coordinated TS 6 migration (`FileSystemDirectoryHandle` mocks in `packages/utils`). Unpinned to `^6.0.3` 2026-07-06 in `chore/deps-typescript-6` — see the TypeScript section above for the full list of breaking changes hit and fixed (five in total: `baseUrl` deprecation, a tsup upstream bug, the originally-documented mock issue, stricter composite-project `rootDir` enforcement surfacing pre-existing `src`-vs-`dist` path mapping bugs, and `noUncheckedSideEffectImports`).
 

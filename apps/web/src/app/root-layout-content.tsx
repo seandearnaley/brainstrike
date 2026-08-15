@@ -5,6 +5,7 @@ import {
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell/root-layout-content';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
+import { useDocumentTitle } from '@brainstrike/app-shell/use-document-title';
 import { ensureBackgroundIndexingPreferencesHydrated } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { ensureVectorPreferencesHydrated } from '@brainstrike/app-state/stores/vector-preferences-store';
 import { usePGliteDatabase } from '@brainstrike/db/react';
@@ -48,8 +49,13 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * - FileExplorerPanel (indexes selected files via background worker)
  * - PreviewPanel in ContextExplorerPageContent (displays token counts from the shared cache)
  * can share the same context and see each other's updates.
+ *
+ * DOCUMENT TITLE: this is the web app's single mount point, so it is where the
+ * one and only `useDocumentTitle` writer lives (BST-1281). Nothing below it may
+ * write `document.title` or `<meta name="description">`.
  */
 export default function RootLayoutContent() {
+  useDocumentTitle();
   // Capability gate: only surface the Notes tab when the File System Access
   // directory picker exists (Chromium; Safari/Firefox omit it). Resolved once.
   const notesAvailable = useMemo(() => isNotesVaultAvailable(), []);

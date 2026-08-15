@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react';
-import { HelmetProvider } from 'react-helmet-async';
 import { describe, expect, it, vi } from 'vitest';
 
 // Force the explorer component to suspend so Suspense fallback renders
@@ -15,11 +14,7 @@ import ContextExplorerPageContent from '../context-explorer-page-content';
 
 describe('ContextExplorerPageContent (fallback)', () => {
   it('renders Suspense fallback while explorer is loading', () => {
-    render(
-      <HelmetProvider>
-        <ContextExplorerPageContent />
-      </HelmetProvider>
-    );
+    render(<ContextExplorerPageContent />);
 
     // Verify the fallback content is displayed
     expect(screen.getByText('Loading...', { exact: false })).toBeInTheDocument();
