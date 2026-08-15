@@ -114,6 +114,10 @@ turbo's own `outputs` cannot serve as one: `packages/config` declares
 `tsconfig/**`, `biome/**`, and `tailwind/**` as build outputs and those are
 SOURCE. `git check-ignore` is index-aware, so a checked-in file is judged even
 if it matches an ignore pattern, and an uncommitted source file is judged too.
+That index-awareness is also what keeps this safe as a CI gate: on the fresh
+checkout Static runs against, every file a PR touches is TRACKED, so no
+contributor can suppress a finding by adding a `.gitignore` entry — the gate
+filters generated output, never repository content.
 Suppression applies ONLY to a finding whose file git confirms is ignored;
 everything else fails the gate, including a diagnostic with no file location, a
 turbo issue count the parser cannot account for, and git itself erroring. One
@@ -710,10 +714,14 @@ decision. The arguments that actually carry a contract are asserted
 individually, read live from the workflow: the Unit lanes' `--concurrency=4`
 and `--concurrency=2`, and Build's `--continue=dependencies-successful`.
 
-Local-vs-CI difference that is stated rather than hidden: `turbo boundaries`
-scans build output as well as source and CI runs it on a checkout with no
-`dist/`, so a stale local artifact can produce a phantom violation. That is a
-loud failure — `pnpm clean` and re-run before treating it as a real finding.
+Local-vs-CI difference that is stated rather than hidden: the boundary gate
+(`pnpm run boundaries`) treats git-ignored files as generated rather than
+source, and a developer's personal excludes (`~/.config/git/ignore`,
+`.git/info/exclude`) count locally while CI's checkout has neither — so CI is
+the stricter side. This used to read the other way round, that a stale local
+`dist/` could produce a phantom violation the clean CI checkout never saw;
+scoping the verdict to non-ignored files removed that difference, and with it
+the `pnpm clean`-and-rerun ritual. See the BST-967 section above.
 
 ### Guard-script entrypoint contract (BST-836)
 

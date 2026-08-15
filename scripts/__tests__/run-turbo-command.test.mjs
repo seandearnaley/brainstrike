@@ -91,8 +91,19 @@ describe('run turbo command helper', () => {
     assert.deepEqual(directTurboSpawns, []);
 
     assert.ok(existsSync(boundariesGatePath), 'the exempted gate script must still exist');
+    // Scoped to the spawn's ARGUMENT LIST, not the file text: that header
+    // backticks identifiers constantly to explain turbo behaviour, and a line
+    // like "`clean` removes them" would otherwise fail this guard with a
+    // message claiming the script runs a cached task. Asserting the match
+    // exists first keeps the narrowing from going vacuous if the spawn moves.
+    const gateSource = readFileSync(boundariesGatePath, 'utf8');
+    const spawnArgs = gateSource.match(/spawnSync\(\s*process\.execPath,\s*\[([^\]]*)\]/u);
+    assert.ok(
+      spawnArgs,
+      'expected scripts/turbo-boundaries.mjs to spawn turbo via process.execPath with a literal argument list'
+    );
     assert.doesNotMatch(
-      readFileSync(boundariesGatePath, 'utf8'),
+      spawnArgs[1],
       /['"`](?:run|build|test|type-check|dev|clean)['"`]/u,
       'scripts/turbo-boundaries.mjs may spawn `turbo boundaries` only — a cache-bearing task run must go through run-turbo-command.mjs'
     );

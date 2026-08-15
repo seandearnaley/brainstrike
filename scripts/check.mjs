@@ -280,7 +280,10 @@ export function buildPlan(options = {}) {
   plan.push({
     command: 'pnpm -s run boundaries',
     id: 'boundaries',
-    label: 'turbo boundaries',
+    // Not "turbo boundaries": a failing step's label is what a developer
+    // reruns by hand, and the bare subcommand gives back the non-idempotent
+    // verdict this step exists to avoid.
+    label: 'boundaries',
   });
   plan.push({
     command: 'pnpm -s run test:scripts',

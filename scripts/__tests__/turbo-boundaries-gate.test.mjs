@@ -55,7 +55,10 @@ const UNDECLARED_IMPORT = "import { thing } from 'undeclared-dep';\nexport const
  * output, or both. `dist/` is git-ignored exactly as it is in this repo — the
  * fixture is a git repository because that is what the gate asks about.
  */
-function writeFixture(dir, { generatedViolation = false, trackGenerated = false, violating }) {
+function writeFixture(
+  dir,
+  { generatedViolation = false, initGit = true, trackGenerated = false, violating }
+) {
   mkdirSync(path.join(dir, 'packages', 'alpha', 'src'), { recursive: true });
   writeFileSync(
     path.join(dir, 'package.json'),
@@ -78,7 +81,9 @@ function writeFixture(dir, { generatedViolation = false, trackGenerated = false,
     path.join(dir, 'packages', 'alpha', 'src', 'index.ts'),
     violating ? UNDECLARED_IMPORT : 'export const x = 1;\n'
   );
-  git(dir, ['init', '-q']);
+  if (initGit) {
+    git(dir, ['init', '-q']);
+  }
   if (!generatedViolation) {
     return;
   }
@@ -249,6 +254,27 @@ test('the parser accounts for every issue turbo reports (a mismatch fails the ga
     for (const finding of findings) {
       assert.equal(finding.paths.length, 1, `each finding should carry its file: ${finding.text}`);
     }
+  });
+});
+
+test('when git cannot classify, the gate fails AND still hands back every finding', () => {
+  // No repository to ask (a tarball export, a copied tree). Failing is right —
+  // nothing is classifiable — but failing must not swallow the diagnostics the
+  // developer has to act on, the way the parse-mismatch branch does not.
+  withFixture('boundaries-nogit-', { initGit: false, violating: true }, (dir) => {
+    const gate = runGate(dir);
+    assert.notEqual(gate.status, 0, 'an unclassifiable run must fail');
+    assert.match(
+      `${gate.stdout}\n${gate.stderr}`,
+      /git check-ignore failed/,
+      'the gate must say why it could not classify'
+    );
+    assert.match(
+      gate.stderr,
+      /undeclared-dep/,
+      'turbo’s findings must survive a git failure, not be dropped on the floor'
+    );
+    assert.match(gate.stdout, /1 issue found/, "turbo's own summary must survive too");
   });
 });
 

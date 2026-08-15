@@ -16,6 +16,19 @@
  * every build. Recheck on the next Turbo bump: the day the walk can be
  * narrowed, this wrapper should shrink to that config.
  *
+ * TWO SHAPES OF TURBO'S OUTPUT ARE LOAD-BEARING, so recheck them on that bump
+ * too. First, the streams are split: the `Checked N files … K issues found`
+ * summary arrives on stdout while the diagnostics arrive on stderr, and this
+ * only filters when the two agree. If turbo moves the summary to stderr, every
+ * run takes the mismatch branch and the gate degrades to "print everything,
+ * exit 1" — non-idempotent again, but loudly and with an explanation, which is
+ * the correct direction to fail. Second, each boundaries diagnostic carries ONE
+ * file location today; `partitionFindings` requires EVERY location in a finding
+ * to be ignored, so a future turbo that adds a second span (a package.json
+ * snippet beside the offending import, say) would turn generated findings back
+ * into source findings. Both failures are loud, and the parser test pins the
+ * current shape.
+ *
  * WHAT IT DOES. Runs the real command, then judges only findings in files that
  * are part of the repository. "Generated" is not a hardcoded directory list —
  * a list would drift (and turbo's own `outputs` cannot serve as one: this repo
@@ -65,7 +78,7 @@ const LOCATION_PATTERN = /,-\[(.+?):\d+:\d+\]/g;
 
 /** turbo's stdout summary, e.g. `Checked 8053 files in 49 packages, 4 issues found`. */
 const SUMMARY_PATTERN =
-  /Checked (\d+) files in (\d+) packages, (?:(\d+) issues? found|no issues found)/;
+  /Checked (\d+) files? in (\d+) packages?, (?:(\d+) issues? found|no issues found)/;
 
 function stripAnsi(text) {
   return text.replace(ANSI_PATTERN, '');
@@ -183,7 +196,24 @@ export function main(argv = [], { cwd = process.cwd() } = {}) {
     return turbo.status === 0 ? 1 : (turbo.status ?? 1);
   }
 
-  const ignored = gitIgnoredPaths([...new Set(findings.flatMap((finding) => finding.paths))], cwd);
+  // A git that cannot answer leaves every finding unclassifiable, so it fails —
+  // but it fails the same way the parse mismatch above does, handing back the
+  // full unfiltered output. Throwing here instead would print only the git
+  // error and drop the diagnostics the developer has to act on (worst in the
+  // plausible no-repository case: a tarball export, where it would read as
+  // tooling breakage rather than N boundary findings nobody can classify).
+  let ignored;
+  try {
+    ignored = gitIgnoredPaths([...new Set(findings.flatMap((finding) => finding.paths))], cwd);
+  } catch (error) {
+    process.stdout.write(turbo.stdout);
+    process.stderr.write(turbo.stderr);
+    console.error(
+      `\n${path.basename(fileURLToPath(import.meta.url))}: ${error instanceof Error ? error.message : String(error)}. ` +
+        `Reporting all ${findings.length} findings unfiltered — none of them could be classified as source or generated.`
+    );
+    return 1;
+  }
   const { generated, source } = partitionFindings(findings, ignored);
 
   process.stdout.write(turbo.stdout);
