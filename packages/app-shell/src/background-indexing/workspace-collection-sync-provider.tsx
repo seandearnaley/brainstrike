@@ -1334,6 +1334,27 @@ export function WorkspaceCollectionSyncProvider({
   const { fileSystemAdapter } = useAdapters();
   const { isAccessLoading, rootDirectoryHandle, rootDirectoryHandles, rootIdByPath } =
     useFileSystem();
+  // BST-1268: per-thread workspaces restore the FOCUSED root on thread
+  // switch, and the reducer's add-or-focus rebuilds handle/array/map
+  // identities without changing the root SET. triggerSync must not be
+  // recreated on focus-only changes — its owning effect's cleanup cancels an
+  // in-flight sync mid-import (see the comment above the sync-loop effect).
+  // The callback therefore reads the live values through render-synced refs
+  // and keys on the SET identity alone (sorted root ids).
+  const rootDirectoryHandleRef = useRef(rootDirectoryHandle);
+  rootDirectoryHandleRef.current = rootDirectoryHandle;
+  const rootDirectoryHandlesRef = useRef(rootDirectoryHandles);
+  rootDirectoryHandlesRef.current = rootDirectoryHandles;
+  const rootIdByPathRef = useRef(rootIdByPath);
+  rootIdByPathRef.current = rootIdByPath;
+  const rootSetKey = useMemo(
+    () =>
+      rootDirectoryHandles
+        .map((handle) => handle.rootId ?? handle.path)
+        .sort()
+        .join('|'),
+    [rootDirectoryHandles]
+  );
   const fileTreeContext = useOptionalFileTreeContext();
   const db = usePGliteDatabase();
 
@@ -1480,9 +1501,13 @@ export function WorkspaceCollectionSyncProvider({
       // No direct logger call: the status store's subscription durably logs
       // the error/blocked transition set below (BST-1257) — logging here too
       // recorded every incident twice under different scopes.
+      // Focused path read live via ref (BST-1268): a focus-only change must
+      // not change this callback's identity — the unmount-cancel effect and
+      // triggerSync both depend on it.
+      const activeRootPath = rootDirectoryHandleRef.current?.path ?? null;
       if (isWorkspaceIndexBlockedError(error)) {
         setSyncStatus({
-          activeRootPath: rootDirectoryHandle?.path ?? null,
+          activeRootPath,
           managedCollectionId,
           managedCollectionName: null,
           state: 'blocked',
@@ -1493,7 +1518,7 @@ export function WorkspaceCollectionSyncProvider({
         return;
       }
       setSyncStatus({
-        activeRootPath: rootDirectoryHandle?.path ?? null,
+        activeRootPath,
         blockedReason: null,
         currentFilePath: null,
         lastError: error instanceof Error ? error.message : String(error),
@@ -1504,7 +1529,7 @@ export function WorkspaceCollectionSyncProvider({
         state: 'error',
       });
     },
-    [managedCollectionId, rootDirectoryHandle?.path, setSyncStatus]
+    [managedCollectionId, setSyncStatus]
   );
   useEffect(() => {
     if (storeHasHydrated) {
@@ -1827,7 +1852,7 @@ export function WorkspaceCollectionSyncProvider({
         const latestBackgroundWorkSnapshot = getBackgroundWorkArbiterSnapshot();
         if (latestBackgroundWorkSnapshot.backgroundIndexingPaused) {
           setSyncStatus({
-            activeRootPath: rootDirectoryHandle?.path ?? null,
+            activeRootPath: rootDirectoryHandleRef.current?.path ?? null,
             currentFilePath: null,
             lastError: null,
             managedCollectionId: collection.id,
@@ -1845,7 +1870,7 @@ export function WorkspaceCollectionSyncProvider({
           return;
         }
         setSyncStatus({
-          activeRootPath: rootDirectoryHandle?.path ?? null,
+          activeRootPath: rootDirectoryHandleRef.current?.path ?? null,
           currentFilePath: null,
           lastError: null,
           managedCollectionId: collection.id,
@@ -1868,13 +1893,17 @@ export function WorkspaceCollectionSyncProvider({
     enabled,
     managedCollectionId,
     reportAsyncError,
-    rootDirectoryHandle?.path,
     setManagedCollectionId,
     setSyncStatus,
   ]);
 
   const triggerSync = useCallback(
     (scope: TriggerSyncScope = { mode: 'full' }, options: TriggerSyncOptions = {}) => {
+      // Live reads (not deps): see the rootSetKey comment at the top of the
+      // component — the body below stays byte-identical to the dep'd version.
+      const rootDirectoryHandle = rootDirectoryHandleRef.current;
+      const rootDirectoryHandles = rootDirectoryHandlesRef.current;
+      const rootIdByPath = rootIdByPathRef.current;
       if (!hasHydrated) {
         return;
       }
@@ -2222,9 +2251,8 @@ export function WorkspaceCollectionSyncProvider({
       reportAsyncError,
       resetSyncStatus,
       resolveDbRootId,
-      rootDirectoryHandle,
-      rootDirectoryHandles,
-      rootIdByPath,
+      // biome-ignore lint/correctness/useExhaustiveDependencies: rootSetKey deliberately replaces the handle/map identities — focus-only changes must not recreate this callback (BST-1268); the live values are read through render-synced refs.
+      rootSetKey,
       service,
       setSyncStatus,
       treeRestorationSettled,
@@ -2276,6 +2304,11 @@ export function WorkspaceCollectionSyncProvider({
   );
 
   useEffect(() => {
+    // Live reads (not deps): focus-only changes must not re-run this effect —
+    // its immediate audit can fire a recovery sync (BST-1268, see rootSetKey).
+    const rootDirectoryHandle = rootDirectoryHandleRef.current;
+    const rootDirectoryHandles = rootDirectoryHandlesRef.current;
+    const rootIdByPath = rootIdByPathRef.current;
     let disposed = false;
     let activeAuditToken: symbol | null = null;
     let inFlightAuditKey: string | null = null;
@@ -2375,9 +2408,8 @@ export function WorkspaceCollectionSyncProvider({
     indexingPolicyPreset,
     managedCollectionId,
     resolveDbRootId,
-    rootDirectoryHandle,
-    rootDirectoryHandles,
-    rootIdByPath,
+    // biome-ignore lint/correctness/useExhaustiveDependencies: rootSetKey deliberately replaces the handle/map identities — focus-only changes must not re-run the audit (BST-1268); live values are read through render-synced refs.
+    rootSetKey,
     setSyncStatus,
   ]);
 

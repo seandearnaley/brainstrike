@@ -31,6 +31,17 @@ interface TabManagerActions {
   closeTab: (tabId: string) => string | null;
   /** Atomically close every tab after `tabId`; returns the resulting active tab. */
   closeTabsToRight: (tabId: string) => string | null;
+  /**
+   * Thread-workspace hydration entry point (BST-1268): replace the whole tab
+   * list and active id atomically from a snapshot. Content/loading reset to
+   * the not-yet-loaded shape (the restoration + auto-load flows re-resolve,
+   * exactly as after a reload); an active id not present in the list drops to
+   * null rather than pointing at a phantom tab.
+   */
+  hydrateTabs: (
+    tabs: ReadonlyArray<{ compositeKey: string; path: string }>,
+    activeTabId: string | null
+  ) => void;
   openTab: (path: string, tabId: string, compositeKey: string) => void;
   setActiveTab: (tabId: string) => void;
   setTabError: (tabId: string, error: string) => void;
@@ -208,6 +219,17 @@ export const useTabManagerStore = create<TabManagerStore>()(
           : tabId;
         set({ activeTabId, tabs: remainingTabs });
         return activeTabId;
+      },
+      hydrateTabs: (tabs, activeTabId) => {
+        const hydrated = tabs.map((tab) => ({
+          compositeKey: tab.compositeKey,
+          content: null,
+          id: tab.compositeKey,
+          isLoading: false,
+          path: tab.path,
+        }));
+        const activeExists = hydrated.some((tab) => tab.id === activeTabId);
+        set({ activeTabId: activeExists ? activeTabId : null, tabs: hydrated });
       },
 
       openTab: (path, tabId, compositeKey) => {

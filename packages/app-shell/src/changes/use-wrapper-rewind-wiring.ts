@@ -20,6 +20,7 @@ import {
   denormalizeNativeToolName,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
+import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
 import { useCallback, useEffect, useRef } from 'react';
 import { useChangesNavigationStore } from './changes-navigation-store';
 import { useRewindStore } from './rewind-store';
@@ -90,13 +91,26 @@ export function useWrapperRewindWiring({
   const setActiveThreadIdentity = useChangesNavigationStore(
     (state) => state.setActiveThreadIdentity
   );
+  // BST-1268 unification: every OPEN thread's wrapper mounts simultaneously
+  // (hidden, not unmounted), so publication is gated on being the ACTIVE
+  // thread — the old publish-on-mount was last-mount-wins and let a
+  // background thread steal the Canvas/Changes identity. Publication now
+  // fires when THIS thread becomes active (re-asserting the honest
+  // `latestRunId: null` reset on every switch) and run events publish only
+  // while active.
+  const isActiveThread = useActiveAssistantThreadId() === threadId && threadId !== undefined;
+  const isActiveThreadRef = useRef(isActiveThread);
+  isActiveThreadRef.current = isActiveThread;
   useEffect(() => {
-    setActiveThreadIdentity(threadId ? { latestRunId: null, threadId } : null);
-  }, [threadId, setActiveThreadIdentity]);
+    if (!(isActiveThread && threadId)) {
+      return;
+    }
+    setActiveThreadIdentity({ latestRunId: null, threadId });
+  }, [threadId, isActiveThread, setActiveThreadIdentity]);
 
   const publishTerminalRunIdentity = useCallback(
     (event: AssistantRunEvent) => {
-      if (threadId && event.runId) {
+      if (threadId && event.runId && isActiveThreadRef.current) {
         setActiveThreadIdentity({ latestRunId: event.runId, threadId });
       }
     },
@@ -145,7 +159,7 @@ export function useWrapperRewindWiring({
         return;
       }
       if (event.kind === 'run.started') {
-        if (event.runId) {
+        if (event.runId && isActiveThreadRef.current) {
           setActiveThreadIdentity({ latestRunId: event.runId, threadId });
         }
         return;

@@ -177,6 +177,12 @@ vi.mock('../quick-open-host', () => ({
   QuickOpenHost: () => <div data-testid="quick-open-host" />,
 }));
 
+// The coordinator binds real stores + PGlite; this layout-routing suite mocks
+// it like every other child surface.
+vi.mock('../thread-workspace/thread-workspace-coordinator', () => ({
+  ThreadWorkspaceCoordinator: () => null,
+}));
+
 vi.mock('../agent-sidebar-panel', () => ({
   AgentSidebarPanel: ({
     threadsContent,

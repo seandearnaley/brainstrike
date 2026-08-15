@@ -28,6 +28,16 @@ interface WorkspaceTabSelectionState {
    */
   closeApp: (appId: string) => string | null;
   /**
+   * Thread-workspace hydration entry point (BST-1268): replace the open list
+   * and selection atomically from a snapshot. Mounted apps re-seed from the
+   * hydrated selection only — surfaces from the previous thread stay mounted
+   * in React (keep-alive), but a hydrate marks only the visible app as
+   * "activated" for the incoming thread. Runs through the same persisted-
+   * shape coercion as rehydration so snapshot payloads can never violate the
+   * selection⊂openAppIds invariant.
+   */
+  hydrate: (openAppIds: readonly string[], selection: WorkspaceTabSelection) => void;
+  /**
    * Apps that have been ACTIVATED at least once this session — the keep-alive
    * set the workspace body renders hidden-but-mounted (Canvas's sandboxed
    * iframe and the explorer layout must never remount). Session-only (not
@@ -154,6 +164,14 @@ export const useWorkspaceTabSelectionStore = create<WorkspaceTabSelectionState>(
           selection: successor === null ? { kind: 'empty' } : { appId: successor, kind: 'app' },
         });
         return successor;
+      },
+      hydrate: (openAppIds, selection) => {
+        const coerced = coercePersisted({ openAppIds, selection });
+        set({
+          mountedAppIds: coerced.selection.kind === 'app' ? [coerced.selection.appId] : [],
+          openAppIds: coerced.openAppIds,
+          selection: coerced.selection,
+        });
       },
       mountedAppIds: DEFAULT_OPEN_APP_IDS,
       openApp: (appId) =>

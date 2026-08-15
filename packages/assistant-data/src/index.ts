@@ -13,3 +13,5 @@ export * from './assistant-thread-groups-repository.js';
 export * from './assistant-thread-groups-store.js';
 export * from './assistant-thread-store.js';
 export * from './thread-list-sections.js';
+export * from './thread-workspace-repository.js';
+export * from './thread-workspace-snapshot.js';
