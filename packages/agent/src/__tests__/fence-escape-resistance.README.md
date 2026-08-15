@@ -96,7 +96,9 @@ how people get hurt.
    root-`allowRead` finding with the platforms swapped, which is exactly why
    the refusal lives in the policy layer instead of trusting whichever platform
    the run lands on. (Raised in review of the BST-1071 PR; derived from srt
-   0.0.67's `pushReadDenyDirMounts`, and covered by mutation M12.)
+   0.0.67's `pushReadDenyDirMounts`, and covered by mutation M12. Still the
+   shape at 0.0.73 — that function's own comment there describes mounting a
+   tmpfs and re-binding allowed write paths beneath it.)
 6. **A hard crash of the host process leaks the run.** Live process groups are
    reaped on `process exit`, but a `SIGKILL` of the Electron/node host cannot
    run that handler. The sandboxed process keeps going — still inside its
@@ -253,7 +255,7 @@ security test is worse than none.
 
 ## This suite is pinned to an exact srt version
 
-`@anthropic-ai/sandbox-runtime` is pinned to **0.0.67** in the workspace
+`@anthropic-ai/sandbox-runtime` is pinned to **0.0.73** in the workspace
 catalog, and a test in this file asserts the installed version matches.
 
 That is deliberate. The fence's guarantees *are* srt's guarantees, and the live
@@ -270,3 +272,23 @@ of thing a patch bump can introduce or remove silently.
    as a mutation that stops killing.
 4. Only then update `PINNED_SRT_VERSION` and
    `docs/agents/code-execution.md`.
+
+### Bump log
+
+- **0.0.67 → 0.0.73 (BST-1285).** Six upstream releases, all with published
+  release notes. Nothing in them weakens a restriction this suite relies on;
+  the two macOS filesystem changes (the profile compaction in 0.0.71 and the
+  glob-deny fix in 0.0.72) are respectively text-only and deny-only, and srt's
+  seccomp filter generator is byte-identical across the whole range.
+
+  The root-`allowRead` finding above was re-measured against 0.0.73 and is
+  **unchanged**, by execution rather than by reading: handing srt the config
+  our policy layer refuses (`allowRead: ['/']` plus the credential denies) let
+  sandboxed python list 9 entries in `~/.ssh`, while the same probe under a
+  normal non-root ancestor allow (`$HOME/Documents`) listed 0. So the M3 guard
+  did NOT become redundant — dropping it would re-open the stores today.
+
+  New upstream surface (`:port` domain suffixes, `deniedDomainReasons`,
+  `commandId` attribution, Windows credential-store relocation) is additive and
+  unreachable from `ExecPolicy`: `policyDomainSchema`'s `DOMAIN_PATTERN` has no
+  `:`, and port-less entries still match every port.

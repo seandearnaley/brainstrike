@@ -241,9 +241,12 @@ export async function buildSandboxRuntimeConfig(
     const written = JSON.stringify(parsed.allowRead?.[index] ?? readable);
     // A root-wide read grant is REFUSED, not narrowed. The always-denied
     // stores survive an ANCESTOR allowRead only because srt re-emits the
-    // nested deny after the broader allow — and at srt 0.0.67 that re-emission
-    // tests `denied.startsWith(allowed + '/')`, which for `allowed === '/'`
-    // compares against `'//'` and never matches. Measured on macOS (BST-1071,
+    // nested deny after the broader allow — and through srt 0.0.73 that
+    // re-emission tests `denied.startsWith(allowed + '/')`, which for
+    // `allowed === '/'` compares against `'//'` and never matches. Re-measured
+    // on 0.0.73's generated profile in BST-1285: the root allow is still
+    // emitted AFTER the credential deny under last-match-wins, so this guard
+    // is still load-bearing, not redundant. Measured on macOS (BST-1071,
     // fence-escape-resistance.integration.spec.ts): with `allowRead: ['/']`,
     // sandboxed code read `~/.ssh/*` and the contents of `~/.config/gh/
     // hosts.yml`. Linux masks denied directories with tmpfs and was not

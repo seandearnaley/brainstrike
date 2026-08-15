@@ -431,9 +431,10 @@ integrates with it directly.
 precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
 `fence-executor.integration.spec.ts` (integration lane, REAL Seatbelt/bwrap).
 
-- **srt version: `@anthropic-ai/sandbox-runtime` pinned EXACTLY to `0.0.67`**
-  in the workspace catalog (`catalogMode: strict` means every package
-  references the catalog; the catalog entry itself carries no caret). It is a
+- **srt version: `@anthropic-ai/sandbox-runtime` pinned EXACTLY to `0.0.73`**
+  (bumped from `0.0.67` in BST-1285) in the workspace catalog (`catalogMode:
+  strict` means every package references the catalog; the catalog entry itself
+  carries no caret). It is a
   fast-moving beta — re-derive the boundary from its README/`.d.ts` before
   bumping, never from memory. The escape-resistance suite (BST-1071) ASSERTS
   this version, so a bump goes red until the suite is re-greened on macOS AND
@@ -513,11 +514,14 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   segment and a `~` (never expanded — see the seam's rule).
 - **A ROOT-WIDE `allowRead` is refused** (`FencePolicyError`), even though it is
   a mere ancestor of the always-denied stores. Ancestors are normally safe
-  because srt re-emits the nested deny after the broader allow — but at 0.0.67
-  that re-emission tests `denied.startsWith(allowed + '/')`, which for
+  because srt re-emits the nested deny after the broader allow — but through
+  0.0.73 that re-emission tests `denied.startsWith(allowed + '/')`, which for
   `allowed === '/'` compares against `'//'` and never matches. **Measured on
   macOS (BST-1071): `allowRead: ['/']` made `~/.ssh/*` and the contents of
-  `~/.config/gh/hosts.yml` readable from sandboxed code.** Linux was unaffected
+  `~/.config/gh/hosts.yml` readable from sandboxed code.** Re-measured against
+  0.0.73's generated Seatbelt profile in BST-1285 and UNCHANGED — the root
+  allow is still emitted after the credential deny under last-match-wins — so
+  this refusal remains load-bearing, not redundant. Linux was unaffected
   (bubblewrap masks denied directories with tmpfs), so CI alone would not have
   caught it — which is why the refusal lives in the policy layer, not a
   platform branch. Every ancestor SHORT of the root is still accepted.
