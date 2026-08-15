@@ -51,11 +51,9 @@ async function seedRoot(page: Page, rootPath: string): Promise<void> {
 }
 
 async function openTerminalPanel(page: Page): Promise<void> {
-  await page
-    .getByRole('link', { name: 'Terminal' })
-    .or(page.getByRole('button', { name: 'Terminal' }))
-    .first()
-    .click({ timeout: 15_000 });
+  // BST-1270: Terminal moved from the nav rail into the workspace '+' menu.
+  await page.getByTestId('workspace-add-tab').click({ timeout: 15_000 });
+  await page.getByRole('menuitem', { name: /Terminal/ }).click({ timeout: 15_000 });
   await page.getByTestId('terminal-panel').waitFor({ state: 'visible', timeout: 30_000 });
   await expect(page.getByText(/Loading Terminal/i)).toHaveCount(0, { timeout: 20_000 });
 }

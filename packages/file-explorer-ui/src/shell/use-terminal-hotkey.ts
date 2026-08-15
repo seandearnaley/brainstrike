@@ -1,3 +1,4 @@
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { TERMINAL_APP_ID, type WorkspaceApp } from './workspace-app';
 import { isDesktopRenderer } from './workspace-tab-utils';
@@ -22,6 +23,10 @@ export function useTerminalHotkey(
         return;
       }
       event.preventDefault();
+      // Reveal the workspace route first: with Git/Notes/Browser active, the
+      // workspace surface stays mounted-but-hidden, so selecting the Terminal
+      // tab alone would appear to do nothing (review finding).
+      usePanelLayoutStore.getState().setActiveTab('explorer');
       onOpenApp(TERMINAL_APP_ID);
     },
     {},
