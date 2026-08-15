@@ -7,6 +7,7 @@ import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workflowPaths = ['.github/workflows/test.yml', '.github/workflows/desktop-e2e.yml'];
+const electronCacheConfigPaths = [...workflowPaths, '.github/actions/setup-workspace/action.yml'];
 const desktopSetupJobs = [
   { job: 'desktop-e2e', relativePath: '.github/workflows/test.yml', turboCache: 'false' },
   {
@@ -25,8 +26,14 @@ function loadWorkflow(relativePath) {
   return parseYaml(readFileSync(path.join(repoRoot, relativePath), 'utf8'));
 }
 
-function allSteps(workflow) {
-  return Object.values(workflow.jobs).flatMap((job) => job.steps ?? []);
+function allSteps(configuration) {
+  if (Array.isArray(configuration.runs?.steps)) {
+    return configuration.runs.steps;
+  }
+  if (typeof configuration.jobs === 'object' && configuration.jobs !== null) {
+    return Object.values(configuration.jobs).flatMap((job) => job.steps ?? []);
+  }
+  throw new TypeError('Expected a GitHub workflow or composite action.');
 }
 
 test('all desktop jobs use the shared workspace setup action', () => {
@@ -51,8 +58,8 @@ test('Electron has no install lifecycle for shared setup to use as provisioning'
   assert.equal(action.inputs?.['electron-download-cache'], undefined);
 });
 
-test('desktop workflows do not cache an Electron location provisioning never populates', () => {
-  for (const relativePath of workflowPaths) {
+test('desktop workflows and their shared action do not cache the unused Electron location', () => {
+  for (const relativePath of electronCacheConfigPaths) {
     const steps = allSteps(loadWorkflow(relativePath));
     assert.equal(
       steps.some(({ name }) => name === 'Get Electron version'),
