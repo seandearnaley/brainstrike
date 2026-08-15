@@ -72,6 +72,7 @@ const BRAINSTRIKE_RESET_TABLES = [
   'brainstrike_assistant_task_lists',
   'brainstrike_assistant_thread_groups',
   'brainstrike_assistant_thread_placements',
+  'brainstrike_assistant_thread_workspaces',
   'brainstrike_assistant_tool_output_artifacts',
   // Versioned Canvas documents (migration 082, BST-1173). Their thread-owned
   // content must not survive the conversation and resource identities a reset

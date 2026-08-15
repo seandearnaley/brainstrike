@@ -786,6 +786,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Thread grouping is Brainstrike-owned assistant presentation state.
       // Delete placements before groups, and both before Mastra threads.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
+      await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_workspaces');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
       // Mastra memory tables are lazy, database-owned assistant persistence.
       // Delete children before their logical parents even though the current
@@ -844,6 +845,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_run_errors');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
+    await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_workspaces');
     await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
     await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.messages);
     await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.observationalMemory);

@@ -93,6 +93,7 @@ import { migration091TokenEstimateCalibrationPromptBaseline } from './091-token-
 import { migration092ToolCallTelemetrySubstrateSplit } from './092-tool-call-telemetry-substrate-split.js';
 import { migration093AssistantRunTreatments } from './093-assistant-run-treatments.js';
 import { migration094OpenRouterGemini37Flash } from './094-openrouter-gemini-3-7-flash.js';
+import { migration095AssistantThreadWorkspaces } from './095-assistant-thread-workspaces.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -192,6 +193,7 @@ export const migrations: Migration[] = [
   migration092ToolCallTelemetrySubstrateSplit,
   migration093AssistantRunTreatments,
   migration094OpenRouterGemini37Flash,
+  migration095AssistantThreadWorkspaces,
 ];
 
 // Export base migrations (without chunks table) for test environments
