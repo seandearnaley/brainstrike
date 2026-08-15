@@ -11,6 +11,7 @@
     "@stryker-mutator/typescript-checker": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
     "@swc/core": "catalog:",
+    "@testing-library/dom": "catalog:",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
@@ -27,6 +28,11 @@
       "default": "./dist/index.js"
     },
     "./vitest.setup": "./src/vitest.setup.ts",
+    "./vitest.browser.setup": "./src/vitest.browser.setup.ts",
+    "./vitest.timeouts.setup": "./src/vitest.timeouts.setup.ts",
+    "./vitest-provided-context": "./src/vitest-provided-context.ts",
+    "./async-util-timeout-proof": "./src/async-util-timeout-proof.ts",
+    "./test-timeouts": "./src/test-timeouts.ts",
     "./vitest.base": {
       "types": "./dist/vitest.base.d.ts",
       "default": "./vitest.base.mjs"

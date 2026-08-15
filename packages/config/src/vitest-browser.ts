@@ -32,6 +32,48 @@ export interface BrowserTestConfig {
   traceOutputDir?: string;
 }
 
+export interface BrowserProjectConfig extends BrowserTestConfig {
+  /**
+   * @testing-library/dom's async-utility budget (`waitFor`, `findBy*`) in
+   * milliseconds, ALREADY scaled for the environment — pass
+   * `getAsyncUtilTimeout()` from @brainstrike/test-utils.
+   *
+   * Required, and resolved by the caller rather than here, for two reasons.
+   * The architectural one: @brainstrike/config is `tooling`, which may depend
+   * on nothing (architecture/domain-map.json), so it cannot read
+   * @brainstrike/test-utils' TEST_TIMEOUT_MULTIPLIER semantics — and
+   * re-deriving them here would be the duplicate-source-of-truth this wiring
+   * exists to remove. The practical one: `process` does not exist inside the
+   * browser page, so SOMETHING running in Node has to resolve the number and
+   * hand it over; making the parameter required means a new browser project
+   * cannot quietly inherit an unscalable default the way every one of them did
+   * before BST-1299.
+   */
+  asyncUtilTimeout: number;
+  /**
+   * Vitest setup files for the browser project. MUST include a setup file that
+   * applies `asyncUtilTimeout` inside the page — in this repo that is
+   * '@brainstrike/test-utils/vitest.browser.setup'.
+   *
+   * Caller-resolved for the same boundary reason as `asyncUtilTimeout`: a
+   * hard-coded '@brainstrike/test-utils/…' string here would be a real
+   * dependency from `tooling` onto a workspace package, merely invisible to
+   * the domain-boundary contract because it is not an `import`.
+   * @brainstrike/config does not declare that package, and a future browser
+   * project whose own manifest does not either would fail to resolve a
+   * specifier it never wrote.
+   *
+   * Required, never defaulted, and never merged with a hidden entry: consumers
+   * spread `...browserProject.test` into their own project object, so a
+   * factory-supplied default could be silently dropped by a later `setupFiles`
+   * key — reinstating the unscalable 1s budget without a word. Owning the whole
+   * list means a caller can only lose the wiring by deleting its own argument;
+   * the per-lane timing proof (`async-util-timeout-wiring.browser.test.ts`) is
+   * what catches it if they do.
+   */
+  setupFiles: readonly string[];
+}
+
 /**
  * Default CI launch arguments for browser stability
  */
@@ -196,10 +238,54 @@ export function createPlaywrightOptions(config?: BrowserTestConfig): PlaywrightP
 }
 
 /**
+ * How many failing `waitFor` budgets fit inside one browser test's timeout.
+ *
+ * The browser project previously declared NO timeout at all, so it ran on
+ * Vitest's 5s default while @testing-library/dom ran on its own 1s default —
+ * the same 5:1 relationship, arrived at by coincidence. Deriving `testTimeout`
+ * from the (already scaled) async-utility budget makes that relationship
+ * deliberate and multiplier-proof: at a multiplier of 1 the project still gets
+ * exactly 5000ms, and at every other setting the two move together.
+ *
+ * The ratio matters because if `asyncUtilTimeout` ever caught up with
+ * `testTimeout`, Vitest's timeout would fire first and replace
+ * @testing-library's "here is the last assertion that failed" report with a
+ * bare "test timed out" — strictly worse to debug.
+ */
+const TEST_TIMEOUT_PER_ASYNC_UTIL_BUDGET = 5;
+
+/**
+ * Validates the caller-owned setup-file list and returns a mutable copy, so a
+ * consumer that appends to `browserProject.test.setupFiles` cannot mutate the
+ * array it passed in.
+ *
+ * An empty list is rejected rather than accepted as "this lane wants none":
+ * the async-utility budget can only be applied from a setup file, so a browser
+ * project without one is by construction back on @testing-library/dom's
+ * unscalable 1s default — the BST-1299 defect.
+ */
+function resolveSetupFiles(setupFiles: readonly string[]): string[] {
+  if (
+    !(Array.isArray(setupFiles) && setupFiles.every((file) => typeof file === 'string' && file))
+  ) {
+    throw new TypeError(
+      `createBrowserProject requires setupFiles to be an array of non-empty specifiers, received ${JSON.stringify(setupFiles)}. Pass ['@brainstrike/test-utils/vitest.browser.setup'].`
+    );
+  }
+  if (setupFiles.length === 0) {
+    throw new RangeError(
+      "createBrowserProject requires at least one setup file: asyncUtilTimeout can only be applied from inside the page, so a browser project with no setup file silently keeps @testing-library/dom's 1s default. Pass ['@brainstrike/test-utils/vitest.browser.setup']."
+    );
+  }
+  return [...setupFiles];
+}
+
+/**
  * Creates a browser test project configuration for Vitest 4
  *
  * @example
  * ```ts
+ * import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
  * import { defineConfig } from 'vitest/config';
  * import { createBrowserProject } from '@brainstrike/config/vitest-browser';
  *
@@ -213,20 +299,31 @@ export function createPlaywrightOptions(config?: BrowserTestConfig): PlaywrightP
  *           include: ['**\/*.test.ts'],
  *         },
  *       },
- *       createBrowserProject(), // Browser tests
+ *       createBrowserProject({
+ *         asyncUtilTimeout: getAsyncUtilTimeout(),
+ *         setupFiles: ['@brainstrike/test-utils/vitest.browser.setup'],
+ *       }),
  *     ],
  *   },
  * });
  * ```
  */
-export function createBrowserProject(config?: BrowserTestConfig) {
-  const testPattern = config?.testPattern ?? '**/*.browser.test.{ts,tsx}';
-  const headless = config?.headless ?? true;
+export function createBrowserProject(config: BrowserProjectConfig) {
+  const testPattern = config.testPattern ?? '**/*.browser.test.{ts,tsx}';
+  const headless = config.headless ?? true;
   const isCI = resolveIsCI(config);
 
   // Enable traces on failure in CI by default for debugging
-  const trace = config?.trace ?? (isCI ? 'retain-on-failure' : 'off');
-  const traceOutputDir = config?.traceOutputDir ?? 'test-results';
+  const trace = config.trace ?? (isCI ? 'retain-on-failure' : 'off');
+  const traceOutputDir = config.traceOutputDir ?? 'test-results';
+
+  const { asyncUtilTimeout } = config;
+  if (!(Number.isFinite(asyncUtilTimeout) && asyncUtilTimeout > 0)) {
+    throw new RangeError(
+      `createBrowserProject requires a positive asyncUtilTimeout in milliseconds, received ${JSON.stringify(asyncUtilTimeout)}. Pass getAsyncUtilTimeout() from @brainstrike/test-utils.`
+    );
+  }
+  const setupFiles = resolveSetupFiles(config.setupFiles);
 
   return {
     test: {
@@ -245,6 +342,19 @@ export function createBrowserProject(config?: BrowserTestConfig) {
       name: 'browser',
       // Output directory for traces and screenshots
       outputDir: traceOutputDir,
+      // TEST_TIMEOUT_MULTIPLIER's only route into the browser page (BST-1299).
+      // `process` does not exist there, so the caller resolves the budget in
+      // Node and it travels over `provide`; the setup file below `inject`s it
+      // into @testing-library/dom, whose async utilities otherwise sit on an
+      // unscalable 1s default no matter what the lane sets.
+      //
+      // All three fields live inside `test` on purpose: every consumer spreads
+      // `...browserProject.test` into its own project object, so anything
+      // published beside `test` (a Vite-level `define`, say) would be dropped
+      // without a word.
+      provide: { asyncUtilTimeout },
+      setupFiles,
+      testTimeout: asyncUtilTimeout * TEST_TIMEOUT_PER_ASYNC_UTIL_BUDGET,
     },
   };
 }

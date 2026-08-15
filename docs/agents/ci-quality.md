@@ -843,6 +843,49 @@ survive future edits:
   defaults remain. That validation contract applies where Vitest timeout policy
   is consumed; native `node --test` tasks do not read this setting and are not
   silently choosing a fallback timeout from it.
+- **The multiplier also governs `@testing-library/dom`'s async utilities**
+  (`waitFor`, `findBy*`), not only explicit Vitest timeouts (BST-1299). That
+  budget lives in library module state, so `configure({ asyncUtilTimeout })` is
+  the only way to set it and it must run in the test runtime — a Vitest setup
+  file, never Vitest config. The base stays the library's own 1000ms, so an
+  unscaled lane behaves exactly as before and a genuinely hung `waitFor` still
+  fails fast; `getAsyncUtilTimeout()` in `@brainstrike/test-utils` applies the
+  multiplier on top. **Every lane whose tests call `waitFor`/`findBy*` must load
+  one of the two timeout setups** — there is no lane that legitimately opts out
+  and still uses the async utilities. Node lanes on the shared `vitest.setup`
+  get it for free (it side-effect-imports `vitest.timeouts.setup`); lanes that
+  deliberately run without the shared setup load
+  `@brainstrike/test-utils/vitest.timeouts.setup` directly, which is hook-free
+  precisely so they can (`packages/settings-ui` and `packages/app-state`, which
+  want none of the shared `beforeEach`/`afterEach` hooks, and `packages/db`,
+  whose own `vitest.setup.ts` imports it). The browser lane cannot use either
+  (`process` does not exist in the page, and the shared setup imports
+  `node:buffer`), so `createBrowserProject` takes a REQUIRED `asyncUtilTimeout`,
+  publishes it via `test.provide`, and `vitest.browser.setup` `inject`s it —
+  required rather than defaulted because a browser project silently inheriting
+  an unscalable 1s budget is precisely the defect. `setupFiles` is required and
+  caller-owned for the same reason twice over: `@brainstrike/config` is
+  `tooling` and may depend on nothing (a hard-coded
+  `'@brainstrike/test-utils/…'` string is that dependency, merely invisible to
+  the domain-boundary contract because it is not an `import`), and a factory
+  default would be silently droppable by the `{ ...browserProject.test }` spread
+  every consumer writes. The factory also derives `testTimeout` as 5x that
+  budget — the ratio Vitest's and @testing-library's defaults happened to have —
+  so a failing `waitFor` always reports its last assertion instead of being cut
+  short by a bare Vitest timeout. Browser projects that build their own config
+  instead of calling `createBrowserProject` (`packages/db`, `packages/storage`)
+  use no @testing-library in their browser suites and are deliberately left out.
+  Paired tests:
+  `packages/test-utils/src/__tests__/testing-library-timeouts.test.ts`,
+  `packages/config/__tests__/vitest-browser.test.ts`, and one
+  `async-util-timeout-wiring.browser.test.ts` per browser lane
+  (`packages/assistant-ui`, `packages/ui`) built on the shared
+  `registerAsyncUtilTimeoutProof`. That proof times a real failing `waitFor`
+  against the configured budget — the one assertion a duplicated
+  @testing-library/dom instance cannot satisfy — and it is per-lane on purpose:
+  the duplicate is created by an individual lane's Vite dependency optimizer, so
+  a lane with a hand-curated `optimizeDeps.include` (both of these) must list
+  `@testing-library/dom` and prove the result itself.
 - **`--full` is additive**, not a swap: the required-check mirror plus
   `nightly-coverage.yml`'s threshold gate and the full E2E regression lanes.
   `--fast` drops only the lanes CI fans out to separate runners (Browser tests,

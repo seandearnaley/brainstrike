@@ -1,4 +1,7 @@
 import '@testing-library/jest-dom';
+// Scales @testing-library/dom's waitFor/findBy budget by TEST_TIMEOUT_MULTIPLIER
+// (BST-1299). Side-effect import; registers no hooks.
+import './vitest.timeouts.setup.js';
 import { Blob as NodeBlob } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import { cleanup } from '@testing-library/react';
