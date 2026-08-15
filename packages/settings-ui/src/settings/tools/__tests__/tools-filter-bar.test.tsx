@@ -192,12 +192,14 @@ describe('ToolsFilterBar', () => {
       const input = screen.getByTestId('search-input');
       expect(input).toHaveAttribute('placeholder', 'Search tools...');
       expect(input).toHaveClass('pl-10');
-      // Source constants are authored in rem (2.5rem / 0.75rem); jsdom >=30
-      // resolves computed lengths to px against the 16px root font size.
-      expect(input).toHaveStyle({ paddingLeft: '40px' });
-      expect(input.parentElement?.querySelector('[data-slot="settings-search-icon"]')).toHaveStyle({
-        left: '12px',
-      });
+      // Authored inline in rem (SETTINGS_SEARCH_INPUT_STYLE /
+      // SETTINGS_SEARCH_ICON_LEFT_INSET), so read `.style` rather than
+      // getComputedStyle — jsdom >=30 resolves computed lengths to px.
+      expect(input.style.paddingLeft).toBe('2.5rem');
+      expect(
+        input.parentElement?.querySelector<HTMLElement>('[data-slot="settings-search-icon"]')?.style
+          .left
+      ).toBe('0.75rem');
     });
   });
 
