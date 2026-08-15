@@ -424,37 +424,37 @@ describe('resolveValidatedPath', () => {
     }
   });
 
-  it.each([
-    false,
-    true,
-  ])('returns realpath-failure for non-ENOENT errors when allowMissing is %s', async (allowMissing) => {
-    const spy = vi.spyOn(fsPromises, 'realpath');
-    const candidate = path.join(tempDir, 'some-file.txt');
-    const eacces = Object.assign(new Error('permission denied'), { code: 'EACCES' });
-    spy.mockImplementation(async (input: fs.PathLike) => {
-      const resolved = input.toString();
-      if (resolved === candidate) {
-        throw eacces;
-      }
-      return resolved;
-    });
-
-    try {
-      const result = await resolveValidatedPath({
-        allowMissing,
-        requestedPath: 'some-file.txt',
-        rootDir: tempDir,
+  it.each([false, true])(
+    'returns realpath-failure for non-ENOENT errors when allowMissing is %s',
+    async (allowMissing) => {
+      const spy = vi.spyOn(fsPromises, 'realpath');
+      const candidate = path.join(tempDir, 'some-file.txt');
+      const eacces = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      spy.mockImplementation(async (input: fs.PathLike) => {
+        const resolved = input.toString();
+        if (resolved === candidate) {
+          throw eacces;
+        }
+        return resolved;
       });
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('realpath-failure');
-        expect(result.error.message).toBe('permission denied');
+      try {
+        const result = await resolveValidatedPath({
+          allowMissing,
+          requestedPath: 'some-file.txt',
+          rootDir: tempDir,
+        });
+
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.code).toBe('realpath-failure');
+          expect(result.error.message).toBe('permission denied');
+        }
+      } finally {
+        spy.mockRestore();
       }
-    } finally {
-      spy.mockRestore();
     }
-  });
+  );
 
   it.skipIf(!home)(
     'blocks sensitive user directory with win32 platform (case-insensitive)',
