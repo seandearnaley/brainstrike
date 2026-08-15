@@ -1648,6 +1648,19 @@ Mastra 1.51.0 / AI SDK OpenAI 4.0.8 path also cannot express the hosted tool,
 Responses loop around Mastra's provider-history, persistence, suspension,
 telemetry, and processor contracts.
 
+**Adapter-gap update (BST-1284, 2026-08-15).** The adapter half of that second
+sentence is now stale: `@ai-sdk/openai` 4.0.42 ships
+`openai.tools.programmaticToolCalling()` (`openai.programmatic_tool_calling`,
+provider-executed) plus `allowedCallers`, function `outputSchema`, nested
+`caller`, and `program` / `program_output` continuation items — all five
+recorded gaps have closed, and
+`provider-native-programmatic-tool-calling-compat.spec.ts` now pins that
+surface. **The no-go itself stands.** Its other ground is the measured
+correctness result (strictly correct on one of three first runs, against three
+of three for direct calling), which a dependency bump cannot move. Adoption
+still requires a fresh measured re-run against the gates recorded above; the
+version bump deliberately did not adopt it.
+
 OpenCode Code Mode validates the local architecture shape: a confined
 interpreter over a permission-filtered catalog can reduce fixed read-only
 programs without ambient filesystem, process, network, or module authority.
