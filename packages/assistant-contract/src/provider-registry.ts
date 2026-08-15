@@ -628,6 +628,26 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     // billed cost is authoritative at runtime; these rates are display estimates.
     models: [
       {
+        // Capabilities and limits: official Qwen model card at commit
+        // 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0. Route, max completion,
+        // and gateway pricing: OpenRouter Models API, retrieved 2026-08-15
+        // (BST-1302).
+        contextWindow: 262_144,
+        id: 'qwen/qwen3.8-27b',
+        label: 'Qwen3.8 27B (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0.45, outputPerMTok: 3.2 },
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
         // Capabilities and limits: official Google model page, last updated
         // 2026-08-13. Route and gateway pricing: OpenRouter Models API,
         // retrieved 2026-08-14 (BST-1265).

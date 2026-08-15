@@ -119,6 +119,7 @@ describe('frontier model refresh (2026-07)', () => {
           'qwen/qwen3.7-max',
           'qwen/qwen3.7-plus',
           'qwen/qwen3.6-flash',
+          'qwen/qwen3.8-27b',
           'qwen/qwen3-coder-next',
           'meta/muse-spark-1.1',
           'moonshotai/kimi-k3',
@@ -258,6 +259,27 @@ describe('frontier model refresh (2026-07)', () => {
           defaultEnabled: true,
           mandatory: true,
           supportedEfforts: ['high', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
+
+    it('declares Qwen3.8 27B from vendor capabilities and gateway metadata', () => {
+      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-27b');
+
+      expect(qwen).toEqual({
+        contextWindow: 262_144,
+        id: 'qwen/qwen3.8-27b',
+        label: 'Qwen3.8 27B (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 0.45, outputPerMTok: 3.2 },
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: false,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
         },
         supportsStreaming: true,
         type: 'llm',

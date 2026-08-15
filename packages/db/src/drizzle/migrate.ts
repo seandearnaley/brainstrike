@@ -85,6 +85,7 @@ import { migration092ToolCallTelemetrySubstrateSplit } from '../migrations/092-t
 import { migration093AssistantRunTreatments } from '../migrations/093-assistant-run-treatments.js';
 import { migration094OpenRouterGemini37Flash } from '../migrations/094-openrouter-gemini-3-7-flash.js';
 import { migration095AssistantThreadWorkspaces } from '../migrations/095-assistant-thread-workspaces.js';
+import { migration096OpenRouterQwen3827B } from '../migrations/096-openrouter-qwen-3-8-27b.js';
 import type { Migration as LegacyMigration } from '../migrations/migration-runner.js';
 
 // Import the pre-compiled migrations manifest
@@ -308,6 +309,7 @@ const customMigrations: Migration[] = [
   customMigration('custom-093-assistant-run-treatments', migration093AssistantRunTreatments),
   customMigration('custom-094-openrouter-gemini-3-7-flash', migration094OpenRouterGemini37Flash),
   customMigration('custom-095-assistant-thread-workspaces', migration095AssistantThreadWorkspaces),
+  customMigration('custom-096-openrouter-qwen-3-8-27b', migration096OpenRouterQwen3827B),
 ];
 
 const DOLLAR_QUOTED_BLOCK_PLACEHOLDER_PREFIX = '__BRAINSTRIKE_DOLLAR_QUOTE_';

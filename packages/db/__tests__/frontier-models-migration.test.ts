@@ -62,6 +62,7 @@ describe('frontier models migrations', () => {
       'qwen/qwen3.7-max',
       'qwen/qwen3.7-plus',
       'qwen/qwen3.6-flash',
+      'qwen/qwen3.8-27b',
       'qwen/qwen3-coder-next',
       'meta/muse-spark-1.1',
       'moonshotai/kimi-k3',
@@ -507,5 +508,69 @@ describe('frontier models migrations', () => {
 
     await runner.down(migrations, 93);
     expect(await readGemini()).toBeUndefined();
+  });
+
+  it('adds Qwen3.8 27B disabled, preserves its toggle, and rolls back faithfully', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations.filter((migration) => migration.version <= 96));
+
+    const readQwen = async (): Promise<
+      | {
+          capabilities: { streaming: boolean; type: string; vision: boolean };
+          is_enabled: boolean;
+          sort_order: number;
+        }
+      | undefined
+    > => {
+      const result = await db.query<{
+        capabilities: { streaming: boolean; type: string; vision: boolean };
+        is_enabled: boolean;
+        sort_order: number;
+      }>(`
+        SELECT capabilities, is_enabled, sort_order
+        FROM models
+        WHERE provider_id = 'openrouter'
+          AND id = 'qwen/qwen3.8-27b'
+      `);
+      return result.rows[0];
+    };
+
+    expect(await readQwen()).toEqual({
+      capabilities: { streaming: true, type: 'llm', vision: true },
+      is_enabled: false,
+      sort_order: 1,
+    });
+
+    await db.query("UPDATE models SET is_enabled = true WHERE id = 'qwen/qwen3.8-27b'");
+    await runner.down(migrations, 95);
+    expect(await readQwen()).toBeUndefined();
+
+    await db.query(`
+      INSERT INTO models
+        (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled)
+      VALUES
+        (
+          'qwen/qwen3.8-27b',
+          'openrouter',
+          'stale name',
+          'stale tagline',
+          '[]',
+          '{"type":"llm","streaming":false,"vision":false}',
+          99,
+          true
+        )
+    `);
+    await runner.up(migrations.filter((migration) => migration.version <= 96));
+
+    expect(await readQwen()).toEqual({
+      capabilities: { streaming: true, type: 'llm', vision: true },
+      is_enabled: true,
+      sort_order: 1,
+    });
+
+    await runner.down(migrations, 95);
+    expect(await readQwen()).toBeUndefined();
   });
 });
