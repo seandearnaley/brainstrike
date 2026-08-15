@@ -155,7 +155,9 @@ describe('applyWorkspaceSnapshot', () => {
     applyWorkspaceSnapshot(EMPTY_WORKSPACE_SNAPSHOT, facade);
     expect(facade.applyApps).toHaveBeenCalledWith([], { kind: 'empty' });
     expect(facade.applyFileTabs).toHaveBeenCalledWith([], null);
-    expect((vi.mocked(facade.applyExpandedPaths).mock.calls[0]?.[0] as Set<string>).size).toBe(0);
+    const clearedExpansions = vi.mocked(facade.applyExpandedPaths).mock.calls[0]?.[0];
+    expect(clearedExpansions).toBeInstanceOf(Set);
+    expect(clearedExpansions?.size).toBe(0);
     expect(facade.applyExplorerScrollTop).toHaveBeenCalledWith(undefined);
   });
 
