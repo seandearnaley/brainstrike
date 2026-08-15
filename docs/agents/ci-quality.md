@@ -24,6 +24,19 @@ Rules:
   `workflow_dispatch`.
 - Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
 
+### Open PR to Linear conformance (BST-521)
+
+Every human-authored pull request description must contain a Brainstrike issue
+reference in the exact `BST-###` form. A title-only reference is insufficient:
+the description is the durable review handoff and should retain either the
+identifier or a Linear issue URL containing it. Run `pnpm check:pr-linear` to
+inspect every open PR. The command reports each missing PR number, title, URL,
+and suggested action, but exits successfully after findings because this is an
+advisory rollout; GitHub/API failures and malformed responses fail visibly.
+The script is read-only and never comments on or edits PRs. Dependabot and
+Renovate PRs are the only exclusions; human maintenance work still requires a
+tracker.
+
 Desktop `workflow_dispatch` exposes a `suite` choice. `full` preserves the
 scheduled workflow exactly. `memory-baseline` skips the unrelated broad
 regression job and runs only the desktop embedding memory spec with no
