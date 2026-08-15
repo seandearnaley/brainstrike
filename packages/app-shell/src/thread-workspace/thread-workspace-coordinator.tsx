@@ -33,6 +33,7 @@ export function ThreadWorkspaceCoordinator(): null {
   const facade = useMemo(() => createLiveWorkspaceFacade(fileExplorerStore), [fileExplorerStore]);
   const subscribe = useCallback(
     (listener: () => void) => {
+      // n-next-line react-doctor/effect-needs-cleanup -- This callback is a subscription AGGREGATOR, not a leak: it returns the unsubscribe-all closure, and its only caller (useThreadWorkspaceCoordinator's save effect) invokes it inside useEffect and returns that closure as the effect cleanup.
       const unsubscribers = [
         useWorkspaceTabSelectionStore.subscribe(listener),
         useTabManagerStore.subscribe(listener),
