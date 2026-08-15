@@ -538,10 +538,14 @@ describe('LogViewer', () => {
 
     const searchInput = screen.getByPlaceholderText('Search logs...');
     expect(searchInput).toHaveClass('pl-10');
-    expect(searchInput).toHaveStyle({ paddingLeft: '2.5rem' });
+    // Authored inline in rem (SETTINGS_SEARCH_INPUT_STYLE /
+    // SETTINGS_SEARCH_ICON_LEFT_INSET), so read `.style` rather than
+    // getComputedStyle — jsdom >=30 resolves computed lengths to px.
+    expect(searchInput.style.paddingLeft).toBe('2.5rem');
     expect(
-      searchInput.parentElement?.querySelector('[data-slot="settings-search-icon"]')
-    ).toHaveStyle({ left: '0.75rem' });
+      searchInput.parentElement?.querySelector<HTMLElement>('[data-slot="settings-search-icon"]')
+        ?.style.left
+    ).toBe('0.75rem');
     fireEvent.change(searchInput, { target: { value: 'Apple' } });
 
     await waitFor(() => {

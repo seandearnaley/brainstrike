@@ -63,16 +63,26 @@ describe('SettingsPageContent', () => {
     const nav = screen.getByRole('navigation', { name: /settings categories/i });
     const searchbox = within(nav).getByRole('searchbox', { name: /search settings/i });
     expect(searchbox).toHaveClass('pl-10');
-    expect(searchbox).toHaveStyle({ paddingLeft: '2.5rem' });
+    // Every length asserted below is authored INLINE in rem — see
+    // SETTINGS_SEARCH_INPUT_STYLE (settings-search-layout.ts),
+    // SETTINGS_SEARCH_ICON_LEFT_INSET (settings-search-icon.tsx) and the
+    // `style={{ paddingBlock: '2rem' }}` on the section in
+    // settings-page-content.tsx. Read `.style` so the assertion stays in the
+    // authored unit. `toHaveStyle` goes through getComputedStyle, which jsdom
+    // >=30 resolves to px against a 16px root — a DOM-shim detail these have no
+    // reason to depend on, and one that already forced a rewrite once.
+    expect(searchbox.style.paddingLeft).toBe('2.5rem');
     expect(
-      searchbox.parentElement?.querySelector('[data-slot="settings-search-icon"]')
-    ).toHaveStyle({ left: '0.75rem' });
+      searchbox.parentElement?.querySelector<HTMLElement>('[data-slot="settings-search-icon"]')
+        ?.style.left
+    ).toBe('0.75rem');
     const appearanceButton = within(nav).getByRole('button', { name: /Appearance/i });
     expect(appearanceButton).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('settings-category-appearance')).toBeInTheDocument();
-    expect(screen.getByTestId('settings-category-appearance').closest('section')).toHaveStyle({
-      paddingBlock: '2rem',
-    });
+    expect(
+      screen.getByTestId('settings-category-appearance').closest<HTMLElement>('section')?.style
+        .paddingBlock
+    ).toBe('2rem');
     expect(screen.getByRole('heading', { level: 2, name: 'Appearance' })).toBeInTheDocument();
     expect(window.location.hash).toBe('#settings/appearance');
   });
