@@ -60,6 +60,18 @@ describe('electron main test harness', () => {
     expect(electronMainMock.webContents.getAllWebContents()).not.toContain(staleContents);
   });
 
+  it('resets mock functions attached to the BrowserWindow constructor', () => {
+    electronMainMock.BrowserWindow.getAllWindows();
+    electronMainMock.BrowserWindow.getAllWindows.mockImplementationOnce(() => {
+      throw new Error('stale one-shot BrowserWindow implementation');
+    });
+
+    resetElectronMainTestHarness();
+
+    expect(electronMainMock.BrowserWindow.getAllWindows).not.toHaveBeenCalled();
+    expect(electronMainMock.BrowserWindow.getAllWindows()).toEqual([]);
+  });
+
   it('fails visibly when a channel registers a second handler', () => {
     electronMainMock.ipcMain.handle('test:duplicate', vi.fn());
 

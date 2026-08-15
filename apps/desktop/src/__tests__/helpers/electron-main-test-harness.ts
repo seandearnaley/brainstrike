@@ -136,14 +136,15 @@ export const electronMainMock = Object.assign(electronMainMockSurface, {
 });
 
 function resetOwnedMockFunctions(value: unknown, seen = new Set<unknown>()): void {
-  if (vi.isMockFunction(value)) {
-    value.mockReset();
-    return;
-  }
-  if (typeof value !== 'object' || value === null || seen.has(value)) {
+  const isTraversable =
+    (typeof value === 'object' && value !== null) || typeof value === 'function';
+  if (!isTraversable || seen.has(value)) {
     return;
   }
   seen.add(value);
+  if (vi.isMockFunction(value)) {
+    value.mockReset();
+  }
   for (const nestedValue of Object.values(value)) {
     resetOwnedMockFunctions(nestedValue, seen);
   }
