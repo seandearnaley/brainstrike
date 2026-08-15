@@ -158,11 +158,10 @@ describe('local runtime tool definitions', () => {
     readonly expectedReason: string;
     readonly name: string;
     readonly tools: readonly LocalRuntimeToolConfig[] | undefined;
-  }>)('explains unavailable local tools for $name', ({
-    canExecuteTools,
-    expectedReason,
-    tools,
-  }) => {
-    expect(buildLocalToolUnavailableReason(tools, canExecuteTools)).toBe(expectedReason);
-  });
+  }>)(
+    'explains unavailable local tools for $name',
+    ({ canExecuteTools, expectedReason, tools }) => {
+      expect(buildLocalToolUnavailableReason(tools, canExecuteTools)).toBe(expectedReason);
+    }
+  );
 });

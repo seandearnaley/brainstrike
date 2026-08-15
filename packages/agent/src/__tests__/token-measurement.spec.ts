@@ -32,19 +32,19 @@ function createRunTokenDiagnostics(
 }
 
 describe('prepared token measurement', () => {
-  it.each(TOKEN_MEASUREMENT_FIXTURES)('matches the verified o200k count for $name', async ({
-    o200kTokens,
-    text,
-  }) => {
-    const measurement = await createPreparedTokenMeasurement(EXACT_O200K);
+  it.each(TOKEN_MEASUREMENT_FIXTURES)(
+    'matches the verified o200k count for $name',
+    async ({ o200kTokens, text }) => {
+      const measurement = await createPreparedTokenMeasurement(EXACT_O200K);
 
-    expect(measurement.measure(text)).toEqual({
-      backstopTokens: Math.ceil(text.length / 4),
-      serializedCharacters: text.length,
-      status: 'measured',
-      tokenCount: o200kTokens,
-    });
-  });
+      expect(measurement.measure(text)).toEqual({
+        backstopTokens: Math.ceil(text.length / 4),
+        serializedCharacters: text.length,
+        status: 'measured',
+        tokenCount: o200kTokens,
+      });
+    }
+  );
 
   it('labels a deterministic backstop without claiming exactness', async () => {
     const measurement = await createPreparedTokenMeasurement({
@@ -292,25 +292,25 @@ describe('run token diagnostics', () => {
     expect(fieldsAfterBoth.modelVisibleProjectionTokens).toBeGreaterThan(0);
   });
 
-  it.each([
-    'anthropic',
-    'openai',
-  ])('measures the provider-native definition for the %s web-search tool', async (provider) => {
-    const nativeTool = createProviderNativeWebSearchTool(provider, undefined);
-    expect(nativeTool).toBeDefined();
+  it.each(['anthropic', 'openai'])(
+    'measures the provider-native definition for the %s web-search tool',
+    async (provider) => {
+      const nativeTool = createProviderNativeWebSearchTool(provider, undefined);
+      expect(nativeTool).toBeDefined();
 
-    const diagnostics = await createRunTokenDiagnostics({
-      capability: EXACT_O200K,
-      tools: { web_search: nativeTool! },
-    });
-    const fields = diagnostics.toLogFields();
+      const diagnostics = await createRunTokenDiagnostics({
+        capability: EXACT_O200K,
+        tools: { web_search: nativeTool! },
+      });
+      const fields = diagnostics.toLogFields();
 
-    expect(fields).toMatchObject({
-      measurementStatus: 'measured',
-      toolDefinitionCount: 1,
-    });
-    expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
-  });
+      expect(fields).toMatchObject({
+        measurementStatus: 'measured',
+        toolDefinitionCount: 1,
+      });
+      expect(fields.toolDefinitionTokens).toBeGreaterThan(0);
+    }
+  );
 
   it('compacts inline media to a deterministic marker before counting', () => {
     const serialized = serializeModelOutputForTokenMeasurement({

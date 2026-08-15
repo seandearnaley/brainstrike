@@ -40,7 +40,7 @@ test.beforeAll(() => {
 });
 
 test.afterAll(() => {
-  // biome-ignore lint/performance/noDelete: assigning undefined coerces to the string "undefined"; delete truly unsets.
+  // assigning undefined coerces to the string "undefined"; delete truly unsets.
   delete process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'];
   rmSync(ROOT_ONE_DIR, { force: true, recursive: true });
   rmSync(ROOT_TWO_DIR, { force: true, recursive: true });

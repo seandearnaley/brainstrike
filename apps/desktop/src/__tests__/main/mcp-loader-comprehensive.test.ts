@@ -239,8 +239,10 @@ describe('mcp-loader comprehensive tests', () => {
     it.each([
       ['headers', 'sse', '"url": "https://example.com/mcp",'],
       ['env', 'stdio', '"command": "node",'],
-    ] as const)('should reject duplicate properties in a nested %s object with source context', (recordName, transport, requiredProperty) => {
-      const json = `{
+    ] as const)(
+      'should reject duplicate properties in a nested %s object with source context',
+      (recordName, transport, requiredProperty) => {
+        const json = `{
   "servers": [
     {
       "transport": "${transport}",
@@ -254,13 +256,14 @@ describe('mcp-loader comprehensive tests', () => {
   ]
 }`;
 
-      expect(() => parseMcpConfig(json)).toThrow(
-        new RegExp(
-          `invalid_mcp_config: duplicate property "TOKEN" at line 9, column 9 \\(servers\\.0\\.${recordName}\\.TOKEN\\)`,
-          'u'
-        )
-      );
-    });
+        expect(() => parseMcpConfig(json)).toThrow(
+          new RegExp(
+            `invalid_mcp_config: duplicate property "TOKEN" at line 9, column 9 \\(servers\\.0\\.${recordName}\\.TOKEN\\)`,
+            'u'
+          )
+        );
+      }
+    );
 
     it('should reject the whole config when any server is invalid and report its path', () => {
       const json = JSON.stringify({
@@ -523,42 +526,42 @@ describe('mcp-loader comprehensive tests', () => {
       );
     });
 
-    it.each([
-      'sse',
-      'streamable-http',
-    ] as const)('should apply the same URL and header validation to %s', (transport) => {
-      const invalidUrl = JSON.stringify({
-        servers: [{ name: 'invalid-url', transport, url: 'file:///tmp/mcp.sock' }],
-      });
-      const invalidHeader = JSON.stringify({
-        servers: [
-          {
-            headers: { 'Invalid Header': 'value' },
-            name: 'invalid-header',
-            transport,
-            url: 'https://example.com/mcp',
-          },
-        ],
-      });
+    it.each(['sse', 'streamable-http'] as const)(
+      'should apply the same URL and header validation to %s',
+      (transport) => {
+        const invalidUrl = JSON.stringify({
+          servers: [{ name: 'invalid-url', transport, url: 'file:///tmp/mcp.sock' }],
+        });
+        const invalidHeader = JSON.stringify({
+          servers: [
+            {
+              headers: { 'Invalid Header': 'value' },
+              name: 'invalid-header',
+              transport,
+              url: 'https://example.com/mcp',
+            },
+          ],
+        });
 
-      expect(() => parseMcpConfig(invalidUrl)).toThrow(/invalid_mcp_config:.*servers\.0\.url/u);
-      expect(() => parseMcpConfig(invalidHeader)).toThrow(
-        /invalid_mcp_config:.*servers\.0\.headers\.Invalid Header: invalid HTTP header name/u
-      );
-    });
+        expect(() => parseMcpConfig(invalidUrl)).toThrow(/invalid_mcp_config:.*servers\.0\.url/u);
+        expect(() => parseMcpConfig(invalidHeader)).toThrow(
+          /invalid_mcp_config:.*servers\.0\.headers\.Invalid Header: invalid HTTP header name/u
+        );
+      }
+    );
 
-    it.each([
-      'https://user@example.com/mcp',
-      'https://user:password@example.com/mcp',
-    ])('should reject credentials in a remote URL: %s', (url) => {
-      const json = JSON.stringify({
-        servers: [{ name: 'remote', transport: 'sse', url }],
-      });
+    it.each(['https://user@example.com/mcp', 'https://user:password@example.com/mcp'])(
+      'should reject credentials in a remote URL: %s',
+      (url) => {
+        const json = JSON.stringify({
+          servers: [{ name: 'remote', transport: 'sse', url }],
+        });
 
-      expect(() => parseMcpConfig(json)).toThrow(
-        /invalid_mcp_config:.*servers\.0\.url: must not include credentials/u
-      );
-    });
+        expect(() => parseMcpConfig(json)).toThrow(
+          /invalid_mcp_config:.*servers\.0\.url: must not include credentials/u
+        );
+      }
+    );
 
     it('should reject unknown server keys instead of silently dropping misspelled settings', () => {
       const json = JSON.stringify({
@@ -913,29 +916,29 @@ describe('mcp-loader comprehensive tests', () => {
       });
     });
 
-    it.each([
-      'sse',
-      'streamable-http',
-    ] as const)('should reject invalid decrypted headers for %s', async (transport) => {
-      const config = {
-        servers: [
-          {
-            headers: {
-              AuthorizationEncrypted: Buffer.from('Bearer token\r\nInjected: true').toString(
-                'base64'
-              ),
+    it.each(['sse', 'streamable-http'] as const)(
+      'should reject invalid decrypted headers for %s',
+      async (transport) => {
+        const config = {
+          servers: [
+            {
+              headers: {
+                AuthorizationEncrypted: Buffer.from('Bearer token\r\nInjected: true').toString(
+                  'base64'
+                ),
+              },
+              name: 'test',
+              transport,
+              url: 'http://example.com/mcp',
             },
-            name: 'test',
-            transport,
-            url: 'http://example.com/mcp',
-          },
-        ],
-      } as McpConfig;
+          ],
+        } as McpConfig;
 
-      await expect(withDecryptedSecrets(config)).rejects.toThrow(
-        /invalid_mcp_config:.*invalid HTTP header value/u
-      );
-    });
+        await expect(withDecryptedSecrets(config)).rejects.toThrow(
+          /invalid_mcp_config:.*invalid HTTP header value/u
+        );
+      }
+    );
 
     it.each([
       {
@@ -950,25 +953,25 @@ describe('mcp-loader comprehensive tests', () => {
           AuthorizationEncrypted: Buffer.from('Bearer token\r\nInjected: true').toString('base64'),
         },
       },
-    ])('should reject decrypted SSE headers with $expectedError', async ({
-      expectedError,
-      headers,
-    }) => {
-      const config: McpConfig = {
-        servers: [
-          {
-            headers: headers as unknown as Record<string, string>,
-            name: 'test',
-            transport: 'sse',
-            url: 'http://example.com',
-          },
-        ],
-      };
+    ])(
+      'should reject decrypted SSE headers with $expectedError',
+      async ({ expectedError, headers }) => {
+        const config: McpConfig = {
+          servers: [
+            {
+              headers: headers as unknown as Record<string, string>,
+              name: 'test',
+              transport: 'sse',
+              url: 'http://example.com',
+            },
+          ],
+        };
 
-      await expect(withDecryptedSecrets(config)).rejects.toThrow(
-        new RegExp(`invalid_mcp_config:.*${expectedError}`, 'u')
-      );
-    });
+        await expect(withDecryptedSecrets(config)).rejects.toThrow(
+          new RegExp(`invalid_mcp_config:.*${expectedError}`, 'u')
+        );
+      }
+    );
 
     it('should reject case-insensitive duplicate HTTP header names created by decryption', async () => {
       const config: McpConfig = {

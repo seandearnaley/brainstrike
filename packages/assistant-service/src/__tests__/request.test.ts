@@ -231,32 +231,35 @@ describe('prepareAssistantPostRequest rejections', () => {
       'system context',
       { id: 'trailing-system', parts: [{ text: 'late context', type: 'text' }], role: 'system' },
     ],
-  ])('rejects a trailing %s message instead of reusing an earlier user prompt', async (_case, trailingMessage) => {
-    const { convertAssistantUiMessages } = await import('@brainstrike/agent');
-    (convertAssistantUiMessages as Mock).mockReturnValueOnce([
-      { parts: [{ text: 'Earlier prompt', type: 'text' }], role: 'user' },
-    ]);
+  ])(
+    'rejects a trailing %s message instead of reusing an earlier user prompt',
+    async (_case, trailingMessage) => {
+      const { convertAssistantUiMessages } = await import('@brainstrike/agent');
+      (convertAssistantUiMessages as Mock).mockReturnValueOnce([
+        { parts: [{ text: 'Earlier prompt', type: 'text' }], role: 'user' },
+      ]);
 
-    const result = await prepare(
-      JSON.stringify({
-        data: { provider: 'openai' },
-        messages: [
-          {
-            id: 'earlier-user',
-            parts: [{ text: 'Earlier prompt', type: 'text' }],
-            role: 'user',
-          },
-          trailingMessage,
-        ],
-      })
-    );
+      const result = await prepare(
+        JSON.stringify({
+          data: { provider: 'openai' },
+          messages: [
+            {
+              id: 'earlier-user',
+              parts: [{ text: 'Earlier prompt', type: 'text' }],
+              role: 'user',
+            },
+            trailingMessage,
+          ],
+        })
+      );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      throw new Error('expected rejection');
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        throw new Error('expected rejection');
+      }
+      expect(result.rejection).toEqual({ payload: { error: 'empty_prompt' }, status: 400 });
     }
-    expect(result.rejection).toEqual({ payload: { error: 'empty_prompt' }, status: 400 });
-  });
+  );
 
   it.each([
     [

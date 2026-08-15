@@ -113,33 +113,31 @@ describe('main platform IPC', () => {
     await expect(handlers.get('assistant:get-auth')?.(createInvokeEvent())).resolves.toBeNull();
   });
 
-  it.each([
-    'chunking-host',
-    'embedding-host',
-    'llm-host',
-    undefined,
-  ])('rejects assistant credentials before invoking getters for sender role %s', async (role) => {
-    getWindowRoleByWebContentsIdMock.mockReturnValue(role);
-    const getAssistantAuth = vi.fn(() => ({
-      token: 'a'.repeat(64),
-      url: 'http://127.0.0.1:4999',
-    }));
-    const getAssistantUrl = vi.fn(() => 'http://127.0.0.1:4999');
-    registerPartialMainPlatformIpcHandlers({
-      getAssistantAuth,
-      getAssistantUrl,
-      noteNextWindowReload,
-    });
+  it.each(['chunking-host', 'embedding-host', 'llm-host', undefined])(
+    'rejects assistant credentials before invoking getters for sender role %s',
+    async (role) => {
+      getWindowRoleByWebContentsIdMock.mockReturnValue(role);
+      const getAssistantAuth = vi.fn(() => ({
+        token: 'a'.repeat(64),
+        url: 'http://127.0.0.1:4999',
+      }));
+      const getAssistantUrl = vi.fn(() => 'http://127.0.0.1:4999');
+      registerPartialMainPlatformIpcHandlers({
+        getAssistantAuth,
+        getAssistantUrl,
+        noteNextWindowReload,
+      });
 
-    await expect(handlers.get('assistant:get-auth')?.(createInvokeEvent())).rejects.toThrow(
-      'Desktop IPC assistant:get-auth requires sender role visible-ui.'
-    );
-    await expect(handlers.get('assistant:get-url')?.(createInvokeEvent())).rejects.toThrow(
-      'Desktop IPC assistant:get-url requires sender role visible-ui.'
-    );
-    expect(getAssistantAuth).not.toHaveBeenCalled();
-    expect(getAssistantUrl).not.toHaveBeenCalled();
-  });
+      await expect(handlers.get('assistant:get-auth')?.(createInvokeEvent())).rejects.toThrow(
+        'Desktop IPC assistant:get-auth requires sender role visible-ui.'
+      );
+      await expect(handlers.get('assistant:get-url')?.(createInvokeEvent())).rejects.toThrow(
+        'Desktop IPC assistant:get-url requires sender role visible-ui.'
+      );
+      expect(getAssistantAuth).not.toHaveBeenCalled();
+      expect(getAssistantUrl).not.toHaveBeenCalled();
+    }
+  );
 
   it('records normalized renderer reload intent for the sender window', async () => {
     const window = { isDestroyed: () => false };

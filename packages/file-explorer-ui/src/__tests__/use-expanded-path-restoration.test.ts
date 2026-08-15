@@ -242,37 +242,36 @@ describe('useExpandedPathRestoration', () => {
       currentRootPath: '\\\\server\\share\\',
       expectedPaths: ['\\\\server\\share\\repo', '\\\\server\\share\\repo\\src'],
     },
-  ])('restores descendants when $currentRootPath is the selected filesystem root', async ({
-    currentRootFolderId,
-    currentRootPath,
-    expectedPaths,
-  }) => {
-    const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
-    const store = {
-      getState: vi.fn(() =>
-        createStoreState({
-          expandedDirectoryPaths: new Set(expectedPaths),
+  ])(
+    'restores descendants when $currentRootPath is the selected filesystem root',
+    async ({ currentRootFolderId, currentRootPath, expectedPaths }) => {
+      const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);
+      const store = {
+        getState: vi.fn(() =>
+          createStoreState({
+            expandedDirectoryPaths: new Set(expectedPaths),
+          })
+        ),
+      };
+
+      renderHook(() =>
+        useExpandedPathRestoration({
+          currentRootFolderId,
+          currentRootPath,
+          fileTree: [createDirectoryNode(expectedPaths[0] ?? currentRootPath)],
+          isTreeLoading: false,
+          loadSpecificPaths,
+          restorationKey: currentRootFolderId,
+          setExpandedPaths: vi.fn(),
+          store,
         })
-      ),
-    };
+      );
 
-    renderHook(() =>
-      useExpandedPathRestoration({
-        currentRootFolderId,
-        currentRootPath,
-        fileTree: [createDirectoryNode(expectedPaths[0] ?? currentRootPath)],
-        isTreeLoading: false,
-        loadSpecificPaths,
-        restorationKey: currentRootFolderId,
-        setExpandedPaths: vi.fn(),
-        store,
-      })
-    );
-
-    await waitFor(() => {
-      expect(loadSpecificPaths).toHaveBeenCalledWith(expectedPaths, expect.any(Function));
-    });
-  });
+      await waitFor(() => {
+        expect(loadSpecificPaths).toHaveBeenCalledWith(expectedPaths, expect.any(Function));
+      });
+    }
+  );
 
   it('does not restore a drive-relative sentinel beneath a Windows drive root', async () => {
     const loadSpecificPaths = vi.fn().mockResolvedValue(undefined);

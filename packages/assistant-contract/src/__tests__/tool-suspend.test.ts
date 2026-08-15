@@ -113,20 +113,19 @@ describe('tool-suspend contract', () => {
     expect(isAssistantToolResumeAction(action)).toBe(false);
   });
 
-  it.each([
-    'resumeData',
-    'runId',
-    'toolCallId',
-  ] as const)('rejects an inherited %s field', (field) => {
-    const inheritedValue = field === 'resumeData' ? 'answer' : field;
-    const action = Object.assign(Object.create({ [field]: inheritedValue }) as object, {
-      ...(field === 'resumeData' ? {} : { resumeData: 'answer' }),
-      ...(field === 'runId' ? {} : { runId: 'r' }),
-      ...(field === 'toolCallId' ? {} : { toolCallId: 't' }),
-    });
+  it.each(['resumeData', 'runId', 'toolCallId'] as const)(
+    'rejects an inherited %s field',
+    (field) => {
+      const inheritedValue = field === 'resumeData' ? 'answer' : field;
+      const action = Object.assign(Object.create({ [field]: inheritedValue }) as object, {
+        ...(field === 'resumeData' ? {} : { resumeData: 'answer' }),
+        ...(field === 'runId' ? {} : { runId: 'r' }),
+        ...(field === 'toolCallId' ? {} : { toolCallId: 't' }),
+      });
 
-    expect(isAssistantToolResumeAction(action)).toBe(false);
-  });
+      expect(isAssistantToolResumeAction(action)).toBe(false);
+    }
+  );
 
   it('rejects an inherited optional toolName', () => {
     const action = Object.assign(Object.create({ toolName: 'askUser' }) as object, {

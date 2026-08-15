@@ -45,12 +45,12 @@ describe('calculatePathDepth', () => {
     ['/foo/bar', 2],
     ['a//b', 2],
     ['/', 1],
-  ] satisfies [
-    string,
-    number,
-  ][])('counts slash separators in %j', (path: string, expected: number) => {
-    expect(calculatePathDepth(path)).toBe(expected);
-  });
+  ] satisfies [string, number][])(
+    'counts slash separators in %j',
+    (path: string, expected: number) => {
+      expect(calculatePathDepth(path)).toBe(expected);
+    }
+  );
 
   it('matches split separator-count semantics for representative paths', () => {
     const paths: string[] = ['', '/', 'a', 'a/b', '/a/b/', 'a//b', '//a//b//c//', 'a/b/c.tsx'];

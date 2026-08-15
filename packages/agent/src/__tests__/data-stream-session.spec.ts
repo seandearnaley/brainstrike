@@ -855,61 +855,64 @@ describe('AssistantDataStreamSession', () => {
     expect(events.at(-1)?.value).toMatchObject({ finishReason: 'unknown' });
   });
 
-  it.each([
-    'high',
-    'max',
-  ] as const)('tells explicit %s-effort Kimi K3 runs to retry at Low or Auto after an output-limit finish', async (reasoningEffort) => {
-    const chunks: StreamChunk[] = [
-      {
-        finishReason: 'length',
-        path: [],
-        type: 'message-finish',
-        usage: { completionTokens: 131_072, promptTokens: 20 },
-      },
-    ];
+  it.each(['high', 'max'] as const)(
+    'tells explicit %s-effort Kimi K3 runs to retry at Low or Auto after an output-limit finish',
+    async (reasoningEffort) => {
+      const chunks: StreamChunk[] = [
+        {
+          finishReason: 'length',
+          path: [],
+          type: 'message-finish',
+          usage: { completionTokens: 131_072, promptTokens: 20 },
+        },
+      ];
 
-    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      messageId: 'msg-kimi-output-limit',
-      outputLimitContext: {
-        model: 'moonshotai/kimi-k3',
-        provider: 'openrouter',
-        reasoningEffort,
-      },
-      sessionId: 'kimi-output-limit',
-    });
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        messageId: 'msg-kimi-output-limit',
+        outputLimitContext: {
+          model: 'moonshotai/kimi-k3',
+          provider: 'openrouter',
+          reasoningEffort,
+        },
+        sessionId: 'kimi-output-limit',
+      });
 
-    const events = parseLines(await readResponse(session.createResponse()));
-    const error = events.find((evt) => evt.code === '3')?.value;
+      const events = parseLines(await readResponse(session.createResponse()));
+      const error = events.find((evt) => evt.code === '3')?.value;
 
-    expect(error).toBe(
-      'Assistant stopped because Kimi K3 reached its output token limit before completing the response. Retry with reasoning effort set to Low or Auto.'
-    );
-    expect(session.getTerminalOutcome()).toEqual({ error, status: 'failed' });
-  });
+      expect(error).toBe(
+        'Assistant stopped because Kimi K3 reached its output token limit before completing the response. Retry with reasoning effort set to Low or Auto.'
+      );
+      expect(session.getTerminalOutcome()).toEqual({ error, status: 'failed' });
+    }
+  );
 
   it.each([
     { model: 'moonshotai/kimi-k3', reasoningEffort: 'low' as const },
     { model: 'moonshotai/kimi-k3', reasoningEffort: undefined },
     { model: 'z-ai/glm-5.2', reasoningEffort: 'high' as const },
-  ])('keeps generic output-limit guidance for $model at $reasoningEffort effort', async (context) => {
-    const chunks: StreamChunk[] = [
-      {
-        finishReason: 'length',
-        path: [],
-        type: 'message-finish',
-        usage: { completionTokens: 32_000, promptTokens: 20 },
-      },
-    ];
-    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
-      outputLimitContext: { ...context, provider: 'openrouter' },
-    });
+  ])(
+    'keeps generic output-limit guidance for $model at $reasoningEffort effort',
+    async (context) => {
+      const chunks: StreamChunk[] = [
+        {
+          finishReason: 'length',
+          path: [],
+          type: 'message-finish',
+          usage: { completionTokens: 32_000, promptTokens: 20 },
+        },
+      ];
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        outputLimitContext: { ...context, provider: 'openrouter' },
+      });
 
-    const events = parseLines(await readResponse(session.createResponse()));
+      const events = parseLines(await readResponse(session.createResponse()));
 
-    expect(events.find((evt) => evt.code === '3')?.value).toBe(
-      'Assistant stopped because the model reached its output token limit before completing the response.'
-    );
-  });
+      expect(events.find((evt) => evt.code === '3')?.value).toBe(
+        'Assistant stopped because the model reached its output token limit before completing the response.'
+      );
+    }
+  );
 
   it('surfaces model length finishes after tool calls instead of ending silently', async () => {
     const chunks: StreamChunk[] = [

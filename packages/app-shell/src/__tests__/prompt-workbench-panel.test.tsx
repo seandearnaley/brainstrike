@@ -309,42 +309,42 @@ describe('PromptWorkbenchPanel', () => {
   it.each([
     { action: 'insert' as const, buttonName: 'Insert Evidence rule' },
     { action: 'new-thread' as const, buttonName: 'New thread from Evidence rule' },
-  ])('guards an in-flight direct $action action from duplicate activation', async ({
-    action,
-    buttonName,
-  }) => {
-    const savedItem = item();
-    let resolveUse!: () => void;
-    const onUseItem = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveUse = resolve;
-        })
-    );
-    render(
-      <PromptWorkbenchPanel
-        activeThreadId="thread-active"
-        composerContext=""
-        initialItems={[savedItem]}
-        modelOptions={[]}
-        onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
-        onRequestSuggestions={vi.fn().mockResolvedValue([])}
-        onUseItem={onUseItem}
-        repository={createRepository([savedItem])}
-      />
-    );
+  ])(
+    'guards an in-flight direct $action action from duplicate activation',
+    async ({ action, buttonName }) => {
+      const savedItem = item();
+      let resolveUse!: () => void;
+      const onUseItem = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveUse = resolve;
+          })
+      );
+      render(
+        <PromptWorkbenchPanel
+          activeThreadId="thread-active"
+          composerContext=""
+          initialItems={[savedItem]}
+          modelOptions={[]}
+          onLibraryChanged={vi.fn().mockResolvedValue(undefined)}
+          onRequestSuggestions={vi.fn().mockResolvedValue([])}
+          onUseItem={onUseItem}
+          repository={createRepository([savedItem])}
+        />
+      );
 
-    const actionButton = await screen.findByRole('button', { name: buttonName });
-    fireEvent.click(actionButton);
-    fireEvent.click(actionButton);
+      const actionButton = await screen.findByRole('button', { name: buttonName });
+      fireEvent.click(actionButton);
+      fireEvent.click(actionButton);
 
-    expect(onUseItem).toHaveBeenCalledTimes(1);
-    expect(onUseItem).toHaveBeenCalledWith(savedItem, savedItem.content, action);
-    expect(actionButton).toBeDisabled();
+      expect(onUseItem).toHaveBeenCalledTimes(1);
+      expect(onUseItem).toHaveBeenCalledWith(savedItem, savedItem.content, action);
+      expect(actionButton).toBeDisabled();
 
-    await act(async () => resolveUse());
-    await waitFor(() => expect(actionButton).toBeEnabled());
-  });
+      await act(async () => resolveUse());
+      await waitFor(() => expect(actionButton).toBeEnabled());
+    }
+  );
 
   it('reports a refresh warning without treating an already staged prompt action as failed', async () => {
     const user = userEvent.setup();

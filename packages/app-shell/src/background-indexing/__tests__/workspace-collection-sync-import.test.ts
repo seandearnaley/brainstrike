@@ -666,16 +666,14 @@ describe('collectPreparedChangesInBatches stat-cache short-circuit', () => {
     expect((await collectFile()).changes).toHaveLength(1);
   });
 
-  it.each([
-    0,
-    -1,
-    1.5,
-    Number.POSITIVE_INFINITY,
-  ])('rejects invalid chunking redispatch attempt cap %s', (attemptCap) => {
-    expect(() => new ChunkingRedispatchTracker(attemptCap)).toThrow(
-      'attempt cap must be a positive integer'
-    );
-  });
+  it.each([0, -1, 1.5, Number.POSITIVE_INFINITY])(
+    'rejects invalid chunking redispatch attempt cap %s',
+    (attemptCap) => {
+      expect(() => new ChunkingRedispatchTracker(attemptCap)).toThrow(
+        'attempt cap must be a positive integer'
+      );
+    }
+  );
 
   it('emits stat refreshes for hash-unchanged files whose stored stats are missing or stale', async () => {
     // Pre-migration rows (NULL mtime_ms) never take a write path when their

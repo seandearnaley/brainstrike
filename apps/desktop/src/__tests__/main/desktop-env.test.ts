@@ -264,31 +264,30 @@ describe('loadDesktopEnvironment', () => {
     expect(JSON.stringify(result)).not.toContain('NODE_OPTIONS');
   });
 
-  it.each([
-    'NODE_ENV=test',
-    'ELECTRON_IS_E2E_TEST=true',
-    'PATH=/tmp/evil',
-    'HTTPS_PROXY=http://x',
-  ])('rejects the whole file when it sets %s', (assignment) => {
-    const layout = createEnvironmentLayout();
-    fs.writeFileSync(
-      path.join(layout.appRoot, '.env'),
-      ['OPENAI_API_KEY=provider-secret', assignment].join('\n')
-    );
-    const env: NodeJS.ProcessEnv = {};
+  it.each(['NODE_ENV=test', 'ELECTRON_IS_E2E_TEST=true', 'PATH=/tmp/evil', 'HTTPS_PROXY=http://x'])(
+    'rejects the whole file when it sets %s',
+    (assignment) => {
+      const layout = createEnvironmentLayout();
+      fs.writeFileSync(
+        path.join(layout.appRoot, '.env'),
+        ['OPENAI_API_KEY=provider-secret', assignment].join('\n')
+      );
+      const env: NodeJS.ProcessEnv = {};
 
-    const result = load(layout, { env });
+      const result = load(layout, { env });
 
-    expect(result.appliedVariableCount).toBe(0);
-    expect(result.failures).toEqual([
-      {
-        code: 'env_file_invalid',
-        file: 'dev',
-        message: 'Desktop environment file "dev" is invalid at line 2: unsupported variable name.',
-      },
-    ]);
-    expect(env).toEqual({});
-  });
+      expect(result.appliedVariableCount).toBe(0);
+      expect(result.failures).toEqual([
+        {
+          code: 'env_file_invalid',
+          file: 'dev',
+          message:
+            'Desktop environment file "dev" is invalid at line 2: unsupported variable name.',
+        },
+      ]);
+      expect(env).toEqual({});
+    }
+  );
 
   it.each([
     ['leading assignment whitespace', ' OPENAI_API_KEY=provider-secret'],

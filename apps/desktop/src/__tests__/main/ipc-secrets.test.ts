@@ -303,41 +303,39 @@ describe('registerSecretsIpcHandlers', () => {
     expect(secretsService.clearAll).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    'chunking-host',
-    'embedding-host',
-    'llm-host',
-    undefined,
-  ])('rejects every secret operation before dispatch for sender role %s', async (role) => {
-    process.env['NODE_ENV'] = 'production';
-    getWindowRoleByWebContentsIdMock.mockReturnValue(role);
-    const secretsService: SecretsServiceMock = {
-      clearAll: vi.fn().mockResolvedValue(true),
-      deleteKey: vi.fn().mockResolvedValue(true),
-      getKey: vi.fn().mockResolvedValue('secret'),
-      listProviders: vi.fn().mockResolvedValue(['openai']),
-      saveKey: vi.fn().mockResolvedValue(true),
-    };
-    const { getHandler } = await bootstrap(secretsService);
-    const calls: ReadonlyArray<readonly [string, ...unknown[]]> = [
-      ['secrets:save', 'openai', 'secret'],
-      ['secrets:get', 'openai'],
-      ['secrets:delete', 'openai'],
-      ['secrets:list'],
-      ['secrets:listStored'],
-      ['secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN],
-    ];
+  it.each(['chunking-host', 'embedding-host', 'llm-host', undefined])(
+    'rejects every secret operation before dispatch for sender role %s',
+    async (role) => {
+      process.env['NODE_ENV'] = 'production';
+      getWindowRoleByWebContentsIdMock.mockReturnValue(role);
+      const secretsService: SecretsServiceMock = {
+        clearAll: vi.fn().mockResolvedValue(true),
+        deleteKey: vi.fn().mockResolvedValue(true),
+        getKey: vi.fn().mockResolvedValue('secret'),
+        listProviders: vi.fn().mockResolvedValue(['openai']),
+        saveKey: vi.fn().mockResolvedValue(true),
+      };
+      const { getHandler } = await bootstrap(secretsService);
+      const calls: ReadonlyArray<readonly [string, ...unknown[]]> = [
+        ['secrets:save', 'openai', 'secret'],
+        ['secrets:get', 'openai'],
+        ['secrets:delete', 'openai'],
+        ['secrets:list'],
+        ['secrets:listStored'],
+        ['secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN],
+      ];
 
-    for (const [channel, ...args] of calls) {
-      await expect(getHandler(channel)?.(createInvokeEvent(), ...args)).rejects.toThrow(
-        `Desktop IPC ${channel} requires sender role visible-ui.`
-      );
+      for (const [channel, ...args] of calls) {
+        await expect(getHandler(channel)?.(createInvokeEvent(), ...args)).rejects.toThrow(
+          `Desktop IPC ${channel} requires sender role visible-ui.`
+        );
+      }
+
+      expect(secretsService.saveKey).not.toHaveBeenCalled();
+      expect(secretsService.getKey).not.toHaveBeenCalled();
+      expect(secretsService.deleteKey).not.toHaveBeenCalled();
+      expect(secretsService.listProviders).not.toHaveBeenCalled();
+      expect(secretsService.clearAll).not.toHaveBeenCalled();
     }
-
-    expect(secretsService.saveKey).not.toHaveBeenCalled();
-    expect(secretsService.getKey).not.toHaveBeenCalled();
-    expect(secretsService.deleteKey).not.toHaveBeenCalled();
-    expect(secretsService.listProviders).not.toHaveBeenCalled();
-    expect(secretsService.clearAll).not.toHaveBeenCalled();
-  });
+  );
 });

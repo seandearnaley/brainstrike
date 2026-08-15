@@ -108,12 +108,15 @@ describe('streaming completion request correlation', () => {
     ['device', createComplete({ device: 'webgpu' }), 'metadata.device'],
     ['fallback', createComplete({ fallbackApplied: true }), 'metadata.fallbackApplied'],
     ['batch size', createComplete({ batchSize: 2 }), 'metadata.batchSize'],
-  ])('terminally rejects completion metadata with a mismatched %s', async (_case, complete, message) => {
-    const { outcome, worker } = await startCompletedStream(createRequest(), complete);
+  ])(
+    'terminally rejects completion metadata with a mismatched %s',
+    async (_case, complete, message) => {
+      const { outcome, worker } = await startCompletedStream(createRequest(), complete);
 
-    await expect(outcome).rejects.toThrow(message);
-    expect(worker.terminate).toHaveBeenCalledTimes(1);
-  });
+      await expect(outcome).rejects.toThrow(message);
+      expect(worker.terminate).toHaveBeenCalledTimes(1);
+    }
+  );
 
   it('accepts a coherent WebGPU-to-WASM fallback pair', async () => {
     const request = createRequest({ deviceHint: 'webgpu' });

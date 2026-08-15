@@ -2,26 +2,23 @@ import { describe, expect, it, vi } from 'vitest';
 import { createDatabaseWorkScheduler } from '../src/database-work-scheduler';
 
 describe('DatabaseWorkScheduler background fairness', () => {
-  it.each([
-    0,
-    -1,
-    Number.POSITIVE_INFINITY,
-    Number.NaN,
-  ])('rejects an invalid background starvation bound (%s)', (backgroundStarvationMs) => {
-    expect(() => createDatabaseWorkScheduler({ backgroundStarvationMs })).toThrow(
-      'DatabaseWorkScheduler backgroundStarvationMs must be a positive finite number.'
-    );
-  });
+  it.each([0, -1, Number.POSITIVE_INFINITY, Number.NaN])(
+    'rejects an invalid background starvation bound (%s)',
+    (backgroundStarvationMs) => {
+      expect(() => createDatabaseWorkScheduler({ backgroundStarvationMs })).toThrow(
+        'DatabaseWorkScheduler backgroundStarvationMs must be a positive finite number.'
+      );
+    }
+  );
 
-  it.each([
-    -1,
-    Number.POSITIVE_INFINITY,
-    Number.NaN,
-  ])('rejects an invalid foreground quiet window (%s)', (foregroundQuietMs) => {
-    expect(() => createDatabaseWorkScheduler({ foregroundQuietMs })).toThrow(
-      'DatabaseWorkScheduler foregroundQuietMs must be a non-negative finite number.'
-    );
-  });
+  it.each([-1, Number.POSITIVE_INFINITY, Number.NaN])(
+    'rejects an invalid foreground quiet window (%s)',
+    (foregroundQuietMs) => {
+      expect(() => createDatabaseWorkScheduler({ foregroundQuietMs })).toThrow(
+        'DatabaseWorkScheduler foregroundQuietMs must be a non-negative finite number.'
+      );
+    }
+  );
 
   it('keeps the starvation bound when the diagnostic wall clock moves backward', async () => {
     vi.useFakeTimers();

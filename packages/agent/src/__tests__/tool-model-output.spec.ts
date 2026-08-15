@@ -170,68 +170,72 @@ describe('applyToolModelOutputProjections', () => {
     expect(decodedTextModelOutputChars(replayOutput.value)).toBe(12_000);
   });
 
-  it.each([
-    'grep',
-    'read',
-    'exec',
-  ])('keeps a ceiling-sized stored %s prefix replayable when fresh assertions use a floor tier', (prefix) => {
-    const floorBudget = resolveScaledToolResultBudget(8192);
-    const stored = {
-      type: 'text',
-      value: `${prefix} ${'x'.repeat(
-        CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget - prefix.length - 27
-      )}`,
-    };
+  it.each(['grep', 'read', 'exec'])(
+    'keeps a ceiling-sized stored %s prefix replayable when fresh assertions use a floor tier',
+    (prefix) => {
+      const floorBudget = resolveScaledToolResultBudget(8192);
+      const stored = {
+        type: 'text',
+        value: `${prefix} ${'x'.repeat(
+          CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget - prefix.length - 27
+        )}`,
+      };
 
-    expect(() =>
-      assertDomainProjectionWithinBudget(
-        `brainstrike.${prefix}`,
-        stored,
-        buildDefaultModelProjectionBudget(floorBudget)
-      )
-    ).toThrow(/exceeds the 2000-character budget/);
-    expect(() =>
-      assertDomainProjectionWithinBudget(
-        `brainstrike.${prefix}`,
-        stored,
-        buildDefaultModelProjectionBudget(CEILING_SCALED_TOOL_RESULT_BUDGET)
-      )
-    ).not.toThrow();
-  });
+      expect(() =>
+        assertDomainProjectionWithinBudget(
+          `brainstrike.${prefix}`,
+          stored,
+          buildDefaultModelProjectionBudget(floorBudget)
+        )
+      ).toThrow(/exceeds the 2000-character budget/);
+      expect(() =>
+        assertDomainProjectionWithinBudget(
+          `brainstrike.${prefix}`,
+          stored,
+          buildDefaultModelProjectionBudget(CEILING_SCALED_TOOL_RESULT_BUDGET)
+        )
+      ).not.toThrow();
+    }
+  );
 
   it.each([
     { contextWindow: 8192, label: 'local (Gemma)' },
     { contextWindow: 32_768, label: 'ollama / lmstudio' },
-  ])('BST-1219: uses the unfloored resolved budget for a FRESH domain projection — $label', ({
-    contextWindow,
-  }) => {
-    const subAnchorBudget = resolveScaledToolResultBudget(contextWindow);
-    expect(subAnchorBudget.domainModelResultCharBudget).toBe(2000);
-    const freshDefaultBudget = buildDefaultModelProjectionBudget(subAnchorBudget);
-    expect(freshDefaultBudget.domainSerializedChars).toBe(
-      subAnchorBudget.domainModelResultCharBudget
-    );
+  ])(
+    'BST-1219: uses the unfloored resolved budget for a FRESH domain projection — $label',
+    ({ contextWindow }) => {
+      const subAnchorBudget = resolveScaledToolResultBudget(contextWindow);
+      expect(subAnchorBudget.domainModelResultCharBudget).toBe(2000);
+      const freshDefaultBudget = buildDefaultModelProjectionBudget(subAnchorBudget);
+      expect(freshDefaultBudget.domainSerializedChars).toBe(
+        subAnchorBudget.domainModelResultCharBudget
+      );
 
-    const midRangeOutput = {
-      type: 'text',
-      value: 'x'.repeat(4000 - 26),
-    };
-    expect(decodedTextModelOutputChars(midRangeOutput.value)).toBe(4000);
-    expect(() =>
-      assertDomainProjectionWithinBudget('local.ollama-tool', midRangeOutput, freshDefaultBudget)
-    ).toThrow(/exceeds the 2000-character budget/);
+      const midRangeOutput = {
+        type: 'text',
+        value: 'x'.repeat(4000 - 26),
+      };
+      expect(decodedTextModelOutputChars(midRangeOutput.value)).toBe(4000);
+      expect(() =>
+        assertDomainProjectionWithinBudget('local.ollama-tool', midRangeOutput, freshDefaultBudget)
+      ).toThrow(/exceeds the 2000-character budget/);
 
-    const anchorSizedOutput = {
-      type: 'text',
-      value: 'x'.repeat(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET - 26),
-    };
-    expect(decodedTextModelOutputChars(anchorSizedOutput.value)).toBe(
-      MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
-    );
-    expect(() =>
-      assertDomainProjectionWithinBudget('local.ollama-tool', anchorSizedOutput, freshDefaultBudget)
-    ).toThrow(/exceeds the 2000-character budget/);
-  });
+      const anchorSizedOutput = {
+        type: 'text',
+        value: 'x'.repeat(MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET - 26),
+      };
+      expect(decodedTextModelOutputChars(anchorSizedOutput.value)).toBe(
+        MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
+      );
+      expect(() =>
+        assertDomainProjectionWithinBudget(
+          'local.ollama-tool',
+          anchorSizedOutput,
+          freshDefaultBudget
+        )
+      ).toThrow(/exceeds the 2000-character budget/);
+    }
+  );
 
   it('keeps raw execution untouched and gives the model a bounded text projection', async () => {
     const rawOnlyTail = 'raw-only-tail';
@@ -698,47 +702,46 @@ describe('applyToolModelOutputProjections', () => {
       };
     };
 
-    it.each([
-      'brainstrike.executeCommand',
-      'brainstrike.runPython',
-      'brainstrike.runSkillScript',
-    ])('passes a self-bounded %s result over the generic 8000-char ceiling through unmodified', (canonicalName) => {
-      const result = buildCommandShapedResult(7600);
-      const serialized = JSON.stringify(result);
-      expect(serialized.length).toBeGreaterThan(MAX_MODEL_TOOL_RESULT_CHAR_BUDGET);
-      expect(serialized.length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
+    it.each(['brainstrike.executeCommand', 'brainstrike.runPython', 'brainstrike.runSkillScript'])(
+      'passes a self-bounded %s result over the generic 8000-char ceiling through unmodified',
+      (canonicalName) => {
+        const result = buildCommandShapedResult(7600);
+        const serialized = JSON.stringify(result);
+        expect(serialized.length).toBeGreaterThan(MAX_MODEL_TOOL_RESULT_CHAR_BUDGET);
+        expect(serialized.length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
 
-      const modelOutput = projectForTool(canonicalName).toModelOutput?.(result) as {
-        type?: string;
-        value?: string;
-      };
+        const modelOutput = projectForTool(canonicalName).toModelOutput?.(result) as {
+          type?: string;
+          value?: string;
+        };
 
-      expect(modelOutput.type).toBe('text');
-      expect(modelOutput.value).toBe(serialized);
-      expect(modelOutput.value).toContain(stdoutTail);
-      // The hint carries quote characters, so match its JSON-encoded form.
-      expect(modelOutput.value).toContain(JSON.stringify(commandHint));
-      expect(modelOutput.value).not.toContain(TOOL_RESULT_TRUNCATED_CODE);
-    });
+        expect(modelOutput.type).toBe('text');
+        expect(modelOutput.value).toBe(serialized);
+        expect(modelOutput.value).toContain(stdoutTail);
+        // The hint carries quote characters, so match its JSON-encoded form.
+        expect(modelOutput.value).toContain(JSON.stringify(commandHint));
+        expect(modelOutput.value).not.toContain(TOOL_RESULT_TRUNCATED_CODE);
+      }
+    );
 
-    it.each([
-      'skill_read',
-      'skill_search',
-    ])('passes a self-bounded %s string result over the generic 8000-char ceiling through unmodified', (canonicalName) => {
-      const note =
-        '[Output truncated at ~2750 tokens (the full file is 52,000 chars). Re-read a narrower slice with startLine/endLine.]';
-      const text = `${'reference-line: alpha beta gamma delta epsilon\n'.repeat(200)}${note}`;
-      expect(JSON.stringify(text).length).toBeGreaterThan(MAX_MODEL_TOOL_RESULT_CHAR_BUDGET);
-      expect(JSON.stringify(text).length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
+    it.each(['skill_read', 'skill_search'])(
+      'passes a self-bounded %s string result over the generic 8000-char ceiling through unmodified',
+      (canonicalName) => {
+        const note =
+          '[Output truncated at ~2750 tokens (the full file is 52,000 chars). Re-read a narrower slice with startLine/endLine.]';
+        const text = `${'reference-line: alpha beta gamma delta epsilon\n'.repeat(200)}${note}`;
+        expect(JSON.stringify(text).length).toBeGreaterThan(MAX_MODEL_TOOL_RESULT_CHAR_BUDGET);
+        expect(JSON.stringify(text).length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
 
-      const modelOutput = projectForTool(canonicalName).toModelOutput?.(text) as {
-        type?: string;
-        value?: string;
-      };
+        const modelOutput = projectForTool(canonicalName).toModelOutput?.(text) as {
+          type?: string;
+          value?: string;
+        };
 
-      expect(modelOutput.type).toBe('text');
-      expect(modelOutput.value).toBe(text);
-    });
+        expect(modelOutput.type).toBe('text');
+        expect(modelOutput.value).toBe(text);
+      }
+    );
 
     // Collection-carrying tools that self-bound via fitItemsToCharBudget's
     // default budget and rely on the generic projection. manageTaskList is the
@@ -783,21 +786,24 @@ describe('applyToolModelOutputProjections', () => {
           total: 55,
         }),
       ],
-    ])('passes a self-bounded %s collection result over the generic ceiling through unmodified', (canonicalName, buildResult) => {
-      const result = buildResult();
-      const serialized = JSON.stringify(result);
-      expect(serialized.length).toBeGreaterThan(MAX_MODEL_TOOL_RESULT_CHAR_BUDGET);
-      expect(serialized.length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
+    ])(
+      'passes a self-bounded %s collection result over the generic ceiling through unmodified',
+      (canonicalName, buildResult) => {
+        const result = buildResult();
+        const serialized = JSON.stringify(result);
+        expect(serialized.length).toBeGreaterThan(MAX_MODEL_TOOL_RESULT_CHAR_BUDGET);
+        expect(serialized.length).toBeLessThanOrEqual(NATIVE_TOOL_RESULT_CHAR_BUDGET);
 
-      const modelOutput = projectForTool(canonicalName).toModelOutput?.(result) as {
-        type?: string;
-        value?: string;
-      };
+        const modelOutput = projectForTool(canonicalName).toModelOutput?.(result) as {
+          type?: string;
+          value?: string;
+        };
 
-      expect(modelOutput.type).toBe('text');
-      expect(modelOutput.value).toBe(serialized);
-      expect(modelOutput.value).not.toContain(TOOL_RESULT_TRUNCATED_CODE);
-    });
+        expect(modelOutput.type).toBe('text');
+        expect(modelOutput.value).toBe(serialized);
+        expect(modelOutput.value).not.toContain(TOOL_RESULT_TRUNCATED_CODE);
+      }
+    );
 
     it('enforces the native self-bound on a result just past it instead of granting the escape reserve', () => {
       // Codex P2 on #2338: the 2x escape reserve belongs to the ENVELOPE
@@ -1235,33 +1241,33 @@ describe('applyToolModelOutputProjections', () => {
     });
   });
 
-  it.each([
-    null,
-    undefined,
-  ])('bounds the raw result when a custom projection declines with %s', (customProjection) => {
-    const rawOnlyTail = 'conditional-raw-only-tail';
-    const rawOutput = { content: `${'x'.repeat(20_000)}${rawOnlyTail}` };
-    const toModelOutput = vi.fn(() => customProjection);
-    const tool = asTool({
-      execute: () => rawOutput,
-      id: 'conditional-custom',
-      toModelOutput,
-    });
+  it.each([null, undefined])(
+    'bounds the raw result when a custom projection declines with %s',
+    (customProjection) => {
+      const rawOnlyTail = 'conditional-raw-only-tail';
+      const rawOutput = { content: `${'x'.repeat(20_000)}${rawOnlyTail}` };
+      const toModelOutput = vi.fn(() => customProjection);
+      const tool = asTool({
+        execute: () => rawOutput,
+        id: 'conditional-custom',
+        toModelOutput,
+      });
 
-    const projected = applyToolModelOutputProjections(
-      { conditional_custom: tool },
-      new Map([['conditional_custom', 'custom.conditional']])
-    );
-    const modelOutput = (projected['conditional_custom'] as TestTool).toModelOutput?.(
-      rawOutput
-    ) as { type?: string; value?: string };
+      const projected = applyToolModelOutputProjections(
+        { conditional_custom: tool },
+        new Map([['conditional_custom', 'custom.conditional']])
+      );
+      const modelOutput = (projected['conditional_custom'] as TestTool).toModelOutput?.(
+        rawOutput
+      ) as { type?: string; value?: string };
 
-    expect(modelOutput.type).toBe('text');
-    expect(modelOutput.value).toContain('output was truncated');
-    // Balanced head+tail retention (was head-only): trailing evidence now
-    // survives in the bounded preview instead of always being discarded.
-    expect(modelOutput.value).toContain(rawOnlyTail);
-  });
+      expect(modelOutput.type).toBe('text');
+      expect(modelOutput.value).toContain('output was truncated');
+      // Balanced head+tail retention (was head-only): trailing evidence now
+      // survives in the bounded preview instead of always being discarded.
+      expect(modelOutput.value).toContain(rawOnlyTail);
+    }
+  );
 
   it('uses the unwrapped primitive when a hook-aware custom projection declines', async () => {
     const toModelOutput = vi.fn(() => undefined);

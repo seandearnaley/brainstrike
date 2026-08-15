@@ -59,47 +59,47 @@ function systemText(result: readonly AgentMessage[]): string {
 describe('injectSelfImprovementSignalContext', () => {
   beforeEach(resetSelfImprovementSignalMemoForTests);
 
-  it.each([
-    undefined,
-    {},
-  ])('returns the same array and does not query when the preference is %j', async (preference) => {
-    const input = messages();
-    const runSignalQuery = vi.fn();
+  it.each([undefined, {}])(
+    'returns the same array and does not query when the preference is %j',
+    async (preference) => {
+      const input = messages();
+      const runSignalQuery = vi.fn();
 
-    const result = await injectSelfImprovementSignalContext(
-      input,
-      preference === undefined ? { provider: 'openai' } : runtime(preference),
-      { now: () => NOW, runSignalQuery }
-    );
+      const result = await injectSelfImprovementSignalContext(
+        input,
+        preference === undefined ? { provider: 'openai' } : runtime(preference),
+        { now: () => NOW, runSignalQuery }
+      );
 
-    expect(result).toBe(input);
-    expect(runSignalQuery).not.toHaveBeenCalled();
-  });
+      expect(result).toBe(input);
+      expect(runSignalQuery).not.toHaveBeenCalled();
+    }
+  );
 
-  it.each([
-    'enabled',
-    { enabled: 'yes' },
-  ])('warns and treats malformed preference %j as off', async (preference) => {
-    const input = messages();
-    const runSignalQuery = vi.fn();
+  it.each(['enabled', { enabled: 'yes' }])(
+    'warns and treats malformed preference %j as off',
+    async (preference) => {
+      const input = messages();
+      const runSignalQuery = vi.fn();
 
-    const { records, result } = await logsDuring(() =>
-      injectSelfImprovementSignalContext(input, runtime(preference), {
-        now: () => NOW,
-        runSignalQuery,
-      })
-    );
+      const { records, result } = await logsDuring(() =>
+        injectSelfImprovementSignalContext(input, runtime(preference), {
+          now: () => NOW,
+          runSignalQuery,
+        })
+      );
 
-    expect(result).toBe(input);
-    expect(runSignalQuery).not.toHaveBeenCalled();
-    expect(
-      records.some(
-        (record) =>
-          record.level === LogLevel.WARN &&
-          String(record.message).includes('selfImprovementSignalPreference')
-      )
-    ).toBe(true);
-  });
+      expect(result).toBe(input);
+      expect(runSignalQuery).not.toHaveBeenCalled();
+      expect(
+        records.some(
+          (record) =>
+            record.level === LogLevel.WARN &&
+            String(record.message).includes('selfImprovementSignalPreference')
+        )
+      ).toBe(true);
+    }
+  );
 
   it('prepends one exact system message and queries a 24h window anchored to the hour', async () => {
     const input = messages();

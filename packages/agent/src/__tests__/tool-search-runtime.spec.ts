@@ -135,19 +135,19 @@ function createPersistedSearchResultMessage(
 }
 
 describe('BrainstrikeToolSearchProcessor', () => {
-  it.each(RANKING_FIXTURES)('ranks $expectedToolId first for "$query"', async ({
-    expectedToolId,
-    query,
-  }) => {
-    const processor = createRankingProcessor();
-    const step = await processor.processInputStep(createStepArgs());
+  it.each(RANKING_FIXTURES)(
+    'ranks $expectedToolId first for "$query"',
+    async ({ expectedToolId, query }) => {
+      const processor = createRankingProcessor();
+      const step = await processor.processInputStep(createStepArgs());
 
-    const result = (await step.tools.search_tools.execute?.({ query })) as {
-      results: { name: string }[];
-    };
+      const result = (await step.tools.search_tools.execute?.({ query })) as {
+        results: { name: string }[];
+      };
 
-    expect(result.results[0]?.name).toBe(expectedToolId);
-  });
+      expect(result.results[0]?.name).toBe(expectedToolId);
+    }
+  );
 
   it('makes deferred workspace-root discovery explicit on the initial search surface', async () => {
     const processor = createRankingProcessor();

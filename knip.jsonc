@@ -1,5 +1,5 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
     // Define workspaces based on the Turborepo setup
     "apps/web": {
@@ -463,7 +463,15 @@
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
     "@vitejs/plugin-react", // Only used in Vite config
     "babel-plugin-react-compiler", // Resolved indirectly by reactCompilerPreset in Vite config
-    "@stryker-mutator/api", // Used for JSDoc type annotations in stryker.config.js files
+    // NOTE (BST-1273, knip 6.32.2): the original justification — "used for JSDoc type
+    // annotations in stryker.config.js" — is now obsolete. knip's Stryker plugin resolves that
+    // use natively, so packages/db and packages/workers (the only two carrying an
+    // `import('@stryker-mutator/api/core')` JSDoc tag) are NOT flagged without this entry.
+    // What it still masks is real debt: file-explorer, file-explorer-hooks, hooks and
+    // test-utils declare the dep and never reference it. Removing the ignore surfaces exactly
+    // those 4. Kept so this bump does not change findings; deleting those 4 declarations is
+    // the actual fix.
+    "@stryker-mutator/api",
     "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
     "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
     "@tanstack/react-table", // Used in packages/settings-ui for LogViewerCard table component
@@ -474,6 +482,11 @@
   "ignoreExportsUsedInFile": true,
   "rules": {
     "duplicates": "off", // Keep user's rule setting
-    "exports": "off" // Disable export checking for now due to false positives
+    "exports": "off", // Disable export checking for now due to false positives
+    // knip 6 splits type-only exports out of `exports` into their own `types` rule, so the
+    // 6.24 -> 6.32 bump surfaced 34 "unused exported types" that `exports: off` used to cover.
+    // They are the same false-positive class (public barrel re-exports consumed across package
+    // boundaries), so this tracks the existing `exports` decision rather than making a new one.
+    "types": "off"
   }
 }

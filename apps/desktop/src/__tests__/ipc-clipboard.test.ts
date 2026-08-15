@@ -24,21 +24,17 @@ describe('clipboard IPC handlers', () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it.each([
-    42,
-    null,
-    undefined,
-    { text: 'x' },
-    ['x'],
-    true,
-  ])('rejects non-string payload %p without touching the clipboard', (payload) => {
-    const clipboard = makeClipboard();
-    const handlers = createClipboardIpcHandlers({ clipboard });
-    const result = handlers.writeText(payload);
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain('string');
-    expect(clipboard.writeText).not.toHaveBeenCalled();
-  });
+  it.each([42, null, undefined, { text: 'x' }, ['x'], true])(
+    'rejects non-string payload %p without touching the clipboard',
+    (payload) => {
+      const clipboard = makeClipboard();
+      const handlers = createClipboardIpcHandlers({ clipboard });
+      const result = handlers.writeText(payload);
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain('string');
+      expect(clipboard.writeText).not.toHaveBeenCalled();
+    }
+  );
 
   it('surfaces a clipboard write throw as a structured failure', () => {
     const clipboard = makeClipboard();

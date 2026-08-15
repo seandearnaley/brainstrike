@@ -469,36 +469,35 @@ describe('assistant-tools read tools', () => {
       name: 'CRLF source with a trailing empty line',
       source: 'a\r\nb\r\n',
     },
-  ])('preserves $name while scanning chunks', async ({
-    expectedContent,
-    expectedTotalLines,
-    source,
-  }) => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    await fsPromises.writeFile(
-      path.join(workspaceRootPath, 'src', 'line-shape.txt'),
-      source,
-      'utf8'
-    );
+  ])(
+    'preserves $name while scanning chunks',
+    async ({ expectedContent, expectedTotalLines, source }) => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      await fsPromises.writeFile(
+        path.join(workspaceRootPath, 'src', 'line-shape.txt'),
+        source,
+        'utf8'
+      );
 
-    try {
-      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
-      const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-      const page = await executeTool({
-        maxChars: 100,
-        path: '/src/line-shape.txt',
-      });
+      try {
+        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+        const page = await executeTool({
+          maxChars: 100,
+          path: '/src/line-shape.txt',
+        });
 
-      expect(page).toMatchObject({
-        content: expectedContent,
-        omittedChars: 0,
-        totalLines: expectedTotalLines,
-        truncated: false,
-      });
-    } finally {
-      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        expect(page).toMatchObject({
+          content: expectedContent,
+          omittedChars: 0,
+          totalLines: expectedTotalLines,
+          truncated: false,
+        });
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
     }
-  });
+  );
 
   it('does not mark a non-empty line as read when only its prefix fits', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
@@ -562,31 +561,31 @@ describe('assistant-tools read tools', () => {
   it.each([
     { maxChars: 3, source: 'hello' },
     { maxChars: 4, source: '😀hello' },
-  ])('rejects a page budget that cannot advance the source cursor ($maxChars chars)', async ({
-    maxChars,
-    source,
-  }) => {
-    const workspaceRootPath = await createWorkspaceFixture();
-    await fsPromises.writeFile(
-      path.join(workspaceRootPath, 'src', 'no-progress.ts'),
-      source,
-      'utf8'
-    );
+  ])(
+    'rejects a page budget that cannot advance the source cursor ($maxChars chars)',
+    async ({ maxChars, source }) => {
+      const workspaceRootPath = await createWorkspaceFixture();
+      await fsPromises.writeFile(
+        path.join(workspaceRootPath, 'src', 'no-progress.ts'),
+        source,
+        'utf8'
+      );
 
-    try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
-      const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+      try {
+        const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+        const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
 
-      await expect(
-        executeTool({
-          maxChars,
-          path: '/src/no-progress.ts',
-        })
-      ).rejects.toThrow(/cannot advance.*maxChars/i);
-    } finally {
-      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+        await expect(
+          executeTool({
+            maxChars,
+            path: '/src/no-progress.ts',
+          })
+        ).rejects.toThrow(/cannot advance.*maxChars/i);
+      } finally {
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
     }
-  });
+  );
 
   it('rejects a continuation handle after the file changes', async () => {
     const workspaceRootPath = await createWorkspaceFixture();

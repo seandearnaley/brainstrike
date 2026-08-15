@@ -221,15 +221,12 @@ describe('isCollectionIndexingActive', () => {
     expect(isCollectionIndexingActive(base)).toBe(false);
   });
 
-  it.each([
-    'scanning',
-    'importing',
-    'chunking',
-    'embedding',
-    'recovering',
-  ] as const)('is true while the managed collection is %s', (syncState) => {
-    expect(isCollectionIndexingActive({ ...base, syncState })).toBe(true);
-  });
+  it.each(['scanning', 'importing', 'chunking', 'embedding', 'recovering'] as const)(
+    'is true while the managed collection is %s',
+    (syncState) => {
+      expect(isCollectionIndexingActive({ ...base, syncState })).toBe(true);
+    }
+  );
 
   it('is false when a DIFFERENT collection is the managed/indexing target', () => {
     // Reproduces the reported bug: switching to col-1 while col-2 indexes.
@@ -238,15 +235,12 @@ describe('isCollectionIndexingActive', () => {
     ).toBe(false);
   });
 
-  it.each([
-    'idle',
-    'waiting',
-    'paused',
-    'error',
-    'disabled',
-  ] as const)('is false once the managed collection settles to %s (clears on its own)', (syncState) => {
-    expect(isCollectionIndexingActive({ ...base, syncState })).toBe(false);
-  });
+  it.each(['idle', 'waiting', 'paused', 'error', 'disabled'] as const)(
+    'is false once the managed collection settles to %s (clears on its own)',
+    (syncState) => {
+      expect(isCollectionIndexingActive({ ...base, syncState })).toBe(false);
+    }
+  );
 
   it('is false when there is no managed collection even if some state is active', () => {
     expect(

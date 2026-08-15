@@ -235,20 +235,38 @@ cancelled. `Test` represented roughly 92% of the modeled Actions bill. Paying
 about $0.004 to hold a PR head for two minutes is materially cheaper than
 starting the full fan-out during edit/push bursts.
 
-### Biome pinned at 2.5.2 — do NOT bump to 2.5.3/2.5.4 (2026-07-18)
+### Biome pinned at 2.5.8 — the 2.5.3/2.5.4 module-graph panic is fixed (2026-08-15, BST-1273)
 
-`@biomejs/biome` is pinned to exactly 2.5.2 (root + `apps/web`). Biome
-2.5.3/2.5.4 hit a module-graph panic (`module_resolver.rs:500:33`,
-"index out of bounds") **deterministically 39 times** on this codebase —
-triggered by `nursery/noFloatingPromises` resolving cross-module callback
-return types (upstream biomejs/biome#10963, same class as #10885/#10940).
-2.5.2 contains the same panic site but only hits it via a rare
-scheduling-dependent race (#10953); if `pnpm run lint` ever spews these
-panics on 2.5.2, just re-run (or `RAYON_NUM_THREADS=1` as a one-off).
-The real fix is upstream commit `e62f6b6` (2026-07-16, unreleased as of
-2.5.4). Bump only to a release containing it, and verify with
-`pnpm exec biome check .` (zero "Biome encountered an unexpected error")
-before landing.
+`@biomejs/biome` is pinned to exactly 2.5.8 (root + `apps/web`; the two must
+stay in lockstep). History: Biome 2.5.3/2.5.4 hit a module-graph panic
+(`module_resolver.rs:500:33`, "index out of bounds") **deterministically 39
+times** on this codebase — triggered by `nursery/noFloatingPromises` resolving
+cross-module callback return types (upstream biomejs/biome#10963, same class as
+#10885/#10940). 2.5.2 contained the same panic site but only hit it via a rare
+scheduling-dependent race (#10953). The fix is upstream commit `e62f6b6`
+(2026-07-16), released after 2.5.4.
+
+The 2.5.2 → 2.5.8 bump cleared the standing gate condition: repeated full
+`pnpm exec biome check .` runs over all 4376 files produced **zero** "Biome
+encountered an unexpected error" / panic output. Keep that verification when
+bumping again.
+
+Two things the 2.5.3–2.5.8 window changed on this repo, both already absorbed:
+- **Formatter.** `it.each([...])('title', fn)` no longer hugs the callback when
+  the call head overflows `lineWidth`, so it breaks the arguments instead. This
+  is a test-only pattern; 76 test files reformatted, net −65 lines. Two files
+  that sat exactly at the 1000-line `noExcessiveLinesPerFile` cap
+  (`packages/embedding-worker/test/streaming-worker-client.spec.ts`,
+  `packages/queue/src/__tests__/browser-workerpool.test.ts`) were pushed over
+  and were shrunk by collapsing verbose literals — the cap was NOT raised and
+  neither file was added to the `noExcessiveLinesPerFile` override list.
+- **`lint/performance/noDelete` narrowed.** It no longer fires on
+  `delete process.env['X']`, so 11 `biome-ignore` directives for it went dead
+  and were demoted to plain rationale comments. 7 other `noDelete` suppressions
+  in the repo still fire — do not bulk-remove them.
+
+`nursery/noFloatingPromises` (the repo's only error-level nursery rule)
+surfaced **no** new violations at 2.5.8.
 
 ### Static and the Unit fan-in run on arm64 (Series C R9b)
 
@@ -1653,7 +1671,7 @@ running:
 ## REACT DOCTOR (LINT + DEAD CODE)
 
 `.github/workflows/react-doctor.yml` runs **React Doctor** (`millionco/react-doctor@v2`,
-pinned `0.9.3`) on every PR and on push to `main`. It supersedes running standalone knip in
+pinned `0.9.11`) on every PR and on push to `main`. It supersedes running standalone knip in
 CI: React Doctor performs knip-style dead-code analysis (the bundled `deslop` engine) **and**
 its React/JS lint rules (Security / Bugs / Performance / Accessibility / Maintainability).
 Config lives in `doctor.config.ts`. Plan + baseline: `docs/react-doctor-migration-2026-06-15.md`.
@@ -1663,7 +1681,7 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   workflow `env` (the Action exposes no flag). Nothing is sent to the hosted score API / Sentry.
 - **Gate = `scope: changed` + `blocking: error`.** Only NEWLY introduced error-severity issues
   fail a PR; the pre-existing backlog is advisory and is burned down in stacked PRs. Version
-  0.9.3 carries [upstream's rename-aware baseline comparison](https://github.com/millionco/react-doctor/pull/1376),
+  0.9.11 carries [upstream's rename-aware baseline comparison](https://github.com/millionco/react-doctor/pull/1376),
   so moving unchanged code does not reclassify its diagnostics as new. CAVEAT (BST-981,
   2026-08-06): that pairing failed on a ~200-file rename PR — byte-identical renamed files
   had their pre-existing diagnostics reclassified as new, both in CI and in a local
@@ -1673,14 +1691,33 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   assistant-ui ref mutations and removed the temporary override; the caveat remains for
   future large rename sets, not as an active exception.
   `scripts/__tests__/react-doctor-version-contract.test.mjs` keeps the local and Action pins equal
-  and rejects downgrade below the 0.8.2 fix.
+  and rejects downgrade below the 0.8.2 fix. It also pins the exact reviewed version in
+  `EXPECTED_REACT_DOCTOR_VERSION`, so a bump is a three-file change: root `package.json`,
+  `.github/workflows/react-doctor.yml`, and that constant.
+- **0.9.11 activates four error-severity rules that 0.9.3 did not** (2026-08-15, BST-1273).
+  Measured on the same tree, same 3366 scanned files: full-scan errors go 85 → 95 while total
+  issues go 641 → 594. The additions are `react-hooks-js/todo` (×4), `react-doctor/
+  no-prop-callback-in-render` (×3), `react-hooks-js/refs` (×1),
+  `react-doctor/effect-observer-needs-disconnect` (×1), plus one extra
+  `react-doctor/effect-needs-cleanup` hit (10 → 11). `no-ref-current-in-render` (×71) and
+  `no-impure-state-updater` (×4) are unchanged. All 10 are pre-existing code newly caught, so
+  under `scope: changed` they join the advisory backlog rather than blocking; none sit in a
+  file the bump itself touched. Concentrations to expect when burning them down:
+  `root-layout-content.tsx` (all three copies) and `hooks/use-resize-observer.ts`.
+- **Do NOT bump past 0.9.11 without re-measuring `react-doctor/no-multi-comp`** (2026-08-15,
+  BST-1273). 0.9.12 expands that rule toward a one-component-per-file contract: the id's
+  occurrence count in `dist/` goes 6 → 15 between 0.9.11 and 0.9.12. Under this repo's
+  `scope: changed` + `blocking: error` gate that would newly fail any changed file holding
+  two components, which is a common shape here. 0.9.11 was taken instead; before adopting
+  0.9.12+, scan the repo for multi-component files and decide the rule's severity
+  deliberately rather than discovering it as a red PR check.
 - **knip is retained, NOT replaced.** `deslop` is not knip: it reads knip's `entry`/`ignore`
   (only from strict-JSON `knip.json` or `package.json#knip`, never `knip.jsonc`) but ignores
   knip's `ignoreDependencies` and has no per-dependency allowlist. So `deslop/unused-dependency`
   + `deslop/unused-dev-dependency` are disabled in `doctor.config.ts`, and `pnpm knip`
   (driven by `knip.jsonc`, with the curated false-positive allowlist) stays the dependency auditor.
 - **No broad `ignore.files` exclusions.** The old 0.5.5/0.7.1 implementation silently dropped
-  roughly half the monorepo when that key was present. Upstream 0.9.3 fixes enumeration by
+  roughly half the monorepo when that key was present. Upstream 0.9.11 fixes enumeration by
   listing all supported sources before filtering, but Brainstrike still needs no whole-file
   ignores: build artifacts are gitignored and test-file noise is handled natively. Prefer the
   narrow `ignore.overrides` / `rules` surfaces for a proved exception.
@@ -1700,7 +1737,7 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   `doctor.config.ts` emits no "unknown rule" error, so a config that believes it enabled
   (or disabled) a rule is indistinguishable from one that did not, and that rule's zero
   findings read as a passing gate. Proved on `react-doctor/only-export-components`
-  (2026-08-09, pinned 0.9.3): the id appears in the bundle ONLY as a *value* in the
+  (2026-08-09, pinned 0.9.3; still true at 0.9.11): the id appears in the bundle ONLY as a *value* in the
   oxlint→react-doctor alias tables (`react-refresh/only-export-components` and
   `react/only-export-components` both map to it) with no rule implementation behind it,
   and adding `rules: { 'react-doctor/only-export-components': 'warn' }` left counts
@@ -1713,12 +1750,14 @@ Invariants (do not regress without updating this section, `doctor.config.ts`, an
   `react-doctor/*`, `react-hooks-js/*`, or `deslop/*` id. Do not read a green
   `test:scripts` as evidence that a react-doctor id is live; that engine remains
   unmechanized, and it is the one with the silent-acceptance defect.
-- **Two other cited react-doctor ids are also absent from the 0.9.3 bundle** (2026-08-09,
-  #2372). `react-hooks-js/preserve-manual-memoization` — asserted above to "stay ON" — and
+- **Two other cited react-doctor ids are also absent from the bundle** (2026-08-09,
+  #2372; re-measured unchanged at 0.9.11 on 2026-08-15, BST-1273).
+  `react-hooks-js/preserve-manual-memoization` — asserted above to "stay ON" — and
   `react-doctor/async-parallel`, the rule in `doctor.config.ts`'s lone `ignore.overrides`
   entry, each appear **0 times** across `node_modules/react-doctor/dist/`, while real ids
   appear literally (`only-export-components` 12, `react-compiler-no-manual-memoization`
-  10). Neither has been *empirically* confirmed dead: a local `npx react-doctor packages/db`
+  10). Those four counts are byte-identical on 0.9.3 and 0.9.11. Neither has been
+  *empirically* confirmed dead: a local `npx react-doctor packages/db`
   emits no findings summary at all, which is BST-1142 (react-doctor local runs returning
   zero analyzed files). **Nothing was changed on grep evidence alone** — the override stays
   until BST-1142 unblocks a real before/after. Note the manual-memoization protection does

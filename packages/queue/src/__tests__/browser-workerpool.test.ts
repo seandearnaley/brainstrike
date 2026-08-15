@@ -542,34 +542,37 @@ describe('createWorkerpoolAdapter', () => {
   it.each([
     ['type', { diagnostic: 'pipeline-cache', type: 'unexpected' }],
     ['diagnostic', { diagnostic: 'unexpected', type: 'diagnostic' }],
-  ])('rejects request telemetry with an invalid %s discriminator', async (_case, discriminators) => {
-    const { promise, resolve } = createCancelablePromise<QueueResult>();
-    poolExecMock.mockImplementation(
-      (_method, _args, options?: { on?: (event: unknown) => void }) => {
-        options?.on?.({
-          cacheSize: 0,
-          emittedAt: 100,
-          entries: [],
-          event: 'loaded',
-          id: 'task-malformed-discriminator',
-          workerInstanceId: 'worker-malformed-discriminator',
-          ...discriminators,
-        });
-        return promise;
-      }
-    );
+  ])(
+    'rejects request telemetry with an invalid %s discriminator',
+    async (_case, discriminators) => {
+      const { promise, resolve } = createCancelablePromise<QueueResult>();
+      poolExecMock.mockImplementation(
+        (_method, _args, options?: { on?: (event: unknown) => void }) => {
+          options?.on?.({
+            cacheSize: 0,
+            emittedAt: 100,
+            entries: [],
+            event: 'loaded',
+            id: 'task-malformed-discriminator',
+            workerInstanceId: 'worker-malformed-discriminator',
+            ...discriminators,
+          });
+          return promise;
+        }
+      );
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
-    const adapter = createWorkerpoolAdapter(createWorkerOptions());
-    const addPromise = adapter.add(createTask('task-malformed-discriminator'));
-    resolve(createResult('task-malformed-discriminator'));
+      const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+      const adapter = createWorkerpoolAdapter(createWorkerOptions());
+      const addPromise = adapter.add(createTask('task-malformed-discriminator'));
+      resolve(createResult('task-malformed-discriminator'));
 
-    await expect(addPromise).rejects.toThrow(
-      'Embedding worker request event has invalid pipeline-cache discriminators.'
-    );
-    expect(promise.cancel).toHaveBeenCalledTimes(1);
-    expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
-  });
+      await expect(addPromise).rejects.toThrow(
+        'Embedding worker request event has invalid pipeline-cache discriminators.'
+      );
+      expect(promise.cancel).toHaveBeenCalledTimes(1);
+      expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([
     ['missing', undefined],
@@ -657,31 +660,34 @@ describe('createWorkerpoolAdapter', () => {
         reason: 'load-failure',
       },
     ],
-  ])('rejects a %s pipeline-cache diagnostic missing required event fields', async (_case, event) => {
-    const { promise, resolve } = createCancelablePromise<QueueResult>();
-    poolExecMock.mockImplementation(
-      (_method, _args, options?: { on?: (workerEvent: unknown) => void }) => {
-        options?.on?.({
-          diagnostic: 'pipeline-cache',
-          emittedAt: 100,
-          id: 'task-missing-event-fields',
-          type: 'diagnostic',
-          workerInstanceId: 'worker-missing-event-fields',
-          ...event,
-        });
-        return promise;
-      }
-    );
+  ])(
+    'rejects a %s pipeline-cache diagnostic missing required event fields',
+    async (_case, event) => {
+      const { promise, resolve } = createCancelablePromise<QueueResult>();
+      poolExecMock.mockImplementation(
+        (_method, _args, options?: { on?: (workerEvent: unknown) => void }) => {
+          options?.on?.({
+            diagnostic: 'pipeline-cache',
+            emittedAt: 100,
+            id: 'task-missing-event-fields',
+            type: 'diagnostic',
+            workerInstanceId: 'worker-missing-event-fields',
+            ...event,
+          });
+          return promise;
+        }
+      );
 
-    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
-    const adapter = createWorkerpoolAdapter(createWorkerOptions());
-    const addPromise = adapter.add(createTask('task-missing-event-fields'));
-    resolve(createResult('task-missing-event-fields'));
+      const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+      const adapter = createWorkerpoolAdapter(createWorkerOptions());
+      const addPromise = adapter.add(createTask('task-missing-event-fields'));
+      resolve(createResult('task-missing-event-fields'));
 
-    await expect(addPromise).rejects.toThrow(/requires (?:an entry|a full entries snapshot)/);
-    expect(promise.cancel).toHaveBeenCalledTimes(1);
-    expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
-  });
+      await expect(addPromise).rejects.toThrow(/requires (?:an entry|a full entries snapshot)/);
+      expect(promise.cancel).toHaveBeenCalledTimes(1);
+      expect(recordEmbeddingPipelineCacheTelemetryMock).not.toHaveBeenCalled();
+    }
+  );
 
   it('rejects a full pipeline-cache snapshot whose unique entries disagree with cacheSize', async () => {
     const { promise, resolve } = createCancelablePromise<QueueResult>();
@@ -959,19 +965,11 @@ describe('createWorkerpoolAdapter', () => {
 
     await expect(addPromise).rejects.toEqual(objectError);
     expect(emitQueueTelemetryMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        errorMessage: 'object failure',
-        event: 'error',
-        taskId: 'task-4',
-      })
+      expect.objectContaining({ errorMessage: 'object failure', event: 'error', taskId: 'task-4' })
     );
     expect(loggerMock.debug).toHaveBeenCalledWith(
       'Workerpool embedding task failed',
-      expect.objectContaining({
-        details: objectError,
-        error: 'object failure',
-        taskId: 'task-4',
-      })
+      expect.objectContaining({ details: objectError, error: 'object failure', taskId: 'task-4' })
     );
   });
 

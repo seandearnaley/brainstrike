@@ -131,28 +131,28 @@ describe('main watchdog bootstrap', () => {
 });
 
 describe('main watchdog power transition', () => {
-  it.each([
-    'suspend',
-    'resume',
-  ] as const)('notifies the watchdog before running %s orchestration', (type) => {
-    const calls: string[] = [];
-    const runtime = {
-      resume: () => {
-        calls.push('watchdog:resume');
-        return true;
-      },
-      suspend: () => {
-        calls.push('watchdog:suspend');
-        return true;
-      },
-    };
+  it.each(['suspend', 'resume'] as const)(
+    'notifies the watchdog before running %s orchestration',
+    (type) => {
+      const calls: string[] = [];
+      const runtime = {
+        resume: () => {
+          calls.push('watchdog:resume');
+          return true;
+        },
+        suspend: () => {
+          calls.push('watchdog:suspend');
+          return true;
+        },
+      };
 
-    runMainWatchdogPowerTransition(runtime, type, () => {
-      calls.push(`power:${type}`);
-    });
+      runMainWatchdogPowerTransition(runtime, type, () => {
+        calls.push(`power:${type}`);
+      });
 
-    expect(calls).toEqual([`watchdog:${type}`, `power:${type}`]);
-  });
+      expect(calls).toEqual([`watchdog:${type}`, `power:${type}`]);
+    }
+  );
 });
 
 describe('main watchdog attachment lifecycle', () => {

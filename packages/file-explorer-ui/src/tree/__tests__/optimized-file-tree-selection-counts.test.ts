@@ -110,13 +110,12 @@ describe('optimized file tree selection counts', () => {
     { candidatePath: 'src/', expected: true, path: 'src/index.ts' },
     { candidatePath: 'src', expected: false, path: 'source/index.ts' },
     { candidatePath: 'C:\\repo\\src', expected: true, path: 'C:/repo/src/index.ts' },
-  ])('checks descendant selection paths for $candidatePath', ({
-    candidatePath,
-    expected,
-    path,
-  }) => {
-    expect(isSameOrDescendantSelectionPath(path, candidatePath)).toBe(expected);
-  });
+  ])(
+    'checks descendant selection paths for $candidatePath',
+    ({ candidatePath, expected, path }) => {
+      expect(isSameOrDescendantSelectionPath(path, candidatePath)).toBe(expected);
+    }
+  );
 
   it('matches workspace selections through absolute and relative candidates', () => {
     const selectedFilePaths = new Set([
