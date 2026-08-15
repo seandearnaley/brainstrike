@@ -9,7 +9,7 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { resolveRelativePath } from '@brainstrike/utils';
-import { AlertCircle, Loader2, LockKeyhole } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { BinaryFilePreview } from '../components/binary-file-preview';
 import { useMarkdownPreviewCapabilities } from '../contexts/markdown-preview-capabilities';
@@ -17,6 +17,12 @@ import { useFileViewerContextMenu } from '../hooks/use-file-viewer-context-menu'
 import type { FileTab } from '../hooks/use-tab-manager';
 import { type FileViewMode, useEditorViewStateStore } from '../stores/editor-view-state-store';
 import { FileTabHeader } from './file-tab-header';
+import {
+  FileContentPendingScreen,
+  FileNotFoundScreen,
+  InaccessibleFileScreen,
+  PermissionRequiredScreen,
+} from './file-tab-status-screens';
 import { MarkdownPreviewErrorBoundary } from './markdown-preview-error-boundary';
 
 const MarkdownSurfaceLazy = lazy(() =>
@@ -209,47 +215,19 @@ export function FileTabBody({
   // getDisplayContent truncates the DOM for very large files.
   let copyText: string | null = null;
   if (status?.status === 'needs-permission') {
-    body = (
-      <div className="flex h-full flex-col items-center justify-center text-center">
-        <div aria-live="polite" className="sr-only">
-          File access required for {path}. Click the tab to restore access.
-        </div>
-        <LockKeyhole aria-hidden="true" className="mb-4 h-12 w-12 text-amber-500" />
-        <p className="font-semibold text-lg">File Access Required</p>
-        <p className="mt-2 max-w-md text-muted-foreground text-sm">
-          Click the tab again to restore access to this file. Your browser requires permission to
-          read files after a page reload.
-        </p>
-        {status.error ? <p className="mt-2 text-destructive text-xs">{status.error}</p> : null}
-      </div>
-    );
+    body = <PermissionRequiredScreen path={path} status={status} />;
   } else if (status?.status === 'not-found') {
-    body = (
-      <div className="flex h-full flex-col items-center justify-center text-center">
-        <div aria-live="polite" className="sr-only">
-          File not found: {path}. This file may have been moved, renamed, or deleted.
-        </div>
-        <AlertCircle aria-hidden="true" className="mb-4 h-12 w-12 text-destructive" />
-        <p className="font-semibold text-lg">File Not Found</p>
-        <p className="mt-2 max-w-md text-muted-foreground text-sm">
-          This file could not be restored. It may have been moved, renamed, or deleted.
-        </p>
-        <p className="mt-1 text-muted-foreground text-xs">{path}</p>
-        {status.error ? <p className="mt-2 text-destructive text-xs">{status.error}</p> : null}
-      </div>
-    );
+    body = <FileNotFoundScreen path={path} status={status} />;
   } else if (typeof content !== 'string') {
     // Three reasons content may be missing here, none of which is "the file is gone":
     //  1. Restoration is still in flight (status not yet emitted).
     //  2. We just opened the tab and loadFileContent hasn't completed.
     //  3. The active tab effect hasn't fired yet (e.g. fileTree not ready on web).
     // In all cases, "Restoring…" is the honest message — "File not found" was a lie.
-    const isPending = isLoading || isRestoring || status?.status === 'pending';
     body = (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-        <span>{isPending ? 'Restoring…' : 'Loading…'}</span>
-      </div>
+      <FileContentPendingScreen
+        isPending={isLoading || isRestoring || status?.status === 'pending'}
+      />
     );
   } else if (content === BINARY_CONTENT_MESSAGE) {
     // The worker stores the BINARY sentinel as the tab's content; render the
@@ -259,15 +237,7 @@ export function FileTabBody({
     // Short-circuit before truncation: the inaccessible branch renders the full `content`
     // verbatim, so running getDisplayContent first would do throwaway work and (for a very
     // verbose error message above MAX_DOM_CHARS) produce an unused truncated string.
-    body = (
-      <div className="h-full overflow-auto p-4">
-        <p className="text-amber-600 dark:text-amber-400">{content}</p>
-        <p className="mt-2 text-muted-foreground text-sm">
-          To access this file, please open the folder again using the folder icon button. This is a
-          security measure of your browser.
-        </p>
-      </div>
-    );
+    body = <InaccessibleFileScreen content={content} />;
   } else {
     const { text, truncated } = getDisplayContent(content);
     const target = getTarget(tab.compositeKey);

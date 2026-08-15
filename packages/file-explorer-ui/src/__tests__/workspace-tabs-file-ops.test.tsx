@@ -216,6 +216,92 @@ describe('workspace tabs — file tab operations', () => {
     });
   });
 
+  it('a resolved permission prompt cannot clobber a selection made through openFileInTab', async () => {
+    // Review finding: handleOpenFileInTab (and the close paths) previously did
+    // NOT bump the selection-intent counter, so a permission prompt resolving
+    // after a newer selection re-selected the stale tab.
+    const user = userEvent.setup();
+    let registeredOpenFile: ((compositeKey: string) => void) | undefined;
+    const uiModule = await import('@brainstrike/ui');
+    vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+      openFileInTab: vi.fn(),
+      registerOpenFileInTab: vi.fn((callback: (compositeKey: string) => void) => {
+        registeredOpenFile = callback;
+      }),
+    });
+
+    const setActiveTab = vi.fn();
+    let resolvePermission: ((granted: boolean) => void) | undefined;
+    vi.mocked(useTabFileRestoration).mockReturnValue({
+      getStatusMessage: () => null,
+      isRestoring: false,
+      needsUserAction: () => false,
+      requestTabPermission: vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolvePermission = resolve;
+          })
+      ),
+      restoreTabs: vi.fn().mockResolvedValue(undefined),
+      tabStatuses: new Map<string, TabFileStatus>([
+        ['folderA|@|src/a.ts', { compositeKey: 'folderA|@|src/a.ts', status: 'needs-permission' }],
+      ]),
+    });
+
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
+      activeTabId: null,
+      clearTabs: vi.fn(),
+      closeTab: vi.fn(),
+      openTab: vi.fn(),
+      setActiveTab,
+      setTabError: vi.fn(),
+      setTabLoading: vi.fn(),
+      tabs: [
+        {
+          compositeKey: 'folderA|@|src/a.ts',
+          content: null,
+          id: 'folderA|@|src/a.ts',
+          isLoading: false,
+          path: 'src/a.ts',
+        },
+        {
+          compositeKey: 'folderA|@|src/b.ts',
+          content: null,
+          id: 'folderA|@|src/b.ts',
+          isLoading: false,
+          path: 'src/b.ts',
+        },
+      ],
+      updateTabContent: vi.fn(),
+    });
+
+    renderWorkspace();
+
+    // Click the needs-permission tab: its selection awaits the prompt.
+    await user.click(await screen.findByRole('tab', { name: /a\.ts/i }));
+
+    // While the prompt is up, a tree click opens another file via the seam.
+    act(() => {
+      registeredOpenFile?.('folderA|@|src/b.ts');
+    });
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      kind: 'file',
+      tabId: 'folderA|@|src/b.ts',
+    });
+
+    // The prompt resolves late — the stale continuation must NOT re-select A.
+    await act(async () => {
+      resolvePermission?.(true);
+      await Promise.resolve();
+    });
+    expect(setActiveTab).not.toHaveBeenCalledWith('folderA|@|src/a.ts');
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      kind: 'file',
+      tabId: 'folderA|@|src/b.ts',
+    });
+  });
+
   it('clicking the Files tab swaps back to the preview body', async () => {
     const user = userEvent.setup();
     useWorkspaceTabSelectionStore.getState().selectFile('folderA|@|src/index.ts');

@@ -242,10 +242,13 @@ export function WorkspaceTabStrip(): ReactElement {
   }, [selection]);
 
   // ---- Roving keyboard navigation over every role=tab in the strip ----
-  const tablistRef = useRef<HTMLDivElement | null>(null);
+  // The tablist IS the scroller (see JSX note), so one node carries both refs.
+  const mergedScrollTablistRef = useCallback((node: HTMLDivElement | null) => {
+    scrollRef.current = node;
+  }, []);
   const handleTablistKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>) => {
-      dispatchTablistKey(event, tablistRef.current, { onCloseApp, onCloseFileTab });
+      dispatchTablistKey(event, scrollRef.current, { onCloseApp, onCloseFileTab });
     },
     [onCloseApp, onCloseFileTab]
   );
@@ -258,9 +261,6 @@ export function WorkspaceTabStrip(): ReactElement {
         className="flex h-full min-w-0 flex-1 items-stretch"
         data-testid="workspace-tab-strip"
         onContextMenuCapture={() => setContextMenuTarget(null)}
-        onKeyDown={handleTablistKeyDown}
-        ref={tablistRef}
-        role="tablist"
       >
         {hasAnyTab ? null : (
           <span className="flex items-center px-3 font-medium text-muted-foreground text-xs">
@@ -279,12 +279,18 @@ export function WorkspaceTabStrip(): ReactElement {
             <ChevronLeft className="h-4 w-4" />
           </Button>
         ) : null}
+        {/* role="tablist" lives on the tabs-only scroller: chevrons, the overflow
+            menu, and per-tab close buttons are NOT tabs and must not be announced
+            as tablist children (review finding, APG composition). */}
         <div
+          aria-label="Workspace tabs"
           className="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           data-testid="workspace-tab-scroll"
+          onKeyDown={handleTablistKeyDown}
           onScroll={measureScroll}
           onWheel={handleTabWheel}
-          ref={scrollRef}
+          ref={mergedScrollTablistRef}
+          role="tablist"
         >
           <div className="flex flex-shrink-0 items-stretch gap-0.5">
             {openApps.map((app) => (
@@ -335,7 +341,9 @@ export function WorkspaceTabStrip(): ReactElement {
             <ChevronRight className="h-4 w-4" />
           </Button>
         ) : null}
-        <TabStripOverflowMenu hasFileTabs={tabs.length > 0} onCloseAll={onCloseAllFileTabs} />
+        {hasAnyTab ? (
+          <TabStripOverflowMenu hasFileTabs={tabs.length > 0} onCloseAll={onCloseAllFileTabs} />
+        ) : null}
       </div>
     </ActionContextMenu>
   );
@@ -367,9 +375,14 @@ function resolveTablistTargetIndex(
 }
 
 /**
- * Roving tablist keyboard contract (APG): Arrow/Home/End move focus AND
- * selection (focus follows activation, matching the thread tab strip); Delete
- * closes the focused tab — app or file, resolved via data attributes.
+ * Roving tablist keyboard contract (APG **manual activation**): Arrow/Home/End
+ * move FOCUS only — Enter/Space (the focused button's native activation)
+ * selects. Manual activation is deliberate (review finding): selecting a
+ * `needs-permission` file tab raises a real browser permission prompt, so
+ * focus movement must never activate. Delete closes the focused tab — app or
+ * file, resolved via data attributes — then restores focus to the tab that
+ * takes the closed one's place (or the last tab) so keyboard navigation
+ * survives the close (review finding: focus otherwise falls to `body`).
  */
 function dispatchTablistKey(
   event: KeyboardEvent<HTMLDivElement>,
@@ -388,9 +401,7 @@ function dispatchTablistKey(
   const targetIndex = resolveTablistTargetIndex(event.key, currentIndex, tabEls.length);
   if (targetIndex !== null) {
     event.preventDefault();
-    const el = tabEls[targetIndex];
-    el?.focus();
-    el?.click();
+    tabEls[targetIndex]?.focus();
     return;
   }
   if (event.key !== 'Delete' || currentIndex === -1) {
@@ -405,6 +416,14 @@ function dispatchTablistKey(
   } else if (tabId) {
     handlers.onCloseFileTab(tabId);
   }
+  // Restore focus after React commits the close: the tab that slid into the
+  // closed one's index, else the new last tab. requestAnimationFrame matches
+  // the focus-restoration idiom used by the panel chrome (ide-layout).
+  requestAnimationFrame(() => {
+    const remaining = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]'));
+    const successor = remaining[currentIndex] ?? remaining.at(-1);
+    successor?.focus();
+  });
 }
 
 function prefersReducedMotion(): boolean {
@@ -487,6 +506,7 @@ const AppTabButton = memo<AppTabButtonProps>(function AppTabButton({
           ? 'bg-primary/10 text-primary'
           : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
       )}
+      role="presentation"
     >
       <button
         aria-controls={`workspace-app-panel-${app.id}`}
@@ -514,6 +534,7 @@ const AppTabButton = memo<AppTabButtonProps>(function AppTabButton({
         data-testid={`workspace-app-tab-close-${app.id}`}
         onClick={handleClose}
         size="icon"
+        tabIndex={-1}
         title={`Close ${app.label}`}
         variant="ghost"
       >
@@ -579,6 +600,7 @@ const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
         isActive ? 'border-b-primary bg-background' : 'hover:bg-muted/60'
       )}
       onContextMenu={handleContextMenu}
+      role="presentation"
     >
       <button
         aria-controls={panelId}
@@ -607,6 +629,7 @@ const FileTabButton = memo<FileTabButtonProps>(function FileTabButton({
         className="mr-1 h-6 w-6 flex-shrink-0 rounded-sm"
         onClick={handleClose}
         size="icon"
+        tabIndex={-1}
         title={`Close ${fileName}`}
         variant="ghost"
       >

@@ -3,20 +3,19 @@ import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
 import { createLogger } from '@brainstrike/logging';
 import { type OpenFileInTab, useIdeFileEditor } from '@brainstrike/ui';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useHotkeys } from 'react-hotkeys-hook';
 import { useTabManager } from '../hooks/use-tab-manager';
 import { useEditorViewStateStore } from '../stores/editor-view-state-store';
 import { useTabManagerStore } from '../stores/tab-manager-store';
 import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { useFileExplorer } from './use-file-explorer-context';
+import { useWorkspaceTabHotkeys } from './use-workspace-tab-hotkeys';
 import {
   useWorkspaceTabs,
   WorkspaceTabsContext,
   type WorkspaceTabsValue,
 } from './use-workspace-tabs';
 import type { WorkspaceApp } from './workspace-app';
-import { isDesktopRenderer } from './workspace-tab-utils';
 
 const logger = createLogger('WorkspaceTabs');
 
@@ -73,6 +72,16 @@ export function WorkspaceTabsProvider({
   const selectEmpty = useWorkspaceTabSelectionStore((s) => s.selectEmpty);
   const selectFile = useWorkspaceTabSelectionStore((s) => s.selectFile);
   const selectionIntentRef = useRef(0);
+  /**
+   * Invalidate any in-flight async tab selection (the permission-prompt await
+   * in `handleSelectFileTab`). EVERY selection-mutating path must call this
+   * before writing — review finding: the file-tab paths (close, bulk close,
+   * openFileInTab) skipped it, letting a resolved permission prompt clobber a
+   * newer selection with a possibly-closed tab.
+   */
+  const invalidatePendingSelection = useCallback(() => {
+    selectionIntentRef.current += 1;
+  }, []);
 
   const openApps = useMemo(() => {
     // Dev-mode assertion: WorkspaceApp.id is used as a tab dom id and as the
@@ -89,7 +98,8 @@ export function WorkspaceTabsProvider({
         seen.add(app.id);
       }
     }
-    return apps.filter((app) => openAppIds.includes(app.id));
+    const openIdSet = new Set(openAppIds);
+    return apps.filter((app) => openIdSet.has(app.id));
   }, [apps, openAppIds]);
   const mountedAppIds = useMemo(() => new Set(mountedAppIdList), [mountedAppIdList]);
 
@@ -184,10 +194,10 @@ export function WorkspaceTabsProvider({
 
   const handleOpenApp = useCallback(
     (appId: string) => {
-      selectionIntentRef.current += 1;
+      invalidatePendingSelection();
       openApp(appId);
     },
-    [openApp]
+    [invalidatePendingSelection, openApp]
   );
 
   /**
@@ -196,36 +206,39 @@ export function WorkspaceTabsProvider({
    * registry through `apps` and the open list from the store at call time.
    */
   const fallbackToOpenApp = useCallback(() => {
-    selectionIntentRef.current += 1;
-    const currentOpenIds = useWorkspaceTabSelectionStore.getState().openAppIds;
-    const firstOpenApp = apps.find((app) => currentOpenIds.includes(app.id));
+    invalidatePendingSelection();
+    const currentOpenIds = new Set(useWorkspaceTabSelectionStore.getState().openAppIds);
+    const firstOpenApp = apps.find((app) => currentOpenIds.has(app.id));
     if (firstOpenApp) {
       openApp(firstOpenApp.id);
     } else {
       selectEmpty();
     }
-  }, [apps, openApp, selectEmpty]);
+  }, [apps, invalidatePendingSelection, openApp, selectEmpty]);
 
   const handleCloseApp = useCallback(
     (appId: string) => {
-      selectionIntentRef.current += 1;
-      closeApp(appId);
+      invalidatePendingSelection();
+      const successor = closeApp(appId);
+      if (successor !== null) {
+        return;
+      }
       // The store falls back app→app or app→empty on its own; when it landed on
       // empty but file tabs remain, prefer the most recent file tab over the
       // launcher (the store cannot see file tabs).
-      const stateAfter = useWorkspaceTabSelectionStore.getState();
-      if (stateAfter.selection.kind === 'empty') {
+      if (useWorkspaceTabSelectionStore.getState().selection.kind === 'empty') {
         const { activeTabId } = useTabManagerStore.getState();
         if (activeTabId !== null) {
           selectFile(activeTabId);
         }
       }
     },
-    [closeApp, selectFile]
+    [closeApp, invalidatePendingSelection, selectFile]
   );
 
   const handleCloseFileTab = useCallback(
     (tabId: string) => {
+      invalidatePendingSelection();
       // closeTab returns the successor activeTabId (or null if no tabs remain), so we
       // mirror that into the workspace selection without any implicit dependency on
       // Zustand's synchronous-set contract. We read selection from the store directly
@@ -243,7 +256,7 @@ export function WorkspaceTabsProvider({
         selectFile(successorId);
       }
     },
-    [closeTab, fallbackToOpenApp, selectFile]
+    [closeTab, fallbackToOpenApp, invalidatePendingSelection, selectFile]
   );
 
   // If the workspace points at something that no longer exists — a file tab that
@@ -339,6 +352,7 @@ export function WorkspaceTabsProvider({
       // tabId is the compositeKey itself — stable across reloads (it already encodes the
       // folder identity), unlike the legacy `${rootFolderId}:${compositeKey}` form.
       const tabId = compositeKey;
+      invalidatePendingSelection();
       openTab(path, tabId, compositeKey);
       selectFile(tabId);
       if (
@@ -348,79 +362,18 @@ export function WorkspaceTabsProvider({
         void loadFileContent(compositeKey);
       }
     },
-    [openTab, selectFile, loadFileContent, setTarget]
+    [openTab, selectFile, loadFileContent, setTarget, invalidatePendingSelection]
   );
 
-  // Hotkeys: Electron gets VS Code-style ctrl/cmd+w for closing the active tab —
-  // a file tab OR (BST-1258, now that app tabs are closable) an app tab. Web
-  // intentionally leaves the browser's native close-tab shortcut untouched.
-  // Deps array (4th arg) is required by react-hotkeys-hook v5 to avoid stale
-  // closures. The platform check runs lazily inside the handler so the answer
-  // reflects the actual state at keystroke time.
-  useHotkeys(
-    'ctrl+w, cmd+w',
-    (e) => {
-      // Web: native Ctrl/Cmd+W closes the browser tab; do not intercept.
-      if (!isDesktopRenderer()) {
-        return;
-      }
-      if (selection.kind === 'file') {
-        e.preventDefault();
-        handleCloseFileTab(selection.tabId);
-        return;
-      }
-      if (selection.kind === 'app') {
-        e.preventDefault();
-        handleCloseApp(selection.appId);
-      }
-      // Empty selection: intentional fall-through — the host (Electron's window
-      // accelerator) keeps owning Ctrl/Cmd+W, matching VS Code's behavior of
-      // closing the window once no editors remain.
-    },
-    {}, // no options; the deps array is the 4th arg (v5 signature is keys, cb, options?, deps?)
-    [selection, handleCloseFileTab, handleCloseApp]
-  );
-  const cycleFileTab = useCallback(
-    (direction: 'next' | 'prev') => {
-      if (tabs.length < 2 || selection.kind !== 'file') {
-        return;
-      }
-      const currentIndex = tabs.findIndex((t) => t.id === selection.tabId);
-      if (currentIndex === -1) {
-        return;
-      }
-      const nextIndex =
-        direction === 'next'
-          ? (currentIndex + 1) % tabs.length
-          : (currentIndex - 1 + tabs.length) % tabs.length;
-      const next = tabs[nextIndex];
-      if (next) {
-        void handleSelectFileTab(next.id);
-      }
-    },
-    [tabs, selection, handleSelectFileTab]
-  );
-  useHotkeys(
-    'ctrl+pageup, cmd+pageup',
-    (e) => {
-      e.preventDefault();
-      cycleFileTab('prev');
-    },
-    {},
-    [cycleFileTab]
-  );
-  useHotkeys(
-    'ctrl+pagedown, cmd+pagedown',
-    (e) => {
-      e.preventDefault();
-      cycleFileTab('next');
-    },
-    {},
-    [cycleFileTab]
-  );
+  useWorkspaceTabHotkeys(selection, tabs, {
+    onCloseApp: handleCloseApp,
+    onCloseFileTab: handleCloseFileTab,
+    onSelectFileTab: handleSelectFileTab,
+  });
 
   const reconcileSelectionAfterBulkClose = useCallback(
     (nextActiveTabId: string | null): void => {
+      invalidatePendingSelection();
       const currentSelection = useWorkspaceTabSelectionStore.getState().selection;
       if (currentSelection.kind !== 'file') {
         return;
@@ -437,7 +390,7 @@ export function WorkspaceTabsProvider({
       }
       selectFile(nextActiveTabId);
     },
-    [fallbackToOpenApp, selectFile]
+    [fallbackToOpenApp, invalidatePendingSelection, selectFile]
   );
 
   // File-tab bulk operations never replace an app selection. When a file

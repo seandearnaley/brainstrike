@@ -7,9 +7,10 @@ import { getTabRootPath } from './workspace-tab-utils';
 /**
  * The workspace panel's content area (BST-1258). Renders:
  *
- * - every MOUNTED app surface, hidden unless active — the keep-alive contract:
- *   an app activated once this session never unmounts (Canvas's sandboxed
- *   iframe must not reload; the explorer layout keeps its panel/scroll state);
+ * - every OPEN + MOUNTED app surface, hidden unless active — the keep-alive
+ *   contract holds across tab switches (Canvas's sandboxed iframe must not
+ *   reload; the explorer layout keeps its panel/scroll state), while CLOSING a
+ *   tab unmounts the surface so close actually releases it;
  * - the ACTIVE file tab's body (file bodies render one at a time, keyed by
  *   compositeKey, exactly as before);
  * - the launcher empty state when nothing resolvable is selected.
@@ -25,6 +26,7 @@ export function WorkspaceBody(): ReactElement {
     isRestoring,
     loadingFiles,
     mountedAppIds,
+    openApps,
     rootDescriptors,
     selection,
     tabs,
@@ -44,23 +46,29 @@ export function WorkspaceBody(): ReactElement {
 
   return (
     <div className="h-full min-h-0 bg-background" data-testid="workspace-body">
-      {apps
-        .filter((app) => mountedAppIds.has(app.id))
-        .map((app) => {
-          const isActiveApp = selection.kind === 'app' && selection.appId === app.id;
-          return (
-            <div
-              aria-labelledby={`workspace-app-tab-${app.id}`}
-              className="h-full"
-              hidden={!isActiveApp}
-              id={`workspace-app-panel-${app.id}`}
-              key={app.id}
-              role="tabpanel"
-            >
-              {app.render()}
-            </div>
-          );
-        })}
+      {openApps.flatMap((app) => {
+        // mounted ∩ open: keep-alive holds across tab SWITCHES only. CLOSING a
+        // tab unmounts the surface (review finding) — the ✕ is the user's one
+        // lever to release a runaway Canvas iframe or Changes subscriptions,
+        // and reopening remounts fresh. Never-activated open tabs stay
+        // unmounted until first selection.
+        if (!mountedAppIds.has(app.id)) {
+          return [];
+        }
+        const isActiveApp = selection.kind === 'app' && selection.appId === app.id;
+        return (
+          <div
+            aria-labelledby={`workspace-app-tab-${app.id}`}
+            className="h-full"
+            hidden={!isActiveApp}
+            id={`workspace-app-panel-${app.id}`}
+            key={app.id}
+            role="tabpanel"
+          >
+            {app.render()}
+          </div>
+        );
+      })}
       {activeFileTab ? (
         <div
           aria-labelledby={`workspace-file-tab-${activeFileTab.id}`}

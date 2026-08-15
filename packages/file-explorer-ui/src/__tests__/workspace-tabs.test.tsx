@@ -195,7 +195,7 @@ describe('workspace tabs — apps, launcher, selection', () => {
     __resetTabManagerStoreForTests();
   });
 
-  it('keeps a closed app mounted (hidden) and does not remount it on reopen', async () => {
+  it('keeps an app mounted across tab switches, but CLOSING unmounts and reopening remounts', async () => {
     const user = userEvent.setup();
     let mountCount = 0;
     function MountProbe() {
@@ -215,12 +215,13 @@ describe('workspace tabs — apps, launcher, selection', () => {
     await screen.findByTestId('probe-body');
     expect(mountCount).toBe(1);
 
-    // Switch to Changes, then back — no remount.
+    // Switch to Changes, then back — keep-alive: no remount, body stays hidden.
     act(() => {
       useWorkspaceTabSelectionStore.getState().openApp('changes');
     });
     await screen.findByTestId('changes-app-body');
     expect(screen.getByTestId('probe-body')).toBeInTheDocument();
+    expect(screen.getByTestId('probe-body')).not.toBeVisible();
 
     await user.click(await screen.findByRole('tab', { name: /files/i }));
     await waitFor(() => {
@@ -228,17 +229,78 @@ describe('workspace tabs — apps, launcher, selection', () => {
     });
     expect(mountCount).toBe(1);
 
-    // Close Files entirely — still mounted (hidden), so reopening keeps state.
+    // CLOSING the tab unmounts the surface — the ✕ is the user's lever to
+    // release a runaway Canvas iframe (review finding).
     await user.click(await screen.findByRole('button', { name: /close files/i }));
-    expect(screen.getByTestId('probe-body')).toBeInTheDocument();
-    await user.click(await screen.findByRole('tab', { name: /changes/i }));
+    await waitFor(() => {
+      expect(screen.queryByTestId('probe-body')).not.toBeInTheDocument();
+    });
+
+    // Reopening remounts fresh.
     act(() => {
       useWorkspaceTabSelectionStore.getState().openApp('context-explorer');
     });
     await waitFor(() => {
       expect(screen.getByTestId('probe-body')).toBeVisible();
     });
-    expect(mountCount).toBe(1);
+    expect(mountCount).toBe(2);
+  });
+
+  it('moves focus with ArrowRight WITHOUT activating the tab (manual activation)', async () => {
+    useWorkspaceTabSelectionStore.getState().openApp('changes');
+    useWorkspaceTabSelectionStore.getState().selectApp('context-explorer');
+    renderWorkspace([FILES_APP, CHANGES_APP]);
+
+    const filesTab = await screen.findByRole('tab', { name: /files/i });
+    const changesTab = await screen.findByRole('tab', { name: /changes/i });
+    filesTab.focus();
+
+    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'ArrowRight' });
+
+    expect(changesTab).toHaveFocus();
+    // Selection did NOT follow focus — activating a needs-permission file tab
+    // would raise a real browser permission prompt (review finding).
+    expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+      appId: 'context-explorer',
+      kind: 'app',
+    });
+  });
+
+  it('keeps the tablist tabs-only and close buttons out of the tab order', async () => {
+    useWorkspaceTabSelectionStore.getState().openApp('changes');
+    renderWorkspace([FILES_APP, CHANGES_APP]);
+
+    const tablist = await screen.findByRole('tablist');
+    // Every focusable child of the tablist is a tab (close buttons are
+    // tabIndex=-1; chevrons and the overflow menu live OUTSIDE the tablist).
+    for (const button of Array.from(tablist.querySelectorAll('button'))) {
+      if (button.getAttribute('role') === 'tab') {
+        continue;
+      }
+      expect(button).toHaveAttribute('tabindex', '-1');
+    }
+    // Chevrons and the ⋯ overflow menu are NOT tablist children.
+    expect(tablist.contains(screen.getByRole('button', { name: /more tab actions/i }))).toBe(false);
+  });
+
+  it('Delete closes the focused tab and moves focus to its successor', async () => {
+    useWorkspaceTabSelectionStore.getState().openApp('changes');
+    useWorkspaceTabSelectionStore.getState().selectApp('context-explorer');
+    renderWorkspace([FILES_APP, CHANGES_APP]);
+
+    const filesTab = await screen.findByRole('tab', { name: /files/i });
+    filesTab.focus();
+
+    fireEvent.keyDown(screen.getByRole('tablist'), { key: 'Delete' });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('tab', { name: /files/i })).not.toBeInTheDocument();
+    });
+    // Focus lands on the tab that slid into the closed one's place — keyboard
+    // navigation survives the close (Codex review finding).
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /changes/i })).toHaveFocus();
+    });
   });
 
   it('an unregistered persisted app selection routes to the first open registered app', async () => {

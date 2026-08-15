@@ -1,4 +1,8 @@
-import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import {
+  CANVAS_APP_ID,
+  CHANGES_APP_ID,
+  useWorkspaceTabSelectionStore,
+} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { Changeset } from '@brainstrike/types';
 import { create } from 'zustand';
 
@@ -196,11 +200,11 @@ export const useChangesNavigationStore = create<ChangesNavigationState>((set, ge
   isOnLastTurn: false,
   liveRefreshNonce: 0,
   openCanvasPanel: () => {
-    useWorkspaceTabSelectionStore.getState().openApp('canvas');
+    useWorkspaceTabSelectionStore.getState().openApp(CANVAS_APP_ID);
   },
   openChangeset: (changeset) => {
     get().requestChangeset(changeset);
-    useWorkspaceTabSelectionStore.getState().openApp('changes');
+    useWorkspaceTabSelectionStore.getState().openApp(CHANGES_APP_ID);
   },
   requestCanvasRefresh: () =>
     set((state) => ({ canvasRefreshNonce: state.canvasRefreshNonce + 1 })),

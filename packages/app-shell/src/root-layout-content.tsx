@@ -13,6 +13,8 @@ import {
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import { MarkdownPreviewCapabilitiesProvider } from '@brainstrike/file-explorer-ui';
 import {
+  CANVAS_APP_ID,
+  CHANGES_APP_ID,
   CONTEXT_EXPLORER_APP_ID,
   RootDataDeletionProvider,
   useFileSystem,
@@ -501,7 +503,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
     if (changesPageContent) {
       apps.push({
         icon: GitCompare,
-        id: 'changes',
+        id: CHANGES_APP_ID,
         label: 'Changes',
         render: () => changesPageContent,
       });
@@ -509,7 +511,7 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
     if (canvasPanelContent) {
       apps.push({
         icon: PanelsTopLeft,
-        id: 'canvas',
+        id: CANVAS_APP_ID,
         label: 'Canvas',
         render: () => canvasPanelContent,
       });
