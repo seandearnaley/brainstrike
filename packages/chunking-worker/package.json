@@ -3,7 +3,7 @@
   "description": "Web Worker for off-main-thread file chunking with AST-aware code splitting and token counting.",
   "version": "0.1.0",
   "dependencies": {
-    "@babel/parser": "^8.0.0",
+    "@babel/parser": "^8.0.4",
     "@brainstrike/text-splitter": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "web-tree-sitter": "^0.25.10"

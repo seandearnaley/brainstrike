@@ -117,7 +117,7 @@
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@brainstrike/windows-job-native": "workspace:*",
-    "@modelcontextprotocol/server-filesystem": "^2026.7.4",
+    "@modelcontextprotocol/server-filesystem": "^2026.7.10",
     "@playwright/test": "catalog:",
     "@radix-ui/react-accordion": "catalog:",
     "@radix-ui/react-checkbox": "catalog:",
@@ -161,7 +161,7 @@
     "vite-plugin-top-level-await": "catalog:",
     "vite-plugin-wasm": "catalog:",
     "vitest": "catalog:",
-    "wait-on": "^9.0.10",
+    "wait-on": "^9.1.0",
     "xvfb-maybe": "^0.2.1",
     "xxhash-wasm": "catalog:",
     "zustand": "catalog:"
