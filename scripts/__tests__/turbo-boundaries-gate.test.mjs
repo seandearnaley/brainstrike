@@ -330,10 +330,24 @@ test('every @boundaries-ignore in the repo carries a reason', () => {
   // but a real error (exit > 1) must surface.
   assert.ok(grep.status === 0 || grep.status === 1, grep.stderr);
   const lines = grep.stdout.split('\n').filter(Boolean);
-  // This test file mentions the directive in prose; exempt exactly this file,
-  // not the whole scripts/__tests__ directory.
+  // Two files NAME the directive in prose instead of carrying one: this test,
+  // which explains what it enforces, and the gate script, whose header records
+  // that `turbo boundaries --ignore` would write these comments into scanned
+  // files. Exempt exactly those files, never the directories they live in.
+  const prosePaths = [
+    'scripts/__tests__/turbo-boundaries-gate.test.mjs:',
+    'scripts/turbo-boundaries.mjs:',
+  ];
+  // An exemption that stops matching is an exemption nobody is auditing — if
+  // the prose is reworded away, delete the entry rather than leaving it.
+  for (const prosePath of prosePaths) {
+    assert.ok(
+      lines.some((line) => line.startsWith(prosePath)),
+      `${prosePath} no longer mentions @boundaries-ignore — drop it from prosePaths`
+    );
+  }
   const annotations = lines.filter(
-    (line) => !line.startsWith('scripts/__tests__/turbo-boundaries-gate.test.mjs:')
+    (line) => !prosePaths.some((prosePath) => line.startsWith(prosePath))
   );
   for (const line of annotations) {
     const reason = line.split('@boundaries-ignore')[1]?.trim() ?? '';
