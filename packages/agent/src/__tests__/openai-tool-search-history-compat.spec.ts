@@ -59,6 +59,28 @@ function createMastraHydratedPrompt(): ProcessLLMRequestArgs['prompt'] {
 }
 
 /**
+ * The SYMMETRIC hydration, and the one this seam used to miss: the same
+ * one-invocation persistence that puts the OUTPUT id on the call can equally
+ * put the CALL id on the RESULT, so the result advertises `tsc_`. Every id is
+ * present and the two recorded ids agree with each other, so presence and
+ * conflict checks both pass — and the request still serializes as two identical
+ * `item_reference`s, which OpenAI rejects far downstream of here.
+ */
+function createSymmetricallyHydratedPrompt(): ProcessLLMRequestArgs['prompt'] {
+  const prompt = createPersistedPrompt();
+  const assistant = prompt[0];
+  if (!(assistant && assistant.role === 'assistant')) {
+    throw new Error('expected assistant prompt');
+  }
+  const result = assistant.content[1];
+  if (!(result && result.type === 'tool-result')) {
+    throw new Error('expected tool-search result');
+  }
+  result.providerMetadata = { openai: { itemId: TOOL_SEARCH_CALL_ITEM_ID } };
+  return prompt;
+}
+
+/**
  * Serializes a prompt through the REAL installed `@ai-sdk/openai` and returns
  * the request body it put on the wire. These assertions are about upstream
  * behaviour, not ours, which is what makes the seam's removal condition
@@ -207,6 +229,47 @@ describe('OpenAIToolSearchHistoryCompat', () => {
 
     expect(() => processPrompt(new OpenAIToolSearchHistoryCompat(), prompt)).toThrow(
       /conflicting OpenAI tool-search output item IDs/
+    );
+  });
+
+  // The failure this half of the seam exists to prevent is DUPLICATION, not a
+  // missing field. `?? part.toolCallId` was only ever one way to arrive at a
+  // duplicate reference; Mastra hydrating the CALL's id onto the result is the
+  // other, and it is the quiet one — nothing is absent and nothing disagrees.
+  // Upstream serializes it as two identical `tsc_` references, so the guard has
+  // to reject it here rather than let OpenAI 400 on it.
+  it('upstream: the installed AI SDK emits duplicate references when the output advertises the call ID', async () => {
+    const capturedBody = await captureRequestBody(createSymmetricallyHydratedPrompt());
+
+    expect(capturedBody).toMatchObject({
+      input: [
+        { id: TOOL_SEARCH_CALL_ITEM_ID, type: 'item_reference' },
+        { id: TOOL_SEARCH_CALL_ITEM_ID, type: 'item_reference' },
+      ],
+    });
+  });
+
+  it('rejects an output item ID that duplicates its call item ID', () => {
+    expect(() =>
+      processPrompt(new OpenAIToolSearchHistoryCompat(), createSymmetricallyHydratedPrompt())
+    ).toThrow(/duplicates its call item ID/);
+  });
+
+  it('rejects a duplicating output item ID recorded in providerOptions', () => {
+    const prompt = createSymmetricallyHydratedPrompt();
+    const assistant = prompt[0];
+    if (!(assistant && assistant.role === 'assistant')) {
+      throw new Error('expected assistant prompt');
+    }
+    const result = assistant.content[1];
+    if (!(result && result.type === 'tool-result')) {
+      throw new Error('expected tool-search result');
+    }
+    result.providerMetadata = undefined;
+    result.providerOptions = { openai: { itemId: TOOL_SEARCH_CALL_ITEM_ID } };
+
+    expect(() => processPrompt(new OpenAIToolSearchHistoryCompat(), prompt)).toThrow(
+      /duplicates its call item ID/
     );
   });
 

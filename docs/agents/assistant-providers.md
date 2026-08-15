@@ -470,16 +470,27 @@
   `providerMetadata.openai.itemId` on a `tool-call` part in 4.0.8 and 4.0.42
   alike, which collapses the call and the output into one `item_reference`. That
   is a Mastra persistence defect, not an AI SDK one; it has NO upstream
-  version-based removal condition, so do not attach one. (b) Output history
-  carrying no item ID at all still fails visibly, because the converter's own
-  last resort is `?? part.toolCallId` — a silent fallback that would emit the
-  call's id as the output's. The processor still runs OpenAI-only, and still
-  never mutates durable history. Do not replace either half with
-  `patchedDependencies` or a lossy history filter.
+  version-based removal condition, so do not attach one. (b) The output's item
+  reference is asserted DISTINCT from its call's, not merely present. The
+  failure guarded against is duplication, and two routes reach it: output
+  history carrying no item ID at all (the converter's last resort is
+  `?? part.toolCallId`, a silent fallback that emits the call's id as the
+  output's), and an output whose recorded ID already IS the call's — the
+  SYMMETRIC form of the same Mastra hydration behind (a), landing the call's
+  `tsc_` on the result. The second is the quiet one: nothing is absent and the
+  two recorded IDs agree with each other, so a presence check waves it through
+  and OpenAI 400s far downstream. Measured against the installed SDK rather than
+  reasoned about — that prompt serializes as two identical `tsc_` references.
+  Do NOT weaken this back to an existence check. The processor still runs
+  OpenAI-only, and still never mutates durable history. Do not replace either
+  half with `patchedDependencies` or a lossy history filter.
   The condition is now self-detecting rather than doc-resident:
-  `openai-tool-search-history-compat.spec.ts` asserts BOTH upstream behaviours
-  directly against the installed SDK, so the release that fixes the remaining
-  defect turns a test red instead of waiting for someone to re-read this page.
+  `openai-tool-search-history-compat.spec.ts` asserts ALL THREE upstream
+  behaviours directly against the installed SDK — the preserved output ID, the
+  call-side collision, and the symmetric output-side collision — so the release
+  that fixes the remaining defect turns a test red instead of waiting for
+  someone to re-read this page. Only the CALL half rewrites anything now, which
+  is why the seam's one log line counts "call item references".
 - OpenAI Responses item-id uniqueness has a second provider-boundary seam,
   `openai-duplicate-item-compat.ts` (BST-1095): when durable history holds the
   same assistant response under two message ids (Mastra sealed-boundary re-key

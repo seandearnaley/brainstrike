@@ -99,12 +99,23 @@ function canonicalizeToolSearchCall(part: AssistantPart): AssistantPart {
  * BST-1310: `@ai-sdk/openai` 4.0.18 taught the responses converter to fall back
  * to `providerMetadata.openai.itemId` for a `tool_search` result, so copying
  * the persisted ID into `providerOptions` is now redundant work the SDK does
- * itself. What is NOT redundant is failing loudly here, because the converter's
- * own last resort is `?? part.toolCallId`: history that reaches it with no
- * output ID at all silently serializes the CALL's id as the OUTPUT's, emitting
- * two identical `item_reference`s. That is precisely the quiet degradation
- * AGENTS.md forbids, so it stays an error rather than becoming the SDK's
- * default.
+ * itself. What is NOT redundant is failing loudly here.
+ *
+ * The failure guarded against is DUPLICATION, not absence. Two distinct routes
+ * reach the same broken request body — a pair of identical `item_reference`s,
+ * which OpenAI 400s on far downstream of this seam:
+ *
+ *  1. No output ID at all. The converter's last resort is `?? part.toolCallId`,
+ *     so it silently serializes the CALL's id as the OUTPUT's.
+ *  2. An output ID that already IS the call's. This file exists because Mastra
+ *     hydrates one invocation's provider metadata onto both parts; the
+ *     symmetric hydration lands the call's `tsc_` on the result. Nothing is
+ *     absent and the recorded IDs do not disagree, so a presence check waves it
+ *     through — it is the quiet one, and the reason distinctness is asserted
+ *     rather than merely existence.
+ *
+ * Both are exactly the quiet degradation AGENTS.md forbids, so both stay errors
+ * rather than becoming the SDK's default.
  */
 function assertToolSearchResultItemId(
   part: AssistantPart,
@@ -125,8 +136,16 @@ function assertToolSearchResultItemId(
   if (supportedItemId && persistedItemId && supportedItemId !== persistedItemId) {
     throw new Error('conflicting OpenAI tool-search output item IDs');
   }
-  if (!(supportedItemId || persistedItemId)) {
+  // `providerOptions` first, mirroring the converter's own precedence, so the
+  // ID checked here is the ID that would reach the wire.
+  const outputItemId = supportedItemId ?? persistedItemId;
+  if (!outputItemId) {
     throw new Error('OpenAI tool-search output history is missing its provider item ID');
+  }
+  if (outputItemId === part.toolCallId) {
+    throw new Error(
+      'OpenAI tool-search output item ID duplicates its call item ID; the request would carry two identical item_references'
+    );
   }
 }
 
@@ -180,7 +199,12 @@ export class OpenAIToolSearchHistoryCompat
     }
     logger.info(
       { code: 'openai_tool_search_history_canonicalized', rewrittenCount },
-      'canonicalized persisted OpenAI tool-search output item references'
+      // Only `canonicalizeToolSearchCall` can increment `rewrittenCount` now
+      // that the output half is validation-only, so this counts CALL rewrites.
+      // It is the breadcrumb whoever debugs the next duplicate-`item_reference`
+      // 400 lands on; naming the wrong half would send them to a seam that no
+      // longer rewrites anything.
+      'canonicalized persisted OpenAI tool-search call item references'
     );
     return { prompt };
   }
