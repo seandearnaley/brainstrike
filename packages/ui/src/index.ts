@@ -48,6 +48,7 @@ export * from './layers';
 // Export layout components
 export * from './layout';
 export { useIdeFileEditor } from './layout/ide-layout';
+export { formatShortcut } from './lib/format-shortcut';
 export * from './lib/panel-surface';
 export * from './lib/utils';
 export * from './lightweight-checkbox';

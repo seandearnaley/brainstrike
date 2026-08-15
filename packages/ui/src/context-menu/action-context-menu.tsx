@@ -1,9 +1,4 @@
-import type {
-  ActionOutcome,
-  ActionShortcut,
-  AnyContextAction,
-  ContextTarget,
-} from '@brainstrike/context-actions';
+import type { ActionOutcome, AnyContextAction, ContextTarget } from '@brainstrike/context-actions';
 import { createLogger } from '@brainstrike/logging';
 import {
   Fragment,
@@ -14,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { isMacPlatform } from '../command-palette/platform-accelerator';
+import { formatShortcut } from '../lib/format-shortcut';
 import { toast } from '../use-toast';
 import { useActionRegistry } from './action-registry-provider';
 import {
@@ -27,32 +22,6 @@ import {
 } from './context-menu';
 
 const logger = createLogger('ContextActions');
-
-function formatShortcut(shortcut: ActionShortcut): string {
-  const key = shortcut.key.length === 1 ? shortcut.key.toUpperCase() : shortcut.key;
-  if (isMacPlatform()) {
-    const modifiers = shortcut.modifiers.map((modifier) => {
-      if (modifier === 'primary') {
-        return '⌘';
-      }
-      if (modifier === 'shift') {
-        return '⇧';
-      }
-      return '⌥';
-    });
-    return `${modifiers.join('')}${key}`;
-  }
-  const modifiers = shortcut.modifiers.map((modifier) => {
-    if (modifier === 'primary') {
-      return 'Ctrl';
-    }
-    if (modifier === 'shift') {
-      return 'Shift';
-    }
-    return 'Alt';
-  });
-  return [...modifiers, key].join('+');
-}
 
 export interface ContextMenuTargetController {
   setTarget: (target: ContextTarget | null) => void;
