@@ -20,9 +20,9 @@ cleanupUnusedCatalogs: true
 # (verified). Column-0 comments above a block survive.
 catalog:
   '@anthropic-ai/sandbox-runtime': 0.0.67
-  '@assistant-ui/react': '~0.15.8'
-  '@assistant-ui/react-data-stream': ^0.12.18
-  '@assistant-ui/react-markdown': ^0.14.8
+  '@assistant-ui/react': '~0.15.13'
+  '@assistant-ui/react-data-stream': ^0.12.26
+  '@assistant-ui/react-markdown': ^0.14.10
   '@assistant-ui/styles': ^0.3.7
   '@babel/core': ^8.0.1
   '@babel/plugin-transform-runtime': ^8.0.1

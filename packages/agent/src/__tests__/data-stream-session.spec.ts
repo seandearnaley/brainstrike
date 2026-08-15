@@ -249,9 +249,11 @@ describe('AssistantDataStreamSession', () => {
   it('drops trailing args deltas after the tool call completed (renderer closes argsText on `9`)', async () => {
     // GLM-5.2 via OpenRouter emits trailing tool-call input deltas after the
     // complete tool call. A `c` frame after `9` makes assistant-stream's
-    // decoder append into a CLOSED argsText controller — an unhandled
-    // "Cannot enqueue a chunk into a readable stream that is closed"
-    // TypeError that fails the whole run. The mapper must swallow them.
+    // decoder append into a CLOSED argsText controller. Through 0.3.34 that was
+    // an unhandled "Cannot enqueue a chunk into a readable stream that is
+    // closed" TypeError that failed the whole run; at the pinned 0.3.37 it is
+    // dropped behind a console.warn. Either way the mapper must swallow them —
+    // the quiet drop is harder to catch than the crash was.
     const chunks: StreamChunk[] = [
       {
         name: 'weather.lookup',

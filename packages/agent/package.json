@@ -31,7 +31,7 @@
     "@electric-sql/pglite-pgvector": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "assistant-stream": "0.3.34",
+    "assistant-stream": "0.3.37",
     "concurrently": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",

@@ -401,14 +401,33 @@ function toolSuccessChunk(name: string, callId: string, output: unknown): Stream
 }
 
 /**
- * Renderer-decoder safety invariant (BST-962). assistant-stream 0.3.25's
- * DataStreamDecoder closes the ACTIVE tool call's argsText controller on every
- * frame in its TOOL_CALL_ARGS_CLOSING_CHUNKS set — `b`, `9`, `0`, `g`, `h`,
- * `3`, `e`, `d`, `aui-text-delta`, `aui-reasoning-delta`, `aui-data` — so any
- * such frame between a call's `b` and its `9` makes the next `c` append to a
- * closed controller: an unhandled "Cannot enqueue a chunk into a readable
- * stream that is closed" TypeError that kills the whole renderer pipeline
- * while the agent-side run completes invisibly.
+ * Renderer-decoder safety invariant (BST-962).
+ *
+ * ORIGIN (assistant-stream 0.3.25 through 0.3.34): the DataStreamDecoder closed
+ * the ACTIVE tool call's argsText controller on every frame in its
+ * TOOL_CALL_ARGS_CLOSING_CHUNKS set — `b`, `9`, `0`, `g`, `h`, `3`, `e`, `d`,
+ * `aui-text-delta`, `aui-reasoning-delta`, `aui-data` — so any such frame
+ * between a call's `b` and its `9` made the next `c` append to a closed
+ * controller: an unhandled "Cannot enqueue a chunk into a readable stream that
+ * is closed" TypeError that killed the whole renderer pipeline while the
+ * agent-side run completed invisibly.
+ *
+ * NOW (pinned 0.3.37): that set was REMOVED in 0.3.35 and does not exist in the
+ * installed dist. An argsText closes only on an explicit frame — the complete
+ * `9`, a `c` carrying `isFinal`, the `a` result, or the stream-wide close that
+ * `3`/`e`/`d` and flush run — and a late `c` is dropped behind a `console.warn`
+ * rather than throwing.
+ *
+ * This sweep is therefore KEPT DELIBERATELY, and is now stricter than the
+ * pinned decoder requires. Two reasons it is not dead weight: the ordering it
+ * asserts is valid against both the pre- and post-0.3.35 decoders, and the
+ * failure it prevents got QUIETER rather than smaller — silently dropped args
+ * are still a correctness bug, now without a visible crash to report them.
+ * Relaxing it is a real question but needs its own ticket and evidence; do not
+ * weaken it as a side effect of a dependency bump.
+ *
+ * See docs/agents/assistant-runtime.md (BST-962 paragraph) for the full
+ * decoder-behaviour contract this mirrors.
  */
 function expectDecoderSafeArgsStream(parsed: Encoded[]): void {
   const closingCodes = new Set(['b', '9', '0', 'g', 'h', '3', 'e', 'd', 'aui-data']);
@@ -503,8 +522,9 @@ describe('aui-data parts never interleave into an open tool-call args stream (BS
       toolStartChunk('brainstrike.grepSearch', 'call-1'),
       argsDeltaChunk('brainstrike.grepSearch', 'call-1', '{"pattern":"x"}'),
       // Defensive: the model moved on to visible text without an
-      // input_stream_end. `0`/`g` frames close the active argsText downstream,
-      // so the mapper must emit the args-complete `9` first.
+      // input_stream_end. The mapper must still emit the args-complete `9`
+      // first, so the args are complete before any later frame closes the
+      // controller (`0`/`g` themselves stopped closing it at 0.3.35).
       { type: 'text-delta', value: 'Now searching.' } as StreamChunk,
       { type: 'reasoning-delta', value: 'thinking' } as StreamChunk,
       toolSuccessChunk('brainstrike.grepSearch', 'call-1', { files: [] }),
@@ -574,8 +594,8 @@ describe('aui-data parts never interleave into an open tool-call args stream (BS
       argsDeltaChunk('brainstrike.grepSearch', 'call-1', '{"pattern":'),
       // Text force-closes the args stream (its `9` is emitted with the args
       // accumulated so far); the provider's own late input_stream_end must
-      // then be dropped — a second `9` is another args-closing frame, the
-      // same crash class the settled-id rule guards against.
+      // then be dropped — a second `9` re-closes an already-closed argsText,
+      // the same class the settled-id rule guards against.
       { type: 'text-delta', value: 'Searching.' } as StreamChunk,
       argsEndChunk('brainstrike.grepSearch', 'call-1'),
       toolSuccessChunk('brainstrike.grepSearch', 'call-1', { files: [] }),
@@ -662,7 +682,8 @@ describe('aui-data parts never interleave into an open tool-call args stream (BS
 
     expectDecoderSafeArgsStream(parsed);
     const codes = parsed.map((p) => p.code);
-    // `aui-data`, `e`, and `d` are all args-closing frames: the `9` must come first.
+    // `e`/`d` still close the args stream at 0.3.37 (and `aui-data` did through
+    // 0.3.34): the `9` must come first so the args land complete.
     expect(codes.indexOf('9')).toBeLessThan(codes.indexOf('aui-data'));
     expect(codes.indexOf('9')).toBeLessThan(codes.indexOf('d'));
   });

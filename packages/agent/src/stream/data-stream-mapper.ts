@@ -356,21 +356,33 @@ export class DataStreamMapper {
   private streamingPartOpen = false;
   /**
    * The tool call whose args stream is open on the wire (`b` emitted, its `9`
-   * not yet), or null. The renderer decoder closes the ACTIVE call's argsText
-   * controller on EVERY frame in its TOOL_CALL_ARGS_CLOSING_CHUNKS set
-   * (`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/aui-* — assistant-stream 0.3.25), so an
-   * aui-data part interleaved between `c` frames makes the next args delta
-   * append to a closed controller: the unhandled "Cannot enqueue a chunk into
-   * a readable stream that is closed" TypeError that kills the renderer
-   * pipeline while the agent-side run completes invisibly (BST-962; the
-   * incident was an OM-observer run event landing mid `updateWorkingMemory`
-   * args). Data parts are therefore deferred while this is non-null, exactly
-   * like the mid-text deferral above; deferral is the failsafe direction — a
-   * late data part flushes at the next boundary, a premature one crashes the
-   * run. Deliberately NOT force-closed when a second `b` opens (parallel tool
+   * not yet), or null. Data parts are deferred while this is non-null, exactly
+   * like the mid-text deferral above.
+   *
+   * ORIGIN (assistant-stream 0.3.25–0.3.34): the renderer decoder closed the
+   * ACTIVE call's argsText controller on EVERY frame in its
+   * TOOL_CALL_ARGS_CLOSING_CHUNKS set (`b`/`9`/`0`/`g`/`h`/`3`/`e`/`d`/aui-*),
+   * so an aui-data part interleaved between `c` frames made the next args delta
+   * append to a closed controller: an unhandled "Cannot enqueue a chunk into a
+   * readable stream that is closed" TypeError that killed the renderer pipeline
+   * while the agent-side run completed invisibly (BST-962; the incident was an
+   * OM-observer run event landing mid `updateWorkingMemory` args).
+   *
+   * NOW (pinned 0.3.37): 0.3.35 REMOVED that set. argsText closes only on an
+   * explicit frame (`9`, a `c` with `isFinal`, the `a` result, or the
+   * stream-wide close run by `3`/`e`/`d` and flush), and a late `c` is dropped
+   * behind a `console.warn` instead of throwing. This deferral is therefore now
+   * stricter than the decoder requires — kept because deferral is still the
+   * failsafe direction (a late data part flushes at the next boundary; a
+   * premature one now silently discards args, which is quieter, not better),
+   * and because the emitted ordering stays valid against both decoders. See
+   * docs/agents/assistant-runtime.md, BST-962 paragraph.
+   *
+   * Deliberately NOT force-closed when a second `b` opens (parallel tool
    * calls): the pinned parallel-call contract assembles args from deltas that
    * arrive after another call started, and providers stream args sequentially,
-   * so only the tracked id moves to the newest call.
+   * so only the tracked id moves to the newest call. (At 0.3.37 that interleave
+   * is no longer decoder-lethal either — distinct ids get distinct controllers.)
    */
   private openArgsCallId: string | null = null;
   private pendingRunEventChunks: EncodedChunk[] = [];
@@ -515,8 +527,11 @@ export class DataStreamMapper {
     if (!delta) {
       return;
     }
-    // A `0` frame closes the active argsText downstream; end an open args
-    // stream with its `9` before the model's visible text starts.
+    // End an open args stream with its `9` before the model's visible text
+    // starts. A `0` frame closed the active argsText downstream through
+    // assistant-stream 0.3.34; at the pinned 0.3.37 it no longer does, but the
+    // `9` still has to precede the text so the args are complete before the
+    // next `3`/`e`/`d` closes the controller without them.
     yield* this.closeOpenArgsStreamIfNeeded();
     if (this.startNewStepForNextText) {
       yield* this.finalizeCurrentStep();
@@ -539,7 +554,7 @@ export class DataStreamMapper {
     if (!delta) {
       return;
     }
-    // `g` frames close the active argsText downstream, same as `0`.
+    // Same ordering rule as `0` above (see handleTextDelta).
     yield* this.closeOpenArgsStreamIfNeeded();
     yield* this.startStepIfNeeded();
     this.streamingPartOpen = true;
@@ -987,13 +1002,16 @@ export class DataStreamMapper {
       const state = this.toolState.get(callId);
       // Emit the `c` frame ONLY while this call's args are still streaming.
       // The renderer's assistant-stream decoder closes the call's argsText
-      // controller on the complete `9` frame (and throws on unknown ids), so
-      // a trailing delta after args completion / after the result — GLM-5.2
-      // via OpenRouter emits these — would crash the whole run with an
-      // unhandled "Cannot enqueue a chunk into a readable stream that is
-      // closed" TypeError. The full args were already assembled from
-      // `pendingArgsText`/`lastInput`, so a swallowed trailing delta loses
-      // nothing visible.
+      // controller on the complete `9` frame (and throws in strict mode on
+      // unknown ids), so a trailing delta after args completion / after the
+      // result — GLM-5.2 via OpenRouter emits these — lands on a closed
+      // controller. Through 0.3.34 that crashed the whole run with an unhandled
+      // "Cannot enqueue a chunk into a readable stream that is closed"
+      // TypeError; at the pinned 0.3.37 it is dropped behind a one-shot
+      // console.warn instead. The guard stays either way — the full args were
+      // already assembled from `pendingArgsText`/`lastInput`, so a swallowed
+      // trailing delta loses nothing visible, and a quiet drop is harder to
+      // notice than the old crash was.
       if (!state || state.argsEmitted) {
         logger.debug('Dropping tool args delta after args completion', { toolCallId: callId });
         return;
