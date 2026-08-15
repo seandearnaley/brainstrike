@@ -15,9 +15,16 @@ cleanupUnusedCatalogs: true
 # scope a catalog does NOT have, and what guarantees ONE react instance.
 # scripts/verify-catalog-references.mjs enforces this "never both" rule.
 #
-# Comments must stay at column 0: `cleanupUnusedCatalogs: true` lets pnpm rewrite
-# this file, and a rewrite DELETES comments indented inside the catalog: block
-# (verified). Column-0 comments above a block survive.
+# Comment placement — RE-MEASURED 2026-08-15 on pnpm 11.15.0 (BST-1311). An
+# indented comment inside the catalog: block SURVIVES a pnpm rewrite. Measured by
+# adding a catalog entry no package references, which forces cleanupUnusedCatalogs
+# to act: pnpm pruned that entry and left an indented comment above a different
+# entry untouched. This SUPERSEDES an earlier note here that said such comments
+# are deleted — whatever pnpm did when that was written, this pnpm does not.
+# Two caveats before relying on it: pnpm only rewrites when an install actually
+# re-resolves (an "Already up to date" install leaves the file alone, and does not
+# prune either), and a comment attached to an entry that is itself pruned has no
+# measured verdict — so keep rationale beside entries that stay.
 catalog:
   '@anthropic-ai/sandbox-runtime': 0.0.67
   '@assistant-ui/react': '~0.15.13'
@@ -49,7 +56,8 @@ catalog:
   '@stryker-mutator/core': ^9.6.1
   '@stryker-mutator/typescript-checker': ^9.6.1
   '@stryker-mutator/vitest-runner': ^9.6.1
-  '@swc/core': ^1.15.47
+  # PINNED: 1.16.0 breaks the build — see the @swc/core note in `overrides:` below.
+  '@swc/core': ~1.15.47
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.3
   '@tanstack/react-table': ^9.1.2
@@ -111,6 +119,65 @@ catalog:
 overrides:
   react: ^19.2.8
   react-dom: ^19.2.8
+  # @swc/core 1.16.0 BREAKS the desktop build (BST-1311). vite-plugin-top-level-await
+  # constructs SWC AST nodes in JS, and 1.16.0's Rust-side AST change makes
+  # Compiler.printSync reject them with "missing field `type`". Proven by A/B:
+  # pristine main at 1.15.47 builds green; the same tree with only the swc bump
+  # fails at @brainstrike/desktop#build.
+  #
+  # This SUBTREE-scoped override is what actually holds the line. The plugin
+  # declares its own `@swc/core: ^1.12.14`, which the catalog does NOT constrain —
+  # so before this, the only thing pinning 1.15.47 was the lockfile, and any
+  # `pnpm update` or dedupe could have resolved 1.16.0 and broken the build with
+  # no warning. The catalog was narrowed to `~1.15.47` in the same change to close
+  # the direct-dependency path.
+  #
+  # What the narrowing is and is NOT, measured: widening the catalog back to
+  # `^1.16.0` while these overrides stand does NOT put the plugin on 1.16.0 — it
+  # stays on 1.15.47, because the override wins. What widening actually does is
+  # split the tree into TWO @swc/core resolutions, 1.15.47 for the plugin and
+  # 1.16.0 for the four catalog consumers (packages/{hooks,types,utils,test-utils},
+  # which take it as a devDependency with no source import). So the narrowing is
+  # single-resolution hygiene and a second line of defence, NOT the thing keeping
+  # the build green — the override is. Do not widen it casually on that basis,
+  # but do not mistake it for the load-bearing pin either.
+  #
+  # Subtree-scoped on purpose: a BARE `@swc/core` override would shadow the
+  # catalog entry entirely, which scripts/verify-catalog-references.mjs rejects
+  # ("never both").
+  #
+  # @swc/wasm is pinned for the SAME reason, and it is NOT belt-and-braces. The
+  # plugin depends on both packages directly (`@swc/core: ^1.12.14`,
+  # `@swc/wasm: ^1.12.14`) and picks between them at require() time —
+  # dist/swc.js is `try { require("@swc/core") } catch { require("@swc/wasm") }`,
+  # with VITE_TLA_FORCE_WASM=true forcing the fallback and VITE_TLA_FORCE_NATIVE=true
+  # rethrowing instead. So the wasm copy is live code on any tree where the native
+  # binding fails to load — a platform with no prebuilt binary, or an install that
+  # skipped build scripts. `@swc/core: true` in allowBuilds makes the native path
+  # the normal one HERE; it does not make the fallback dead. Measured, not
+  # assumed: with this override removed, `pnpm update -r --depth Infinity
+  # @swc/wasm` resolves 1.16.0 (published 2026-08-14, so the gap was live), and
+  # driving the plugin's own transformModule + printSync over that build throws
+  #
+  #   failed to deserialize program: unknown variant `BlockStatement`
+  #
+  # where @swc/core 1.15.47 prints the very same AST fine. The message DIFFERS
+  # from the native path's "missing field `type`" — same Rust-side AST
+  # deserialization break, different wording — so do not grep for the core error
+  # when diagnosing a wasm-path failure. Left unpinned this reproduces ONLY
+  # where the fallback is taken, which is the worst form of this bug.
+  #
+  # Blast radius is BOTH apps, not just desktop: topLevelAwait() is used at
+  # apps/web/vite.config.mts:184, apps/desktop/vite.config.mts:134, and desktop's
+  # worker.plugins at :267. Desktop is only where the build happens to fail first,
+  # so retiring the desktop usage alone would NOT retire these pins.
+  #
+  # Remove both once vite-plugin-top-level-await ships a release compatible with
+  # swc >= 1.16 (1.6.0 is latest as of 2026-08-15 and is not), widen the catalog
+  # back to a caret range, and delete scripts/__tests__/swc-ast-break-block.test.mjs,
+  # which fails until all three are done together.
+  vite-plugin-top-level-await>@swc/core: ~1.15.47
+  vite-plugin-top-level-await>@swc/wasm: ~1.15.43
 allowBuilds:
   '@brainstrike/secure-fs-native': true
   '@brainstrike/windows-job-native': true
