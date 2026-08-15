@@ -13,7 +13,6 @@
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "oxc-parser": "catalog:",
-    "tree-sitter-wasms": "^0.1.13",
     "tsup": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
