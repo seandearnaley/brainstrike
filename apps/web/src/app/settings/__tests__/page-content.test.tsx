@@ -1,6 +1,5 @@
 import { __resetNativeToolPreferencesStoreForTests } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { HelmetProvider } from 'react-helmet-async';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import SettingsPageContent from '../page-content';
 
@@ -73,12 +72,7 @@ describe('Web SettingsPageContent', () => {
     __resetNativeToolPreferencesStoreForTests();
   });
 
-  const renderPage = () =>
-    render(
-      <HelmetProvider>
-        <SettingsPageContent />
-      </HelmetProvider>
-    );
+  const renderPage = () => render(<SettingsPageContent />);
 
   test('renders navigation and defaults to appearance category', () => {
     renderPage();

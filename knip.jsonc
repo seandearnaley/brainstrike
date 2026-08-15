@@ -84,7 +84,6 @@
         "idb",
         "jszip",
         "minimatch",
-        "react-helmet-async",
         "react-hotkeys-hook",
         "react-resizable-panels",
         "react-shiki",

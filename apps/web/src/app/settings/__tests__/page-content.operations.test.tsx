@@ -8,7 +8,6 @@ import {
 } from '@brainstrike/agent/tool-metadata';
 import { render } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { HelmetProvider } from 'react-helmet-async';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import SettingsPageContent from '../page-content';
 
@@ -226,12 +225,7 @@ vi.mock('@brainstrike/settings-ui/settings/models/model-selection-page', () => (
   ModelSelectionPage: () => <div data-testid="model-selection-page" />,
 }));
 
-const renderPage = () =>
-  render(
-    <HelmetProvider>
-      <SettingsPageContent />
-    </HelmetProvider>
-  );
+const renderPage = () => render(<SettingsPageContent />);
 
 function getNativeToolIdAt(index: number): string {
   const id = WEB_NATIVE_TOOL_IDS[index];

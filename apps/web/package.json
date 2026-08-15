@@ -32,7 +32,6 @@
     "lucide-react": "catalog:",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-helmet-async": "catalog:",
     "react-router-dom": "catalog:",
     "zod": "catalog:"
   },

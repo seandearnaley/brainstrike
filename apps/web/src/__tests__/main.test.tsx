@@ -9,10 +9,6 @@ const dbProviderMock = vi.hoisted(() =>
   vi.fn(({ children }: { readonly children: React.ReactNode }) => children)
 );
 
-vi.mock('react-helmet-async', () => ({
-  HelmetProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
-
 vi.mock('@brainstrike/db', () => ({
   DbProvider: dbProviderMock,
   EPHEMERAL_WEB_E2E_DATA_DIR_PREFIX: 'idb://web-e2e-',

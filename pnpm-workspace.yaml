@@ -87,7 +87,6 @@ catalog:
   oxc-parser: ^0.138.0
   pino: ^10.3.1
   playwright: ^1.61.1
-  react-helmet-async: ^2.0.5
   react-hotkeys-hook: ^5.3.3
   react-resizable-panels: ^4.12.1
   react-router-dom: ^7.18.1
@@ -111,8 +110,6 @@ catalog:
 overrides:
   react: ^19.2.4
   react-dom: ^19.2.4
-  react-helmet-async>react: ^19.0.0
-  react-helmet-async>react-dom: ^19.0.0
 allowBuilds:
   '@brainstrike/secure-fs-native': true
   '@brainstrike/windows-job-native': true

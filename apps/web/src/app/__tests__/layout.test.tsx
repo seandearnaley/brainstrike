@@ -1,5 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import { HelmetProvider } from 'react-helmet-async';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 import RootLayout from '../layout';
 
@@ -17,26 +16,28 @@ vi.mock('@brainstrike/ui', () => ({
 }));
 
 describe('RootLayout', () => {
-  test('renders with correct structure and meta information', async () => {
+  test('renders the router provider around its children', () => {
     render(
-      <HelmetProvider>
-        <RootLayout>
-          <div>Test Content</div>
-        </RootLayout>
-      </HelmetProvider>
+      <RootLayout>
+        <div>Test Content</div>
+      </RootLayout>
     );
 
-    // Check for correct title, meta tags, and lang attribute in a single waitFor
-    await waitFor(() => {
-      expect(document.title).toBe('BrainStrike.ai');
-      expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
-        'Multi-app dashboard'
-      );
-      expect(document.documentElement.getAttribute('lang')).toBe('en');
-    });
-
-    // Check for RouterProvider and content (synchronous assertions)
     expect(screen.getByTestId('router-provider')).toBeInTheDocument();
     expect(screen.getByText('Test Content')).toBeInTheDocument();
+  });
+
+  // BST-1281: document metadata moved to the single `useDocumentTitle` writer,
+  // and `lang="en"` is static markup in apps/web/index.html — this layout must
+  // not reintroduce a per-surface writer for either.
+  test('writes no document metadata of its own', () => {
+    render(
+      <RootLayout>
+        <div>Test Content</div>
+      </RootLayout>
+    );
+
+    expect(document.head.querySelectorAll('title')).toHaveLength(0);
+    expect(document.head.querySelectorAll('meta[name="description"]')).toHaveLength(0);
   });
 });

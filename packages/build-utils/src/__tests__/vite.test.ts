@@ -133,7 +133,6 @@ describe('assistant vite helpers', () => {
         'idb',
         'minimatch',
         'pino',
-        'react-helmet-async',
         'react-hotkeys-hook',
         'react-router-dom',
         'tiktoken',

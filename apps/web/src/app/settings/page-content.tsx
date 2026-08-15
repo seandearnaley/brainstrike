@@ -43,7 +43,6 @@ import {
 } from '@brainstrike/settings-ui/settings-page-content';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
-import { Helmet } from 'react-helmet-async';
 import { getWebLogBuffer } from '../../log-buffer';
 
 configureModelRuntimeServices({
@@ -247,14 +246,8 @@ export default function SettingsPageContent() {
     accurateRuntimeAvailable,
   ]);
 
-  return (
-    <>
-      <Helmet>
-        <title>Settings - BrainStrike.ai</title>
-        <meta content="Customize your application settings" name="description" />
-      </Helmet>
-
-      <SettingsLayout categories={categories} defaultCategoryId="appearance" />
-    </>
-  );
+  // No document metadata here: `useDocumentTitle` writes the Settings title
+  // whenever the settings dialog is open (see its doc comment for why exactly
+  // one writer exists).
+  return <SettingsLayout categories={categories} defaultCategoryId="appearance" />;
 }

@@ -18,7 +18,6 @@ import { createBrowserStorageAdapter } from '@brainstrike/storage';
 import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-measure-guard';
 import React from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
-import { HelmetProvider } from 'react-helmet-async';
 import { WebE2ETestHooks } from './web-e2e-test-hooks';
 // Import global CSS
 import './app/globals.css';
@@ -209,16 +208,14 @@ const webDbPath = resolveWebDbPath();
 
 root.render(
   <React.StrictMode>
-    <HelmetProvider>
-      <DbProvider dbPath={webDbPath}>
-        <DiagnosticSinkBridge source="web-renderer" />
-        <WebE2ETestHooks dbPath={webDbPath} />
-        <DbSchemaVerifier>
-          <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-            <RootLayoutContent />
-          </AdaptersProvider>
-        </DbSchemaVerifier>
-      </DbProvider>
-    </HelmetProvider>
+    <DbProvider dbPath={webDbPath}>
+      <DiagnosticSinkBridge source="web-renderer" />
+      <WebE2ETestHooks dbPath={webDbPath} />
+      <DbSchemaVerifier>
+        <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+          <RootLayoutContent />
+        </AdaptersProvider>
+      </DbSchemaVerifier>
+    </DbProvider>
   </React.StrictMode>
 );
