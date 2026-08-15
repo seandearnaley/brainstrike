@@ -4,21 +4,8 @@ import {
   LogLevel,
 } from '@brainstrike/logging';
 import type { IpcMainInvokeEvent } from 'electron';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: vi.fn(),
-    on: vi.fn(),
-    removeHandler: vi.fn(),
-    removeListener: vi.fn(),
-  },
-  webContents: {
-    getAllWebContents: vi.fn(),
-  },
-}));
-
 import { ipcMain, webContents } from 'electron';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   cloneLoggingPreferences,
   cloneLoggingSettingsPayload,
@@ -26,6 +13,7 @@ import {
   registerLoggingIpcHandlers,
 } from '../../logging-ipc';
 import type { LoggingSettingsPayload } from '../../logging-shared';
+import { resetElectronMainTestHarness } from '../helpers/electron-main-test-harness';
 
 function createDeferred<T>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => {};
@@ -41,7 +29,7 @@ function createDeferred<T>() {
 
 describe('logging-ipc', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    resetElectronMainTestHarness();
   });
 
   const basePreferences: LoggingPreferences = createDefaultLoggingPreferences({

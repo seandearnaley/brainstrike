@@ -4,71 +4,13 @@ import type { IpcMainEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LoggingIpcHandlers } from '../logging-ipc';
 import type { LoggingSettingsPayload } from '../logging-shared';
-
-// ── Local Electron mock with webContents ────────────────────────────────
-const mockAllWebContents: unknown[] = [];
-
-const mockIpcMainHandlers = new Map<string, (...args: unknown[]) => unknown>();
-const mockIpcMainListeners = new Map<string, (...args: unknown[]) => unknown>();
-
-const mockIpcMain = {
-  handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-    mockIpcMainHandlers.set(channel, handler);
-  }),
-  on: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) => {
-    mockIpcMainListeners.set(channel, handler);
-  }),
-  removeHandler: vi.fn((channel: string) => {
-    mockIpcMainHandlers.delete(channel);
-  }),
-  removeListener: vi.fn((channel: string, _handler: unknown) => {
-    mockIpcMainListeners.delete(channel);
-  }),
-};
-
-vi.mock('electron', () => ({
-  app: {
-    getAppPath: vi.fn(() => '/mock/app'),
-    getName: vi.fn(() => 'Brainstrike'),
-    getPath: vi.fn(() => '/mock/path'),
-    getVersion: vi.fn(() => '0.0.0-test'),
-    isPackaged: false,
-    isReady: vi.fn(() => true),
-    on: vi.fn(),
-    quit: vi.fn(),
-    whenReady: vi.fn(() => Promise.resolve()),
-  },
-  BrowserWindow: vi.fn(),
-  contextBridge: { exposeInMainWorld: vi.fn() },
-  dialog: {
-    showMessageBox: vi.fn(async () => ({ response: 0 })),
-  },
-  ipcMain: mockIpcMain,
-  ipcRenderer: { invoke: vi.fn(), on: vi.fn(), send: vi.fn() },
-  Menu: {
-    buildFromTemplate: vi.fn(),
-    setApplicationMenu: vi.fn(),
-  },
-  safeStorage: {
-    decryptString: vi.fn((buffer: Buffer) => Buffer.from(buffer).toString('utf-8')),
-    encryptString: vi.fn((text: string) => Buffer.from(text)),
-    getSelectedStorageBackend: vi.fn(() => 'basic_text'),
-    isEncryptionAvailable: vi.fn(() => true),
-    setUsePlainTextEncryption: vi.fn(),
-  },
-  screen: {
-    getAllDisplays: vi.fn(() => [{ workArea: { height: 1080, width: 1920, x: 0, y: 0 } }]),
-    getPrimaryDisplay: vi.fn(() => ({ workArea: { height: 1080, width: 1920, x: 0, y: 0 } })),
-  },
-  session: {
-    defaultSession: {
-      webRequest: { onHeadersReceived: vi.fn() },
-    },
-  },
-  webContents: {
-    getAllWebContents: vi.fn(() => mockAllWebContents),
-  },
-}));
+import {
+  getRegisteredIpcMainHandler,
+  getRegisteredIpcMainListener,
+  mockIpcMain,
+  resetElectronMainTestHarness,
+  setMockWebContents,
+} from './helpers/electron-main-test-harness';
 
 // Import after mock is set up
 const { cloneLoggingPreferences, cloneLoggingSettingsPayload, registerLoggingIpcHandlers } =
@@ -115,40 +57,10 @@ function createMockHandlers(overrides?: Partial<LoggingIpcHandlers>): LoggingIpc
   };
 }
 
-/**
- * Retrieve the handler callback registered for a given channel via ipcMain.handle.
- */
-function getRegisteredHandler(channel: string): (...args: unknown[]) => unknown {
-  const handler = mockIpcMainHandlers.get(channel);
-  if (!handler) {
-    throw new Error(`No ipcMain.handle registration found for channel: ${channel}`);
-  }
-  return handler;
-}
-
-/**
- * Retrieve the listener callback registered for a given channel via ipcMain.on.
- */
-function getRegisteredListener(channel: string): (...args: unknown[]) => unknown {
-  const listener = mockIpcMainListeners.get(channel);
-  if (!listener) {
-    throw new Error(`No ipcMain.on registration found for channel: ${channel}`);
-  }
-  return listener;
-}
-
-function setMockWebContents(contents: unknown[]) {
-  mockAllWebContents.length = 0;
-  mockAllWebContents.push(...contents);
-}
-
 // ── Tests ───────────────────────────────────────────────────────────────
 describe('logging-ipc', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mockIpcMainHandlers.clear();
-    mockIpcMainListeners.clear();
-    setMockWebContents([]);
+    resetElectronMainTestHarness();
   });
 
   // ── registerLoggingIpcHandlers ──────────────────────────────────────
@@ -185,7 +97,7 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:get-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:get-preferences');
       const result = handler();
 
       expect(handlers.getState).toHaveBeenCalled();
@@ -209,7 +121,7 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:set-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
       const result = await handler({}, prefs);
 
       expect(handlers.setPreferences).toHaveBeenCalledWith(prefs);
@@ -233,7 +145,7 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:set-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
 
       // Fire two updates concurrently
       const first = handler({}, createMockPreferences({ consoleEnabled: true }));
@@ -258,7 +170,7 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:set-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
 
       // First call rejects
       await expect(handler({}, createMockPreferences())).rejects.toThrow('transient failure');
@@ -274,7 +186,7 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:select-destination');
+      const handler = getRegisteredIpcMainHandler('logging:select-destination');
       const result = await handler();
 
       expect(handlers.selectDestination).toHaveBeenCalled();
@@ -287,7 +199,7 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:open-destination');
+      const handler = getRegisteredIpcMainHandler('logging:open-destination');
       const result = await handler({}, '/some/path');
 
       expect(handlers.openDestination).toHaveBeenCalledWith('/some/path');
@@ -301,7 +213,7 @@ describe('logging-ipc', () => {
       });
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:get-buffered-logs');
+      const handler = getRegisteredIpcMainHandler('logging:get-buffered-logs');
       const result = await handler();
 
       expect(handlers.getBufferedLogs).toHaveBeenCalled();
@@ -312,7 +224,7 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const listener = getRegisteredListener('logging:ingest-buffered-record');
+      const listener = getRegisteredIpcMainListener('logging:ingest-buffered-record');
       const validRecord = createValidLogRecord();
       const mockEvent = { sender: { id: 42 } } as unknown as IpcMainEvent;
 
@@ -331,7 +243,7 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const listener = getRegisteredListener('logging:ingest-buffered-record');
+      const listener = getRegisteredIpcMainListener('logging:ingest-buffered-record');
       const mockEvent = { sender: { id: 1 } } as unknown as IpcMainEvent;
 
       // null payload
@@ -380,7 +292,7 @@ describe('logging-ipc', () => {
     beforeEach(() => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
-      listener = getRegisteredListener('logging:ingest-buffered-record');
+      listener = getRegisteredIpcMainListener('logging:ingest-buffered-record');
     });
 
     afterEach(() => {
@@ -489,7 +401,7 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:set-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
       await handler({}, createMockPreferences());
 
       expect(mockContent.send).toHaveBeenCalledWith(
@@ -510,7 +422,7 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:set-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
       await handler({}, createMockPreferences());
 
       expect(mockContent.send).toHaveBeenCalledWith(
@@ -531,7 +443,7 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:set-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
       await handler({}, createMockPreferences());
 
       expect(mockContent.send).not.toHaveBeenCalled();
@@ -549,7 +461,7 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:set-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
       await handler({}, createMockPreferences());
 
       expect(mockContent.send).not.toHaveBeenCalled();
@@ -569,7 +481,7 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:set-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
 
       // Should not throw even though send() throws
       await expect(handler({}, createMockPreferences())).resolves.toBeDefined();
@@ -587,7 +499,7 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:set-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
 
       // getType?.() returns undefined, so targetType is neither 'window' nor 'webview'.
       // The code should skip and log debug, not crash.
@@ -620,7 +532,7 @@ describe('logging-ipc', () => {
       const handlers = createMockHandlers();
       cleanup = registerLoggingIpcHandlers(handlers);
 
-      const handler = getRegisteredHandler('logging:set-preferences');
+      const handler = getRegisteredIpcMainHandler('logging:set-preferences');
       await handler({}, createMockPreferences());
 
       expect(mockWindow.send).toHaveBeenCalled();
