@@ -132,17 +132,20 @@ jobs:
       - name: Secret scan
         run: pnpm secrets:scan
 
-      # BST-967: the package-boundary gate. MUST run before any step that can
-      # materialize dist/ (type-check's dependsOn builds the workspace; a
-      # replayed turbo cache task writes outputs back): the analyzer scans
-      # build output too, so stale dist produces phantom violations against
-      # packages nothing imports. On this fresh checkout there is no dist, so
-      # a non-zero exit means a REAL source violation. Sanctioned crossings
-      # carry inline `@boundaries-ignore <reason>` comments; the contract
-      # tests in scripts/__tests__/turbo-boundaries-gate.test.mjs prove this
-      # gate can fail and that every ignore carries a reason.
+      # BST-967: the package-boundary gate. `turbo boundaries` scans build
+      # output as well as source and has no way to exclude it, so
+      # scripts/turbo-boundaries.mjs runs it and judges only findings in files
+      # git does not ignore — anything else (a parse mismatch, a finding with
+      # no file, git failing) still fails. This checkout has no dist/ either
+      # way; the wrapper is what makes the same gate reproducible locally.
+      # Keeping it ahead of dist-producing steps is now about scan cost, not
+      # correctness. Sanctioned crossings carry inline `@boundaries-ignore
+      # <reason>` comments; the contract tests in
+      # scripts/__tests__/turbo-boundaries-gate.test.mjs prove this gate can
+      # fail, that generated output cannot mask a source violation, and that
+      # every ignore carries a reason.
       - name: Package boundaries
-        run: pnpm exec turbo boundaries
+        run: pnpm run boundaries
 
       # Includes scripts/__tests__/verify-playwright-pin-sync.test.mjs — the
       # single-source guard that the Playwright container image tag pinned in
