@@ -16,7 +16,7 @@ export function useTerminalHotkey(
 ): void {
   const terminalRegistered = apps.some((app) => app.id === TERMINAL_APP_ID);
   useHotkeys(
-    'ctrl+t, cmd+t',
+    'mod+t',
     (event) => {
       if (!(isDesktopRenderer() && terminalRegistered)) {
         return;
