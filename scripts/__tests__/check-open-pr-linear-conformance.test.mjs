@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   collectChildProcessOutput,
@@ -11,6 +14,8 @@ import {
   normalizeOpenPullRequestPages,
   parseGitHubCliResult,
 } from '../check-open-pr-linear-conformance.mjs';
+
+const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 const pullRequest = (overrides = {}) => ({
   author: { login: 'seandearnaley' },
@@ -145,6 +150,17 @@ test('GitHub CLI failures distinguish non-zero exits from terminating signals', 
   );
 });
 
+test('signal termination survives the real child close-event seam', async () => {
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 10_000)']);
+  child.kill('SIGTERM');
+
+  const result = await collectChildProcessOutput(child);
+
+  assert.equal(result.status, null);
+  assert.equal(result.signal, 'SIGTERM');
+  assert.throws(() => parseGitHubCliResult(result), /GitHub CLI failed with signal SIGTERM:/);
+});
+
 test('missing GitHub CLI failures retain the spawn error context', async () => {
   await assert.rejects(
     () => listOpenPullRequests(() => spawn('brainstrike-gh-command-that-does-not-exist')),
@@ -215,4 +231,9 @@ test('clean report states that every inspected PR is linked', () => {
     formatConformanceReport([]),
     /All inspected open PR descriptions reference `BST-###`/
   );
+});
+
+test('pull request template prompts authors for the required Linear reference', () => {
+  const template = readFileSync(resolve(repoRoot, '.github/PULL_REQUEST_TEMPLATE.md'), 'utf8');
+  assert.match(template, /^Ticket: BST-###$/m);
 });

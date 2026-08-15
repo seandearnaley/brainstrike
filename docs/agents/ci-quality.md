@@ -35,7 +35,8 @@ and suggested action, but exits successfully after findings because this is an
 advisory rollout; GitHub/API failures and malformed responses fail visibly.
 The script is read-only and never comments on or edits PRs. Dependabot and
 Renovate PRs are the only exclusions; human maintenance work still requires a
-tracker.
+tracker. `.github/PULL_REQUEST_TEMPLATE.md` prompts authors for the required
+reference before they write the summary.
 
 Desktop `workflow_dispatch` exposes a `suite` choice. `full` preserves the
 scheduled workflow exactly. `memory-baseline` skips the unrelated broad
