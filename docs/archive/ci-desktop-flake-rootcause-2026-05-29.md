@@ -164,8 +164,10 @@ step** instead of cryptically inside a test.
 3. **Keep the Playwright image tag in lockstep** with `@playwright/test` in
    `package.json` (currently `v1.59.1-noble`). A version-assertion CI step would
    make drift impossible — recommended follow-up.
-4. **Low-priority hardening** (deferred): use `${RUNNER_TEMP:-/tmp}` in the
-   Electron provisioning step so it survives a future move into a container.
+4. **Low-priority hardening** (completed 2026-08-15, BST-563): all three
+   Electron provisioning sites use `${RUNNER_TEMP:-/tmp}` and no longer cache
+   the unused `~/.cache/electron` path. The living contract is in
+   `docs/agents/ci-quality.md`.
 5. **Consider** keeping CI-infrastructure changes in their own PR (separate from
    feature work) so an infra rollback doesn't also roll back a feature — this
    round bundled them for speed under time pressure.

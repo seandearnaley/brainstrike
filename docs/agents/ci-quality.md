@@ -46,6 +46,19 @@ max-failure truncation. Use the narrow mode for controlled, sequential
 same-head memory calibration runs; it is evidence collection, not a way to
 replace or route required PR checks.
 
+### Desktop Electron provisioning (BST-563)
+
+The Desktop E2E smoke job in `test.yml` and both regression jobs in
+`desktop-e2e.yml` download Electron directly from GitHub Releases and extract
+it into the installed package immediately before launch. They deliberately do
+not cache `~/.cache/electron`: this provisioning path never populates that
+directory, so the former version lookup and cache steps only added CI work.
+Each provisioning step assigns
+`ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"`; the fallback is required
+because a future `container:` job may not define `RUNNER_TEMP`. The paired
+`desktop-electron-provisioning-contract.test.mjs` keeps all three sites aligned
+and fails if the unused cache or raw `RUNNER_TEMP` path returns.
+
 Desktop renderer working-set snapshots use `app.getAppMetrics()` joined to
 each `webContents.getOSProcessId()`. Electron 43 does not expose the older
 `webContents.getProcessMemoryInfo()` API on the CI runner; treating that

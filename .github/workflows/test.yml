@@ -846,18 +846,6 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
-      - name: Get Electron version
-        id: electron-version
-        run: |
-          version=$(node -p "require('./apps/desktop/package.json').devDependencies.electron")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Electron binaries
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -877,13 +865,8 @@ jobs:
         run: pnpm exec playwright install-deps chromium
 
       # The desktop smoke launches the REAL Electron binary via
-      # `_electron.launch`. On an ~/.cache/electron cache miss the binary may
-      # not be extracted into node_modules, so the app throws "Electron failed
-      # to install correctly". Force-extract it (uses the warm cache when
-      # present, else downloads from GitHub Releases — NOT the Playwright CDN),
-      # then VERIFY the binary exists so any provisioning gap fails loudly here
-      # rather than cryptically inside the test. This runs immediately before
-      # the smoke so no later step (e.g. artifact extraction) can disturb it.
+      # `_electron.launch`. Provision immediately before smoke so no later step
+      # (for example artifact extraction) can disturb the verified executable.
       # Provision the Electron binary deterministically. electron/install.js is
       # unreliable here: on an @electron/get cache hit it reaches its
       # `extract-zip` step but the (un-awaited) extraction never completes and
@@ -898,12 +881,13 @@ jobs:
           set -euo pipefail
           VER=$(node -p "require('electron/package.json').version")
           DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
           URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
           echo "Downloading Electron v${VER} from ${URL}"
-          curl -fsSL --retry 3 --retry-delay 5 -o "${RUNNER_TEMP}/electron.zip" "$URL"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
           rm -rf "${DIR}/dist" "${DIR}/path.txt"
           mkdir -p "${DIR}/dist"
-          unzip -q -o "${RUNNER_TEMP}/electron.zip" -d "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
           printf 'electron' > "${DIR}/path.txt"
           node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
 
