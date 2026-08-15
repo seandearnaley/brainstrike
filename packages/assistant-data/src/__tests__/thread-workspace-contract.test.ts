@@ -5,7 +5,7 @@ import { buildAssistantThreadRunsSchemaSql } from '../assistant-memory-repositor
 
 /**
  * Living-contract pins for `brainstrike_assistant_thread_workspaces`
- * (BST-1268, migration 094; see docs/agents/database.md). A persistent
+ * (BST-1268, migration 095; see docs/agents/database.md). A persistent
  * sidecar carries FOUR obligations beyond its own migration — this suite
  * fails if any of them drifts.
  */
@@ -26,9 +26,9 @@ function extractCreateTableBlock(sql: string, table: string): string {
 }
 
 describe('thread workspace persistence contract', () => {
-  it('migration 094 and the renderer bootstrap declare the SAME table shape', () => {
-    const migration = migrations.find((candidate) => candidate.version === 94);
-    expect(migration, 'migration 094 registered in the numbered runner').toBeDefined();
+  it('migration 095 and the renderer bootstrap declare the SAME table shape', () => {
+    const migration = migrations.find((candidate) => candidate.version === 95);
+    expect(migration, 'migration 095 registered in the numbered runner').toBeDefined();
     const migrationBlock = extractCreateTableBlock(String(migration?.up ?? ''), TABLE);
     const bootstrapBlock = extractCreateTableBlock(buildAssistantThreadRunsSchemaSql(), TABLE);
     expect(bootstrapBlock).toBe(migrationBlock);

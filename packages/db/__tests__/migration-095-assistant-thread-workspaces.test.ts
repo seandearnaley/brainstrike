@@ -17,15 +17,15 @@ describe('migration 095: per-thread workspace snapshots table', () => {
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 94));
+    await runner.up(migrations.filter((migration) => migration.version < 95));
   });
 
   afterEach(async () => {
     await db.close();
   });
 
-  function getMigration094() {
-    const migration = migrations.find((candidate) => candidate.version === 94);
+  function getMigration095() {
+    const migration = migrations.find((candidate) => candidate.version === 95);
     if (!migration) {
       throw new Error('Migration 095 is missing');
     }
@@ -33,7 +33,7 @@ describe('migration 095: per-thread workspace snapshots table', () => {
   }
 
   it('creates the thread workspaces table', { timeout: 60_000 }, async () => {
-    await runner.runMigration(getMigration094());
+    await runner.runMigration(getMigration095());
 
     const tables = await db.query<CountRow>(
       `SELECT COUNT(*)::int AS count FROM information_schema.tables
@@ -43,7 +43,7 @@ describe('migration 095: per-thread workspace snapshots table', () => {
   });
 
   it('upserts a workspace snapshot on conflicting thread_id', { timeout: 60_000 }, async () => {
-    await runner.runMigration(getMigration094());
+    await runner.runMigration(getMigration095());
 
     await db.query(
       `INSERT INTO brainstrike_assistant_thread_workspaces (thread_id, resource_id, payload)
@@ -65,7 +65,7 @@ describe('migration 095: per-thread workspace snapshots table', () => {
   });
 
   it('rejects a NULL payload (workspace rows are never sparse)', { timeout: 60_000 }, async () => {
-    await runner.runMigration(getMigration094());
+    await runner.runMigration(getMigration095());
 
     await expect(
       db.query(

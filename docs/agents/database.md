@@ -369,7 +369,7 @@ bootstrap must never emit that destructive statement: it installs the final
 constraint only when the catalog says it is absent, because `db:exec` rejects
 renderer schema drops.
 
-Migration 094 owns the FK-less `brainstrike_assistant_thread_workspaces`
+Migration 095 owns the FK-less `brainstrike_assistant_thread_workspaces`
 sidecar (BST-1268): one row per thread (`thread_id` PK) holding that thread's
 saved workspace as a versioned JSONB `payload` (open app/file tabs, editor
 view state, per-root tree expansions, root view). Register it in both
