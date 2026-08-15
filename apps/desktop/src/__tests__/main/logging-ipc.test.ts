@@ -4,21 +4,8 @@ import {
   LogLevel,
 } from '@brainstrike/logging';
 import type { IpcMainInvokeEvent } from 'electron';
+import { ipcMain } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: vi.fn(),
-    on: vi.fn(),
-    removeHandler: vi.fn(),
-    removeListener: vi.fn(),
-  },
-  webContents: {
-    getAllWebContents: vi.fn(),
-  },
-}));
-
-import { ipcMain, webContents } from 'electron';
 import {
   cloneLoggingPreferences,
   cloneLoggingSettingsPayload,
@@ -26,6 +13,10 @@ import {
   registerLoggingIpcHandlers,
 } from '../../logging-ipc';
 import type { LoggingSettingsPayload } from '../../logging-shared';
+import {
+  resetElectronMainTestHarness,
+  setMockWebContents,
+} from '../helpers/electron-main-test-harness';
 
 function createDeferred<T>() {
   let resolve: (value: T | PromiseLike<T>) => void = () => {};
@@ -41,7 +32,7 @@ function createDeferred<T>() {
 
 describe('logging-ipc', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    resetElectronMainTestHarness();
   });
 
   const basePreferences: LoggingPreferences = createDefaultLoggingPreferences({
@@ -138,11 +129,7 @@ describe('logging-ipc', () => {
       send: vi.fn(),
     };
 
-    vi.mocked(webContents.getAllWebContents).mockReturnValue([
-      windowContents,
-      webviewContents,
-      backgroundContents,
-    ] as unknown as Electron.WebContents[]);
+    setMockWebContents([windowContents, webviewContents, backgroundContents]);
 
     registerLoggingIpcHandlers(handlers as unknown as LoggingIpcHandlers);
 
@@ -193,10 +180,7 @@ describe('logging-ipc', () => {
       send: vi.fn(),
     };
 
-    vi.mocked(webContents.getAllWebContents).mockReturnValue([
-      destroyedContents,
-      liveContents,
-    ] as unknown as Electron.WebContents[]);
+    setMockWebContents([destroyedContents, liveContents]);
 
     registerLoggingIpcHandlers(handlers as unknown as LoggingIpcHandlers);
 
@@ -242,10 +226,7 @@ describe('logging-ipc', () => {
       send: vi.fn(),
     };
 
-    vi.mocked(webContents.getAllWebContents).mockReturnValue([
-      workerContents,
-      liveContents,
-    ] as unknown as Electron.WebContents[]);
+    setMockWebContents([workerContents, liveContents]);
 
     registerLoggingIpcHandlers(handlers as unknown as LoggingIpcHandlers);
 

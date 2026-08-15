@@ -1139,6 +1139,20 @@ loader's FALLBACK_PROVIDERS that must stay in sync (raw createRequire there
 bypasses vitest aliases and needs dist, absent by default post-B4). See the
 Series B turbo-monorepo architecture review.
 
+Desktop main-process unit tests share observable Electron controls in
+`apps/desktop/src/__tests__/helpers/electron-main-test-harness.ts`. The harness
+layers `vi.fn()`-backed IPC registration and WebContents state over the inert
+default surface owned by `apps/desktop/src/__tests__/electron-test-stub.mts`;
+new Electron API defaults belong in the stub so the alias and global mock do
+not drift. Tests needing those observable controls import the harness instead
+of redeclaring `vi.mock('electron')` or patching missing cleanup methods.
+Narrow tests may still replace Electron deliberately when they exercise a
+different surface, but IPC-focused tests reset the shared harness in
+`beforeEach` so owned mock implementations, handler/listener registrations,
+and WebContents never leak across cases. The paired harness test pins surface
+parity, duplicate registration failure, multi-listener cleanup, and reset
+semantics.
+
 ### TypeScript 7 CLI with the TypeScript 6 compatibility API (BST-1011)
 
 All bare `tsc` commands use the TypeScript 7 native compiler. The catalog's
