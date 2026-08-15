@@ -17,6 +17,21 @@ type LiveCapablePGlite = Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
  * the change is inert here; this test pins the new upstream behavior so a future
  * bump that reverts it is caught.
  *
+ * Root cause, for the next reader: 0.5.4's unsubscribe ran
+ * `callbacks.filter((callback) => callback !== callback)` — the arrow parameter
+ * shadowed the outer `callback`, so the predicate was always false and the whole
+ * collection was emptied. 0.5.5 renames the parameter (`(cb) => cb !== callback`).
+ * Those three one-line renames (query / changes / incrementalQuery) are the ENTIRE
+ * 0.5.4 → 0.5.5 diff of `src/live/index.ts`.
+ *
+ * NOT changed, and deliberately not re-pinned here: the rejected-teardown
+ * ordering. In both versions `unsubscribe` removes the callback and latches
+ * `dead = true` SYNCHRONOUSLY, before awaiting the teardown transaction. A
+ * rejected teardown therefore still leaves the listener detached and the handle
+ * permanently dead, so the wrapper's release-before-await with no retry stays
+ * correct. `database-work-scheduler.test.ts` covers that path against a mock
+ * that models exactly this ordering.
+ *
  * Both cases share ONE PGlite instance — this suite is memory-sensitive and a
  * second WASM engine per file is enough to destabilise the vitest worker.
  */

@@ -696,7 +696,11 @@ describe('DatabaseWorkScheduler', () => {
         subscribedListener = listener;
       }),
       unsubscribe: vi.fn(async () => {
-        // PGlite 0.5.3 marks a query dead before awaiting its teardown transaction.
+        // Models PGlite's REJECTED teardown faithfully, verified against the
+        // 0.5.5 source (BST-1283): `unsubscribe` drops the callback and latches
+        // `dead = true` SYNCHRONOUSLY, then awaits the teardown transaction — so
+        // a rejection still leaves the listener detached and the handle dead,
+        // with no upstream retry. That ordering is unchanged since 0.5.3.
         dead = true;
         subscribedListener = null;
         throw new Error('database is closing');

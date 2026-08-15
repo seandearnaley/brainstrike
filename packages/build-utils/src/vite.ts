@@ -12,12 +12,12 @@ const logger = createBuildLogger('PGliteLocator');
 const CSP_QUALIFIED_EVAL_MODULES = [
   /\/node_modules\/\.pnpm\/web-tree-sitter@0\.25\.10\/node_modules\/web-tree-sitter\/tree-sitter\.js$/,
   // COUPLED to the `@electric-sql/pglite` catalog pin in pnpm-workspace.yaml.
-  // BST-1063 bumped that catalog to 0.5.4, so this 0.5.3 entry matches
-  // NOTHING and PGlite EVAL warnings resurface in every build — that is the
-  // fail-visible behaviour this filter intends: the 0.5.4 eval sites have
-  // not been exercised under the production CSP, and this entry must not be
-  // bumped without redoing the BST-573/594 review (fresh chunk filename
-  // included).
+  // That catalog has since moved on (BST-1063 to 0.5.4, BST-1283 to 0.5.5),
+  // so this 0.5.3 entry matches NOTHING and PGlite EVAL warnings resurface in
+  // every build — that is the fail-visible behaviour this filter intends: the
+  // post-0.5.3 eval sites have not been exercised under the production CSP,
+  // and this entry must not be bumped without redoing the BST-573/594 review
+  // (fresh chunk filename included).
   /\/node_modules\/\.pnpm\/@electric-sql\+pglite@0\.5\.3\/node_modules\/@electric-sql\/pglite\/dist\/(?:index|chunk-HXUXMFL7)\.js$/,
 ] as const;
 
