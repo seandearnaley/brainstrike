@@ -134,25 +134,33 @@ export function collectChildProcessOutput(child) {
   });
 }
 
-async function listOpenPullRequests() {
-  let result;
-  try {
-    result = await collectChildProcessOutput(spawn('gh', GITHUB_OPEN_PULL_REQUEST_ARGS));
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Unable to run GitHub CLI: ${message}`, { cause: error });
-  }
-
+export function parseGitHubCliResult(result) {
   if (result.status !== 0) {
     const termination = result.signal ? `signal ${result.signal}` : `exit ${result.status}`;
     throw new Error(`GitHub CLI failed with ${termination}: ${result.stderr.trim()}`);
   }
 
+  let pages;
   try {
-    return normalizeOpenPullRequestPages(JSON.parse(result.stdout));
+    pages = JSON.parse(result.stdout);
   } catch (error) {
     throw new Error('GitHub CLI returned malformed JSON.', { cause: error });
   }
+  return normalizeOpenPullRequestPages(pages);
+}
+
+export async function listOpenPullRequests(
+  spawnGitHub = () => spawn('gh', GITHUB_OPEN_PULL_REQUEST_ARGS)
+) {
+  let result;
+  try {
+    result = await collectChildProcessOutput(spawnGitHub());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to run GitHub CLI: ${message}`, { cause: error });
+  }
+
+  return parseGitHubCliResult(result);
 }
 
 export async function main() {

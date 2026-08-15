@@ -7,7 +7,9 @@ import {
   findUnlinkedPullRequests,
   formatConformanceReport,
   GITHUB_OPEN_PULL_REQUEST_ARGS,
+  listOpenPullRequests,
   normalizeOpenPullRequestPages,
+  parseGitHubCliResult,
 } from '../check-open-pr-linear-conformance.mjs';
 
 const pullRequest = (overrides = {}) => ({
@@ -123,6 +125,89 @@ test('streamed GitHub output is not capped at spawnSync default buffer size', as
   assert.equal(result.signal, null);
   assert.equal(result.stderr, '');
   assert.equal(result.stdout.length, outputBytes);
+});
+
+test('streamed process collection rejects children without piped output', () => {
+  assert.throws(
+    () => collectChildProcessOutput({}),
+    /Expected a child process with piped stdout and stderr/
+  );
+});
+
+test('GitHub CLI failures distinguish non-zero exits from terminating signals', () => {
+  assert.throws(
+    () => parseGitHubCliResult({ signal: null, status: 3, stderr: 'boom', stdout: '' }),
+    /GitHub CLI failed with exit 3: boom/
+  );
+  assert.throws(
+    () => parseGitHubCliResult({ signal: 'SIGTERM', status: null, stderr: '', stdout: '' }),
+    /GitHub CLI failed with signal SIGTERM:/
+  );
+});
+
+test('missing GitHub CLI failures retain the spawn error context', async () => {
+  await assert.rejects(
+    () => listOpenPullRequests(() => spawn('brainstrike-gh-command-that-does-not-exist')),
+    /Unable to run GitHub CLI: spawn brainstrike-gh-command-that-does-not-exist ENOENT/
+  );
+});
+
+test('malformed JSON and malformed pagination shapes remain distinct failures', () => {
+  assert.throws(
+    () => parseGitHubCliResult({ signal: null, status: 0, stderr: '', stdout: '{' }),
+    /GitHub CLI returned malformed JSON/
+  );
+  assert.throws(
+    () => parseGitHubCliResult({ signal: null, status: 0, stderr: '', stdout: '{}' }),
+    /Expected GitHub pagination to return an array of pages/
+  );
+});
+
+test('validation rejects malformed pages and malformed pull requests', () => {
+  assert.throws(
+    () => normalizeOpenPullRequestPages([{}]),
+    /GitHub returned a non-array PR page at index 0/
+  );
+  assert.throws(
+    () => normalizeOpenPullRequestPages([[null]]),
+    /GitHub returned a non-object PR on page 0/
+  );
+  assert.throws(
+    () => findUnlinkedPullRequests([pullRequest({ author: {}, number: 49 })]),
+    /GitHub returned no author login for PR #49/
+  );
+  assert.throws(
+    () => findUnlinkedPullRequests([pullRequest({ body: 42, number: 50 })]),
+    /GitHub returned an invalid body for PR #50/
+  );
+});
+
+test('raw REST pages preserve bot exclusions and actionable human URLs end to end', () => {
+  const pullRequests = normalizeOpenPullRequestPages([
+    [
+      {
+        body: '',
+        html_url: 'https://github.com/example/repo/pull/51',
+        number: 51,
+        title: 'Dependency update',
+        user: { login: 'dependabot[bot]' },
+      },
+      {
+        body: 'No issue reference.',
+        html_url: 'https://github.com/example/repo/pull/52',
+        number: 52,
+        title: 'Human maintenance',
+        user: { login: 'maintainer' },
+      },
+    ],
+  ]);
+
+  const findings = findUnlinkedPullRequests(pullRequests);
+
+  assert.deepEqual(
+    findings.map(({ number, url }) => ({ number, url })),
+    [{ number: 52, url: 'https://github.com/example/repo/pull/52' }]
+  );
 });
 
 test('clean report states that every inspected PR is linked', () => {
