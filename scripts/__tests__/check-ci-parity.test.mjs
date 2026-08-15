@@ -55,11 +55,16 @@ const nightlyCoverageWorkflowPath = path.join(
 const workflowPath = path.join(repoRoot, '.github', 'workflows', 'test.yml');
 
 /**
- * Runner plumbing: steps that provision the machine or propagate the
- * quiet-head admission decision. They gate nothing about the code, so a local
- * gate has nothing to mirror. Keyed `<job> › <step name>` so the repeated
- * names ("Install dependencies", "Require successful admission") stay
- * distinguishable per job.
+ * Runner plumbing: steps that provision the machine, propagate the quiet-head
+ * admission decision, or REPORT a verdict the gates already reached. They gate
+ * nothing about the code, so a local gate has nothing to mirror. Keyed
+ * `<job> › <step name>` so the repeated names ("Install dependencies",
+ * "Require successful admission") stay distinguishable per job.
+ *
+ * The `notify-main-failure` steps (BST-1301) are reporting, not gating: they
+ * run only AFTER Static/Unit/Build have already failed on a push to `main`,
+ * and they invoke `gh` rather than any pnpm/turbo/node gate. `pnpm check` must
+ * NOT mirror them — running them locally would file GitHub issues.
  */
 const PROVISIONING_STEPS = new Set([
   'admission › Wait for pull request activity to settle',
@@ -75,6 +80,8 @@ const PROVISIONING_STEPS = new Set([
   'desktop-e2e › Require successful admission',
   'desktop-e2e › Install Chromium system dependencies',
   'desktop-e2e › Provision Electron binary',
+  'notify-main-failure › Ensure tracking label exists',
+  'notify-main-failure › Open or update tracking issue',
 ]);
 
 function workflowSource() {

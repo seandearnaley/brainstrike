@@ -22,7 +22,9 @@ Rules:
 - Web and desktop E2E smoke workflows run on every PR.
 - Full web and desktop E2E regression runs on `schedule` or explicit
   `workflow_dispatch`.
-- Pushes to `main` run static, unit, build, web smoke, and desktop smoke.
+- Pushes to `main` run static, unit, build, web smoke, and desktop smoke. A
+  failing static/unit/build verdict there opens a `main-broken` tracking issue
+  — see "A red `main` announces itself" below.
 
 ### Open PR to Linear conformance (BST-521)
 
@@ -298,6 +300,63 @@ Why this exists: the measured GitHub Actions sample for 2026-07-15..19 reached
 cancelled. `Test` represented roughly 92% of the modeled Actions bill. Paying
 about $0.004 to hold a PR head for two minutes is materially cheaper than
 starting the full fan-out during edit/push bursts.
+
+### A red `main` announces itself (BST-1301)
+
+`main` broke twice on 2026-08-15, and both times the only reason anyone found
+out was an unrelated PR tripping over it hours later:
+
+| Run | Failing step | Cause |
+| --- | --- | --- |
+| `31872259629`, `31872457744` | `Static` › `Lint` | `noUnsafeOptionalChaining` in `packages/app-shell/.../workspace-snapshot-io.test.ts` (#2437) |
+| `31894054632` | `Static` › `Lint` | formatter drift on `it.each` in `packages/file-system/src/__tests__/path-validation.test.ts` (#2440), fixed by #2452 |
+
+**The gate was never missing.** `test.yml` has always subscribed to
+`push: branches: [main]`, so Static/Unit/Build evaluate every merged commit,
+and all three runs above failed correctly. What did not exist was anyone being
+told — the red run sat in the Actions tab while every branch inherited the
+breakage.
+
+The mechanism is toolchain drift. A PR's CI judges it under the
+linter/formatter **on its base at the time that run happened**. Both PRs above
+were authored and went green under Biome 2.5.2, then merged after #2447 landed
+2.5.8, which narrowed one rule and changed one formatting decision. Nothing
+re-checks an already-approved PR against the post-merge toolchain, so the
+verdict goes quietly stale and the failure materialises for the first time on
+`main` — where it blocks every branch and looks unrelated to whoever hits it
+next. The same shape applies to any bump that can change a verdict: Biome,
+ESLint, TypeScript, or a lint-rule guard script.
+
+`test.yml`'s `notify-main-failure` job closes the reporting half. It fans in
+from `static`, `unit` and `build`; when any of them reports `failure` on a
+`push`, it opens (or comments on) a single `main-broken` tracking issue naming
+the failed checks, the commit, the run, and the toolchain-drift hypothesis to
+check first.
+
+What it deliberately does **not** cover:
+
+- **`Web E2E` / `Desktop E2E`.** Those are the documented flaky-headless class,
+  and a canary that cries wolf gets muted — which is the exact failure this job
+  exists to prevent. Persistent E2E breakage is still caught within 24h by the
+  scheduled notifiers in `web-e2e.yml` / `desktop-e2e.yml`.
+- **Cancelled or skipped runs.** The condition tests `== 'failure'`, never
+  `!= 'success'`: a cancelled run carries no verdict about the code, and `main`
+  is pushed often enough that the next merge produces a real one.
+- **Prevention.** This is detection only. Requiring branches to be up to date
+  before merge would stop a stale-based PR from landing in the first place, but
+  that is a branch-protection setting and therefore the repo owner's call, not
+  a workflow's.
+
+Constraints this job respects, and that any change to it must preserve: it adds
+**no new trigger** to `test.yml` (see `coverage.yml`'s header for why a new
+trigger here greys out the merge box), it is **not a required status check**,
+and it stays off the Ubicloud pool, which `ubicloud-runner-contract.test.mjs`
+limits to the five measured jobs. Its two `gh` steps are reporting rather than
+gating, so they are listed in `check-ci-parity.test.mjs`'s
+`PROVISIONING_STEPS` — `pnpm check` must not mirror them, because running them
+locally would file GitHub issues. Contract coverage lives in
+`scripts/__tests__/main-failure-notifier-contract.test.mjs` and runs in the
+Static job through `pnpm test:scripts`.
 
 ### Biome pinned at 2.5.8 — the 2.5.3/2.5.4 module-graph panic is fixed (2026-08-15, BST-1273)
 

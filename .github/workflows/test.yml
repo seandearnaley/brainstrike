@@ -890,3 +890,122 @@ jobs:
           path: apps/desktop/test-results/
           retention-days: 1
           if-no-files-found: ignore
+
+  # BST-1301: make a red `main` announce itself.
+  #
+  # THE GATE ALREADY EXISTS. This workflow's `on:` block subscribes to
+  # `push: branches: [main]`, so Static/Unit/Build run against every merged
+  # commit, and they fired correctly on all three red-`main` pushes of
+  # 2026-08-15 (runs 31872259629, 31872457744, 31894054632 — each one
+  # `Static` › `Lint`). What did not exist was anyone being TOLD: the red run
+  # sat in the Actions tab, and both incidents were discovered hours later
+  # only when an unrelated PR tripped over the breakage. This job adds the
+  # missing announcement; it adds NO new check and NO new trigger.
+  #
+  # The mechanism it exists to catch is toolchain drift. A PR's CI judges it
+  # under the linter/formatter on ITS BASE at the time that run happened. When
+  # a toolchain bump lands in between (#2447 took biome 2.5.2 -> 2.5.8), the
+  # already-green verdict on a stale-based PR goes quietly out of date, and
+  # nothing re-checks a merged PR against the post-merge toolchain. The
+  # failure therefore materializes for the first time ON `main`, where it
+  # blocks every branch and looks unrelated to whoever hits it next. Both
+  # 08-15 incidents were exactly this: #2437's `noUnsafeOptionalChaining`
+  # violation in app-shell's workspace-snapshot-io.test.ts (the rule narrowed
+  # in 2.5.8) and #2440's formatter drift in file-system's
+  # path-validation.test.ts (fixed by #2452).
+  #
+  # SCOPE — the three DETERMINISTIC required checks only. `web-e2e` and
+  # `desktop-e2e` are deliberately excluded: those are the documented
+  # flaky-headless class (AGENTS.md), and a canary that cries wolf gets
+  # ignored, which is precisely the failure this job exists to prevent. A red
+  # smoke lane on `main` is not the everyone-trips-over-it breakage class;
+  # persistent E2E breakage is still caught within 24h by the scheduled
+  # notifiers in web-e2e.yml / desktop-e2e.yml.
+  #
+  # `== 'failure'` and NOT `!= 'success'`: a cancelled or skipped `main` run
+  # carries no verdict about the code and must not open an issue. `main` is
+  # pushed often enough that the next merge produces a real verdict.
+  #
+  # NOT a required status check and NOT a new trigger. See coverage.yml's
+  # header for why adding a trigger to this file is a footgun — this job adds
+  # only a `needs:` fan-in, so PR runs skip it and the required set is
+  # untouched. Detection, not prevention: requiring branches to be up to date
+  # before merge is the complementary fix and is a branch-protection setting,
+  # i.e. the repo owner's call, not this workflow's.
+  notify-main-failure:
+    name: Notify main failure
+    needs: [static, unit, build]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      (needs.static.result == 'failure' ||
+       needs.unit.result == 'failure' ||
+       needs.build.result == 'failure')
+    runs-on: ubuntu-latest
+    # gh issue create / comment are sub-second under normal conditions; cap at
+    # 5 min so a GitHub API hang can't burn the GHA default 6-hour wall clock.
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Ensure tracking label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create "main-broken" \
+            --repo "$REPO" \
+            --color b60205 \
+            --description "Auto-opened by test.yml when a push to main fails Static, Unit or Build" \
+            2>/dev/null || true
+
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+          STATIC_RESULT: ${{ needs.static.result }}
+          UNIT_RESULT: ${{ needs.unit.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          set -euo pipefail
+
+          # Name the failed checks explicitly. A bare "main is red" makes the
+          # reader open the run to learn anything at all, which is most of the
+          # friction this job removes.
+          failed=""
+          for entry in "Static:$STATIC_RESULT" "Unit:$UNIT_RESULT" "Build:$BUILD_RESULT"; do
+            if [ "${entry#*:}" = "failure" ]; then
+              failed="${failed}${failed:+, }${entry%%:*}"
+            fi
+          done
+
+          body="\`main\` is red: **${failed}** failed on ${COMMIT_URL}.
+
+          Run: ${RUN_URL}
+
+          Every branch cut from or rebased onto \`main\` inherits this, and the PR
+          that trips over it next will see a failure unrelated to its own change.
+
+          If the failing step is Lint or Type check, suspect toolchain drift
+          (BST-1301): a PR that went green under an older linter/formatter on its
+          base can break \`main\` when a toolchain bump merges in between. Check
+          whether a lint/format/toolchain PR landed between the offending PR's
+          last green run and its merge.
+
+          This issue stays open while \`main\` is red and gets a new comment on each
+          subsequent failure. Close it once \`main\` is green again."
+
+          existing=$(gh issue list --repo "$REPO" \
+            --label "main-broken" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" \
+              --title "main is red: ${failed} failed ($(date -u +%Y-%m-%d))" \
+              --label "main-broken" \
+              --body "$body"
+          fi
