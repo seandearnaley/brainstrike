@@ -73,13 +73,40 @@ describe('run turbo command helper', () => {
     // helpers (e.g. spawnSync('pnpm', ['turbo', ...])), which resolve the
     // repo-local .turbo cache instead of the wrapper's shared cache dir. Only
     // run-turbo-command.mjs may name the turbo binary.
+    //
+    // One bounded exception: scripts/turbo-boundaries.mjs. `turbo boundaries`
+    // is an analysis subcommand, not a task run — it schedules nothing, reads
+    // and writes no cache, and takes no --cache-dir (the flag run-turbo-command
+    // exists to inject), so the shared-cache rationale does not reach it. The
+    // exemption is held to that: it may name the binary, never to run a task.
     const wrapperPath = resolve(process.cwd(), 'scripts/run-turbo-command.mjs');
+    const boundariesGatePath = resolve(process.cwd(), 'scripts/turbo-boundaries.mjs');
     const directTurboSpawns = findModuleFiles(process.cwd()).filter(
       (modulePath) =>
-        modulePath !== wrapperPath && /['"`]turbo['"`]/u.test(readFileSync(modulePath, 'utf8'))
+        modulePath !== wrapperPath &&
+        modulePath !== boundariesGatePath &&
+        /['"`]turbo['"`]/u.test(readFileSync(modulePath, 'utf8'))
     );
 
     assert.deepEqual(directTurboSpawns, []);
+
+    assert.ok(existsSync(boundariesGatePath), 'the exempted gate script must still exist');
+    // Scoped to the spawn's ARGUMENT LIST, not the file text: that header
+    // backticks identifiers constantly to explain turbo behaviour, and a line
+    // like "`clean` removes them" would otherwise fail this guard with a
+    // message claiming the script runs a cached task. Asserting the match
+    // exists first keeps the narrowing from going vacuous if the spawn moves.
+    const gateSource = readFileSync(boundariesGatePath, 'utf8');
+    const spawnArgs = gateSource.match(/spawnSync\(\s*process\.execPath,\s*\[([^\]]*)\]/u);
+    assert.ok(
+      spawnArgs,
+      'expected scripts/turbo-boundaries.mjs to spawn turbo via process.execPath with a literal argument list'
+    );
+    assert.doesNotMatch(
+      spawnArgs[1],
+      /['"`](?:run|build|test|type-check|dev|clean)['"`]/u,
+      'scripts/turbo-boundaries.mjs may spawn `turbo boundaries` only — a cache-bearing task run must go through run-turbo-command.mjs'
+    );
   });
 
   it('plans oldest cache entries for pruning until the cache is under the byte cap', () => {

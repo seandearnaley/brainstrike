@@ -87,25 +87,59 @@ invocations have no `TURBO_HASH`, so they still prepare dependencies
 synchronously. Do not replace this ordering with sleeps, polling, or `dist`
 existence sentinels.
 
-### The package-boundary gate runs first in Static (BST-967)
+### The package-boundary gate (BST-967)
 
-The `Static` job runs `pnpm exec turbo boundaries` as its first substantive
-step (right after the secret scan), and the ORDERING is the invariant, not a
-style choice: the analyzer scans build output as well as source, so any step
-that materializes `dist/` before it — `type-check` (whose turbo task
-`dependsOn: ["build"]`), any `pnpm build`/`pnpm --filter X build`, or a cache
-restore of real build outputs — reintroduces phantom violations from stale
-artifacts (observed live: `dist/turso/*` files from an unmerged branch flagged
-a dependency no source on `main` imports). On the fresh checkout the step sees,
-a non-zero exit means a REAL source violation.
+The `Static` job runs `pnpm run boundaries` as its first substantive step
+(right after the secret scan). That script, `scripts/turbo-boundaries.mjs`,
+runs the real `turbo boundaries` and then judges only the findings in files
+git does not ignore.
+
+**Why the wrapper exists.** The analyzer walks every package directory and its
+only exclusion is `node_modules/**`: it reads `dist/` and every other emitted
+output, and it does not consult `.gitignore`. There is no way to narrow the
+walk — no CLI flag, no `turbo.json` key, no `.turboignore` — verified against
+turbo 2.10.8, 2.10.10, and 2.10.11-canary.3 (`--ignore` only offers to WRITE
+`@boundaries-ignore` comments into the files it scanned, which is useless for
+output regenerated on every build). Recheck that on the next Turbo bump — if
+the walk becomes configurable, the wrapper should shrink to that config. So
+the raw command is not idempotent on a developer machine: green on a clean
+tree, then red on the identical tree once anything has built, over files
+nobody wrote — `dist/turso/*` from an unmerged branch flagging a dependency no
+source on `main` imports; `apps/web/dist/assets/chunking.worker-*.ts` flagged
+for `@brainstrike/tokenization`. CI never saw it (fresh checkout, and the
+ordering below), which is exactly what let it sit.
+
+**Why git decides.** A hardcoded list of output directories would drift, and
+turbo's own `outputs` cannot serve as one: `packages/config` declares
+`tsconfig/**`, `biome/**`, and `tailwind/**` as build outputs and those are
+SOURCE. `git check-ignore` is index-aware, so a checked-in file is judged even
+if it matches an ignore pattern, and an uncommitted source file is judged too.
+That index-awareness is also what keeps this safe as a CI gate: on the fresh
+checkout Static runs against, every file a PR touches is TRACKED, so no
+contributor can suppress a finding by adding a `.gitignore` entry — the gate
+filters generated output, never repository content.
+Suppression applies ONLY to a finding whose file git confirms is ignored;
+everything else fails the gate, including a diagnostic with no file location, a
+turbo issue count the parser cannot account for, and git itself erroring. One
+stated local-vs-CI difference: personal excludes (`~/.config/git/ignore`,
+`.git/info/exclude`) count as ignored locally, so CI stays the stricter side.
+
+**The ordering is now about cost, not correctness.** Keep the step ahead of
+anything that materializes `dist/` — `type-check` (whose turbo task
+`dependsOn: ["build"]`), any `pnpm build`, or a cache restore of real build
+outputs — because a clean tree is roughly half the files to scan (~4,000 vs
+~8,000 here). It is no longer what makes the verdict trustworthy.
 
 Deliberate crossings carry inline `// @boundaries-ignore <reason>` comments at
 the import site. The contract tests in
 `scripts/__tests__/turbo-boundaries-gate.test.mjs` keep all of this honest:
 they prove the gate can fail (fixture workspace with a violation → non-zero
-exit, clean fixture → zero), assert the Static step stays ordered before any
-dist-producing step, and require every ignore comment to carry a substantive
-reason. Division of labor with the custom checker:
+exit, clean fixture → zero), that a violation living only in git-ignored build
+output passes while raw `turbo boundaries` on the same fixture fails, that
+build output cannot MASK a source violation, that a TRACKED file under `dist/`
+is still judged, assert the Static step stays ordered before any dist-producing
+step, and require every ignore comment to carry a substantive reason. Division
+of labor with the custom checker:
 `architecture-domain-boundaries.mjs` owns cross-DOMAIN direction rules; `turbo
 boundaries` owns package-escaping imports and undeclared dependencies. Known
 blind spots (tracked, not solved here): CLI-flag dependencies such as the
@@ -680,10 +714,14 @@ decision. The arguments that actually carry a contract are asserted
 individually, read live from the workflow: the Unit lanes' `--concurrency=4`
 and `--concurrency=2`, and Build's `--continue=dependencies-successful`.
 
-Local-vs-CI difference that is stated rather than hidden: `turbo boundaries`
-scans build output as well as source and CI runs it on a checkout with no
-`dist/`, so a stale local artifact can produce a phantom violation. That is a
-loud failure — `pnpm clean` and re-run before treating it as a real finding.
+Local-vs-CI difference that is stated rather than hidden: the boundary gate
+(`pnpm run boundaries`) treats git-ignored files as generated rather than
+source, and a developer's personal excludes (`~/.config/git/ignore`,
+`.git/info/exclude`) count locally while CI's checkout has neither — so CI is
+the stricter side. This used to read the other way round, that a stale local
+`dist/` could produce a phantom violation the clean CI checkout never saw;
+scoping the verdict to non-ignored files removed that difference, and with it
+the `pnpm clean`-and-rerun ritual. See the BST-967 section above.
 
 ### Guard-script entrypoint contract (BST-836)
 

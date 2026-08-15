@@ -48,11 +48,12 @@
  *   --headless     Run headless display setup before the checks (Linux)
  *   --verbose      Show step start banners
  *
- * Known local-vs-CI difference, stated rather than hidden: `turbo boundaries`
- * scans build output as well as source, and CI runs it on a checkout with no
- * `dist/`. Locally your tree usually has one, so a stale artifact can produce
- * a phantom violation. That is a loud failure, not a silent pass — clear it
- * with `pnpm clean` and re-run before treating it as a real finding
+ * `turbo boundaries` scans build output as well as source and offers no way to
+ * exclude it, which used to make this plan non-idempotent: green on a clean
+ * tree, then phantom violations against `dist/` the second time you ran it.
+ * The gate is now `pnpm run boundaries` (scripts/turbo-boundaries.mjs), which
+ * judges only findings in files git does not ignore, so a repeat run on a
+ * built tree reaches the same verdict CI does
  * (docs/agents/ci-quality.md, BST-967 + the 2026-07-30 cache-poisoning note).
  */
 
@@ -272,12 +273,17 @@ export function buildPlan(options = {}) {
     id: 'secrets-scan',
     label: 'secrets:scan',
   });
-  // Ordering is load-bearing and mirrors Static: boundaries BEFORE anything
-  // that can materialize dist/ (type-check dependsOn build).
+  // Ordering mirrors Static: boundaries BEFORE anything that can materialize
+  // dist/ (type-check dependsOn build). Since scripts/turbo-boundaries.mjs
+  // scopes the verdict to non-git-ignored files, that ordering now only buys a
+  // cheaper scan — it is no longer what keeps the gate honest.
   plan.push({
-    command: 'pnpm -s exec turbo boundaries',
+    command: 'pnpm -s run boundaries',
     id: 'boundaries',
-    label: 'turbo boundaries',
+    // Not "turbo boundaries": a failing step's label is what a developer
+    // reruns by hand, and the bare subcommand gives back the non-idempotent
+    // verdict this step exists to avoid.
+    label: 'boundaries',
   });
   plan.push({
     command: 'pnpm -s run test:scripts',
