@@ -1,4 +1,5 @@
 {
+  "//": "katex is declared here for its STYLESHEET ONLY — markdown-surface.tsx does `import 'katex/dist/katex.min.css'` and nothing in this repo imports katex's JavaScript. The markup those styles have to match is produced by rehype-katex, which pins `katex: ^0.16.0` and resolves its own copy. So this range MUST track whatever rehype-katex resolves, or the stylesheet and the renderer drift into different KaTeX majors (before BST-1276 the lockfile carried katex@0.17.0 for the CSS and katex@0.16.47 for the markup). The drift is currently cosmetic, but KaTeX 0.18.0 renames ~20 internal classes to a `katex-` prefix (KaTeX/KaTeX#4229, flagged BREAKING), so a blanket bump would point 0.18 selectors at 0.16 markup and silently collapse math rendering. rehype-katex@7.0.1 is the latest release and still admits only `katex: ^0.16.0`. UNBLOCKED BY: a rehype-katex release whose katex range admits ^0.18 — bump both together then. scripts/__tests__/katex-css-renderer-parity.test.mjs enforces this.",
   "name": "@brainstrike/ui",
   "description": "UI component library with Shadcn UI components",
   "version": "1.0.0",
@@ -36,7 +37,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "katex": "^0.17.0",
+    "katex": "^0.16.47",
     "lucide-react": "catalog:",
     "mermaid": "catalog:",
     "react-markdown": "^10.1.0",
