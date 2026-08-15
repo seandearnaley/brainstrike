@@ -7,7 +7,7 @@
 
 import { useFileTabPaneStore } from '@brainstrike/file-explorer-ui/file-tab-pane-store';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLiveWorkspaceFacade } from '../thread-workspace-coordinator';
+import { createLiveWorkspaceFacade } from '../thread-workspace-live-facade';
 
 type FileExplorerStoreLike = Parameters<typeof createLiveWorkspaceFacade>[0];
 
