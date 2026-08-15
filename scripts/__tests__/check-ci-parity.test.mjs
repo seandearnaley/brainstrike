@@ -665,13 +665,14 @@ test('gateInvocations reads the shapes both sides are actually written in', () =
 });
 
 test('the install step is frozen, exactly as the CI composite installs', () => {
-  const composite = readFileSync(
-    path.join(repoRoot, '.github/actions/setup-workspace/action.yml'),
-    'utf8'
+  const composite = parseYaml(
+    readFileSync(path.join(repoRoot, '.github/actions/setup-workspace/action.yml'), 'utf8')
   );
+  const compositeInstall = composite.runs?.steps?.find(({ run }) => run?.includes('pnpm install'));
+  assert.equal(typeof compositeInstall?.run, 'string');
   assert.match(
-    composite,
-    /run: pnpm install --frozen-lockfile/,
+    compositeInstall.run,
+    /(^|\n)\s*pnpm install --frozen-lockfile(\n|$)/,
     'the CI composite this mirrors must still install frozen'
   );
 

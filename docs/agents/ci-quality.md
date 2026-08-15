@@ -49,13 +49,15 @@ replace or route required PR checks.
 ### Desktop Electron provisioning (BST-563)
 
 The Desktop E2E smoke job in `test.yml` and both regression jobs in
-`desktop-e2e.yml` download Electron directly from GitHub Releases and extract
-it into the installed package immediately before launch. They deliberately do
-not cache `~/.cache/electron`: this provisioning path never populates that
-directory, so the former version lookup and cache steps only added CI work.
-Each provisioning step assigns
-`ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"`; the fallback is required
-because a future `container:` job may not define `RUNNER_TEMP`. The paired
+`desktop-e2e.yml` route Electron's allowed install script through a fresh,
+job-local `${RUNNER_TEMP:-/tmp}/electron-cache`. The later provisioning step
+re-extracts that same checksum-verified archive immediately before launch, so
+each job transfers Electron exactly once without trusting the install hook's
+cache-hit extraction behavior. They deliberately do not persist
+`~/.cache/electron`; the former version lookup and Actions cache steps targeted
+a path that deterministic provisioning never consumed. The runner-temp
+fallback is required because a future `container:` job may not define
+`RUNNER_TEMP`. The paired
 `desktop-electron-provisioning-contract.test.mjs` keeps all three sites aligned,
 requires all three jobs to use the shared `setup-workspace` action, and fails if
 the unused cache or raw `RUNNER_TEMP` path returns.
