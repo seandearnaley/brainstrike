@@ -56,8 +56,9 @@ directory, so the former version lookup and cache steps only added CI work.
 Each provisioning step assigns
 `ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"`; the fallback is required
 because a future `container:` job may not define `RUNNER_TEMP`. The paired
-`desktop-electron-provisioning-contract.test.mjs` keeps all three sites aligned
-and fails if the unused cache or raw `RUNNER_TEMP` path returns.
+`desktop-electron-provisioning-contract.test.mjs` keeps all three sites aligned,
+requires all three jobs to use the shared `setup-workspace` action, and fails if
+the unused cache or raw `RUNNER_TEMP` path returns.
 
 Desktop renderer working-set snapshots use `app.getAppMetrics()` joined to
 each `webContents.getOSProcessId()`. Electron 43 does not expose the older

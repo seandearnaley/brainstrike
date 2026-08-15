@@ -7,6 +7,19 @@ import { parse as parseYaml } from 'yaml';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workflowPaths = ['.github/workflows/test.yml', '.github/workflows/desktop-e2e.yml'];
+const desktopSetupJobs = [
+  { job: 'desktop-e2e', relativePath: '.github/workflows/test.yml', turboCache: undefined },
+  {
+    job: 'desktop-full-regression',
+    relativePath: '.github/workflows/desktop-e2e.yml',
+    turboCache: 'true',
+  },
+  {
+    job: 'desktop-embedding-e2e',
+    relativePath: '.github/workflows/desktop-e2e.yml',
+    turboCache: 'true',
+  },
+];
 
 function loadWorkflow(relativePath) {
   return parseYaml(readFileSync(path.join(repoRoot, relativePath), 'utf8'));
@@ -15,6 +28,16 @@ function loadWorkflow(relativePath) {
 function allSteps(workflow) {
   return Object.values(workflow.jobs).flatMap((job) => job.steps ?? []);
 }
+
+test('all desktop jobs use the shared workspace setup action', () => {
+  for (const { job, relativePath, turboCache } of desktopSetupJobs) {
+    const steps = loadWorkflow(relativePath).jobs[job]?.steps;
+    assert.ok(Array.isArray(steps), `${relativePath} has no steps for ${job}`);
+    const setupStep = steps.find(({ uses }) => uses === './.github/actions/setup-workspace');
+    assert.ok(setupStep, `${relativePath} ${job} bypasses the shared workspace setup action`);
+    assert.equal(setupStep.with?.['turbo-cache'], turboCache);
+  }
+});
 
 test('desktop workflows do not cache an Electron location provisioning never populates', () => {
   for (const relativePath of workflowPaths) {
@@ -25,7 +48,7 @@ test('desktop workflows do not cache an Electron location provisioning never pop
       `${relativePath} still computes a key for the unused Electron cache`
     );
     const electronCacheSteps = steps.filter((step) => {
-      if (!step.uses?.startsWith('actions/cache@') || typeof step.with?.path !== 'string') {
+      if (!step.uses?.startsWith('actions/cache') || typeof step.with?.path !== 'string') {
         return false;
       }
 
