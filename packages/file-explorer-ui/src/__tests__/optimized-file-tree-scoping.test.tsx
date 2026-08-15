@@ -81,6 +81,33 @@ describe('OptimizedFileTree pane scoping', () => {
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
   });
 
+  it('loads children for HYDRATED scope expansions of unloaded directories (BST-1269)', async () => {
+    // Thread-switch hydration writes expandedPaths directly into the scope —
+    // no toggle flow runs, so the tree itself must lazy-load those dirs.
+    const onLoadChildren = vi.fn(async () => undefined);
+    const unloadedTree = mockFileTree.map((node) =>
+      node.type === 'directory' ? { ...node, children: [], loadState: 'unloaded' as const } : node
+    );
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree
+            expansionScope={{ expandedPaths: new Set(['/src']), onToggle: vi.fn() }}
+            fileTree={unloadedTree}
+            folderId="root"
+            hideSelection={true}
+            loadingFiles={new Set()}
+            onLoadChildren={onLoadChildren}
+          />
+        </FileExplorerTestWrapper>
+      );
+    });
+
+    await waitFor(() => {
+      expect(onLoadChildren).toHaveBeenCalledWith('/src');
+    });
+  });
+
   it('revealPath expands collapsed ancestors through the scope exactly once', async () => {
     function Harness() {
       const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(new Set());

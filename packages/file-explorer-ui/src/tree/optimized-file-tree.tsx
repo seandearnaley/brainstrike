@@ -1000,6 +1000,32 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       [fileNodeByPath, getDirectoryToggleState, reportToggleExpandError, toggleDirectoryNode]
     );
 
+    // Hydrated scope expansions (BST-1269): a thread-switch writes
+    // expandedPaths straight into the scope — no toggle flow runs, so
+    // lazy directories restored as "expanded" would render childless
+    // forever. Load them here; loadChildren dedupes in-flight requests and
+    // no-ops loaded nodes, and deeper restored expansions cascade as their
+    // parents' children land (fileNodeByPath dependency).
+    useEffect(() => {
+      if (!(expansionScope && onLoadChildren)) {
+        return;
+      }
+      for (const path of expansionScope.expandedPaths) {
+        const node = fileNodeByPath.get(path);
+        if (
+          node?.type === 'directory' &&
+          (node.loadState === 'unloaded' || node.loadState === undefined)
+        ) {
+          onLoadChildren(path).catch((error: unknown) => {
+            logger.warn('Failed to load children for a restored pane expansion', {
+              error,
+              path,
+            });
+          });
+        }
+      }
+    }, [expansionScope, fileNodeByPath, onLoadChildren]);
+
     // One-shot reveal (BST-1269): converge on the target across renders —
     // each pass expands the collapsed ancestors that are RENDERED (deeper
     // ones appear as their parents expand and lazy-load), and once the
