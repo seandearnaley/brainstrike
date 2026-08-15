@@ -17,6 +17,12 @@ import type { FileTreeSelectionStore } from './optimized-file-tree-selection-sto
 
 export interface FileTreeSelectionContextValue {
   folderId: string;
+  /**
+   * Navigation-only trees (per-file explorer panes, BST-1269): cells render a
+   * checkbox-sized spacer instead of the selection checkbox, keeping row
+   * geometry identical to the Files tree.
+   */
+  hideSelection: boolean;
   isDirectorySelectionLocked: boolean;
   maxSelectionCount: number;
   /**

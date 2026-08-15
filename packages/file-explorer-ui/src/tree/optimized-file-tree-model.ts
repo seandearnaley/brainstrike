@@ -48,7 +48,7 @@ export interface FileTreeRowData {
 }
 
 export interface BuildFileTreeRowsOptions {
-  expandedDirectoryPaths: Set<string>;
+  expandedDirectoryPaths: ReadonlySet<string>;
   folderId: string;
   isLoadingForSelection?: boolean;
   loadingFiles: Set<string>;
@@ -1158,7 +1158,7 @@ export function getSelectedDescendantPathsForDirectory({
 function addChildrenToStack(
   entry: StackEntry,
   stack: StackEntry[],
-  expandedDirectoryPaths: Set<string>
+  expandedDirectoryPaths: ReadonlySet<string>
 ): void {
   const { node, depth } = entry;
   // Only descend into expanded directories whose children are fully loaded.
@@ -1259,7 +1259,7 @@ export function buildRowsFromWorkerNodes(
 
 function shouldIncludeNormalizedChildren(
   node: IFileNode,
-  expandedDirectoryPaths: Set<string>
+  expandedDirectoryPaths: ReadonlySet<string>
 ): boolean {
   return (
     node.type === 'directory' &&
