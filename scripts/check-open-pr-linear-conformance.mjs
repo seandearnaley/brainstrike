@@ -7,6 +7,19 @@ import { fileURLToPath } from 'node:url';
 const LINEAR_REFERENCE = /\bBST-\d+\b/;
 const EXCLUDED_DEPENDENCY_BOTS = new Set(['dependabot[bot]', 'renovate[bot]']);
 
+export const GITHUB_OPEN_PULL_REQUEST_ARGS = Object.freeze([
+  'api',
+  '--paginate',
+  '--slurp',
+  '--method',
+  'GET',
+  'repos/{owner}/{repo}/pulls',
+  '-f',
+  'state=open',
+  '-F',
+  'per_page=100',
+]);
+
 function assertPullRequest(value, index) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new TypeError(`GitHub returned a non-object PR at index ${index}.`);
@@ -69,31 +82,45 @@ export function formatConformanceReport(findings) {
   return lines.join('\n');
 }
 
+export function normalizeOpenPullRequestPages(pages) {
+  if (!Array.isArray(pages)) {
+    throw new TypeError('Expected GitHub pagination to return an array of pages.');
+  }
+
+  const pullRequests = [];
+  for (const [pageIndex, page] of pages.entries()) {
+    if (!Array.isArray(page)) {
+      throw new TypeError(`GitHub returned a non-array PR page at index ${pageIndex}.`);
+    }
+    for (const candidate of page) {
+      if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
+        throw new TypeError(`GitHub returned a non-object PR on page ${pageIndex}.`);
+      }
+      pullRequests.push({
+        author: { login: candidate.user?.login },
+        body: candidate.body,
+        number: candidate.number,
+        title: candidate.title,
+        url: candidate.html_url,
+      });
+    }
+  }
+  return pullRequests;
+}
+
 function listOpenPullRequests() {
-  const result = spawnSync(
-    'gh',
-    [
-      'pr',
-      'list',
-      '--state',
-      'open',
-      '--limit',
-      '200',
-      '--json',
-      'number,title,body,author,isDraft,url',
-    ],
-    { encoding: 'utf8' }
-  );
+  const result = spawnSync('gh', GITHUB_OPEN_PULL_REQUEST_ARGS, { encoding: 'utf8' });
 
   if (result.error) {
     throw new Error(`Unable to run GitHub CLI: ${result.error.message}`, { cause: result.error });
   }
   if (result.status !== 0) {
-    throw new Error(`GitHub CLI failed with exit ${result.status}: ${result.stderr.trim()}`);
+    const termination = result.signal ? `signal ${result.signal}` : `exit ${result.status}`;
+    throw new Error(`GitHub CLI failed with ${termination}: ${result.stderr.trim()}`);
   }
 
   try {
-    return JSON.parse(result.stdout);
+    return normalizeOpenPullRequestPages(JSON.parse(result.stdout));
   } catch (error) {
     throw new Error('GitHub CLI returned malformed JSON.', { cause: error });
   }

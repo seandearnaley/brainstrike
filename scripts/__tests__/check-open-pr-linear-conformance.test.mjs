@@ -4,12 +4,13 @@ import test from 'node:test';
 import {
   findUnlinkedPullRequests,
   formatConformanceReport,
+  GITHUB_OPEN_PULL_REQUEST_ARGS,
+  normalizeOpenPullRequestPages,
 } from '../check-open-pr-linear-conformance.mjs';
 
 const pullRequest = (overrides = {}) => ({
   author: { login: 'seandearnaley' },
   body: '## Summary\n\nRefs BST-521',
-  isDraft: false,
   number: 42,
   title: 'ci: add a conformance check',
   url: 'https://github.com/seandearnaley/brainstrike/pull/42',
@@ -55,13 +56,59 @@ test('excludes dependency bots while retaining human maintenance PRs', () => {
 
 test('report includes PR number, title, URL, and a concrete suggested action', () => {
   const report = formatConformanceReport([
-    pullRequest({ body: '', number: 48, title: 'Missing tracker' }),
+    pullRequest({
+      body: '',
+      number: 48,
+      title: 'Missing tracker',
+      url: 'https://github.com/seandearnaley/brainstrike/pull/48',
+    }),
   ]);
 
   assert.match(report, /#48 Missing tracker/);
-  assert.match(report, /https:\/\/github\.com\/seandearnaley\/brainstrike\/pull\/42/);
+  assert.match(report, /https:\/\/github\.com\/seandearnaley\/brainstrike\/pull\/48/);
   assert.match(report, /Suggested action: add `BST-###`/);
   assert.match(report, /warning only; no PRs were modified/i);
+});
+
+test('normalizes every page returned by the exhaustive GitHub REST pagination', () => {
+  const normalized = normalizeOpenPullRequestPages([
+    [
+      {
+        body: 'Refs BST-1',
+        html_url: 'https://github.com/example/repo/pull/1',
+        number: 1,
+        title: 'First',
+        user: { login: 'first-author' },
+      },
+    ],
+    [
+      {
+        body: null,
+        html_url: 'https://github.com/example/repo/pull/201',
+        number: 201,
+        title: 'Beyond the first page',
+        user: { login: 'second-author' },
+      },
+    ],
+  ]);
+
+  assert.deepEqual(
+    normalized.map(({ author, number, url }) => ({ author: author.login, number, url })),
+    [
+      { author: 'first-author', number: 1, url: 'https://github.com/example/repo/pull/1' },
+      {
+        author: 'second-author',
+        number: 201,
+        url: 'https://github.com/example/repo/pull/201',
+      },
+    ]
+  );
+});
+
+test('GitHub invocation exhausts pagination instead of imposing a silent item limit', () => {
+  assert.ok(GITHUB_OPEN_PULL_REQUEST_ARGS.includes('--paginate'));
+  assert.ok(GITHUB_OPEN_PULL_REQUEST_ARGS.includes('--slurp'));
+  assert.equal(GITHUB_OPEN_PULL_REQUEST_ARGS.includes('--limit'), false);
 });
 
 test('clean report states that every inspected PR is linked', () => {
