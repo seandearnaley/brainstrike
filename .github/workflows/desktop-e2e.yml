@@ -46,7 +46,6 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          electron-download-cache: 'true'
           turbo-cache: 'true'
 
       - name: Build desktop
@@ -61,27 +60,19 @@ jobs:
       - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
 
-      # The setup action forces electron/install.js through a fresh runner-temp
-      # cache, avoiding the unreliable @electron/get cache-hit extraction path.
-      # Re-extract that same checksum-verified archive deterministically and
-      # hard-verify the executable before the test launches it.
+      # Electron 43 exposes install.js only as a bin and has no install lifecycle,
+      # so pnpm cannot provision the binary. Download the prebuilt zip from
+      # GitHub Releases, extract it, and hard-verify the executable before launch.
       - name: Provision Electron binary
         working-directory: apps/desktop
         run: |
           set -euo pipefail
           VER=$(node -p "require('electron/package.json').version")
           DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
-          ELECTRON_CACHE_ROOT="${RUNNER_TEMP:-/tmp}/electron-cache"
-          if [[ ! -d "$ELECTRON_CACHE_ROOT" ]]; then
-            echo "::error::Electron install cache is missing: $ELECTRON_CACHE_ROOT"
-            exit 1
-          fi
-          mapfile -t ELECTRON_ZIPS < <(find "$ELECTRON_CACHE_ROOT" -type f -name "electron-v${VER}-linux-x64.zip" -print)
-          if [[ "${#ELECTRON_ZIPS[@]}" -ne 1 ]]; then
-            echo "::error::Expected exactly one cached Electron v${VER} archive; found ${#ELECTRON_ZIPS[@]}"
-            exit 1
-          fi
-          ELECTRON_ZIP="${ELECTRON_ZIPS[0]}"
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
           rm -rf "${DIR}/dist" "${DIR}/path.txt"
           mkdir -p "${DIR}/dist"
           unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
@@ -117,7 +108,6 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          electron-download-cache: 'true'
           turbo-cache: 'true'
 
       - name: Build desktop
@@ -132,27 +122,19 @@ jobs:
       - name: Install Chromium system dependencies
         run: pnpm exec playwright install-deps chromium
 
-      # The setup action forces electron/install.js through a fresh runner-temp
-      # cache, avoiding the unreliable @electron/get cache-hit extraction path.
-      # Re-extract that same checksum-verified archive deterministically and
-      # hard-verify the executable before the test launches it.
+      # Electron 43 exposes install.js only as a bin and has no install lifecycle,
+      # so pnpm cannot provision the binary. Download the prebuilt zip from
+      # GitHub Releases, extract it, and hard-verify the executable before launch.
       - name: Provision Electron binary
         working-directory: apps/desktop
         run: |
           set -euo pipefail
           VER=$(node -p "require('electron/package.json').version")
           DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
-          ELECTRON_CACHE_ROOT="${RUNNER_TEMP:-/tmp}/electron-cache"
-          if [[ ! -d "$ELECTRON_CACHE_ROOT" ]]; then
-            echo "::error::Electron install cache is missing: $ELECTRON_CACHE_ROOT"
-            exit 1
-          fi
-          mapfile -t ELECTRON_ZIPS < <(find "$ELECTRON_CACHE_ROOT" -type f -name "electron-v${VER}-linux-x64.zip" -print)
-          if [[ "${#ELECTRON_ZIPS[@]}" -ne 1 ]]; then
-            echo "::error::Expected exactly one cached Electron v${VER} archive; found ${#ELECTRON_ZIPS[@]}"
-            exit 1
-          fi
-          ELECTRON_ZIP="${ELECTRON_ZIPS[0]}"
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
           rm -rf "${DIR}/dist" "${DIR}/path.txt"
           mkdir -p "${DIR}/dist"
           unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"

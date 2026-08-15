@@ -38,9 +38,6 @@ description: pnpm, Node (with pnpm cache), optional .turbo cache, and install de
 # setup steps as literal, uncomposited YAML; parameterizing the install command
 # for those callers is the trap this action exists to avoid, not a gap to close.
 inputs:
-  electron-download-cache:
-    description: route Electron install downloads through a fresh runner-temp cache
-    default: 'false'
   turbo-cache:
     description: restore/save the local .turbo cache layer
     default: 'false'
@@ -72,20 +69,5 @@ runs:
         key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.jsonc') }}
         restore-keys: |
           ${{ runner.os }}-${{ runner.arch }}-turbo-
-    - run: |
-        set -euo pipefail
-        case "${{ inputs.electron-download-cache }}" in
-          true)
-            ELECTRON_CACHE_ROOT="${RUNNER_TEMP:-/tmp}/electron-cache"
-            rm -rf "$ELECTRON_CACHE_ROOT"
-            mkdir -p "$ELECTRON_CACHE_ROOT"
-            export electron_config_cache="$ELECTRON_CACHE_ROOT"
-            ;;
-          false) ;;
-          *)
-            echo "::error::electron-download-cache must be true or false"
-            exit 1
-            ;;
-        esac
-        pnpm install --frozen-lockfile
+    - run: pnpm install --frozen-lockfile
       shell: bash
