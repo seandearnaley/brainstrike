@@ -340,12 +340,48 @@ test('the real repo configures a minimumReleaseAge floor, and it clears the expi
   // A LOWER BOUND, not equality: the intent is to stop the floor being silently
   // relaxed or removed. Equality would also fail when someone STRENGTHENS the
   // policy, and the failure message would tell them to undo a change that makes
-  // the repo safer. Removal fails too — readMinimumReleaseAgeFloorDays returns
-  // null, and `null >= 3` is false.
+  // the repo safer.
+  //
+  // REMOVAL is asserted SEPARATELY and deliberately, not folded into the bound.
+  // readMinimumReleaseAgeFloorDays returns null when the key is absent, and
+  // `null >= 1` is false — so today the bound alone would catch it. But `null`
+  // coerces to 0, so `null >= 0` is TRUE: the moment anyone tunes
+  // MINIMUM_POLICY_FLOOR_DAYS to 0, deleting `minimumReleaseAge` outright would
+  // pass this test silently. That is a strictly larger relaxation than any
+  // tuning this test is meant to permit, arriving with no tripwire, in the file
+  // whose entire job is to be the tripwire. Keep these two assertions separate
+  // so the removal guarantee is independent of whatever the floor is tuned to.
+  //
+  // RE-DECIDED 2026-08-15 (BST-1302): 3 -> 1 day. This tripwire did its job —
+  // it caught the change and forced the decision to be made here, in the open,
+  // rather than in a one-character yaml edit. The reasoning, recorded so the
+  // next person can weigh it rather than inherit it:
+  //
+  //   The 2026-08 dependency sweep hit the 3-day floor on 25 of 94 outdated
+  //   packages at once (mastra, the PGlite triple, all three AI SDK providers,
+  //   stryker, pragmatic-dnd, swc, turbo). None could land in that pass, and
+  //   each would otherwise need its own pinned exclusion plus ledger record —
+  //   so the floor's practical effect was to push toward blanket exclusions,
+  //   which are strictly worse than a shorter floor. 1 day still refuses the
+  //   same-day malicious publish, which is where most compromised-maintainer
+  //   and typosquat publishes are caught and unpublished; what it gives up is
+  //   the tail of that detection window.
+  //
+  // This is a real loosening of a security control, not a tuning tweak. If the
+  // upgrade cadence stops justifying it, raise it back — that is a one-line
+  // change and this test will not object to it.
+  const MINIMUM_POLICY_FLOOR_DAYS = 1;
   const floorDays = readMinimumReleaseAgeFloorDays(repoRoot);
+  assert.notEqual(
+    floorDays,
+    null,
+    'pnpm-workspace.yaml must declare a minimumReleaseAge floor at all. Removing the setting is a ' +
+      'supply-chain relaxation that has to be re-decided here — and `null >= 0` is true, so the bound ' +
+      'below cannot be relied on to catch removal once the floor is tuned to 0.'
+  );
   assert.ok(
-    floorDays >= 3,
-    `pnpm-workspace.yaml must keep a minimumReleaseAge floor of at least 3 days (read ${floorDays}). Raising it ` +
+    floorDays >= MINIMUM_POLICY_FLOOR_DAYS,
+    `pnpm-workspace.yaml must keep a minimumReleaseAge floor of at least ${MINIMUM_POLICY_FLOOR_DAYS} day(s) (read ${floorDays}). Raising it ` +
       'is fine; lowering or removing it is a supply-chain relaxation that has to be re-decided here.'
   );
   // The window is DERIVED from the floor, so the inversion this used to assert
