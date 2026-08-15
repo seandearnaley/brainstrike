@@ -174,9 +174,12 @@ allowBuilds:
 # in the guard — it reads this number — but an exclusion added today expires two
 # days sooner than one added under the old floor.
 #
-# This must stay BELOW that guard's 30-day MAX_EXCLUSION_AGE_DAYS; it fails the
-# lint if the two ever cross, because the "delete it, the floor admits it anyway"
-# remedy is only true while the floor is the shorter window.
+# The 30-day MAX_EXCLUSION_AGE_DAYS in that guard is now ONLY the fallback for a
+# tree with no floor configured. Nothing cross-checks the two and they cannot
+# "cross": because the window is derived (floor + grace) it always exceeds the
+# floor, so the inversion hazard this comment used to warn about is impossible
+# by construction. The guard's assertMaxAgeClearsFloor() was deleted when the
+# window became derived.
 minimumReleaseAge: 1440
 # minimumReleaseAgeExclude entries are TEMPORARY, and enforced as temporary by
 # scripts/verify-minimum-release-age-exclusions.mjs (wired into `pnpm lint`).
@@ -186,9 +189,11 @@ minimumReleaseAge: 1440
 #   * carry a matching record in scripts/minimum-release-age-exclusions.json
 #     giving npm's publish timestamp and the reason this version was needed
 #     before it had aged;
-#   * be DELETED, together with its record, once that version is more than 30
-#     days old — past that point any minimumReleaseAge floor would admit it
-#     anyway, so the exemption is inert and the guard fails until it is removed.
+#   * be DELETED, together with its record, once that version is older than the
+#     DERIVED window — minimumReleaseAge plus EXCLUSION_GRACE_DAYS, currently
+#     1 + 7 = 8 days. Past that point the floor admits the version anyway, so
+#     the exemption is inert and the guard fails until it is removed. The window
+#     moves with the floor; do not hard-code it here.
 # Per-entry provenance prose lives in that JSON ledger, NOT here. Two reasons:
 # an indented comment in this block is deleted whenever pnpm rewrites the file,
 # and this block is edited by nearly every dependency PR — keeping the rationale
