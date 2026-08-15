@@ -57,13 +57,6 @@ export default defineConfig({
           sequence: {
             groupOrder: 0,
           },
-          server: {
-            deps: {
-              // @brainstrike/ui's CodeBlockBody imports react-shiki, whose
-              // package includes a CSS side effect that Node cannot load.
-              inline: ['react-shiki'],
-            },
-          },
           setupFiles: ['@brainstrike/test-utils/vitest.setup'],
         },
       },

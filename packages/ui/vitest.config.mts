@@ -90,15 +90,6 @@ export default defineConfig({
           sequence: {
             groupOrder: 0,
           },
-          server: {
-            deps: {
-              // react-shiki@0.10+ ships a top-level `import './style.css'` side effect in
-              // its shared component chunk; Vitest externalizes node_modules by default,
-              // which hands that CSS import to Node's native ESM loader (no CSS support)
-              // instead of Vite's transform pipeline. Inlining forces Vite to handle it.
-              inline: ['react-shiki'],
-            },
-          },
           setupFiles: ['@brainstrike/test-utils/vitest.setup'],
         },
       },
