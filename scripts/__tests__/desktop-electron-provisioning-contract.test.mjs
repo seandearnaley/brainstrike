@@ -19,6 +19,11 @@ function allSteps(workflow) {
 test('desktop workflows do not cache an Electron location provisioning never populates', () => {
   for (const relativePath of workflowPaths) {
     const steps = allSteps(loadWorkflow(relativePath));
+    assert.equal(
+      steps.some(({ name }) => name === 'Get Electron version'),
+      false,
+      `${relativePath} still computes a key for the unused Electron cache`
+    );
     const electronCacheSteps = steps.filter((step) => {
       if (!step.uses?.startsWith('actions/cache@') || typeof step.with?.path !== 'string') {
         return false;
@@ -26,7 +31,7 @@ test('desktop workflows do not cache an Electron location provisioning never pop
 
       return step.with.path
         .split('\n')
-        .some((cachePath) => cachePath.trim() === '~/.cache/electron');
+        .some((cachePath) => cachePath.trim().includes('.cache/electron'));
     });
 
     assert.deepEqual(

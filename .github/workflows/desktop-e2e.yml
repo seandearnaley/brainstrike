@@ -39,6 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     # 30m broad regression + 2m AI Tools nightly lane + setup/build headroom.
     timeout-minutes: 40
+    # Keep the scheduled regression's local Turbo cache explicit and keyed on
+    # lockfile + turbo config content, matching the setup-workspace policy.
     steps:
       - name: Checkout
         uses: actions/checkout@v6
