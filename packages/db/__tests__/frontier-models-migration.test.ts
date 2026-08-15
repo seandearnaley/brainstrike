@@ -449,7 +449,7 @@ describe('frontier models migrations', () => {
     timeout: 60_000,
   }, async () => {
     await runner.initialize();
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 94));
 
     const readGemini = async (): Promise<
       | {
@@ -497,7 +497,7 @@ describe('frontier models migrations', () => {
           true
         )
     `);
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 94));
 
     expect(await readGemini()).toEqual({
       capabilities: { streaming: true, type: 'llm', vision: true },

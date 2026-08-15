@@ -637,6 +637,11 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 65_536,
         pricing: { inputPerMTok: 0.375, outputPerMTok: 1.875 },
         reasoning: {
+          // OpenRouter explicitly reports both mandatory=true and
+          // default_enabled=true. Preserve both so Auto uses the gateway's
+          // declared medium default rather than inferring one. Google documents
+          // 65,536 as a maximum, not a distinct default thinking+answer window,
+          // so there is no vendorDefaultOutputTokens fact to record.
           defaultEffort: 'medium',
           defaultEnabled: true,
           mandatory: true,
