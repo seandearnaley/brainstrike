@@ -15,9 +15,16 @@ cleanupUnusedCatalogs: true
 # scope a catalog does NOT have, and what guarantees ONE react instance.
 # scripts/verify-catalog-references.mjs enforces this "never both" rule.
 #
-# Comments must stay at column 0: `cleanupUnusedCatalogs: true` lets pnpm rewrite
-# this file, and a rewrite DELETES comments indented inside the catalog: block
-# (verified). Column-0 comments above a block survive.
+# Comment placement — RE-MEASURED 2026-08-15 on pnpm 11.15.0 (BST-1311). An
+# indented comment inside the catalog: block SURVIVES a pnpm rewrite. Measured by
+# adding a catalog entry no package references, which forces cleanupUnusedCatalogs
+# to act: pnpm pruned that entry and left an indented comment above a different
+# entry untouched. This SUPERSEDES an earlier note here that said such comments
+# are deleted — whatever pnpm did when that was written, this pnpm does not.
+# Two caveats before relying on it: pnpm only rewrites when an install actually
+# re-resolves (an "Already up to date" install leaves the file alone, and does not
+# prune either), and a comment attached to an entry that is itself pruned has no
+# measured verdict — so keep rationale beside entries that stay.
 catalog:
   '@anthropic-ai/sandbox-runtime': 0.0.67
   '@assistant-ui/react': '~0.15.13'
@@ -49,6 +56,7 @@ catalog:
   '@stryker-mutator/core': ^9.6.1
   '@stryker-mutator/typescript-checker': ^9.6.1
   '@stryker-mutator/vitest-runner': ^9.6.1
+  # PINNED: 1.16.0 breaks the build — see the @swc/core note in `overrides:` below.
   '@swc/core': ~1.15.47
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.3
@@ -123,6 +131,16 @@ overrides:
   # `pnpm update` or dedupe could have resolved 1.16.0 and broken the build with
   # no warning. The catalog was narrowed to `~1.15.47` in the same change to close
   # the direct-dependency path.
+  #
+  # What the narrowing is and is NOT, measured: widening the catalog back to
+  # `^1.16.0` while these overrides stand does NOT put the plugin on 1.16.0 — it
+  # stays on 1.15.47, because the override wins. What widening actually does is
+  # split the tree into TWO @swc/core resolutions, 1.15.47 for the plugin and
+  # 1.16.0 for the four catalog consumers (packages/{hooks,types,utils,test-utils},
+  # which take it as a devDependency with no source import). So the narrowing is
+  # single-resolution hygiene and a second line of defence, NOT the thing keeping
+  # the build green — the override is. Do not widen it casually on that basis,
+  # but do not mistake it for the load-bearing pin either.
   #
   # Subtree-scoped on purpose: a BARE `@swc/core` override would shadow the
   # catalog entry entirely, which scripts/verify-catalog-references.mjs rejects
