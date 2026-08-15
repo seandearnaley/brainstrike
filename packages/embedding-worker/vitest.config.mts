@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createBrowserProject } from '../config/src/vitest-browser.ts';
@@ -23,6 +24,9 @@ const WEBGPU_CI_LAUNCH_ARGS = [
 ] as const;
 
 const browserProject = createBrowserProject({
+  // See BST-1299: the browser page has no `process`, so the multiplier-scaled
+  // @testing-library/dom budget must be resolved here and handed over.
+  asyncUtilTimeout: getAsyncUtilTimeout(),
   headless: isCI,
   isCI,
   launchArgs: isCI ? [...WEBGPU_CI_LAUNCH_ARGS] : undefined,

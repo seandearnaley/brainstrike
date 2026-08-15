@@ -689,6 +689,32 @@ survive future edits:
   defaults remain. That validation contract applies where Vitest timeout policy
   is consumed; native `node --test` tasks do not read this setting and are not
   silently choosing a fallback timeout from it.
+- **The multiplier also governs `@testing-library/dom`'s async utilities**
+  (`waitFor`, `findBy*`), not only explicit Vitest timeouts (BST-1299). That
+  budget lives in library module state, so `configure({ asyncUtilTimeout })` is
+  the only way to set it and it must run in the test runtime — a Vitest setup
+  file, never Vitest config. The base stays the library's own 1000ms, so an
+  unscaled lane behaves exactly as before and a genuinely hung `waitFor` still
+  fails fast; `getAsyncUtilTimeout()` in `@brainstrike/test-utils` applies the
+  multiplier on top. Node lanes pick it up from the shared `vitest.setup`. The
+  browser lane cannot (`process` does not exist in the page, and the shared
+  setup imports `node:buffer`), so `createBrowserProject` takes a REQUIRED
+  `asyncUtilTimeout`, publishes it via `test.provide`, and
+  `vitest.browser.setup` `inject`s it — required rather than defaulted because
+  a browser project silently inheriting an unscalable 1s budget is precisely
+  the defect. `@brainstrike/config` is `tooling` and may depend on nothing, so
+  the caller resolves the number; the factory never re-derives it. The factory
+  also derives `testTimeout` as 5x that budget — the ratio Vitest's and
+  @testing-library's defaults happened to have — so a failing `waitFor` always
+  reports its last assertion instead of being cut short by a bare Vitest
+  timeout. Browser projects that build their own config instead of calling
+  `createBrowserProject` (`packages/db`, `packages/storage`) use no
+  @testing-library and are deliberately left out. Paired tests:
+  `packages/test-utils/src/__tests__/testing-library-timeouts.test.ts`,
+  `packages/config/__tests__/vitest-browser.test.ts`, and
+  `packages/assistant-ui/src/__tests__/async-util-timeout-wiring.browser.test.ts`
+  (times a real failing `waitFor` against the configured budget — the one
+  assertion a duplicated library instance cannot satisfy).
 - **`--full` is additive**, not a swap: the required-check mirror plus
   `nightly-coverage.yml`'s threshold gate and the full E2E regression lanes.
   `--fast` drops only the lanes CI fans out to separate runners (Browser tests,

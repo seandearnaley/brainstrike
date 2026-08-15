@@ -1,9 +1,14 @@
 import { resolve } from 'node:path';
+import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
 import { createBrowserProject } from '../config/src/vitest-browser.ts';
 
 const browserProject = createBrowserProject({
+  // Carries TEST_TIMEOUT_MULTIPLIER into the browser page, where `process`
+  // does not exist and @testing-library/dom would otherwise sit on its
+  // unscalable 1s waitFor default (BST-1299).
+  asyncUtilTimeout: getAsyncUtilTimeout(),
   testPattern: 'src/**/*.browser.test.{ts,tsx}',
 });
 
