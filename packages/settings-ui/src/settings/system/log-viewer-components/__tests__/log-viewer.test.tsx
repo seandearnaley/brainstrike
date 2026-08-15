@@ -538,10 +538,12 @@ describe('LogViewer', () => {
 
     const searchInput = screen.getByPlaceholderText('Search logs...');
     expect(searchInput).toHaveClass('pl-10');
-    expect(searchInput).toHaveStyle({ paddingLeft: '2.5rem' });
+    // Source constants are authored in rem (2.5rem / 0.75rem); jsdom >=30
+    // resolves computed lengths to px against the 16px root font size.
+    expect(searchInput).toHaveStyle({ paddingLeft: '40px' });
     expect(
       searchInput.parentElement?.querySelector('[data-slot="settings-search-icon"]')
-    ).toHaveStyle({ left: '0.75rem' });
+    ).toHaveStyle({ left: '12px' });
     fireEvent.change(searchInput, { target: { value: 'Apple' } });
 
     await waitFor(() => {

@@ -63,10 +63,12 @@ describe('SettingsPageContent', () => {
     const nav = screen.getByRole('navigation', { name: /settings categories/i });
     const searchbox = within(nav).getByRole('searchbox', { name: /search settings/i });
     expect(searchbox).toHaveClass('pl-10');
-    expect(searchbox).toHaveStyle({ paddingLeft: '2.5rem' });
+    // Source constants are authored in rem (2.5rem / 0.75rem); jsdom >=30
+    // resolves computed lengths to px against the 16px root font size.
+    expect(searchbox).toHaveStyle({ paddingLeft: '40px' });
     expect(
       searchbox.parentElement?.querySelector('[data-slot="settings-search-icon"]')
-    ).toHaveStyle({ left: '0.75rem' });
+    ).toHaveStyle({ left: '12px' });
     const appearanceButton = within(nav).getByRole('button', { name: /Appearance/i });
     expect(appearanceButton).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('settings-category-appearance')).toBeInTheDocument();
