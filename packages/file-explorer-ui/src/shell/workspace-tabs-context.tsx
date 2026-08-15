@@ -9,6 +9,7 @@ import { useTabManagerStore } from '../stores/tab-manager-store';
 import { useWorkspaceTabSelectionStore } from '../stores/workspace-tab-selection-store';
 import { useFileExplorerStoreSelector } from './file-explorer-provider';
 import { useFileExplorer } from './use-file-explorer-context';
+import { useTerminalHotkey } from './use-terminal-hotkey';
 import { useWorkspaceTabHotkeys } from './use-workspace-tab-hotkeys';
 import {
   useWorkspaceTabs,
@@ -365,6 +366,7 @@ export function WorkspaceTabsProvider({
     [openTab, selectFile, loadFileContent, setTarget, invalidatePendingSelection]
   );
 
+  useTerminalHotkey(apps, handleOpenApp);
   useWorkspaceTabHotkeys(selection, tabs, {
     onCloseApp: handleCloseApp,
     onCloseFileTab: handleCloseFileTab,

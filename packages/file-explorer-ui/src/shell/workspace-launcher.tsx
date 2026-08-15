@@ -5,6 +5,7 @@ const APP_DESCRIPTIONS: Readonly<Record<string, string>> = {
   canvas: 'View canvases created by the agent',
   changes: 'Review agent and git changes',
   'context-explorer': 'Browse and open workspace files',
+  terminal: 'Run shell commands in the workspace',
 };
 
 /**

@@ -39,6 +39,7 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerPanel: () => <div data-testid="file-explorer-panel" />,
   FileSystemProvider: ({ children }: { children: React.ReactNode }) => children,
   RootDataDeletionProvider: ({ children }: { children: React.ReactNode }) => children,
+  TERMINAL_APP_ID: 'terminal',
   useFileSystem: () => ({
     rootDirectoryHandle: null,
   }),
@@ -429,21 +430,23 @@ describe('RootLayoutContent', () => {
   });
 
   it('keeps the current shell tab active when settings opens and closes', async () => {
-    usePanelLayoutStore.setState({ activeTab: 'terminal' });
+    // BST-1270: Terminal left the shell-route system for the workspace tab
+    // strip, so the git route now pins this behavior.
+    usePanelLayoutStore.setState({ activeTab: 'git' });
     const user = userEvent.setup();
-    renderComponent({ terminalPageContent: <div data-testid="terminal-page">Terminal</div> });
+    renderComponent({ gitPageContent: <div data-testid="git-page">Git</div> });
 
     act(() => {
       usePanelLayoutStore.getState().openSettings();
     });
     expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByTestId('terminal-route')).not.toHaveClass('hidden');
+    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
 
     await user.click(screen.getByRole('button', { name: 'Close' }));
 
     expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
-    expect(usePanelLayoutStore.getState().activeTab).toBe('terminal');
-    expect(screen.getByTestId('terminal-route')).not.toHaveClass('hidden');
+    expect(usePanelLayoutStore.getState().activeTab).toBe('git');
+    expect(screen.getByTestId('git-route')).not.toHaveClass('hidden');
   });
 
   it('closes settings when navigating to another shell tab', () => {
@@ -512,14 +515,14 @@ describe('RootLayoutContent', () => {
     const user = userEvent.setup();
     renderComponent({
       gitPageContent: <div>Git</div>,
-      terminalPageContent: <div>Terminal</div>,
+      notesPageContent: <div>Notes</div>,
     });
 
     await user.click(screen.getByRole('button', { name: 'Select Prompts tab' }));
     const promptManager = screen.getByTestId('connected-prompt-manager');
     expect(promptManager).toHaveAttribute('data-suggestions-enabled', 'true');
 
-    for (const path of ['/git', '/terminal']) {
+    for (const path of ['/git', '/notes']) {
       act(() => {
         mockHandlers.onNavigationClick(path);
       });
