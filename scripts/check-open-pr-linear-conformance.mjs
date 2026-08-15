@@ -33,8 +33,14 @@ function assertPullRequest(value, index) {
   if (typeof value.url !== 'string') {
     throw new TypeError(`GitHub returned an invalid URL for PR #${value.number}.`);
   }
-  const login = value.author?.login;
-  if (typeof login !== 'string') {
+  const author = value.author;
+  const hasValidAuthor =
+    typeof author === 'object' &&
+    author !== null &&
+    !Array.isArray(author) &&
+    'login' in author &&
+    (typeof author.login === 'string' || author.login === null);
+  if (!hasValidAuthor) {
     throw new TypeError(`GitHub returned no author login for PR #${value.number}.`);
   }
   return value;
@@ -97,7 +103,7 @@ export function normalizeOpenPullRequestPages(pages) {
         throw new TypeError(`GitHub returned a non-object PR on page ${pageIndex}.`);
       }
       pullRequests.push({
-        author: { login: candidate.user?.login },
+        author: { login: candidate.user === null ? null : candidate.user?.login },
         body: candidate.body,
         number: candidate.number,
         title: candidate.title,

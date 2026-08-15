@@ -63,6 +63,27 @@ test('excludes dependency bots while retaining human maintenance PRs', () => {
   );
 });
 
+test('audits an open PR whose author account was deleted', () => {
+  const pullRequests = normalizeOpenPullRequestPages([
+    [
+      {
+        body: 'No issue reference.',
+        html_url: 'https://github.com/example/repo/pull/53',
+        number: 53,
+        title: 'Ghost-authored maintenance',
+        user: null,
+      },
+    ],
+  ]);
+
+  const findings = findUnlinkedPullRequests(pullRequests);
+
+  assert.deepEqual(
+    findings.map(({ number }) => number),
+    [53]
+  );
+});
+
 test('report includes PR number, title, URL, and a concrete suggested action', () => {
   const report = formatConformanceReport([
     pullRequest({
