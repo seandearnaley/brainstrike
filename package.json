@@ -59,6 +59,7 @@
     "check:fast": "node scripts/check.mjs --fast",
     "check:full": "node scripts/check.mjs --full",
     "check:headless": "pnpm -s run setup:headless && pnpm -s run check",
+    "check:pr-linear": "node scripts/check-open-pr-linear-conformance.mjs",
     "clean": "node scripts/run-turbo-command.mjs -- run clean --summarize --log-order=grouped",
     "coverage:enforce": "node scripts/enforce-coverage.mjs",
     "coverage:merge": "node scripts/merge-coverage.js",
