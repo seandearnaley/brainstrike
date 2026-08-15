@@ -52,6 +52,8 @@ export function useThreadWorkspaceCoordinator({
 }: ThreadWorkspaceCoordinatorOptions): void {
   const cacheRef = useRef(new Map<string, WorkspaceSnapshotV1>());
   const hydratingRef = useRef(false);
+  /** Thread whose boot hydration was deferred because the DB was not ready. */
+  const pendingBootHydrateRef = useRef<string | null>(null);
   const previousThreadIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchIntentRef = useRef(0);
@@ -146,16 +148,25 @@ export function useThreadWorkspaceCoordinator({
   // ---- Switch handling ----
   useEffect(() => {
     const previous = previousThreadIdRef.current;
-    if (previous === activeThreadId) {
+    const isDeferredBootHydration =
+      previous === activeThreadId &&
+      activeThreadId !== null &&
+      repository !== null &&
+      pendingBootHydrateRef.current === activeThreadId;
+    if (previous === activeThreadId && !isDeferredBootHydration) {
       return;
     }
+    pendingBootHydrateRef.current = null;
     previousThreadIdRef.current = activeThreadId;
     switchIntentRef.current += 1;
     const intent = switchIntentRef.current;
 
     // Flush the OUTGOING thread synchronously — the live stores still hold
-    // its state (nothing has hydrated yet).
-    if (previous !== null && repository) {
+    // its state (nothing has hydrated yet). NEVER on a deferred boot
+    // hydration: there is no outgoing thread, and flushing would overwrite
+    // the saved row with the un-hydrated boot state and then hydrate that
+    // empty flush right back.
+    if (previous !== null && repository && !isDeferredBootHydration) {
       if (saveTimerRef.current !== null) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
@@ -189,8 +200,12 @@ export function useThreadWorkspaceCoordinator({
       return;
     }
     if (!repository) {
-      // Boot before the database is ready: live stores already show the
-      // last-active workspace (their own persistence) — nothing to do.
+      // Boot before the database is ready (reload reality: activeThreadId
+      // restores from localStorage instantly, PGlite takes seconds). The
+      // persisted singleton stores already show a workspace; remember the
+      // thread so hydration runs when the repository arrives — session-only
+      // state (per-tab panes) has no other restore path.
+      pendingBootHydrateRef.current = activeThreadId;
       return;
     }
     repository
