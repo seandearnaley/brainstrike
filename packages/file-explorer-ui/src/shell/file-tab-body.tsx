@@ -18,6 +18,7 @@ import { useFileViewerContextMenu } from '../hooks/use-file-viewer-context-menu'
 import type { FileTab } from '../hooks/use-tab-manager';
 import { type FileViewMode, useEditorViewStateStore } from '../stores/editor-view-state-store';
 import {
+  DEFAULT_PANE_WIDTH_PCT,
   MAX_PANE_WIDTH_PCT,
   MIN_PANE_WIDTH_PCT,
   useFileTabPaneStore,
@@ -84,9 +85,14 @@ export function FileTabBody({
   const togglePane = useFileTabPaneStore((s) => s.togglePane);
   const setPaneWidthPct = useFileTabPaneStore((s) => s.setPaneWidthPct);
   const isPaneOpen = paneState?.open === true;
-  const [revealPath, setRevealPath] = useState<string | null>(path);
+  // The nonce makes every activation a NEW reveal request, so re-clicking the
+  // same breadcrumb (or re-opening the pane on the same file) re-reveals.
+  const [revealRequest, setRevealRequest] = useState<{ nonce: number; path: string | null }>({
+    nonce: 0,
+    path,
+  });
   const handleTogglePane = useCallback(() => {
-    setRevealPath(path);
+    setRevealRequest((previous) => ({ nonce: previous.nonce + 1, path }));
     togglePane(tab.compositeKey);
   }, [path, tab.compositeKey, togglePane]);
   const breadcrumbSegments = useMemo(
@@ -95,7 +101,7 @@ export function FileTabBody({
   );
   const handleBreadcrumbSegmentClick = useCallback(
     (segmentPath: string) => {
-      setRevealPath(segmentPath);
+      setRevealRequest((previous) => ({ nonce: previous.nonce + 1, path: segmentPath }));
       if (!useFileTabPaneStore.getState().panes[tab.compositeKey]?.open) {
         togglePane(tab.compositeKey);
       }
@@ -366,13 +372,17 @@ export function FileTabBody({
           >
             <Panel
               className="overflow-hidden border-r bg-background"
-              defaultSize={`${paneState?.widthPct ?? 30}%`}
+              defaultSize={`${paneState?.widthPct ?? DEFAULT_PANE_WIDTH_PCT}%`}
               id="file-tab-pane"
               maxSize={`${MAX_PANE_WIDTH_PCT}%`}
               minSize={`${MIN_PANE_WIDTH_PCT}%`}
             >
               <div className="h-full min-h-0" data-testid="file-tab-explorer-pane">
-                <FileTabExplorerPane compositeKey={tab.compositeKey} revealPath={revealPath} />
+                <FileTabExplorerPane
+                  compositeKey={tab.compositeKey}
+                  revealNonce={revealRequest.nonce}
+                  revealPath={revealRequest.path}
+                />
               </div>
             </Panel>
             <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />

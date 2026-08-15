@@ -108,6 +108,31 @@ describe('OptimizedFileTree pane scoping', () => {
     });
   });
 
+  it('reveal never toggles a LOADING ancestor — not even for a new target (review finding)', async () => {
+    // Toggling a loading directory means "cancel the load"; a reveal that did
+    // so would wedge the load it depends on.
+    const onToggle = vi.fn();
+    const loadingTree = mockFileTree.map((node) =>
+      node.type === 'directory' ? { ...node, children: [], loadState: 'loading' as const } : node
+    );
+    await act(async () => {
+      render(
+        <FileExplorerTestWrapper>
+          <OptimizedFileTree
+            expansionScope={{ expandedPaths: new Set<string>(), onToggle }}
+            fileTree={loadingTree}
+            folderId="root"
+            hideSelection={true}
+            loadingFiles={new Set()}
+            revealPath="/src/file2.txt"
+          />
+        </FileExplorerTestWrapper>
+      );
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
   it('revealPath expands collapsed ancestors through the scope exactly once', async () => {
     function Harness() {
       const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(new Set());

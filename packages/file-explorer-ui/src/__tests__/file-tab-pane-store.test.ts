@@ -58,6 +58,16 @@ describe('file-tab-pane-store', () => {
     expect(useFileTabPaneStore.getState().panes[KEY]?.widthPct).toBe(42);
   });
 
+  it('hydratePanes clamps widthPct to the same band as the write path', () => {
+    useFileTabPaneStore.getState().hydratePanes({
+      narrow: { expandedPaths: [], open: true, widthPct: 2 },
+      wide: { expandedPaths: [], open: true, widthPct: 95 },
+    });
+    const panes = useFileTabPaneStore.getState().panes;
+    expect(panes['wide']?.widthPct).toBe(70);
+    expect(panes['narrow']?.widthPct).toBe(10);
+  });
+
   it('hydratePanes replaces the whole record (thread switch)', () => {
     useFileTabPaneStore.getState().togglePane(KEY);
     useFileTabPaneStore.getState().hydratePanes({

@@ -15,6 +15,8 @@ import { useFileSystem } from './file-system-provider';
  */
 export interface FileTabExplorerPaneProps {
   readonly compositeKey: string;
+  /** Re-trigger key: bump to re-reveal the SAME path (repeated clicks). */
+  readonly revealNonce: number;
   /** One-shot reveal target forwarded to the tree (file path or folder path). */
   readonly revealPath: string | null;
 }
@@ -25,6 +27,7 @@ const EMPTY_LOADING_FILES = new Set<string>();
 function PaneTree({
   compositeKey,
   folderId,
+  revealNonce,
   revealPath,
 }: FileTabExplorerPaneProps & {
   readonly folderId: string;
@@ -50,13 +53,14 @@ function PaneTree({
       loadingFiles={EMPTY_LOADING_FILES}
       loadingPaths={treeContext.loadingPaths}
       onLoadChildren={treeContext.loadChildren}
-      {...(revealPath === null ? {} : { revealPath })}
+      {...(revealPath === null ? {} : { revealNonce, revealPath })}
     />
   );
 }
 
 export function FileTabExplorerPane({
   compositeKey,
+  revealNonce,
   revealPath,
 }: FileTabExplorerPaneProps): ReactElement {
   const { rootDirectoryHandles, rootIdByPath } = useFileSystem();
@@ -91,8 +95,18 @@ export function FileTabExplorerPane({
   }
 
   return (
-    <FileTreeProvider key={folderId} rootDirectoryHandle={handle} rootId={folderId}>
-      <PaneTree compositeKey={compositeKey} folderId={folderId} revealPath={revealPath} />
+    <FileTreeProvider
+      disableWorkspaceExpansionRestoration={true}
+      key={folderId}
+      rootDirectoryHandle={handle}
+      rootId={folderId}
+    >
+      <PaneTree
+        compositeKey={compositeKey}
+        folderId={folderId}
+        revealNonce={revealNonce}
+        revealPath={revealPath}
+      />
     </FileTreeProvider>
   );
 }

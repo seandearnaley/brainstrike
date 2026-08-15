@@ -85,6 +85,7 @@ import {
   resolveDirectorySelectionMutation,
   shouldLoadDirectoryRecursively,
 } from './optimized-file-tree-model';
+import { resolveRevealStep } from './optimized-file-tree-reveal';
 import {
   collectTreePaths,
   useSelectedDirectoryCounts,
@@ -164,10 +165,15 @@ interface IOptimizedFileTreeProps {
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
     | undefined;
   /**
+   * Re-trigger key for `revealPath` (BST-1269): the one-shot reveal keys on
+   * `(revealNonce, revealPath)`, so bumping the nonce re-reveals the SAME
+   * path (repeated breadcrumb clicks). Omitting it keeps per-value semantics.
+   */
+  revealNonce?: number | undefined;
+  /**
    * One-shot reveal target (BST-1269): expand the path's collapsed ancestors
-   * (loading lazily as needed), then scroll its row into view. Re-runs only
-   * when the value CHANGES — consumers re-trigger the same path by clearing
-   * and re-setting it.
+   * (loading lazily as needed), then scroll its row into view. Re-runs when
+   * the `(revealNonce, revealPath)` pair changes.
    */
   revealPath?: string | undefined;
   /**
@@ -323,64 +329,6 @@ function runLoadedDirectorySelectionMutation(args: {
   }
 }
 
-/** Proper-prefix directory chain of `revealPath`, stopping at the root. */
-function collectRevealAncestors(revealPath: string, rootPath: string | null): string[] {
-  const ancestorPaths: string[] = [];
-  let separatorIndex = revealPath.lastIndexOf('/');
-  while (separatorIndex > 0) {
-    const prefix = revealPath.slice(0, separatorIndex);
-    if (rootPath && (prefix === rootPath || rootPath.startsWith(`${prefix}/`))) {
-      break;
-    }
-    ancestorPaths.push(prefix);
-    separatorIndex = prefix.lastIndexOf('/');
-  }
-  return ancestorPaths;
-}
-
-type RevealStep = { kind: 'expand'; paths: string[] } | { kind: 'reveal' } | { kind: 'wait' };
-
-/**
- * One pass of the reveal convergence loop (BST-1269): expand the RENDERED
- * collapsed ancestors not yet toggled for this target (deeper ones appear as
- * parents expand and lazy-load); wait while a toggled ancestor's expansion is
- * still landing; reveal once the chain is open. A collapsed directory TARGET
- * expands as part of its own reveal step.
- */
-function resolveRevealStep(args: {
-  alreadyToggledPaths: ReadonlySet<string>;
-  expandedPaths: ReadonlySet<string>;
-  renderedNodesByPath: ReadonlyMap<string, IFileNode>;
-  revealPath: string;
-  rootPath: string | null;
-}): RevealStep {
-  const { alreadyToggledPaths, expandedPaths, renderedNodesByPath, revealPath, rootPath } = args;
-  const ancestorPaths = collectRevealAncestors(revealPath, rootPath);
-  const renderedCollapsed = ancestorPaths.filter(
-    (path) => !expandedPaths.has(path) && renderedNodesByPath.has(path)
-  );
-  const freshlyCollapsed = renderedCollapsed.filter((path) => !alreadyToggledPaths.has(path));
-  if (freshlyCollapsed.length > 0) {
-    return { kind: 'expand', paths: freshlyCollapsed };
-  }
-  if (renderedCollapsed.length > 0) {
-    // A toggled ancestor is still loading — wait for its expansion to land.
-    return { kind: 'wait' };
-  }
-  const targetNode = renderedNodesByPath.get(revealPath);
-  if (!targetNode) {
-    return { kind: 'wait' };
-  }
-  if (
-    targetNode.type === 'directory' &&
-    !expandedPaths.has(revealPath) &&
-    !alreadyToggledPaths.has(revealPath)
-  ) {
-    return { kind: 'expand', paths: [revealPath] };
-  }
-  return { kind: 'reveal' };
-}
-
 /**
  * TreeTable adapter for file explorer panel.
  * Maintains lazy-loading and recursive selection behavior while converging on shared tree-grid UI.
@@ -403,6 +351,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     showColumnHeader = false,
     expansionScope,
     hideSelection = false,
+    revealNonce = 0,
     revealPath,
   }) => {
     const store = useFileExplorerStoreContext();
@@ -1040,11 +989,12 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       target: null,
     });
     useEffect(() => {
-      if (!revealPath || lastRevealedPathRef.current === revealPath) {
+      const revealKey = `${revealNonce}|${revealPath ?? ''}`;
+      if (!revealPath || lastRevealedPathRef.current === revealKey) {
         return;
       }
-      if (revealToggledRef.current.target !== revealPath) {
-        revealToggledRef.current = { paths: new Set(), target: revealPath };
+      if (revealToggledRef.current.target !== revealKey) {
+        revealToggledRef.current = { paths: new Set(), target: revealKey };
       }
 
       const step = resolveRevealStep({
@@ -1064,9 +1014,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       if (step.kind === 'wait') {
         return;
       }
-      lastRevealedPathRef.current = revealPath;
+      lastRevealedPathRef.current = revealKey;
       treeTableHandleRef.current?.revealNode(revealPath);
-    }, [revealPath, effectiveExpandedPaths, fileNodeByPath, handleToggleExpand, rootPath]);
+    }, [
+      revealNonce,
+      revealPath,
+      effectiveExpandedPaths,
+      fileNodeByPath,
+      handleToggleExpand,
+      rootPath,
+    ]);
 
     const directoryTraversalContext = useMemo<DirectorySelectionTraversalContext>(
       () => ({

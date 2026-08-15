@@ -13,7 +13,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { openFileInTab, paneProps, toastFn } = vi.hoisted(() => ({
   openFileInTab: vi.fn(),
-  paneProps: { current: [] as Array<{ compositeKey: string; revealPath: string | null }> },
+  paneProps: {
+    current: [] as Array<{ compositeKey: string; revealNonce: number; revealPath: string | null }>,
+  },
   toastFn: vi.fn(),
 }));
 
@@ -28,7 +30,11 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 });
 
 vi.mock('../file-tab-explorer-pane', () => ({
-  FileTabExplorerPane: (props: { compositeKey: string; revealPath: string | null }) => {
+  FileTabExplorerPane: (props: {
+    compositeKey: string;
+    revealNonce: number;
+    revealPath: string | null;
+  }) => {
     paneProps.current.push({ ...props });
     return <div data-testid="pane-spy" />;
   },
@@ -97,6 +103,7 @@ describe('FileTabBody explorer pane', () => {
     expect(useFileTabPaneStore.getState().panes[KEY]?.open).toBe(true);
     expect(paneProps.current.at(-1)).toEqual({
       compositeKey: KEY,
+      revealNonce: 1,
       revealPath: '/root/src/app.ts',
     });
 
@@ -111,6 +118,16 @@ describe('FileTabBody explorer pane', () => {
     expect(useFileTabPaneStore.getState().panes[KEY]?.open).toBe(true);
     expect(paneProps.current.at(-1)).toEqual({
       compositeKey: KEY,
+      revealNonce: 1,
+      revealPath: '/root/src',
+    });
+
+    // Re-clicking the SAME segment is a fresh reveal request (nonce bump) —
+    // collapsing and re-clicking must re-reveal (review finding).
+    fireEvent.click(screen.getByRole('button', { name: 'src' }));
+    expect(paneProps.current.at(-1)).toEqual({
+      compositeKey: KEY,
+      revealNonce: 2,
       revealPath: '/root/src',
     });
   });

@@ -3,26 +3,30 @@ import type { BreadcrumbSegment } from '@brainstrike/ui';
 /**
  * Derive breadcrumb segments for a file tab (BST-1269). Labels are the path
  * segments RELATIVE to the workspace root; each segment's `path` is the
- * cumulative tree-node path (root-absolute), so a breadcrumb click can feed
+ * cumulative tree-node path — sliced from the ORIGINAL string, so separator
+ * style ('/' or Windows '\\') is preserved and clicks feed
  * OptimizedFileTree's `revealPath` without translation.
  */
 export function buildFileBreadcrumbSegments(
   path: string,
   rootPath: string | null
 ): BreadcrumbSegment[] {
-  const root =
-    rootPath !== null && (path === rootPath || path.startsWith(`${rootPath}/`)) ? rootPath : null;
-  const relative = root ? path.slice(root.length + 1) : path;
-  const parts = relative.split('/').filter(Boolean);
-  const isAbsolute = path.startsWith('/');
+  const isUnderRoot =
+    rootPath !== null &&
+    (path === rootPath || path.startsWith(`${rootPath}/`) || path.startsWith(`${rootPath}\\`));
+  const startIndex = isUnderRoot && rootPath !== null ? rootPath.length + 1 : 0;
 
-  let cursor = root ?? '';
-  return parts.map((part) => {
-    if (cursor) {
-      cursor = `${cursor}/${part}`;
-    } else {
-      cursor = isAbsolute ? `/${part}` : part;
+  const segments: BreadcrumbSegment[] = [];
+  let segmentStart = startIndex;
+  for (let index = startIndex; index <= path.length; index += 1) {
+    const isBoundary = index === path.length || path[index] === '/' || path[index] === '\\';
+    if (!isBoundary) {
+      continue;
     }
-    return { label: part, path: cursor };
-  });
+    if (index > segmentStart) {
+      segments.push({ label: path.slice(segmentStart, index), path: path.slice(0, index) });
+    }
+    segmentStart = index + 1;
+  }
+  return segments;
 }

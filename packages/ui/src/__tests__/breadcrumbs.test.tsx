@@ -59,4 +59,17 @@ describe('Breadcrumbs', () => {
     const overflowTrigger = screen.getByRole('button', { name: 'Show hidden path segments' });
     expect(overflowTrigger).toHaveAttribute('aria-haspopup', 'menu');
   });
+
+  it('display-only mode renders NO interactive overflow trigger', () => {
+    const longSegments = [
+      { label: 'repo', path: '/repo' },
+      { label: 'packages', path: '/repo/packages' },
+      { label: 'ui', path: '/repo/packages/ui' },
+      { label: 'src', path: '/repo/packages/ui/src' },
+      { label: 'tree-table', path: '/repo/packages/ui/src/tree-table' },
+      { label: 'types.ts', path: '/repo/packages/ui/src/tree-table/types.ts' },
+    ];
+    render(<Breadcrumbs maxVisibleSegments={4} segments={longSegments} />);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
 });

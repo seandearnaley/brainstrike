@@ -49,7 +49,13 @@ function clampWidthPct(widthPct: number): number {
 
 export const useFileTabPaneStore = create<FileTabPaneStore>()((set) => ({
   hydratePanes: (panes) => {
-    set({ panes });
+    // Same clamp as the write path — snapshot payloads are coerced for TYPE
+    // upstream but not for range.
+    const clamped: Record<string, FileTabPaneState> = {};
+    for (const [compositeKey, pane] of Object.entries(panes)) {
+      clamped[compositeKey] = { ...pane, widthPct: clampWidthPct(pane.widthPct) };
+    }
+    set({ panes: clamped });
   },
   panes: {},
   setPaneWidthPct: (compositeKey, widthPct) => {

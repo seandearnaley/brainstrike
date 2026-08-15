@@ -104,7 +104,19 @@ export function Breadcrumbs({
     <nav aria-label={ariaLabel} className={cn('min-w-0', className)}>
       <ol className="flex min-w-0 items-center gap-1 text-xs">
         {head.map((segment, index) => renderSegmentItem(segment, index === 0))}
-        {collapsed.length > 0 && (
+        {collapsed.length > 0 && !onSegmentClick && (
+          <li className="flex items-center gap-1">
+            <Separator />
+            <span
+              aria-hidden="true"
+              className="flex h-4 w-4 items-center justify-center text-muted-foreground"
+              title={collapsed.map((segment) => segment.label).join(' / ')}
+            >
+              <MoreHorizontal className="h-3 w-3" />
+            </span>
+          </li>
+        )}
+        {collapsed.length > 0 && onSegmentClick && (
           <li className="flex items-center gap-1">
             <Separator />
             <DropdownMenu>
