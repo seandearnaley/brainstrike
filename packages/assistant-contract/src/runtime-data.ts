@@ -58,7 +58,13 @@ export type AnthropicEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 /**
  * Mirrors the `thinking` discriminated union of the installed
- * `@ai-sdk/anthropic` (4.0.8).
+ * `@ai-sdk/anthropic` (4.0.39), held there by
+ * `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`.
+ *
+ * `budgetTokens` is OPTIONAL upstream and required here on purpose: an
+ * `enabled` request without an explicit budget is not a shape this app emits.
+ * The mirror contract compares union membership, not field optionality, so
+ * that narrowing stays deliberate rather than becoming an accident.
  *
  * `adaptive` is the modern form and the only one carrying `display`, which
  * governs whether reasoning is RETURNED. `display` defaults to `omitted`

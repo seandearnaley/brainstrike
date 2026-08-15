@@ -93,16 +93,40 @@ function canonicalizeToolSearchCall(part: AssistantPart): AssistantPart {
   };
 }
 
-function canonicalizeToolSearchResult(
+/**
+ * Validates — no longer rewrites — the hosted output's item reference.
+ *
+ * BST-1310: `@ai-sdk/openai` 4.0.18 taught the responses converter to fall back
+ * to `providerMetadata.openai.itemId` for a `tool_search` result, so copying
+ * the persisted ID into `providerOptions` is now redundant work the SDK does
+ * itself. What is NOT redundant is failing loudly here.
+ *
+ * The failure guarded against is DUPLICATION, not absence. Two distinct routes
+ * reach the same broken request body — a pair of identical `item_reference`s,
+ * which OpenAI 400s on far downstream of this seam:
+ *
+ *  1. No output ID at all. The converter's last resort is `?? part.toolCallId`,
+ *     so it silently serializes the CALL's id as the OUTPUT's.
+ *  2. An output ID that already IS the call's. This file exists because Mastra
+ *     hydrates one invocation's provider metadata onto both parts; the
+ *     symmetric hydration lands the call's `tsc_` on the result. Nothing is
+ *     absent and the recorded IDs do not disagree, so a presence check waves it
+ *     through — it is the quiet one, and the reason distinctness is asserted
+ *     rather than merely existence.
+ *
+ * Both are exactly the quiet degradation AGENTS.md forbids, so both stay errors
+ * rather than becoming the SDK's default.
+ */
+function assertToolSearchResultItemId(
   part: AssistantPart,
   providerExecutedCallIds: ReadonlySet<string>
-): AssistantPart {
+): void {
   if (
     part.type !== 'tool-result' ||
     part.toolName !== TOOL_SEARCH_NAME ||
     !providerExecutedCallIds.has(part.toolCallId)
   ) {
-    return part;
+    return;
   }
   const supportedItemId = readOpenAIItemId(part.providerOptions, 'providerOptions');
   const persistedItemId = readOpenAIItemId(
@@ -112,39 +136,38 @@ function canonicalizeToolSearchResult(
   if (supportedItemId && persistedItemId && supportedItemId !== persistedItemId) {
     throw new Error('conflicting OpenAI tool-search output item IDs');
   }
-  if (supportedItemId) {
-    return part;
-  }
-  if (!persistedItemId) {
+  // `providerOptions` first, mirroring the converter's own precedence, so the
+  // ID checked here is the ID that would reach the wire.
+  const outputItemId = supportedItemId ?? persistedItemId;
+  if (!outputItemId) {
     throw new Error('OpenAI tool-search output history is missing its provider item ID');
   }
-  const existingProviderOptions = isRecord(part.providerOptions) ? part.providerOptions : {};
-  const existingOpenAIOptions = isRecord(existingProviderOptions[OPENAI_NAMESPACE])
-    ? existingProviderOptions[OPENAI_NAMESPACE]
-    : {};
-  return {
-    ...part,
-    providerOptions: {
-      ...existingProviderOptions,
-      [OPENAI_NAMESPACE]: {
-        ...existingOpenAIOptions,
-        itemId: persistedItemId,
-      },
-    },
-  };
+  if (outputItemId === part.toolCallId) {
+    throw new Error(
+      'OpenAI tool-search output item ID duplicates its call item ID; the request would carry two identical item_references'
+    );
+  }
 }
 
 /**
- * Canonicalizes persisted OpenAI hosted tool-search output references at the
+ * Canonicalizes persisted OpenAI hosted tool-search CALL references at the
  * transient provider boundary.
  *
  * Mastra v2 persists a completed provider tool as one invocation with the
  * result's provider metadata, then hydrates that metadata onto both the call
  * and result. The call therefore incorrectly carries the `tso_` output ID
- * instead of its `tsc_` toolCallId. AI SDK 4.0.8 also reads providerOptions,
- * not providerMetadata, when serializing the result. Canonicalizing both parts
- * here preserves exactly one distinct call and output reference without
- * mutating durable history.
+ * instead of its `tsc_` toolCallId, and the responses converter trusts
+ * `providerMetadata.openai.itemId` on a `tool-call` part — so without this the
+ * call and the output serialize as the SAME `item_reference`.
+ *
+ * That defect is Mastra's, not the AI SDK's, and no AI SDK release fixes it;
+ * this half of the seam has no removal condition tied to an upstream version.
+ * The result half DID have one and is gone (BST-1310): `@ai-sdk/openai` 4.0.18
+ * added the `providerMetadata` fallback for `tool_search` results, so only a
+ * visible-failure guard remains for output history with no item ID at all.
+ * `openai-tool-search-history-compat.spec.ts` asserts both upstream behaviours
+ * directly, so the day the remaining defect is fixed a test goes red instead of
+ * a doc going stale.
  */
 export class OpenAIToolSearchHistoryCompat
   implements Processor<'openai-tool-search-history-compat'>
@@ -161,8 +184,8 @@ export class OpenAIToolSearchHistoryCompat
       const providerExecutedCallIds = collectProviderExecutedToolSearchCallIds(message.content);
       let contentChanged = false;
       const content = message.content.map((part) => {
-        const canonicalCall = canonicalizeToolSearchCall(part);
-        const canonicalPart = canonicalizeToolSearchResult(canonicalCall, providerExecutedCallIds);
+        const canonicalPart = canonicalizeToolSearchCall(part);
+        assertToolSearchResultItemId(canonicalPart, providerExecutedCallIds);
         if (canonicalPart !== part) {
           contentChanged = true;
           rewrittenCount += 1;
@@ -176,7 +199,12 @@ export class OpenAIToolSearchHistoryCompat
     }
     logger.info(
       { code: 'openai_tool_search_history_canonicalized', rewrittenCount },
-      'canonicalized persisted OpenAI tool-search output item references'
+      // Only `canonicalizeToolSearchCall` can increment `rewrittenCount` now
+      // that the output half is validation-only, so this counts CALL rewrites.
+      // It is the breadcrumb whoever debugs the next duplicate-`item_reference`
+      // 400 lands on; naming the wrong half would send them to a seam that no
+      // longer rewrites anything.
+      'canonicalized persisted OpenAI tool-search call item references'
     );
     return { prompt };
   }
