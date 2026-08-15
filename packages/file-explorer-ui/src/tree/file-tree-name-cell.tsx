@@ -79,8 +79,14 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
   onSelectionChange,
 }: FileTreeNameCellProps) {
   const fileNode = rowData.fileNode;
-  const { folderId, isDirectorySelectionLocked, maxSelectionCount, openFileInTab, store } =
-    useFileTreeSelection();
+  const {
+    folderId,
+    hideSelection,
+    isDirectorySelectionLocked,
+    maxSelectionCount,
+    openFileInTab,
+    store,
+  } = useFileTreeSelection();
   // Per-node selection state via useSyncExternalStore: this cell re-renders on
   // a selection change ONLY when ITS OWN derived state changed, not on every
   // toggle (#1594). getSnapshot returns a cached object with stable identity
@@ -122,45 +128,51 @@ export const FileTreeNameCell = memo(function FileTreeNameCellComponent({
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5">
-      <div
-        className="flex w-4 flex-shrink-0 items-center justify-center"
-        title={
-          rowData.isLoadingForSelection
-            ? 'Loading folder contents...'
-            : fileNode.type === 'file' && selectionState.wouldExceedLimit
-              ? `Cannot select more than ${maxSelectionCount} files`
-              : undefined
-        }
-      >
-        {rowData.isLoadingForSelection ? (
-          <Loader2
-            aria-label={`Loading ${fileNode.name} for selection`}
-            className="h-4 w-4 animate-spin text-blue-500"
-          />
-        ) : (
-          // No DOM id: the same path renders in multiple tree surfaces
-          // (panel + preview/dialog) and across roots, so a path-derived id
-          // produces duplicate-id documents; aria-label carries the name.
-          //
-          // Disable rules (decision D3): the cap disables only FILE adds (a
-          // single-file add at the cap is a true no-op). Directory checkboxes
-          // never disable for the cap — deselect must always work and adds
-          // partial-fill with a toast. During a recursive scan EVERY checkbox
-          // disables (clicks are ignored; the affordance must not lie).
-          <LightweightCheckbox
-            aria-label={`Select ${fileNode.name}`}
-            checked={selectionState.checkboxState}
-            className="h-4 w-4"
-            disabled={
-              isDirectorySelectionLocked ||
-              (fileNode.type === 'file' && selectionState.wouldExceedLimit) ||
-              fileNode.type === 'loadMore' ||
-              fileNode.type === 'truncated'
-            }
-            onCheckedChange={() => onSelectionChange(rowData)}
-          />
-        )}
-      </div>
+      {hideSelection ? (
+        // Navigation-only pane trees: checkbox-sized spacer keeps row
+        // geometry identical to the Files tree without a selection affordance.
+        <div aria-hidden="true" className="w-4 flex-shrink-0" />
+      ) : (
+        <div
+          className="flex w-4 flex-shrink-0 items-center justify-center"
+          title={
+            rowData.isLoadingForSelection
+              ? 'Loading folder contents...'
+              : fileNode.type === 'file' && selectionState.wouldExceedLimit
+                ? `Cannot select more than ${maxSelectionCount} files`
+                : undefined
+          }
+        >
+          {rowData.isLoadingForSelection ? (
+            <Loader2
+              aria-label={`Loading ${fileNode.name} for selection`}
+              className="h-4 w-4 animate-spin text-blue-500"
+            />
+          ) : (
+            // No DOM id: the same path renders in multiple tree surfaces
+            // (panel + preview/dialog) and across roots, so a path-derived id
+            // produces duplicate-id documents; aria-label carries the name.
+            //
+            // Disable rules (decision D3): the cap disables only FILE adds (a
+            // single-file add at the cap is a true no-op). Directory checkboxes
+            // never disable for the cap — deselect must always work and adds
+            // partial-fill with a toast. During a recursive scan EVERY checkbox
+            // disables (clicks are ignored; the affordance must not lie).
+            <LightweightCheckbox
+              aria-label={`Select ${fileNode.name}`}
+              checked={selectionState.checkboxState}
+              className="h-4 w-4"
+              disabled={
+                isDirectorySelectionLocked ||
+                (fileNode.type === 'file' && selectionState.wouldExceedLimit) ||
+                fileNode.type === 'loadMore' ||
+                fileNode.type === 'truncated'
+              }
+              onCheckedChange={() => onSelectionChange(rowData)}
+            />
+          )}
+        </div>
+      )}
 
       <div className="flex w-4 flex-shrink-0 items-center justify-center">
         <TreeNodeIcon

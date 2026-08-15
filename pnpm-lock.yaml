@@ -2204,6 +2204,9 @@ importers:
       react-hotkeys-hook:
         specifier: 'catalog:'
         version: 5.3.3(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      react-resizable-panels:
+        specifier: 'catalog:'
+        version: 4.12.1(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       zustand:
         specifier: ^5
         version: 5.0.14(@types/react@19.2.17)(immer@10.2.0)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))

@@ -21,7 +21,8 @@
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/workers": "workspace:*",
     "drizzle-orm": "catalog:",
-    "react-hotkeys-hook": "catalog:"
+    "react-hotkeys-hook": "catalog:",
+    "react-resizable-panels": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -82,6 +83,10 @@
     "./editor-view-state-store": {
       "types": "./dist/editor-view-state-store.d.ts",
       "import": "./dist/editor-view-state-store.js"
+    },
+    "./file-tab-pane-store": {
+      "types": "./dist/file-tab-pane-store.d.ts",
+      "import": "./dist/file-tab-pane-store.js"
     }
   },
   "files": [

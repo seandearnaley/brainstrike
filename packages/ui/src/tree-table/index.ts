@@ -90,6 +90,7 @@ export type {
   TreeTableCheckboxNextState,
   TreeTableCheckboxRenderState,
   TreeTableColumn,
+  TreeTableHandle,
   TreeTablePaginationOptions,
   TreeTableProps,
   TreeTableRowProps,

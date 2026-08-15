@@ -11,11 +11,20 @@ import {
 import { resolveRelativePath } from '@brainstrike/utils';
 import { Loader2 } from 'lucide-react';
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Group, type Layout, Panel, Separator } from 'react-resizable-panels';
 import { BinaryFilePreview } from '../components/binary-file-preview';
 import { useMarkdownPreviewCapabilities } from '../contexts/markdown-preview-capabilities';
 import { useFileViewerContextMenu } from '../hooks/use-file-viewer-context-menu';
 import type { FileTab } from '../hooks/use-tab-manager';
 import { type FileViewMode, useEditorViewStateStore } from '../stores/editor-view-state-store';
+import {
+  DEFAULT_PANE_WIDTH_PCT,
+  MAX_PANE_WIDTH_PCT,
+  MIN_PANE_WIDTH_PCT,
+  useFileTabPaneStore,
+} from '../stores/file-tab-pane-store';
+import { buildFileBreadcrumbSegments } from './file-tab-breadcrumb-segments';
+import { FileTabExplorerPane } from './file-tab-explorer-pane';
 import { FileTabHeader } from './file-tab-header';
 import {
   FileContentPendingScreen,
@@ -66,6 +75,51 @@ export function FileTabBody({
   const capabilities = useMarkdownPreviewCapabilities();
   const { toast } = useToast();
   const ideEditor = useIdeFileEditor();
+
+  // Per-file explorer pane (BST-1269). Pane state is per-thread durable via
+  // the workspace snapshot; the reveal target is LOCAL one-shot UI state —
+  // FileTabBody is keyed by compositeKey, so a fresh tab re-evaluates. The
+  // pane mounts only while open, and its default reveal is the file itself
+  // (Cursor idiom: opening the pane lands on the file's location).
+  const paneState = useFileTabPaneStore((s) => s.panes[tab.compositeKey]);
+  const togglePane = useFileTabPaneStore((s) => s.togglePane);
+  const setPaneWidthPct = useFileTabPaneStore((s) => s.setPaneWidthPct);
+  const isPaneOpen = paneState?.open === true;
+  // The nonce makes every activation a NEW reveal request, so re-clicking the
+  // same breadcrumb (or re-opening the pane on the same file) re-reveals.
+  const [revealRequest, setRevealRequest] = useState<{ nonce: number; path: string | null }>({
+    nonce: 0,
+    path,
+  });
+  const handleTogglePane = useCallback(() => {
+    setRevealRequest((previous) => ({ nonce: previous.nonce + 1, path }));
+    togglePane(tab.compositeKey);
+  }, [path, tab.compositeKey, togglePane]);
+  const breadcrumbSegments = useMemo(
+    () => buildFileBreadcrumbSegments(path, rootPath),
+    [path, rootPath]
+  );
+  const handleBreadcrumbSegmentClick = useCallback(
+    (segmentPath: string) => {
+      setRevealRequest((previous) => ({ nonce: previous.nonce + 1, path: segmentPath }));
+      if (!useFileTabPaneStore.getState().panes[tab.compositeKey]?.open) {
+        togglePane(tab.compositeKey);
+      }
+    },
+    [tab.compositeKey, togglePane]
+  );
+  const handlePaneLayoutChanged = useCallback(
+    (layout: Layout, meta: { isUserInteraction: boolean }) => {
+      if (!meta.isUserInteraction) {
+        return;
+      }
+      const width = layout['file-tab-pane'];
+      if (typeof width === 'number') {
+        setPaneWidthPct(tab.compositeKey, width);
+      }
+    },
+    [setPaneWidthPct, tab.compositeKey]
+  );
 
   // A line-targeted open (search match) forces source for THIS open only; the
   // user's persisted preference is untouched. Captured once on mount (FileTabBody
@@ -297,14 +351,48 @@ export function FileTabBody({
         onContextMenuCapture={resetContextMenuTarget}
       >
         <FileTabHeader
+          breadcrumbs={{
+            onSegmentClick: handleBreadcrumbSegmentClick,
+            segments: breadcrumbSegments,
+          }}
           copyText={copyText}
           directory={directory}
           fileName={fileName}
+          isPaneOpen={isPaneOpen}
           mode={effectiveMode}
           onModeChange={handleModeChange}
+          onTogglePane={handleTogglePane}
           showModeToggle={isMarkdown}
         />
-        <div className="min-h-0 flex-1">{body}</div>
+        {isPaneOpen ? (
+          <Group
+            className="min-h-0 flex-1"
+            onLayoutChanged={handlePaneLayoutChanged}
+            orientation="horizontal"
+          >
+            <Panel
+              className="overflow-hidden border-r bg-background"
+              defaultSize={`${paneState?.widthPct ?? DEFAULT_PANE_WIDTH_PCT}%`}
+              id="file-tab-pane"
+              maxSize={`${MAX_PANE_WIDTH_PCT}%`}
+              minSize={`${MIN_PANE_WIDTH_PCT}%`}
+            >
+              <div className="h-full min-h-0" data-testid="file-tab-explorer-pane">
+                <FileTabExplorerPane
+                  compositeKey={tab.compositeKey}
+                  revealNonce={revealRequest.nonce}
+                  revealPath={revealRequest.path}
+                />
+              </div>
+            </Panel>
+            <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
+            <Panel id="file-tab-content">
+              <div className="h-full min-h-0">{body}</div>
+            </Panel>
+          </Group>
+        ) : (
+          <div className="min-h-0 flex-1">{body}</div>
+        )}
       </div>
     </ActionContextMenu>
   );

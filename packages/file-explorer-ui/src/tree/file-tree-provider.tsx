@@ -120,6 +120,14 @@ const FileTreeNormalizedContext = createContext<FileTreeNormalizedContextValue |
 export interface FileTreeProviderProps {
   children: ReactNode;
   /**
+   * Pane mode (BST-1269): disable the workspace-global expansion machinery
+   * (persisted-expansion restoration + selected-file parent expansion). Both
+   * read/write the WORKSPACE-global expansion set and share per-root
+   * restoration locks — a pane-local tree owns its own expansion state, and
+   * its unmount must not release another provider's restoration lock.
+   */
+  disableWorkspaceExpansionRestoration?: boolean;
+  /**
    * Filter function to apply workspace include/exclude filters to a tree.
    * Called in the slow path when directories are loaded from the worker,
    * ensuring workspace filters are respected before file selection.
@@ -147,6 +155,7 @@ export interface FileTreeProviderProps {
  */
 export function FileTreeProvider({
   children,
+  disableWorkspaceExpansionRestoration = false,
   rootDirectoryHandle,
   filterTreeFn,
   rootId,
@@ -240,6 +249,7 @@ export function FileTreeProvider({
   const restorationState = useExpandedPathRestoration({
     currentRootFolderId: restorationFolderId,
     currentRootPath,
+    disabled: disableWorkspaceExpansionRestoration,
     fileTree: fileTreeState.fileTree,
     isTreeLoading: fileTreeState.isLoading,
     loadSpecificPaths: fileTreeState.loadSpecificPaths,
@@ -250,6 +260,7 @@ export function FileTreeProvider({
   useExpandSelectedFileParentDirectories({
     currentRootFolderId: restorationFolderId,
     currentRootPath,
+    disabled: disableWorkspaceExpansionRestoration,
     isRestorationSettled: restorationState.isRestorationSettled,
     loadSpecificPaths: fileTreeState.loadSpecificPaths,
     selectionVersion,

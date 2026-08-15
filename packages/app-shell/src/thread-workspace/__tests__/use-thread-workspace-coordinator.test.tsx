@@ -36,6 +36,7 @@ function createHarness() {
       state.activeTabId = activeTabId;
       applied.push('fileTabs');
     }),
+    applyPanes: vi.fn(),
     applyRootViews: vi.fn(),
     getEditorState: vi.fn(() => ({})),
     getExpandedDirectoryPaths: vi.fn(() => new Set<string>()),
@@ -223,6 +224,42 @@ describe('useThreadWorkspaceCoordinator', () => {
       [{ compositeKey: 'kb', path: 'b.ts' }],
       'kb'
     );
+  });
+
+  it('hydrates on boot when the repository arrives AFTER the active thread id (BST-1269)', async () => {
+    // Reload reality: activeThreadId restores from localStorage instantly
+    // while PGlite takes seconds. The switch effect first runs with a null
+    // repository; when the repository arrives, previousThreadIdRef already
+    // equals activeThreadId — hydration must still happen.
+    const harness = createHarness();
+    harness.rows.set('thread-a', SNAPSHOT_B);
+    const { rerender } = renderHook(
+      ({ repository }: { repository: ThreadWorkspaceRepository | null }) =>
+        useThreadWorkspaceCoordinator({
+          activeThreadId: 'thread-a',
+          debounceMs: 50,
+          facade: harness.facade,
+          openThreadIds: ['thread-a'],
+          repository,
+          resourceId: 'brainstrike:workspace',
+          subscribe: harness.subscribe,
+        }),
+      { initialProps: { repository: null as ThreadWorkspaceRepository | null } }
+    );
+
+    expect(harness.facade.applyFileTabs).not.toHaveBeenCalled();
+
+    rerender({ repository: harness.repository });
+
+    await waitFor(() => {
+      expect(harness.facade.applyFileTabs).toHaveBeenCalledWith(
+        [{ compositeKey: 'kb', path: 'b.ts' }],
+        'kb'
+      );
+    });
+    // The deferred pass must NOT flush the boot state as "outgoing" — that
+    // would overwrite the saved row and hydrate the empty flush back.
+    expect(harness.rows.get('thread-a')).toBe(SNAPSHOT_B);
   });
 
   it('a superseding switch discards the stale fetch result', async () => {

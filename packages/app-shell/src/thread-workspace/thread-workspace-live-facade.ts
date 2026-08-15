@@ -1,4 +1,9 @@
 import { useEditorViewStateStore } from '@brainstrike/file-explorer-ui/editor-view-state-store';
+import {
+  DEFAULT_PANE_WIDTH_PCT,
+  type FileTabPaneState,
+  useFileTabPaneStore,
+} from '@brainstrike/file-explorer-ui/file-tab-pane-store';
 import type { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
 import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
@@ -38,6 +43,17 @@ export function createLiveWorkspaceFacade(
     applyFileTabs: (tabs, activeTabId) => {
       useTabManagerStore.getState().hydrateTabs(tabs, activeTabId);
     },
+    applyPanes: (panes) => {
+      const hydrated: Record<string, FileTabPaneState> = {};
+      for (const [compositeKey, pane] of Object.entries(panes)) {
+        hydrated[compositeKey] = {
+          expandedPaths: pane.expandedPaths ?? [],
+          open: pane.open,
+          widthPct: pane.widthPct ?? DEFAULT_PANE_WIDTH_PCT,
+        };
+      }
+      useFileTabPaneStore.getState().hydratePanes(hydrated);
+    },
     applyRootViews: (focusedRootId, visibleRootIds) => {
       const state = fileExplorerStore.getState();
       if (visibleRootIds !== null) {
@@ -58,8 +74,18 @@ export function createLiveWorkspaceFacade(
       const editorState = useEditorViewStateStore.getState();
       const mode = editorState.modes[compositeKey];
       const scrollTop = editorState.scrollTops[compositeKey];
+      const pane = useFileTabPaneStore.getState().panes[compositeKey];
       return {
         ...(mode ? { mode } : {}),
+        ...(pane
+          ? {
+              pane: {
+                expandedPaths: [...pane.expandedPaths],
+                open: pane.open,
+                widthPct: pane.widthPct,
+              },
+            }
+          : {}),
         ...(typeof scrollTop === 'number' ? { scrollTop } : {}),
       };
     },

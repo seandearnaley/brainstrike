@@ -16,6 +16,7 @@ import {
   type TreeNode,
   TreeTable,
   type TreeTableColumn,
+  type TreeTableHandle,
   useContextMenuTarget,
   useIdeFileEditor,
 } from '@brainstrike/ui';
@@ -84,6 +85,7 @@ import {
   resolveDirectorySelectionMutation,
   shouldLoadDirectoryRecursively,
 } from './optimized-file-tree-model';
+import { resolveRevealStep } from './optimized-file-tree-reveal';
 import {
   collectTreePaths,
   useSelectedDirectoryCounts,
@@ -123,8 +125,23 @@ interface IOptimizedFileTreeProps {
   ariaLabel?: string | undefined;
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: ((path: string) => void) | undefined;
+  /**
+   * Local expansion state for pane-scoped trees (BST-1269). When provided,
+   * expansion renders from — and toggles route to — this scope instead of the
+   * workspace-global store set, so a per-file explorer pane expands
+   * independently of the Files tree. Omit for store-backed behavior.
+   */
+  expansionScope?:
+    | { expandedPaths: ReadonlySet<string>; onToggle: (path: string) => void }
+    | undefined;
   fileTree: IFileNode[];
   folderId: string;
+  /**
+   * Navigation-only mode (BST-1269): render a spacer instead of the selection
+   * checkbox and ignore the Space selection gesture. Pane trees never
+   * participate in context-export selection.
+   */
+  hideSelection?: boolean | undefined;
   /**
    * Whether `fileTree` had anything removed by display filtering (view/quick
    * filters) relative to the canonical provider tree. `false` skips the O(N)
@@ -147,6 +164,18 @@ interface IOptimizedFileTreeProps {
   onSelectFolderRecursively?:
     | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
     | undefined;
+  /**
+   * Re-trigger key for `revealPath` (BST-1269): the one-shot reveal keys on
+   * `(revealNonce, revealPath)`, so bumping the nonce re-reveals the SAME
+   * path (repeated breadcrumb clicks). Omitting it keeps per-value semantics.
+   */
+  revealNonce?: number | undefined;
+  /**
+   * One-shot reveal target (BST-1269): expand the path's collapsed ancestors
+   * (loading lazily as needed), then scroll its row into view. Re-runs when
+   * the `(revealNonce, revealPath)` pair changes.
+   */
+  revealPath?: string | undefined;
   /**
    * Shared-scroller mode (forest sections): forward to TreeTable so this
    * tree virtualizes against the sections column instead of its own viewport.
@@ -320,6 +349,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     scrollParentRef,
     isDisplayTreeFiltered,
     showColumnHeader = false,
+    expansionScope,
+    hideSelection = false,
+    revealNonce = 0,
+    revealPath,
   }) => {
     const store = useFileExplorerStoreContext();
     const { showToast } = useToastManager();
@@ -344,6 +377,39 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     );
     const toggleDirectoryExpansion = useFileExplorerStoreSelector(
       (s) => s.toggleDirectoryExpansion
+    );
+    // Pane scoping (BST-1269): with a scope, expansion renders from and
+    // toggles route to the SCOPE — the store subscription above still runs
+    // but its value is unused. The ref carries the freshest scope for
+    // invocation-time reads inside async toggle flows (mirrors the store's
+    // getState() reads on the unscoped path).
+    const effectiveExpandedPaths = expansionScope
+      ? expansionScope.expandedPaths
+      : expandedDirectoryPaths;
+    const expansionScopeRef = useRef(expansionScope);
+    useEffect(() => {
+      expansionScopeRef.current = expansionScope;
+    });
+    const isPathExpandedNow = useCallback(
+      (path: string): boolean => {
+        const scope = expansionScopeRef.current;
+        if (scope) {
+          return scope.expandedPaths.has(path);
+        }
+        return store.getState().expandedDirectoryPaths.has(path);
+      },
+      [store]
+    );
+    const toggleExpansionNow = useCallback(
+      (path: string): void => {
+        const scope = expansionScopeRef.current;
+        if (scope) {
+          scope.onToggle(path);
+          return;
+        }
+        toggleDirectoryExpansion(path);
+      },
+      [toggleDirectoryExpansion]
     );
     const toggleSelectedFile = useFileExplorerStoreSelector((s) => s.toggleSelectedFile);
     const addMultipleSelectedFiles = useFileExplorerStoreSelector(
@@ -441,7 +507,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       // entirely there so it neither round-trips nor triggers a spurious row
       // rebuild when its discarded result lands.
       enabled: !normalizedTreeContext,
-      expandedPaths: expandedDirectoryPaths,
+      expandedPaths: effectiveExpandedPaths,
       portRef: workerPortRef,
       treeRevision: normalizedTreeContext?.version ?? fileTree,
     });
@@ -631,7 +697,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const treeRowsBuild = useMemo(() => {
       const measured = measureFileTreeOperation<FileTreeRowsBuildResult>(() => {
         const options: BuildFileTreeRowsOptions = {
-          expandedDirectoryPaths,
+          expandedDirectoryPaths: effectiveExpandedPaths,
           folderId,
           loadingFiles,
           ...(sortOptions ? { sort: sortOptions } : {}),
@@ -690,7 +756,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       };
     }, [
       fileTree,
-      expandedDirectoryPaths,
+      effectiveExpandedPaths,
       folderId,
       loadingFiles,
       loadingPaths,
@@ -750,7 +816,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const renderedExpandedDirectoryPaths = useMemo(() => {
       const nextExpandedPaths = new Set<string>();
       for (const row of treeRows) {
-        if (!expandedDirectoryPaths.has(row.id) || row.type !== 'directory') {
+        if (!effectiveExpandedPaths.has(row.id) || row.type !== 'directory') {
           continue;
         }
         if (row.data.fileNode.loadState === 'loaded' || row.data.isChildrenLoading) {
@@ -758,7 +824,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         }
       }
       return nextExpandedPaths;
-    }, [expandedDirectoryPaths, treeRows]);
+    }, [effectiveExpandedPaths, treeRows]);
 
     const getDirectoryToggleState = useCallback(
       (node: IFileNode): DirectoryToggleState => {
@@ -771,10 +837,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           isChildrenLoadingFromStore,
           // Read expansion state at invocation time to avoid stale closure snapshots
           // across rapid async expand/collapse interactions.
-          isExpanded: store.getState().expandedDirectoryPaths.has(node.path),
+          isExpanded: isPathExpandedNow(node.path),
         };
       },
-      [loadingPaths, store]
+      [isPathExpandedNow, loadingPaths]
     );
 
     const shouldSkipCollapsedExpansion = useCallback(
@@ -795,9 +861,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         if (state.isChildrenLoading && cancelChildLoading) {
           cancelChildLoading(node.path);
         }
-        toggleDirectoryExpansion(node.path);
+        toggleExpansionNow(node.path);
       },
-      [cancelChildLoading, toggleDirectoryExpansion]
+      [cancelChildLoading, toggleExpansionNow]
     );
 
     const loadChildrenForExpansion = useCallback(
@@ -837,16 +903,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
         // A stale async load that resolves after a later user interaction should be a no-op.
         // If another action already expanded this path, avoid toggling it again.
-        if (!store.getState().expandedDirectoryPaths.has(node.path)) {
-          toggleDirectoryExpansion(node.path);
+        if (!isPathExpandedNow(node.path)) {
+          toggleExpansionNow(node.path);
         }
       },
       [
         collapseExpandedDirectory,
+        isPathExpandedNow,
         loadChildrenForExpansion,
         shouldSkipCollapsedExpansion,
-        store,
-        toggleDirectoryExpansion,
+        toggleExpansionNow,
       ]
     );
 
@@ -882,6 +948,82 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       },
       [fileNodeByPath, getDirectoryToggleState, reportToggleExpandError, toggleDirectoryNode]
     );
+
+    // Hydrated scope expansions (BST-1269): a thread-switch writes
+    // expandedPaths straight into the scope — no toggle flow runs, so
+    // lazy directories restored as "expanded" would render childless
+    // forever. Load them here; loadChildren dedupes in-flight requests and
+    // no-ops loaded nodes, and deeper restored expansions cascade as their
+    // parents' children land (fileNodeByPath dependency).
+    useEffect(() => {
+      if (!(expansionScope && onLoadChildren)) {
+        return;
+      }
+      for (const path of expansionScope.expandedPaths) {
+        const node = fileNodeByPath.get(path);
+        if (
+          node?.type === 'directory' &&
+          (node.loadState === 'unloaded' || node.loadState === undefined)
+        ) {
+          onLoadChildren(path).catch((error: unknown) => {
+            logger.warn('Failed to load children for a restored pane expansion', {
+              error,
+              path,
+            });
+          });
+        }
+      }
+    }, [expansionScope, fileNodeByPath, onLoadChildren]);
+
+    // One-shot reveal (BST-1269): converge on the target across renders —
+    // each pass expands the collapsed ancestors that are RENDERED (deeper
+    // ones appear as their parents expand and lazy-load), and once the
+    // target's row exists the scroll fires exactly once per revealPath value.
+    const treeTableHandleRef = useRef<TreeTableHandle>(null);
+    const lastRevealedPathRef = useRef<string | null>(null);
+    // Ancestors already toggled for the CURRENT reveal target. Re-toggling a
+    // still-loading ancestor on an effect re-run would hit the user-facing
+    // "toggle during load = cancel" semantics and abort its own lazy load.
+    const revealToggledRef = useRef<{ paths: Set<string>; target: string | null }>({
+      paths: new Set(),
+      target: null,
+    });
+    useEffect(() => {
+      const revealKey = `${revealNonce}|${revealPath ?? ''}`;
+      if (!revealPath || lastRevealedPathRef.current === revealKey) {
+        return;
+      }
+      if (revealToggledRef.current.target !== revealKey) {
+        revealToggledRef.current = { paths: new Set(), target: revealKey };
+      }
+
+      const step = resolveRevealStep({
+        alreadyToggledPaths: revealToggledRef.current.paths,
+        expandedPaths: effectiveExpandedPaths,
+        renderedNodesByPath: fileNodeByPath,
+        revealPath,
+        rootPath,
+      });
+      if (step.kind === 'expand') {
+        for (const path of step.paths) {
+          revealToggledRef.current.paths.add(path);
+          handleToggleExpand(path);
+        }
+        return;
+      }
+      if (step.kind === 'wait') {
+        return;
+      }
+      lastRevealedPathRef.current = revealKey;
+      treeTableHandleRef.current?.revealNode(revealPath);
+    }, [
+      revealNonce,
+      revealPath,
+      effectiveExpandedPaths,
+      fileNodeByPath,
+      handleToggleExpand,
+      rootPath,
+    ]);
 
     const directoryTraversalContext = useMemo<DirectorySelectionTraversalContext>(
       () => ({
@@ -1068,6 +1210,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // through to row activation / open. Enter continues to activate via
     // onSelect → handleTreeRowSelect.
     const handleRowCheckboxSpace = useEventCallback((nodeId: string): boolean => {
+      // Navigation-only trees have no selection affordance for Space to
+      // mirror; fall through to default row behavior.
+      if (hideSelection) {
+        return false;
+      }
       const rowData = rowDataByPath.get(nodeId);
       if (!rowData) {
         return false;
@@ -1242,12 +1389,20 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const selectionContextValue = useMemo<FileTreeSelectionContextValue>(
       () => ({
         folderId: folderId ?? '',
+        hideSelection,
         isDirectorySelectionLocked: Boolean(isLoadingForSelection),
         maxSelectionCount,
         openFileInTab,
         store: selectionStore,
       }),
-      [folderId, isLoadingForSelection, maxSelectionCount, openFileInTab, selectionStore]
+      [
+        folderId,
+        hideSelection,
+        isLoadingForSelection,
+        maxSelectionCount,
+        openFileInTab,
+        selectionStore,
+      ]
     );
 
     return (
@@ -1308,6 +1463,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
                 // scrollport; the panel renders one header above it instead.
                 showHeader={showColumnHeader}
                 sortState={treeTableSortState}
+                treeTableRef={treeTableHandleRef}
                 windowingStrategy="virtual"
                 {...(explorerSort ? { onSortChange: handleSortChange } : {})}
                 {...(scrollParentRef !== undefined && { scrollParentRef })}

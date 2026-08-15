@@ -229,6 +229,17 @@ export type TreeTableCheckboxRenderState = CheckboxState | 'hidden';
 /**
  * Main props for the TreeTable component.
  */
+/**
+ * Imperative surface exposed through {@link TreeTableProps.treeTableRef}.
+ * `revealNode` scrolls the node's row into view via the same path keyboard
+ * navigation uses (virtual: scrollToIndex align-auto; shared-scroller:
+ * nearest-edge offset; paged: page jump + pending scroll). Callers own
+ * expansion — a node collapsed out of the flattened rows is a no-op.
+ */
+export interface TreeTableHandle {
+  revealNode: (nodeId: string) => void;
+}
+
 export interface TreeTableProps<T> {
   // Accessibility
   /** Accessible label for the table */
@@ -397,6 +408,8 @@ export interface TreeTableProps<T> {
   // Sorting
   /** Current sort state */
   sortState?: SortState;
+  /** Receives the {@link TreeTableHandle} imperative surface. */
+  treeTableRef?: React.Ref<TreeTableHandle>;
   /** Additional CSS class for the sole scroll viewport. */
   viewportClassName?: string | undefined;
   /** Windowing strategy for row rendering */

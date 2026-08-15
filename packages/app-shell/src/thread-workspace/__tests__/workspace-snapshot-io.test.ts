@@ -13,6 +13,7 @@ function createFakeFacade(overrides: Partial<WorkspaceStateFacade> = {}): Worksp
     applyExpandedPaths: vi.fn(),
     applyExplorerScrollTop: vi.fn(),
     applyFileTabs: vi.fn(),
+    applyPanes: vi.fn(),
     applyRootViews: vi.fn(),
     getEditorState: vi.fn(() => ({})),
     getExpandedDirectoryPaths: vi.fn(() => new Set<string>()),
@@ -121,12 +122,42 @@ describe('applyWorkspaceSnapshot', () => {
     expect(facade.applyEditorState).toHaveBeenCalledWith('k1', { mode: 'preview', scrollTop: 7 });
   });
 
+  it('replaces pane state WHOLESALE from the editors section (per-thread isolation)', () => {
+    const facade = createFakeFacade();
+    const snapshot = {
+      ...EMPTY_WORKSPACE_SNAPSHOT,
+      editors: {
+        k1: {
+          mode: 'source' as const,
+          pane: { expandedPaths: ['/r/src'], open: true, widthPct: 25 },
+        },
+        k2: { scrollTop: 3 },
+      },
+    };
+
+    applyWorkspaceSnapshot(snapshot, facade);
+
+    // ONE wholesale call — keys absent here (previous thread's panes) must be
+    // dropped by the receiving store, so per-key application would be a bug.
+    expect(facade.applyPanes).toHaveBeenCalledExactlyOnceWith({
+      k1: { expandedPaths: ['/r/src'], open: true, widthPct: 25 },
+    });
+  });
+
+  it('applying the empty snapshot clears panes too', () => {
+    const facade = createFakeFacade();
+    applyWorkspaceSnapshot(EMPTY_WORKSPACE_SNAPSHOT, facade);
+    expect(facade.applyPanes).toHaveBeenCalledExactlyOnceWith({});
+  });
+
   it('applying the empty snapshot clears to launcher state', () => {
     const facade = createFakeFacade();
     applyWorkspaceSnapshot(EMPTY_WORKSPACE_SNAPSHOT, facade);
     expect(facade.applyApps).toHaveBeenCalledWith([], { kind: 'empty' });
     expect(facade.applyFileTabs).toHaveBeenCalledWith([], null);
-    expect((vi.mocked(facade.applyExpandedPaths).mock.calls[0]?.[0] as Set<string>).size).toBe(0);
+    const clearedExpansions = vi.mocked(facade.applyExpandedPaths).mock.calls[0]?.[0];
+    expect(clearedExpansions).toBeInstanceOf(Set);
+    expect(clearedExpansions?.size).toBe(0);
     expect(facade.applyExplorerScrollTop).toHaveBeenCalledWith(undefined);
   });
 

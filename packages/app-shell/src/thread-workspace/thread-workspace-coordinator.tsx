@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/assistant-data';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useEditorViewStateStore } from '@brainstrike/file-explorer-ui/editor-view-state-store';
+import { useFileTabPaneStore } from '@brainstrike/file-explorer-ui/file-tab-pane-store';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
 import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
@@ -38,6 +39,7 @@ export function ThreadWorkspaceCoordinator(): null {
         useWorkspaceTabSelectionStore.subscribe(listener),
         useTabManagerStore.subscribe(listener),
         useEditorViewStateStore.subscribe(listener),
+        useFileTabPaneStore.subscribe(listener),
         fileExplorerStore.subscribe(listener),
       ];
       return () => {
