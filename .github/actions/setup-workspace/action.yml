@@ -31,9 +31,9 @@ description: pnpm, Node (with pnpm cache), optional .turbo cache, and install de
 # Only an actual runner with an empty workspace reproduces it — hence this
 # repo's mandatory push-path validation for workflow PRs (#1066/#1207).
 #
-# NOT for every setup block in the repo: `web-e2e` in test.yml and its nightly
-# counterparts run a BESPOKE Playwright-container install with `--filter`
-# exclusions that this composite's fixed final
+# NOT for every setup block in the repo: `web-e2e` and `browser-tests` in
+# test.yml plus their nightly Playwright-container counterparts run BESPOKE
+# installs with `--filter` exclusions that this composite's fixed final
 # `pnpm install --frozen-lockfile` step cannot express. Leave those jobs'
 # setup steps as literal, uncomposited YAML; parameterizing the install command
 # for those callers is the trap this action exists to avoid, not a gap to close.

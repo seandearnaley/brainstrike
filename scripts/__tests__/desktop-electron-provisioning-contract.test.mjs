@@ -8,7 +8,7 @@ import { parse as parseYaml } from 'yaml';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const workflowPaths = ['.github/workflows/test.yml', '.github/workflows/desktop-e2e.yml'];
 const desktopSetupJobs = [
-  { job: 'desktop-e2e', relativePath: '.github/workflows/test.yml', turboCache: undefined },
+  { job: 'desktop-e2e', relativePath: '.github/workflows/test.yml', turboCache: 'false' },
   {
     job: 'desktop-full-regression',
     relativePath: '.github/workflows/desktop-e2e.yml',
@@ -35,7 +35,7 @@ test('all desktop jobs use the shared workspace setup action', () => {
     assert.ok(Array.isArray(steps), `${relativePath} has no steps for ${job}`);
     const setupStep = steps.find(({ uses }) => uses === './.github/actions/setup-workspace');
     assert.ok(setupStep, `${relativePath} ${job} bypasses the shared workspace setup action`);
-    assert.equal(setupStep.with?.['turbo-cache'], turboCache);
+    assert.equal(setupStep.with?.['turbo-cache'] ?? 'false', turboCache);
     assert.equal(setupStep.with?.['electron-download-cache'], 'true');
   }
 });
