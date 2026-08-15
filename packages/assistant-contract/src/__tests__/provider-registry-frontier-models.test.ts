@@ -127,6 +127,7 @@ describe('frontier model refresh (2026-07)', () => {
           'poolside/laguna-s-2.1',
           'poolside/laguna-xs-2.1',
           'qwen/qwen3.8-2.4t-a95b',
+          'qwen/qwen3.8-max',
           'google/gemini-3.7-flash',
           'google/gemini-3.6-flash',
           'google/gemini-3.5-flash-lite',
@@ -306,6 +307,27 @@ describe('frontier model refresh (2026-07)', () => {
         supportsStreaming: true,
         type: 'llm',
         vision: 'unsupported',
+      });
+    });
+
+    it('declares Qwen3.8 Max from vendor capabilities and gateway metadata', () => {
+      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-max');
+
+      expect(qwen).toEqual({
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-max',
+        label: 'Qwen3.8 Max (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
       });
     });
   });

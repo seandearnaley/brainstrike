@@ -675,6 +675,31 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         vision: 'unsupported',
       },
       {
+        // Vendor identity, modalities, limits, and tool/structured-output support:
+        // official Alibaba Cloud Model Studio model page, retrieved 2026-08-15.
+        // Route, gateway pricing, and reasoning controls: OpenRouter Models API,
+        // retrieved 2026-08-15 (BST-1309). Cache prices are omitted because this
+        // static schema has no cache-price fields.
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-max',
+        label: 'Qwen3.8 Max (OpenRouter)',
+        maxOutputTokens: 131_072,
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          // Unlike the sibling Qwen routes, OpenRouter explicitly advertises
+          // `high` and `minimal` for Max; preserve the route's five-rung ladder.
+          // Alibaba documents 131,072 as a maximum, not a distinct default
+          // thinking+answer window, so there is no vendorDefaultOutputTokens fact.
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'supported',
+      },
+      {
         // Capabilities and limits: official Google model page, last updated
         // 2026-08-13. Route and gateway pricing: OpenRouter Models API,
         // retrieved 2026-08-14 (BST-1265).
