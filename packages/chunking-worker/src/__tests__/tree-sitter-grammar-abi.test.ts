@@ -44,7 +44,19 @@ const GRAMMAR_PATH = path.join(
   'python.wasm'
 );
 
-/** sha256 of `tree-sitter-python@0.25.0`'s `tree-sitter-python.wasm`. */
+/**
+ * sha256 of `tree-sitter-python@0.25.0`'s `tree-sitter-python.wasm`.
+ *
+ * Regenerate — and verify the vendored blob's provenance — with:
+ *
+ *   npm pack tree-sitter-python@0.25.0
+ *   tar -xOf tree-sitter-python-0.25.0.tgz package/tree-sitter-python.wasm | shasum -a 256
+ *   # → 16108b50df4ee9a30168794252ab55e7c93bfc5765d7fa0aa3e335752c515f47
+ *
+ * Confirmed against the published tarball on 2026-08-15: upstream's bytes and
+ * the checked-in blob hash identically, so this constant asserts origin rather
+ * than merely asserting that the file has not changed since it was committed.
+ */
 const EXPECTED_SHA256 = '16108b50df4ee9a30168794252ab55e7c93bfc5765d7fa0aa3e335752c515f47';
 
 /** web-tree-sitter 0.26.x accepts only this section name. `dylink` is fatal. */
@@ -70,7 +82,12 @@ function readUleb128(bytes: Uint8Array, start: number): Cursor {
       throw new Error(`Truncated LEB128 at offset ${offset}`);
     }
     offset += 1;
-    value |= (byte & 0x7f) << shift;
+    // Multiply rather than `<<`: bitwise operators coerce to int32, which would
+    // flip sign at shift >= 28 and wrap entirely at shift >= 32 (JS shifts are
+    // mod 32). Nothing in a 457 KB module with 1-3 byte section sizes can reach
+    // that, but this helper reads as general-purpose LEB128 and a negative
+    // `value` would rewind `offset` and spin the section loop.
+    value += (byte & 0x7f) * 2 ** shift;
     if ((byte & 0x80) === 0) {
       return { offset, value };
     }
