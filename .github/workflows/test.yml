@@ -822,11 +822,6 @@ jobs:
       CI: "true"
       ELECTRON_ENABLE_STACK_DUMPING: "false"
       ELECTRON_DISABLE_GPU: "1"
-    # NOT folded into the setup-workspace composite (Series C R9a): the
-    # Electron-version lookup + binary cache below must run BETWEEN Node setup
-    # and `pnpm install`, which the composite's fixed step order (checkout ->
-    # pnpm -> node -> turbo cache -> install, nothing injectable in the
-    # middle) cannot express. Bespoke literal YAML on purpose.
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -837,29 +832,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .nvmrc
-          cache: 'pnpm'
-
-      - name: Get Electron version
-        id: electron-version
-        run: |
-          version=$(node -p "require('./apps/desktop/package.json').devDependencies.electron")
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Electron binaries
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8
@@ -877,33 +851,23 @@ jobs:
         run: pnpm exec playwright install-deps chromium
 
       # The desktop smoke launches the REAL Electron binary via
-      # `_electron.launch`. On an ~/.cache/electron cache miss the binary may
-      # not be extracted into node_modules, so the app throws "Electron failed
-      # to install correctly". Force-extract it (uses the warm cache when
-      # present, else downloads from GitHub Releases — NOT the Playwright CDN),
-      # then VERIFY the binary exists so any provisioning gap fails loudly here
-      # rather than cryptically inside the test. This runs immediately before
-      # the smoke so no later step (e.g. artifact extraction) can disturb it.
-      # Provision the Electron binary deterministically. electron/install.js is
-      # unreliable here: on an @electron/get cache hit it reaches its
-      # `extract-zip` step but the (un-awaited) extraction never completes and
-      # the process exits 0, leaving no dist/ or path.txt — so the app throws
-      # "Electron failed to install correctly". Instead, download the prebuilt
-      # zip directly from GitHub Releases (reliable host, NOT the Playwright
-      # CDN) and extract it with the system `unzip`, then write path.txt and
-      # hard-verify the executable exists before the smoke launches it.
+      # `_electron.launch`. Electron 43 exposes install.js only as a bin and has
+      # no install lifecycle, so pnpm cannot provision the binary. Download the
+      # prebuilt zip from GitHub Releases immediately before smoke so no later
+      # step can disturb the executable, then hard-verify it exists.
       - name: Provision Electron binary
         working-directory: apps/desktop
         run: |
           set -euo pipefail
           VER=$(node -p "require('electron/package.json').version")
           DIR=$(node -p "require('path').dirname(require.resolve('electron/package.json'))")
+          ELECTRON_ZIP="${RUNNER_TEMP:-/tmp}/electron.zip"
           URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-linux-x64.zip"
           echo "Downloading Electron v${VER} from ${URL}"
-          curl -fsSL --retry 3 --retry-delay 5 -o "${RUNNER_TEMP}/electron.zip" "$URL"
+          curl -fsSL --retry 3 --retry-delay 5 -o "$ELECTRON_ZIP" "$URL"
           rm -rf "${DIR}/dist" "${DIR}/path.txt"
           mkdir -p "${DIR}/dist"
-          unzip -q -o "${RUNNER_TEMP}/electron.zip" -d "${DIR}/dist"
+          unzip -q -o "$ELECTRON_ZIP" -d "${DIR}/dist"
           printf 'electron' > "${DIR}/path.txt"
           node -e "const fs=require('fs');const p=require('electron');fs.accessSync(p);console.log('Electron binary present at '+p)"
 

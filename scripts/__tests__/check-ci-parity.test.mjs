@@ -73,8 +73,6 @@ const PROVISIONING_STEPS = new Set([
   'web-e2e › Require successful admission',
   'web-e2e › Install dependencies',
   'desktop-e2e › Require successful admission',
-  'desktop-e2e › Get Electron version',
-  'desktop-e2e › Install dependencies',
   'desktop-e2e › Install Chromium system dependencies',
   'desktop-e2e › Provision Electron binary',
 ]);
@@ -318,6 +316,17 @@ function workflowRunSteps(source, { label, minimumSteps }) {
 /** @returns {{ env: Record<string, unknown>, key: string, run: string }[]} every `run:` step in test.yml */
 function ciRunSteps(source = workflowSource()) {
   return workflowRunSteps(source, { label: 'test.yml', minimumSteps: 30 });
+}
+
+function assertProvisioningStepsExist(provisioningSteps, source = workflowSource()) {
+  const keys = new Set(ciRunSteps(source).map((step) => step.key));
+  for (const step of provisioningSteps) {
+    assert.ok(
+      keys.has(step),
+      `PROVISIONING_STEPS names "${step}", which test.yml no longer has. ` +
+        'A stale exclusion can hide a renamed gate.'
+    );
+  }
 }
 
 function ciStep(key) {
@@ -665,13 +674,14 @@ test('gateInvocations reads the shapes both sides are actually written in', () =
 });
 
 test('the install step is frozen, exactly as the CI composite installs', () => {
-  const composite = readFileSync(
-    path.join(repoRoot, '.github/actions/setup-workspace/action.yml'),
-    'utf8'
+  const composite = parseYaml(
+    readFileSync(path.join(repoRoot, '.github/actions/setup-workspace/action.yml'), 'utf8')
   );
+  const compositeInstall = composite.runs?.steps?.find(({ run }) => run?.includes('pnpm install'));
+  assert.equal(typeof compositeInstall?.run, 'string');
   assert.match(
-    composite,
-    /run: pnpm install --frozen-lockfile/,
+    compositeInstall.run,
+    /(^|\n)\s*pnpm install --frozen-lockfile(\n|$)/,
     'the CI composite this mirrors must still install frozen'
   );
 
@@ -864,6 +874,7 @@ test('CONTROL: Nightly Coverage without explicit timeout policy turns the guard 
 
 test('every exclusion names a real CI step and carries a substantive reason', () => {
   const keys = new Set(ciRunSteps().map((step) => step.key));
+  assertProvisioningStepsExist(PROVISIONING_STEPS);
   for (const entry of CI_GATES_NOT_RUN_LOCALLY) {
     assert.ok(
       keys.has(entry.step),
@@ -875,6 +886,16 @@ test('every exclusion names a real CI step and carries a substantive reason', ()
       `"${entry.step}" needs a reason a reader can audit, not a placeholder.`
     );
   }
+});
+
+test('CONTROL: a stale provisioning exclusion turns the guard red', () => {
+  assert.throws(
+    () =>
+      assertProvisioningStepsExist(
+        new Set([...PROVISIONING_STEPS, 'desktop-e2e › Stale provisioning step'])
+      ),
+    /PROVISIONING_STEPS names "desktop-e2e › Stale provisioning step"/
+  );
 });
 
 test('packages/db is tested by a green pnpm check', () => {
