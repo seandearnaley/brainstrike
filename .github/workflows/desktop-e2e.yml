@@ -39,13 +39,6 @@ jobs:
     runs-on: ubuntu-latest
     # 30m broad regression + 2m AI Tools nightly lane + setup/build headroom.
     timeout-minutes: 40
-    # NOT folded into the setup-workspace composite (Series C R9a): the
-    # Electron-version lookup + binary cache below must run BETWEEN Node setup
-    # and `pnpm install`, which the composite's fixed step order cannot
-    # express — see the matching note in test.yml's desktop-e2e job. The
-    # turbo cache step keeps its own literal YAML too, re-keyed on
-    # lockfile+turbo.jsonc content (same pattern as the composite) instead of
-    # a private per-job-per-sha key.
     steps:
       - name: Checkout
         uses: actions/checkout@v6

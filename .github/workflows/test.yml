@@ -822,11 +822,6 @@ jobs:
       CI: "true"
       ELECTRON_ENABLE_STACK_DUMPING: "false"
       ELECTRON_DISABLE_GPU: "1"
-    # NOT folded into the setup-workspace composite (Series C R9a): the
-    # Electron-version lookup + binary cache below must run BETWEEN Node setup
-    # and `pnpm install`, which the composite's fixed step order (checkout ->
-    # pnpm -> node -> turbo cache -> install, nothing injectable in the
-    # middle) cannot express. Bespoke literal YAML on purpose.
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -865,10 +860,10 @@ jobs:
         run: pnpm exec playwright install-deps chromium
 
       # The desktop smoke launches the REAL Electron binary via
-      # `_electron.launch`. Provision immediately before smoke so no later step
-      # (for example artifact extraction) can disturb the verified executable.
-      # Provision the Electron binary deterministically. electron/install.js is
-      # unreliable here: on an @electron/get cache hit it reaches its
+      # `_electron.launch`. Provision it deterministically immediately before
+      # smoke so no later step (for example artifact extraction) can disturb
+      # the verified executable. electron/install.js is unreliable here: on an
+      # @electron/get cache hit it reaches its
       # `extract-zip` step but the (un-awaited) extraction never completes and
       # the process exits 0, leaving no dist/ or path.txt — so the app throws
       # "Electron failed to install correctly". Instead, download the prebuilt
