@@ -1,3 +1,8 @@
+import {
+  resetAssistantThreadStore,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
 import { ThemeProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -58,7 +63,16 @@ describe('CanvasPanel', () => {
   beforeEach(() => {
     queryMock.mockReset();
     useChangesNavigationStore.getState().reset();
+    resetAssistantThreadStore();
   });
+
+  function activateThread(threadId: string): void {
+    // BST-1268 unification: CanvasPanel keys off the thread store's active
+    // thread — never the wrapper-published identity.
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: threadId },
+    });
+  }
 
   it('shows the no-thread empty state without querying', async () => {
     renderPanel();
@@ -68,18 +82,14 @@ describe('CanvasPanel', () => {
 
   it('shows the empty-thread state when the thread has no canvases', async () => {
     routeQueries([]);
-    useChangesNavigationStore
-      .getState()
-      .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-1' });
+    activateThread('thread-1');
     renderPanel();
     expect(await screen.findByText(/No canvases in this thread/i)).toBeInTheDocument();
   });
 
   it('renders the latest version through the sandboxed CanvasFrame with a version stepper', async () => {
     routeQueries();
-    useChangesNavigationStore
-      .getState()
-      .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-1' });
+    activateThread('thread-1');
     renderPanel();
 
     await waitFor(() => {
@@ -95,9 +105,7 @@ describe('CanvasPanel', () => {
 
   it('steps back through history and clamps at version 1', async () => {
     routeQueries();
-    useChangesNavigationStore
-      .getState()
-      .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-1' });
+    activateThread('thread-1');
     renderPanel();
     await waitFor(() => {
       expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v3 / 3');
@@ -116,9 +124,7 @@ describe('CanvasPanel', () => {
 
   it('surfaces a failed summaries read as a visible error, never the empty-state lie', async () => {
     queryMock.mockRejectedValue(new Error('relation gone'));
-    useChangesNavigationStore
-      .getState()
-      .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-1' });
+    activateThread('thread-1');
     renderPanel();
 
     expect(await screen.findByTestId('canvas-error')).toHaveTextContent(/Canvas list failed/);
@@ -136,9 +142,7 @@ describe('CanvasPanel', () => {
       }
       return Promise.resolve({ rows: [versionRow(Number(params?.[1]))] });
     });
-    useChangesNavigationStore
-      .getState()
-      .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-1' });
+    activateThread('thread-1');
     renderPanel();
     await waitFor(() => {
       expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v3 / 3');
@@ -154,9 +158,7 @@ describe('CanvasPanel', () => {
 
   it('re-queries when a manageCanvas completion bumps the refresh nonce', async () => {
     routeQueries();
-    useChangesNavigationStore
-      .getState()
-      .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-1' });
+    activateThread('thread-1');
     renderPanel();
     await waitFor(() => {
       expect(screen.getByTestId('canvas-version-label')).toBeInTheDocument();
@@ -168,5 +170,20 @@ describe('CanvasPanel', () => {
     await waitFor(() => {
       expect(queryMock.mock.calls.length).toBeGreaterThan(callsBefore);
     });
+  });
+
+  it('ignores a background wrapper identity — only the thread store active id selects canvases', async () => {
+    routeQueries([]);
+    activateThread('thread-1');
+    // A background thread's wrapper publishes its identity (the old
+    // last-mount-wins bug) — the panel must keep querying thread-1.
+    useChangesNavigationStore
+      .getState()
+      .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-background' });
+    renderPanel();
+    await screen.findByText(/No canvases in this thread/i);
+    const queried = queryMock.mock.calls.map((call) => call[1]?.[0]);
+    expect(queried).toContain('thread-1');
+    expect(queried).not.toContain('thread-background');
   });
 });

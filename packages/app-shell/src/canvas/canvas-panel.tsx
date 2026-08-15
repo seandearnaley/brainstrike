@@ -1,3 +1,4 @@
+import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { Button, CanvasFrame, useResolvedTheme } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -39,7 +40,10 @@ type VersionSelection = number | 'latest';
 export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
   const database = usePGliteDatabase();
   const theme = useResolvedTheme();
-  const threadId = useChangesNavigationStore((state) => state.activeThreadIdentity?.threadId);
+  // BST-1268 unification: the ACTIVE thread comes from the thread store —
+  // never from the wrapper-published identity (which was last-mount-wins
+  // across simultaneously-mounted open threads).
+  const threadId = useActiveAssistantThreadId() ?? undefined;
   const refreshNonce = useChangesNavigationStore((state) => state.canvasRefreshNonce);
 
   const [summaries, setSummaries] = useState<readonly CanvasPanelSummary[]>([]);

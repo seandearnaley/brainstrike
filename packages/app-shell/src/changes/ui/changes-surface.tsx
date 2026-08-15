@@ -28,6 +28,7 @@
  * Reading the store directly means the picker and the handoff write the same
  * value and this component only renders it.
  */
+import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import type { Changeset, GitInventory } from '@brainstrike/types';
 import { type ReactElement, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -111,8 +112,15 @@ export function ChangesSurface(): ReactElement {
   const activeThreadIdentity = useChangesNavigationStore((state) => state.activeThreadIdentity);
   const clearSelection = useChangesStore((state) => state.clearSelection);
 
-  const threadId = activeThreadIdentity?.threadId ?? null;
-  const latestRunId = activeThreadIdentity?.latestRunId ?? null;
+  // BST-1268 unification: WHICH thread comes from the thread store; the
+  // wrapper-published identity carries only run-tracking facts. A transient
+  // mismatch (identity not yet re-published after a switch) reads as "no
+  // completed runs yet" rather than another thread's run.
+  const threadId = useActiveAssistantThreadId();
+  const latestRunId =
+    activeThreadIdentity && activeThreadIdentity.threadId === threadId
+      ? activeThreadIdentity.latestRunId
+      : null;
 
   const { error: inventoryError, inventory, refresh: refreshInventory } = useGitInventory();
 

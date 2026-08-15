@@ -74,6 +74,7 @@ import {
 } from './diagnostics/renderer-long-task-telemetry';
 import { ExplorerSearchTabs } from './explorer-search-tabs';
 import { QuickOpenHost } from './quick-open-host';
+import { ThreadWorkspaceCoordinator } from './thread-workspace/thread-workspace-coordinator';
 import { ThreadsPanel } from './threads-panel';
 import type { NavigationItem } from './types';
 import { useMarkdownPreviewCapabilitiesValue } from './use-markdown-preview-capabilities';
@@ -534,6 +535,10 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
       <FileTreeWrapper>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
           <WorkspaceTabsProvider apps={workspaceApps}>
+            {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
+                per thread and hydrates on switch. Inside FileTreeWrapper so it
+                reaches the file-explorer store; renders nothing. */}
+            <ThreadWorkspaceCoordinator />
             <AgentWorkspaceLayout
               assistantContent={
                 <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />

@@ -78,6 +78,10 @@
     "./tree": {
       "types": "./dist/tree/index.d.ts",
       "import": "./dist/tree/index.js"
+    },
+    "./editor-view-state-store": {
+      "types": "./dist/editor-view-state-store.d.ts",
+      "import": "./dist/editor-view-state-store.js"
     }
   },
   "files": [

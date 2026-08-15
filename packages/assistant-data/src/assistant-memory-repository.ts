@@ -1241,6 +1241,17 @@ CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_placements (
 CREATE INDEX IF NOT EXISTS idx_assistant_thread_placements_resource_group
   ON brainstrike_assistant_thread_placements (resource_id, group_id);
 
+-- Per-thread workspace snapshots (BST-1268, migration 094). Bootstrapped here
+-- because the thread-delete cascade references every registered sidecar
+-- unconditionally and this repository runs against a bare PGlite in the
+-- migration-less harness — keep the shape byte-identical to 094.
+CREATE TABLE IF NOT EXISTS brainstrike_assistant_thread_workspaces (
+  thread_id   text PRIMARY KEY,
+  resource_id text NOT NULL,
+  payload     jsonb NOT NULL,
+  updated_at  timestamptz NOT NULL DEFAULT NOW()
+);
+
 -- Sync-the-mind op-log seam (BST-993). Bootstrapped here AND created by
 -- migration 079 — keep the shape byte-identical to 079. Delete ops only;
 -- widening the vocabulary is a conscious migration, never a drift channel.

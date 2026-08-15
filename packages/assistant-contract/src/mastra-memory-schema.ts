@@ -261,6 +261,9 @@ export const THREAD_DELETE_SIDECAR_TABLES = [
   { table: 'brainstrike_assistant_message_parents', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_message_tombstones', threadColumn: 'thread_id' },
   { table: 'brainstrike_assistant_thread_placements', threadColumn: 'thread_id' },
+  // Per-thread workspace snapshots (BST-1268, migration 094): deleting a
+  // thread deletes its saved workspace.
+  { table: 'brainstrike_assistant_thread_workspaces', threadColumn: 'thread_id' },
   // Shadow-git snapshot rows (BST-1164): deleting a thread deletes its
   // turn↔oid ledger. The shadow refs/objects those rows point at live on the
   // main-process filesystem and are pruned by SnapshotService GC, not by SQL.

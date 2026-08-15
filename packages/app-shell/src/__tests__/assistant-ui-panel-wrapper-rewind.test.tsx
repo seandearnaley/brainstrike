@@ -6,6 +6,11 @@
  * in `changes/use-wrapper-rewind-wiring.ts`, composed by the wrapper.
  */
 import './assistant-ui-panel-wrapper-test-support';
+import {
+  resetAssistantThreadStore,
+  useAssistantThreadStore,
+  WORKSPACE_MEMORY_RESOURCE_ID,
+} from '@brainstrike/assistant-data';
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, test } from 'vitest';
@@ -18,6 +23,12 @@ import { renderAssistantThreadPanel } from './assistant-ui-panel-wrapper-test-su
 describe('publishes the standing active-thread identity (BST-1115)', () => {
   beforeEach(() => {
     useChangesNavigationStore.getState().reset();
+    resetAssistantThreadStore();
+    // BST-1268 unification: identity publication is gated on being the ACTIVE
+    // thread — this suite models exactly that scenario.
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { [WORKSPACE_MEMORY_RESOURCE_ID]: 'thread-existing' },
+    });
   });
 
   test('publishes the thread with a null latestRunId on selection — no fabricated run history', async () => {

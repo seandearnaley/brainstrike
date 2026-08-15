@@ -415,12 +415,15 @@ vi.mock('@brainstrike/db/react', () => ({
   WORKSPACE_INDEX_SYSTEM_ROLE: 'workspace-index',
 }));
 
+const stableFileSystemAdapter = { readDirectory: vi.fn(), readFile: vi.fn() };
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   createFileContentProcessor: () => ({
     processFiles: processFilesMock,
   }),
+  // Render-stable, like the real AdaptersProvider value — a fresh object per
+  // call would churn service identity on every rerender (test artifact).
   useAdapters: () => ({
-    fileSystemAdapter: { readDirectory: vi.fn(), readFile: vi.fn() },
+    fileSystemAdapter: stableFileSystemAdapter,
   }),
 }));
 
@@ -464,45 +467,48 @@ vi.mock('@brainstrike/file-import', () => ({
   runEnhancedImport: runEnhancedImportMock,
 }));
 
+// Render-stable controller, like the real provider value — a fresh object
+// per call would churn service identity on every rerender.
+const stableEmbeddingRuntimeController = {
+  cancelAllBackfills: vi.fn(async () => {}),
+  cancelBackfill: cancelBackfillMock,
+  enqueueBackfill: enqueueBackfillMock,
+  ensureStarted: ensureEmbeddingRuntimeStartedMock,
+  getBackfillsInFlight: vi.fn(async () => []),
+  getStatus: vi.fn(async () => ({
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host:test',
+    runtimeKind: 'embedding-host',
+    state: 'running',
+  })),
+  onBackfillProgress: vi.fn(() => () => {}),
+  onStatus: vi.fn(() => () => {}),
+  reset: vi.fn(async () => ({
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host:test',
+    runtimeKind: 'embedding-host',
+    state: 'running',
+  })),
+  start: vi.fn(async () => ({
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host:test',
+    runtimeKind: 'embedding-host',
+    state: 'running',
+  })),
+  stop: vi.fn(async () => ({
+    active: false,
+    lastError: null,
+    runtimeId: 'embedding-host:test',
+    runtimeKind: 'embedding-host',
+    state: 'stopped',
+  })),
+};
 vi.mock('@brainstrike/vector-management', () => ({
   useSharedEmbeddingRuntime: vi.fn(() => ({
-    controller: {
-      cancelAllBackfills: vi.fn(async () => {}),
-      cancelBackfill: cancelBackfillMock,
-      enqueueBackfill: enqueueBackfillMock,
-      ensureStarted: ensureEmbeddingRuntimeStartedMock,
-      getBackfillsInFlight: vi.fn(async () => []),
-      getStatus: vi.fn(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host:test',
-        runtimeKind: 'embedding-host',
-        state: 'running',
-      })),
-      onBackfillProgress: vi.fn(() => () => {}),
-      onStatus: vi.fn(() => () => {}),
-      reset: vi.fn(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host:test',
-        runtimeKind: 'embedding-host',
-        state: 'running',
-      })),
-      start: vi.fn(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host:test',
-        runtimeKind: 'embedding-host',
-        state: 'running',
-      })),
-      stop: vi.fn(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host:test',
-        runtimeKind: 'embedding-host',
-        state: 'stopped',
-      })),
-    },
+    controller: stableEmbeddingRuntimeController,
     service: vectorQueueServiceState.current ?? null,
   })),
 }));
@@ -1382,6 +1388,62 @@ describe('WorkspaceCollectionSyncProvider', () => {
       );
     } finally {
       syncSpy.mockRestore();
+    }
+  });
+
+  it('a focus-only root change never cancels or re-runs an in-flight sync (BST-1268)', async () => {
+    // Per-thread workspaces restore the FOCUSED root on thread switch. The
+    // sync machinery must key on the root SET identity alone — a focus change
+    // with an unchanged set must not recreate triggerSync (whose owning
+    // effect's cleanup cancels the in-flight sync mid-import).
+    const rootA = {
+      kind: 'directory',
+      name: 'root-a',
+      path: '/workspace/root-a',
+      platform: 'electron',
+      rootId: 'root-a-id',
+    };
+    const rootB = {
+      kind: 'directory',
+      name: 'root-b',
+      path: '/workspace/root-b',
+      platform: 'electron',
+      rootId: 'root-b-id',
+    };
+    fileSystemState.rootDirectoryHandle = rootA;
+    fileSystemState.rootDirectoryHandles = [rootA, rootB];
+    const syncSpy = vi.spyOn(WorkspaceCollectionSyncService.prototype, 'sync').mockResolvedValue();
+    const cancelSpy = vi
+      .spyOn(WorkspaceCollectionSyncService.prototype, 'cancel')
+      .mockResolvedValue();
+
+    try {
+      const { rerender } = render(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+      await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+      syncSpy.mockClear();
+      cancelSpy.mockClear();
+
+      // Focus flips to root-b; the SET (same array identity) is unchanged.
+      fileSystemState.rootDirectoryHandle = rootB;
+      rerender(
+        <WorkspaceCollectionSyncProvider>
+          <div data-testid="child" />
+        </WorkspaceCollectionSyncProvider>
+      );
+
+      // Give any (wrong) effect re-run a chance to fire before asserting.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      });
+      expect(cancelSpy).not.toHaveBeenCalled();
+      expect(syncSpy).not.toHaveBeenCalled();
+    } finally {
+      syncSpy.mockRestore();
+      cancelSpy.mockRestore();
     }
   });
 
@@ -3191,8 +3253,18 @@ describe('WorkspaceCollectionSyncProvider', () => {
       // Wait for the first loop's root1 pass to begin.
       await firstSyncStartedPromise;
 
-      // Re-trigger by forcing a rerender (simulates a state change that re-fires the effect).
-      fileSystemState.rootDirectoryHandles = [root1, root2];
+      // Re-trigger via a GENUINE root-set change (BST-1268: identity churn
+      // with an unchanged set deliberately no longer re-fires the effect).
+      fileSystemState.rootDirectoryHandles = [
+        root1,
+        root2,
+        {
+          kind: 'directory',
+          name: 'workspace3',
+          path: '/workspace/root3',
+          platform: 'electron',
+        },
+      ];
       rerender(
         <WorkspaceCollectionSyncProvider>
           <div data-testid="child" />
@@ -3638,7 +3710,7 @@ describe('WorkspaceCollectionSyncProvider', () => {
       });
 
     try {
-      const { rerender } = render(
+      render(
         <WorkspaceCollectionSyncProvider>
           <div data-testid="child" />
         </WorkspaceCollectionSyncProvider>
@@ -3650,14 +3722,13 @@ describe('WorkspaceCollectionSyncProvider', () => {
           : callOrder.indexOf(root1.path)
       );
 
-      // Re-trigger the loop. root2 still has 0 coverage → still synced first.
+      // Re-trigger the loop via the refresh event — the honest same-set
+      // re-trigger path (BST-1268: identity churn no longer re-fires the
+      // owning effect). root2 still has 0 coverage → still synced first.
       callOrder.length = 0;
-      fileSystemState.rootDirectoryHandles = [root1, root2];
-      rerender(
-        <WorkspaceCollectionSyncProvider>
-          <div data-testid="child" />
-        </WorkspaceCollectionSyncProvider>
-      );
+      act(() => {
+        window.dispatchEvent(new Event('brainstrike:file-explorer-refreshed'));
+      });
       await waitFor(() => expect(callOrder).toContain(root2.path));
       const root2Index = callOrder.indexOf(root2.path);
       const root1Index = callOrder.indexOf(root1.path);

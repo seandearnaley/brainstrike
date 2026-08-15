@@ -807,6 +807,7 @@ export function registerDatabaseIpcHandlers(
             // presentation state. Clear placements before their logical group
             // parents, and clear both before the Mastra threads they organize.
             await clearOptionalRelation(tx, 'brainstrike_assistant_thread_placements');
+            await clearOptionalRelation(tx, 'brainstrike_assistant_thread_workspaces');
             await clearOptionalRelation(tx, 'brainstrike_assistant_thread_groups');
             // Mastra creates all of its memory relations lazily, so a fresh
             // profile can legitimately omit any of them. Probe first, then wipe

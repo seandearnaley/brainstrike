@@ -7,6 +7,7 @@ import type {
   AssistantThreadMetadata,
   AssistantThreadRepository,
 } from './assistant-memory-repository';
+import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
 
 type AssistantThreadModelSettings = RuntimeModelSettings;
 
@@ -882,6 +883,19 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
     }
   )
 );
+
+/**
+ * The ACTIVE thread id for the workspace resource — the single "which thread
+ * is the user looking at" signal (BST-1268 unification). Canvas, Changes, and
+ * the thread-workspace coordinator all key off THIS selector; the
+ * changes-navigation store's `activeThreadIdentity` carries only run-tracking
+ * facts (`latestRunId`) for the same thread, published by the ACTIVE
+ * wrapper's run stream.
+ */
+export function useActiveAssistantThreadId(resourceIdOverride?: string): string | null {
+  const resourceId = resolveAssistantMemoryResourceId(resourceIdOverride);
+  return useAssistantThreadStore((state) => state.activeThreadIdByResourceId[resourceId] ?? null);
+}
 
 export function resetAssistantThreadStore(): void {
   resourceThreadLoadGeneration += 1;

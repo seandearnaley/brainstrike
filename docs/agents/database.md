@@ -369,6 +369,24 @@ bootstrap must never emit that destructive statement: it installs the final
 constraint only when the catalog says it is absent, because `db:exec` rejects
 renderer schema drops.
 
+Migration 095 owns the FK-less `brainstrike_assistant_thread_workspaces`
+sidecar (BST-1268): one row per thread (`thread_id` PK) holding that thread's
+saved workspace as a versioned JSONB `payload` (open app/file tabs, editor
+view state, per-root tree expansions, root view). Register it in both
+migration runners, the shared factory-reset registry, and the thread-delete
+sidecar list, and mirror its DDL in the renderer-lazy assistant bootstrap —
+the renderer coordinator is the sole writer, and the thread-delete CTE
+references every registered sidecar unconditionally. The payload is repaired
+section-wise on read by `coerceWorkspaceSnapshot` (unknown versions fall back
+to the empty snapshot; expansion lists are capped shallowest-first), so schema
+evolution happens in the payload version, not in DDL churn. Rows contain
+workspace file paths and tab ids; message content, prompts, and file contents
+are prohibited. Paired pins:
+`packages/assistant-data/src/__tests__/thread-workspace-contract.test.ts`
+(migration↔bootstrap CREATE TABLE shape parity, sidecar-list membership,
+reset-registry membership) plus the pinned counts in
+`packages/db/__tests__/reset-table-registry.test.tsx`.
+
 ## PGLITE EXTENSION INVARIANT
 
 Every PGlite construction site MUST load the same engine-extension set, or the

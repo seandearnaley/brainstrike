@@ -214,6 +214,38 @@ describe('workspace-tab-selection-store', () => {
     });
   });
 
+  describe('hydrate (thread-workspace coordinator entry point)', () => {
+    it('replaces openAppIds and selection atomically and seeds mounted from the selection', () => {
+      useWorkspaceTabSelectionStore.getState().openApp('changes');
+      useWorkspaceTabSelectionStore
+        .getState()
+        .hydrate(['canvas'], { appId: 'canvas', kind: 'app' });
+      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual(['canvas']);
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        appId: 'canvas',
+        kind: 'app',
+      });
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual(['canvas']);
+    });
+
+    it('hydrating a file selection appends its app-less mounted set from scratch', () => {
+      useWorkspaceTabSelectionStore.getState().hydrate(['context-explorer'], {
+        kind: 'file',
+        tabId: 't1',
+      });
+      expect(useWorkspaceTabSelectionStore.getState().mountedAppIds).toEqual([]);
+      expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+        kind: 'file',
+        tabId: 't1',
+      });
+    });
+
+    it('coerces an app selection missing from openAppIds by appending it', () => {
+      useWorkspaceTabSelectionStore.getState().hydrate([], { appId: 'changes', kind: 'app' });
+      expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual(['changes']);
+    });
+  });
+
   describe('selectEmpty / reset', () => {
     it('selectEmpty sets the empty selection', () => {
       useWorkspaceTabSelectionStore.getState().selectEmpty();

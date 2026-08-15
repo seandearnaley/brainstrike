@@ -116,3 +116,32 @@ describe('tab-manager-store migration', () => {
     expect(state.activeTabId).toBe('folderA|@|src/index.ts');
   });
 });
+
+describe('hydrateTabs (thread-workspace coordinator entry point)', () => {
+  it('replaces the tab list and active id atomically with content reset', () => {
+    __resetTabManagerStoreForTests();
+    const store = useTabManagerStore.getState();
+    store.openTab('src/old.ts', 'k-old', 'k-old');
+
+    useTabManagerStore.getState().hydrateTabs(
+      [
+        { compositeKey: 'folderA|@|src/a.ts', path: 'src/a.ts' },
+        { compositeKey: 'folderA|@|src/b.ts', path: 'src/b.ts' },
+      ],
+      'folderA|@|src/b.ts'
+    );
+
+    const state = useTabManagerStore.getState();
+    expect(state.tabs.map((tab) => tab.id)).toEqual(['folderA|@|src/a.ts', 'folderA|@|src/b.ts']);
+    expect(state.activeTabId).toBe('folderA|@|src/b.ts');
+    expect(state.tabs.every((tab) => tab.content === null && tab.isLoading === false)).toBe(true);
+    __resetTabManagerStoreForTests();
+  });
+
+  it('drops an activeTabId that is not in the hydrated list', () => {
+    __resetTabManagerStoreForTests();
+    useTabManagerStore.getState().hydrateTabs([{ compositeKey: 'k1', path: 'a.ts' }], 'missing-id');
+    expect(useTabManagerStore.getState().activeTabId).toBeNull();
+    __resetTabManagerStoreForTests();
+  });
+});
