@@ -21,7 +21,8 @@
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/workers": "workspace:*",
     "drizzle-orm": "catalog:",
-    "react-hotkeys-hook": "catalog:"
+    "react-hotkeys-hook": "catalog:",
+    "react-resizable-panels": "catalog:"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
