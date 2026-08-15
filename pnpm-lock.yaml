@@ -97,7 +97,7 @@ catalogs:
       specifier: ^9.6.1
       version: 9.6.1
     '@swc/core':
-      specifier: ^1.15.47
+      specifier: ~1.15.47
       version: 1.15.47
     '@tailwindcss/typography':
       specifier: ^0.5.20
@@ -277,6 +277,7 @@ catalogs:
 overrides:
   react: ^19.2.8
   react-dom: ^19.2.8
+  vite-plugin-top-level-await>@swc/core: ~1.15.47
 
 importers:
 

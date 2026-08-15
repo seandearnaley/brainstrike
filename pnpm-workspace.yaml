@@ -49,7 +49,7 @@ catalog:
   '@stryker-mutator/core': ^9.6.1
   '@stryker-mutator/typescript-checker': ^9.6.1
   '@stryker-mutator/vitest-runner': ^9.6.1
-  '@swc/core': ^1.15.47
+  '@swc/core': ~1.15.47
   '@tailwindcss/typography': ^0.5.20
   '@tailwindcss/vite': ^4.3.3
   '@tanstack/react-table': ^9.1.2
@@ -111,6 +111,26 @@ catalog:
 overrides:
   react: ^19.2.8
   react-dom: ^19.2.8
+  # @swc/core 1.16.0 BREAKS the desktop build (BST-1311). vite-plugin-top-level-await
+  # constructs SWC AST nodes in JS, and 1.16.0's Rust-side AST change makes
+  # Compiler.printSync reject them with "missing field `type`". Proven by A/B:
+  # pristine main at 1.15.47 builds green; the same tree with only the swc bump
+  # fails at @brainstrike/desktop#build.
+  #
+  # This SUBTREE-scoped override is what actually holds the line. The plugin
+  # declares its own `@swc/core: ^1.12.14`, which the catalog does NOT constrain —
+  # so before this, the only thing pinning 1.15.47 was the lockfile, and any
+  # `pnpm update` or dedupe could have resolved 1.16.0 and broken the build with
+  # no warning. The catalog was narrowed to `~1.15.47` in the same change to close
+  # the direct-dependency path.
+  #
+  # Subtree-scoped on purpose: a BARE `@swc/core` override would shadow the
+  # catalog entry entirely, which scripts/verify-catalog-references.mjs rejects
+  # ("never both").
+  #
+  # Remove both once vite-plugin-top-level-await ships a release compatible with
+  # swc >= 1.16 (1.6.0 is latest as of 2026-08-15 and is not).
+  vite-plugin-top-level-await>@swc/core: ~1.15.47
 allowBuilds:
   '@brainstrike/secure-fs-native': true
   '@brainstrike/windows-job-native': true
