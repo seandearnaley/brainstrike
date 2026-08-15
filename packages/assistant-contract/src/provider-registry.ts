@@ -638,6 +638,11 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         maxOutputTokens: 131_072,
         pricing: { inputPerMTok: 0.45, outputPerMTok: 3.2 },
         reasoning: {
+          // Auto intentionally follows Qwen's documented xhigh default. The
+          // official ladder skips high: xhigh, medium, low. No paid route smoke
+          // was available (BST-1302), and Qwen publishes recommended maxima for
+          // separate reasoning/final output rather than a distinct default
+          // thinking+answer reservation, so vendorDefaultOutputTokens is absent.
           defaultEffort: 'xhigh',
           defaultEnabled: true,
           mandatory: false,

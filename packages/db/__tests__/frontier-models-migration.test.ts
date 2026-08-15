@@ -537,15 +537,25 @@ describe('frontier models migrations', () => {
       return result.rows[0];
     };
 
+    const sortOrderOf = async (id: string): Promise<number | undefined> => {
+      const result = await db.query<{ sort_order: number }>(
+        'SELECT sort_order FROM models WHERE provider_id = $1 AND id = $2',
+        ['openrouter', id]
+      );
+      return result.rows[0]?.sort_order;
+    };
+
     expect(await readQwen()).toEqual({
       capabilities: { streaming: true, type: 'llm', vision: true },
       is_enabled: false,
       sort_order: 1,
     });
+    expect(await sortOrderOf('google/gemini-3.7-flash')).toBe(2);
 
     await db.query("UPDATE models SET is_enabled = true WHERE id = 'qwen/qwen3.8-27b'");
     await runner.down(migrations, 95);
     expect(await readQwen()).toBeUndefined();
+    expect(await sortOrderOf('google/gemini-3.7-flash')).toBe(1);
 
     await db.query(`
       INSERT INTO models
@@ -569,8 +579,10 @@ describe('frontier models migrations', () => {
       is_enabled: true,
       sort_order: 1,
     });
+    expect(await sortOrderOf('google/gemini-3.7-flash')).toBe(2);
 
     await runner.down(migrations, 95);
     expect(await readQwen()).toBeUndefined();
+    expect(await sortOrderOf('google/gemini-3.7-flash')).toBe(1);
   });
 });
