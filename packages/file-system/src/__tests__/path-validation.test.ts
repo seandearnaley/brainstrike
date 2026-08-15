@@ -446,6 +446,28 @@ describe('resolveValidatedPath', () => {
     }
   });
 
+  it('does not treat non-ENOENT realpath failures as missing paths', async () => {
+    const spy = vi.spyOn(fsPromises, 'realpath');
+    const eacces = Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    spy.mockResolvedValueOnce(tempDir).mockRejectedValueOnce(eacces);
+
+    try {
+      const result = await resolveValidatedPath({
+        allowMissing: true,
+        requestedPath: 'some-file.txt',
+        rootDir: tempDir,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('realpath-failure');
+        expect(result.error.message).toBe('permission denied');
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it.skipIf(!home)(
     'blocks sensitive user directory with win32 platform (case-insensitive)',
     async () => {
