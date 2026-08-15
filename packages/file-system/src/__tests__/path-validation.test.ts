@@ -424,36 +424,24 @@ describe('resolveValidatedPath', () => {
     }
   });
 
-  it('returns realpath-failure for non-ENOENT errors', async () => {
+  it.each([
+    false,
+    true,
+  ])('returns realpath-failure for non-ENOENT errors when allowMissing is %s', async (allowMissing) => {
     const spy = vi.spyOn(fsPromises, 'realpath');
+    const candidate = path.join(tempDir, 'some-file.txt');
     const eacces = Object.assign(new Error('permission denied'), { code: 'EACCES' });
-
-    // The first call resolves the rootDir, the second call (for candidate) rejects with EACCES
-    spy.mockResolvedValueOnce(tempDir).mockRejectedValueOnce(eacces);
-
-    const result = await resolveValidatedPath({
-      allowMissing: false,
-      requestedPath: 'some-file.txt',
-      rootDir: tempDir,
+    spy.mockImplementation(async (input: fs.PathLike) => {
+      const resolved = input.toString();
+      if (resolved === candidate) {
+        throw eacces;
+      }
+      return resolved;
     });
-
-    spy.mockRestore();
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('realpath-failure');
-      expect(result.error.message).toBe('permission denied');
-    }
-  });
-
-  it('does not treat non-ENOENT realpath failures as missing paths', async () => {
-    const spy = vi.spyOn(fsPromises, 'realpath');
-    const eacces = Object.assign(new Error('permission denied'), { code: 'EACCES' });
-    spy.mockResolvedValueOnce(tempDir).mockRejectedValueOnce(eacces);
 
     try {
       const result = await resolveValidatedPath({
-        allowMissing: true,
+        allowMissing,
         requestedPath: 'some-file.txt',
         rootDir: tempDir,
       });
