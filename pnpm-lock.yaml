@@ -278,6 +278,7 @@ overrides:
   react: ^19.2.8
   react-dom: ^19.2.8
   vite-plugin-top-level-await>@swc/core: ~1.15.47
+  vite-plugin-top-level-await>@swc/wasm: ~1.15.43
 
 importers:
 

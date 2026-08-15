@@ -128,9 +128,38 @@ overrides:
   # catalog entry entirely, which scripts/verify-catalog-references.mjs rejects
   # ("never both").
   #
+  # @swc/wasm is pinned for the SAME reason, and it is NOT belt-and-braces. The
+  # plugin depends on both packages directly (`@swc/core: ^1.12.14`,
+  # `@swc/wasm: ^1.12.14`) and picks between them at require() time —
+  # dist/swc.js is `try { require("@swc/core") } catch { require("@swc/wasm") }`,
+  # with VITE_TLA_FORCE_WASM=true forcing the fallback and VITE_TLA_FORCE_NATIVE=true
+  # rethrowing instead. So the wasm copy is live code on any tree where the native
+  # binding fails to load — a platform with no prebuilt binary, or an install that
+  # skipped build scripts. `@swc/core: true` in allowBuilds makes the native path
+  # the normal one HERE; it does not make the fallback dead. Measured, not
+  # assumed: with this override removed, `pnpm update -r --depth Infinity
+  # @swc/wasm` resolves 1.16.0 (published 2026-08-14, so the gap was live), and
+  # driving the plugin's own transformModule + printSync over that build throws
+  #
+  #   failed to deserialize program: unknown variant `BlockStatement`
+  #
+  # where @swc/core 1.15.47 prints the very same AST fine. The message DIFFERS
+  # from the native path's "missing field `type`" — same Rust-side AST
+  # deserialization break, different wording — so do not grep for the core error
+  # when diagnosing a wasm-path failure. Left unpinned this reproduces ONLY
+  # where the fallback is taken, which is the worst form of this bug.
+  #
+  # Blast radius is BOTH apps, not just desktop: topLevelAwait() is used at
+  # apps/web/vite.config.mts:184, apps/desktop/vite.config.mts:134, and desktop's
+  # worker.plugins at :267. Desktop is only where the build happens to fail first,
+  # so retiring the desktop usage alone would NOT retire these pins.
+  #
   # Remove both once vite-plugin-top-level-await ships a release compatible with
-  # swc >= 1.16 (1.6.0 is latest as of 2026-08-15 and is not).
+  # swc >= 1.16 (1.6.0 is latest as of 2026-08-15 and is not), widen the catalog
+  # back to a caret range, and delete scripts/__tests__/swc-ast-break-block.test.mjs,
+  # which fails until all three are done together.
   vite-plugin-top-level-await>@swc/core: ~1.15.47
+  vite-plugin-top-level-await>@swc/wasm: ~1.15.43
 allowBuilds:
   '@brainstrike/secure-fs-native': true
   '@brainstrike/windows-job-native': true
