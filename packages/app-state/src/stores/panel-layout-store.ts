@@ -26,6 +26,14 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
  */
 export type PanelTab = 'explorer' | 'settings' | 'git' | 'terminal' | 'notes' | 'browser';
 
+/**
+ * The subset of the store the visible-surface rule reads. Kept structural so
+ * the selector can be called both as a zustand selector
+ * (`usePanelLayoutStore(selectVisibleSurface)`) and as a plain function on
+ * values a component has already subscribed to.
+ */
+export type VisibleSurfaceState = Pick<PanelLayoutStoreState, 'activeTab' | 'settingsOpen'>;
+
 export interface PanelLayoutStoreState {
   // Root tabs
   activeTab: PanelTab;
@@ -45,6 +53,25 @@ export interface PanelLayoutStoreState {
   toggleConsole: () => void;
   toggleLeft: () => void;
   toggleRight: () => void;
+}
+
+/**
+ * The surface the user is actually looking at, and the ONE definition of the
+ * settings-overlay precedence rule (BST-1281).
+ *
+ * Settings is a modal dialog layered over whichever tab is underneath it, so an
+ * open dialog wins. `activeTab === 'settings'` is the same surface reached from
+ * the nav rail — `setActiveTab` sets `settingsOpen` alongside it — but it is
+ * checked explicitly because `setState` can write `activeTab` on its own, and a
+ * consumer that only looked at `settingsOpen` would then disagree with the
+ * dialog on screen.
+ *
+ * Consumers: `RootLayoutContent` (settings dialog `open` prop + long-task
+ * telemetry route) and `useDocumentTitle` (document title/description). Change
+ * the rule here and every consumer moves with it.
+ */
+export function selectVisibleSurface(state: VisibleSurfaceState): PanelTab {
+  return state.settingsOpen || state.activeTab === 'settings' ? 'settings' : state.activeTab;
 }
 
 /**

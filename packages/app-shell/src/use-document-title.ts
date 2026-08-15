@@ -1,12 +1,14 @@
 import {
   type PanelTab,
+  selectVisibleSurface,
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useEffect } from 'react';
 
 /**
  * Fallback description for routes that never carried one of their own. Kept
- * verbatim from the `<Helmet>` that used to live in `apps/web/src/app/layout.tsx`.
+ * verbatim from the `<Helmet>` in the web app's `app/layout.tsx`, a wrapper that
+ * nothing mounted and that BST-1281 deleted along with the dependency.
  */
 const APP_DESCRIPTION = 'Multi-app dashboard';
 
@@ -66,12 +68,14 @@ function resolveDescriptionMeta(): HTMLMetaElement {
  *
  * Settings is an overlay dialog rather than a route swap, so an open dialog
  * wins over the tab underneath it — the same precedence the old markup got
- * from mounting the settings `<Helmet>` on top of the explorer one.
+ * from mounting the settings `<Helmet>` on top of the explorer one. That rule
+ * is NOT restated here: `selectVisibleSurface` owns it, and `RootLayoutContent`
+ * drives the settings dialog from the same selector, so the title cannot
+ * describe a surface other than the one on screen.
  */
 export function useDocumentTitle(): void {
-  const activeTab = usePanelLayoutStore((state) => state.activeTab);
-  const settingsOpen = usePanelLayoutStore((state) => state.settingsOpen);
-  const { description, title } = DOCUMENT_META[settingsOpen ? 'settings' : activeTab];
+  const visibleSurface = usePanelLayoutStore(selectVisibleSurface);
+  const { description, title } = DOCUMENT_META[visibleSurface];
 
   useEffect(() => {
     document.title = title;

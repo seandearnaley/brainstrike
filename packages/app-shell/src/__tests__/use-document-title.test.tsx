@@ -68,6 +68,23 @@ describe('useDocumentTitle', () => {
     expect(readTitles()).toEqual(['BrainStrike.ai - Home']);
   });
 
+  test('treats activeTab "settings" as settings even when settingsOpen is false', () => {
+    // The half of `selectVisibleSurface` the cases above never reach: a snapshot
+    // written straight through `setState` (rather than `setActiveTab`, which
+    // sets both) leaves `activeTab: 'settings'` with the flag down.
+    // `root-layout-content.tsx` still shows the settings dialog for that state,
+    // so the title has to agree — this pins the equivalence rather than
+    // assuming it.
+    render(<TitleWriter />);
+
+    act(() => {
+      usePanelLayoutStore.setState({ activeTab: 'settings', settingsOpen: false });
+    });
+
+    expect(readTitles()).toEqual(['Settings - BrainStrike.ai']);
+    expect(readDescriptions()).toEqual(['Customize your application settings']);
+  });
+
   test('never accumulates a second title or description element', () => {
     // The failure mode this hook exists to make impossible: `root-layout-content.tsx`
     // keeps every visited tab mounted, so a per-surface writer multiplies the tags.

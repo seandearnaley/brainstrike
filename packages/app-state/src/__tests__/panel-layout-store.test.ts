@@ -1,6 +1,6 @@
 import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createPanelLayoutStore } from '../stores/panel-layout-store';
+import { createPanelLayoutStore, selectVisibleSurface } from '../stores/panel-layout-store';
 
 const STORE_NAME = 'panel-layout-store.v1';
 
@@ -67,6 +67,18 @@ describe('panel-layout-store', () => {
 
     store.getState().setSettingsOpen(false);
     expect(store.getState().settingsOpen).toBe(false);
+  });
+
+  it('resolves the visible surface from both settings entry points', () => {
+    expect(selectVisibleSurface({ activeTab: 'explorer', settingsOpen: false })).toBe('explorer');
+    expect(selectVisibleSurface({ activeTab: 'git', settingsOpen: false })).toBe('git');
+    // Dialog raised over another tab.
+    expect(selectVisibleSurface({ activeTab: 'git', settingsOpen: true })).toBe('settings');
+    // Nav-rail route, whose flag `setActiveTab` normally raises alongside it —
+    // but a direct `setState` can leave the two apart, and the shell shows
+    // settings for this state, so the selector must too.
+    expect(selectVisibleSurface({ activeTab: 'settings', settingsOpen: false })).toBe('settings');
+    expect(selectVisibleSurface({ activeTab: 'settings', settingsOpen: true })).toBe('settings');
   });
 
   it('normalizes sizes and preserves tuple shape', () => {

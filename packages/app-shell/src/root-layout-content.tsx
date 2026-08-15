@@ -1,6 +1,7 @@
 import { useContextExplorerLayoutStore } from '@brainstrike/app-state/stores/context-explorer-layout-store';
 import {
   type PanelTab,
+  selectVisibleSurface,
   usePanelLayoutStore,
 } from '@brainstrike/app-state/stores/panel-layout-store';
 import type { LocalLlmBackendFactory } from '@brainstrike/assistant-contract';
@@ -623,8 +624,15 @@ export function RootLayoutContent({
   // footer link (packages/ui, gated on this same context) renders null without it.
   const changesReviewValue = useChangesReviewValue(changesPageContent, setActiveTab);
   const rewindValue = useRewindValue(changesPageContent);
-  const diagnosticSurface: RendererDiagnosticSurface =
-    settingsOpen || activeTab === 'settings' ? 'settings' : shellTab;
+  // BST-1281: the settings-overlay precedence rule has exactly one definition,
+  // in the panel-layout store, so this shell and `useDocumentTitle` cannot drift
+  // apart — the tab chrome, the telemetry route and the document title are all
+  // derived from the same value.
+  const visibleSurface = selectVisibleSurface({ activeTab, settingsOpen });
+  const settingsVisible = visibleSurface === 'settings';
+  // Assignment (not a cast) so `PanelTab ⊆ RendererDiagnosticSurface` stays a
+  // compile-time check as either union gains members.
+  const diagnosticSurface: RendererDiagnosticSurface = visibleSurface;
   const longTaskContext = useMemo(
     () => ({ enabledFeatureFlags: diagnosticFeatureFlags ?? null, route: diagnosticSurface }),
     [diagnosticFeatureFlags, diagnosticSurface]
@@ -741,10 +749,7 @@ export function RootLayoutContent({
                       />
                     </PanelLayoutProvider>
                   </div>
-                  <Dialog
-                    onOpenChange={handleSettingsOpenChange}
-                    open={settingsOpen || activeTab === 'settings'}
-                  >
+                  <Dialog onOpenChange={handleSettingsOpenChange} open={settingsVisible}>
                     <DialogContent
                       aria-describedby={undefined}
                       className="h-[min(780px,calc(100vh-3rem))] max-h-[calc(100vh-3rem)] w-[min(1180px,calc(100vw-3rem))] max-w-none gap-0 overflow-hidden rounded-2xl border-border/70 bg-background p-0 shadow-[0_32px_96px_-24px_rgba(0,0,0,0.55)] sm:max-w-none"
