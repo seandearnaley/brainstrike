@@ -1630,9 +1630,6 @@ importers:
       oxc-parser:
         specifier: 'catalog:'
         version: 0.138.0
-      tree-sitter-wasms:
-        specifier: ^0.1.13
-        version: 0.1.13
       tsup:
         specifier: 'catalog:'
         version: 8.5.1(@swc/core@1.15.43(@swc/helpers@0.5.23))(@typescript/typescript6@6.0.2)(jiti@2.7.0)(postcss@8.5.19)(supports-color@10.2.2)(tsx@4.23.0)(yaml@2.9.0)
@@ -14173,9 +14170,6 @@ packages:
     resolution: {integrity: sha512-L0Orpi8qGpRG//Nd+H90vFB+3iHnue1zSSGmNOOCh1GLJ7rUKVwV2HvijphGQS2UmhUZewS9VgvxYIdgr+fG1A==}
     hasBin: true
 
-  tree-sitter-wasms@0.1.13:
-    resolution: {integrity: sha512-wT+cR6DwaIz80/vho3AvSF0N4txuNx/5bcRKoXouOfClpxh/qqrF4URNLQXbbt8MaAxeksZcZd1j8gcGjc+QxQ==}
-
   trim-lines@3.0.1:
     resolution: {integrity: sha512-kRj8B+YHZCc9kQYdWfJB2/oUl9rA99qbowYYBtr4ui4mZyAQ2JpvVBd/6U2YloATfqBhBTSMhTpgBHtU0Mf3Rg==}
 
@@ -26308,8 +26302,6 @@ snapshots:
       punycode: 2.3.1
 
   tree-kill@1.2.2: {}
-
-  tree-sitter-wasms@0.1.13: {}
 
   trim-lines@3.0.1: {}
 

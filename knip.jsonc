@@ -368,10 +368,7 @@
       ],
       "ignoreDependencies": [
         // Bundled via tsup.config.ts noExternal; wasm subpath declared in src/types/wasm.d.ts
-        "tiktoken",
-        // Not imported (the python grammar is vendored to grammars/python.wasm), but pinned as the
-        // documented re-vendoring source of truth — see docs/dependency-updates-breaking-changes.md
-        "tree-sitter-wasms"
+        "tiktoken"
       ],
       "typescript": {
         "config": "tsconfig.json"

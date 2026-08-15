@@ -532,46 +532,52 @@ Two upstream PRs landed together in the `0.12.26` release (published 2026-04-24,
 structure-aware chunking (function/class/decorated-definition boundaries),
 falling back to a recursive/line-based chunker when the grammar can't load.
 
-**What breaks:** The vendored grammar WASM
-(`packages/chunking-worker/grammars/python.wasm`, sourced from
-`tree-sitter-wasms@0.1.13`, still the latest published version of that
-package) uses the legacy Emscripten `"dylink"` WASM custom-section name.
-`web-tree-sitter@0.26.10`'s bundled runtime dropped the fallback that
-0.25.x had for that legacy name and only accepts `"dylink.0"`. Verified live:
-loading the exact vendored `.wasm` bytes via `Language.load()` succeeds on
-0.25.10 and throws immediately on 0.26.10 with the same bytes. All other API
-surface this repo actually calls (`Parser.init/setLanguage/parse`,
-`Language.load`, `Query`, `query.matches`, `Node.type/startIndex/endIndex`,
-`tree/parser.delete`) is unchanged between the two versions.
+**What broke:** The vendored grammar WASM
+(`packages/chunking-worker/grammars/python.wasm`) used to be sourced from
+`tree-sitter-wasms@0.1.13` — abandoned, last published 2025-10-07, still the
+latest release of that package — and used the legacy Emscripten `"dylink"`
+WASM custom-section name. `web-tree-sitter@0.26.10`'s bundled runtime dropped
+the fallback that 0.25.x had for that legacy name and only accepts
+`"dylink.0"`. Verified live: loading the exact vendored `.wasm` bytes via
+`Language.load()` succeeded on 0.25.10 and threw immediately on 0.26.10
+(a bare `Error` with an empty message, from `getDylinkMetadata` → `failIf`).
+All other API surface this repo actually calls
+(`Parser.init/setLanguage/parse`, `Language.load`, `Query`, `query.matches`,
+`Node.type/startIndex/endIndex`, `tree/parser.delete`) is unchanged between
+the two versions.
 
 Per the existing catch-and-evict code in `tree-sitter-grammar-loader.ts`,
 this failure doesn't crash the app — it falls back to the recursive chunker —
 but it silently defeats the whole point of the tree-sitter-based Python
 chunking feature, so it must not ship unremediated.
 
-**What to verify before unpinning**
+**Grammar side: resolved (BST-1277).** `grammars/python.wasm` is now
+`tree-sitter-python@0.25.0`'s package-root `tree-sitter-python.wasm`
+(`dylink.0`, ABI 15) — the canonical `tree-sitter/tree-sitter-python` repo.
+`@vscode/tree-sitter-wasm@0.3.1` ships a byte-identical copy of the same
+artifact, so the choice was provenance, not content. The bytes are vendored
+rather than taken as a dependency: nothing imports the package, and
+`tree-sitter-python` carries an `install: node-gyp-build` script plus
+five-platform native prebuilds that the vendored-`.wasm` architecture never
+uses. `tree-sitter-wasms` is gone from the tree.
+`src/__tests__/tree-sitter-grammar-abi.test.ts` pins the artifact's sha256,
+asserts the `dylink.0` section name, and asserts ABI >= 15 — the pin is
+enforced now instead of documented.
 
-- Re-vendor `packages/chunking-worker/grammars/python.wasm` from a
-  `dylink.0`-format source. The official `tree-sitter-python@0.23.6` npm
-  package ships a prebuilt grammar WASM already in that format — verified
-  live (load + parse + query) against `web-tree-sitter@0.26.10`, producing
-  identical capture output to the current grammar.
-- `tree-sitter-wasms` (the current grammar source) is still pinned at
-  `0.1.13` with no rebuilt release; an identical fix was proposed upstream
-  and closed without merging (`Gregoor/tree-sitter-wasms#52`).
-- Add/extend a test that calls `Language.load()` against the **real**
-  vendored `.wasm` file end-to-end — the existing suite apparently never
-  exercised that path against real bytes, which is how this gap went
-  unnoticed until this investigation.
-- Only bump `web-tree-sitter` once the grammar source is swapped (or a
-  compatible `tree-sitter-wasms` release ships); do the re-vendoring and the
-  version bump together so there's no window where the feature silently
-  degrades.
+**What remains before unpinning `web-tree-sitter`**
+
+- Bump `packages/chunking-worker`'s `web-tree-sitter` range to `^0.26.x` and
+  re-run the chunking-worker suite plus
+  `apps/desktop/e2e/chunking-host-renderer.test.ts` (its chunk-count
+  assertions discriminate tree-sitter output from the recursive fallback, so
+  a silent degrade shows up as a failure rather than a quality regression).
+- Re-check the rest of the 0.26 API surface against the call sites listed
+  above; only the `dylink` fallback removal was investigated in depth.
 
 **Pointers**
 
 - [`Gregoor/tree-sitter-wasms#52`](https://github.com/Gregoor/tree-sitter-wasms/pull/52) (closed, unmerged; documents the `dylink` → `dylink.0` format change)
-- `tree-sitter-python` npm package (official per-language grammar, `dylink.0`-compatible as of 0.23.6)
+- [`tree-sitter/tree-sitter-python`](https://github.com/tree-sitter/tree-sitter-python) — canonical grammar; the npm package ships the prebuilt `dylink.0` WASM at its package root
 
 ---
 
@@ -582,7 +588,7 @@ Tracked decisions where we intentionally hold a dependency below its latest vers
 | Package | Pinned at | Reason | Tracking |
 | --- | --- | --- | --- |
 | `react-helmet-async` | `^2.0.5` | Re-verified 2026-07-06: the original `preserveSymlinks`/`exports` break is real but now has a verified 3-line `resolve.alias` workaround. However, a NEW and more serious blocker was found on adversarial review: 3.0.0's `React19Dispatcher` does not dedup `<title>`/`<meta>` across simultaneously-mounted `Helmet` instances, and this app keeps inactive tabs mounted (`root-layout-content.tsx`'s `mountedTabs`) — reproduced live, 2 co-existing `<title>` tags in the DOM once 2 tabs have been visited. This is the actual reason to stay pinned; the exports/symlink issue alone would no longer block it. | (covered in react-helmet-async section above) |
-| `web-tree-sitter` | `^0.25.10` | 0.26.x's runtime drops support for the legacy `"dylink"` WASM custom-section name used by the vendored `tree-sitter-wasms@0.1.13` Python grammar; `Language.load()` throws on the real vendored bytes, silently falling back to the (worse) recursive chunker. Needs re-vendoring the grammar from a `dylink.0`-compatible source (e.g. `tree-sitter-python@0.23.6`) alongside the bump. | (covered in web-tree-sitter section above) |
+| `web-tree-sitter` | `^0.25.10` | Blocker cleared on the grammar side by BST-1277: the vendored Python grammar is now `tree-sitter-python@0.25.0` (`dylink.0`, ABI 15), which 0.26.10 loads. What remains is the range bump itself plus a re-check of the rest of the 0.26 API surface. | (covered in web-tree-sitter section above) |
 
 **Resolved:** `typescript` was pinned at `^5.9.3` pending a coordinated TS 6 migration (`FileSystemDirectoryHandle` mocks in `packages/utils`). Unpinned to `^6.0.3` 2026-07-06 in `chore/deps-typescript-6` — see the TypeScript section above for the full list of breaking changes hit and fixed (five in total: `baseUrl` deprecation, a tsup upstream bug, the originally-documented mock issue, stricter composite-project `rootDir` enforcement surfacing pre-existing `src`-vs-`dist` path mapping bugs, and `noUncheckedSideEffectImports`).
 
