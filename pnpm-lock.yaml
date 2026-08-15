@@ -31,14 +31,14 @@ catalogs:
       specifier: ^8.0.0
       version: 8.0.0
     '@electric-sql/pglite':
-      specifier: 0.5.4
-      version: 0.5.4
+      specifier: 0.5.5
+      version: 0.5.5
     '@electric-sql/pglite-pg_textsearch':
+      specifier: 0.0.7
+      version: 0.0.7
+    '@electric-sql/pglite-pgvector':
       specifier: 0.0.6
       version: 0.0.6
-    '@electric-sql/pglite-pgvector':
-      specifier: 0.0.5
-      version: 0.0.5
     '@fontsource-variable/geist':
       specifier: ^5.3.0
       version: 5.3.0
@@ -480,13 +480,13 @@ importers:
         version: link:../../packages/worker-runtime
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.4
+        version: 0.5.5
       '@electric-sql/pglite-pg_textsearch':
         specifier: 'catalog:'
-        version: 0.0.6(@electric-sql/pglite@0.5.4)
+        version: 0.0.7(@electric-sql/pglite@0.5.5)
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.5(@electric-sql/pglite@0.5.4)
+        version: 0.0.6(@electric-sql/pglite@0.5.5)
       '@fontsource-variable/geist':
         specifier: 'catalog:'
         version: 5.3.0
@@ -817,10 +817,10 @@ importers:
         version: link:../../packages/utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.4
+        version: 0.5.5
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.5(@electric-sql/pglite@0.5.4)
+        version: 0.0.6(@electric-sql/pglite@0.5.5)
       '@fontsource-variable/geist':
         specifier: 'catalog:'
         version: 5.3.0
@@ -1104,10 +1104,10 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.4
+        version: 0.5.5
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.5(@electric-sql/pglite@0.5.4)
+        version: 0.0.6(@electric-sql/pglite@0.5.5)
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0
@@ -1702,16 +1702,16 @@ importers:
         version: link:../utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.4
+        version: 0.5.5
       '@electric-sql/pglite-pg_textsearch':
         specifier: 'catalog:'
-        version: 0.0.6(@electric-sql/pglite@0.5.4)
+        version: 0.0.7(@electric-sql/pglite@0.5.5)
       '@electric-sql/pglite-pgvector':
         specifier: 'catalog:'
-        version: 0.0.5(@electric-sql/pglite@0.5.4)
+        version: 0.0.6(@electric-sql/pglite@0.5.5)
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.1)
+        version: 0.45.2(@electric-sql/pglite@0.5.5)(@opentelemetry/api@1.9.1)
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -1988,7 +1988,7 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.4
+        version: 0.5.5
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0
@@ -2194,7 +2194,7 @@ importers:
         version: link:../workers
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.1)
+        version: 0.45.2(@electric-sql/pglite@0.5.5)(@opentelemetry/api@1.9.1)
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -2216,7 +2216,7 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.4
+        version: 0.5.5
       '@testing-library/jest-dom':
         specifier: 'catalog:'
         version: 7.0.1(@testing-library/dom@10.4.1)(vitest@4.1.10)
@@ -2292,7 +2292,7 @@ importers:
         version: link:../test-utils
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.4
+        version: 0.5.5
       '@types/node':
         specifier: 'catalog:'
         version: 26.1.0
@@ -2897,7 +2897,7 @@ importers:
         version: link:../worker-runtime
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.4
+        version: 0.5.5
       xxhash-wasm:
         specifier: 'catalog:'
         version: 1.1.0
@@ -3234,7 +3234,7 @@ importers:
         version: link:../worker-runtime
       '@electric-sql/pglite':
         specifier: 'catalog:'
-        version: 0.5.4
+        version: 0.5.5
       lucide-react:
         specifier: 'catalog:'
         version: 1.31.0(react@19.2.8)
@@ -4204,18 +4204,18 @@ packages:
     resolution: {integrity: sha512-0dEVyRLM/lG4gp1R/Ik5bfPl/1wX00xFwd5KcNH602tzBa09oF7pbTKETEhR1GjZ75K6OJnYFu8II2dyMhONMw==}
     engines: {node: '>=16'}
 
-  '@electric-sql/pglite-pg_textsearch@0.0.6':
-    resolution: {integrity: sha512-n5lTjivQn/ZvVFdMoW3Rn9u30S0LeAh/sOmjKptnF0nsTa1zIZxa0mAuynzIKrMoUQ0wOFHyB3mj1lIK2UWHUA==}
+  '@electric-sql/pglite-pg_textsearch@0.0.7':
+    resolution: {integrity: sha512-gBWaCxBcFPrmecgnycTXVJrAM39qEsXqZEuQZg1itlnIti1233htFYkOg9xp+FFE8R0Z7XmjbSJxjFoG60LD7w==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.4
+      '@electric-sql/pglite': 0.5.5
 
-  '@electric-sql/pglite-pgvector@0.0.5':
-    resolution: {integrity: sha512-KEPAkD/3FN6WlDM6XPi2Ko1Xk0ecjOU9OfzCoclVkiRoEVNRYwKo1iO+tlkelMgp07SszmSC4JdSBueH2p7uOQ==}
+  '@electric-sql/pglite-pgvector@0.0.6':
+    resolution: {integrity: sha512-KiPeiS/BMmjO71igzgexJAu5aPb3Y2yUjNTSMdti4ZL3zlqZFl4eLgbzLBGyG5Cxr9xFwYFmHh61ZTq6w6hUJA==}
     peerDependencies:
-      '@electric-sql/pglite': 0.5.4
+      '@electric-sql/pglite': 0.5.5
 
-  '@electric-sql/pglite@0.5.4':
-    resolution: {integrity: sha512-yYZUyyXrHU7tPlCjwZQJ6hIG9DscdCCn7Uk0mYKwC1FeHX286AbcmFveMiRBEak8e9iPupjsoVImN3yJZVed2g==}
+  '@electric-sql/pglite@0.5.5':
+    resolution: {integrity: sha512-QeZ+oB7QaU4EJj2awrB8hwFZ5TXxLRBQ9Gfq0dQauYDdWsRtuWRCERgtri35vRfL07KQHlVlc/4Qxvn7a5AXeA==}
 
   '@electron-internal/extract-zip@1.0.4':
     resolution: {integrity: sha512-Zr1Vs7E9tpCNhZHDAbFVXc2gEVCG9RqPDjrno5+bdgB6LRAuvgyMHJut4NCVyYwtAieapMzc3fiQ3CSTi75ARg==}
@@ -15305,15 +15305,15 @@ snapshots:
     dependencies:
       '@edge-runtime/primitives': 4.1.0
 
-  '@electric-sql/pglite-pg_textsearch@0.0.6(@electric-sql/pglite@0.5.4)':
+  '@electric-sql/pglite-pg_textsearch@0.0.7(@electric-sql/pglite@0.5.5)':
     dependencies:
-      '@electric-sql/pglite': 0.5.4
+      '@electric-sql/pglite': 0.5.5
 
-  '@electric-sql/pglite-pgvector@0.0.5(@electric-sql/pglite@0.5.4)':
+  '@electric-sql/pglite-pgvector@0.0.6(@electric-sql/pglite@0.5.5)':
     dependencies:
-      '@electric-sql/pglite': 0.5.4
+      '@electric-sql/pglite': 0.5.5
 
-  '@electric-sql/pglite@0.5.4': {}
+  '@electric-sql/pglite@0.5.5': {}
 
   '@electron-internal/extract-zip@1.0.4': {}
 
@@ -20688,9 +20688,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.12
 
-  drizzle-orm@0.45.2(@electric-sql/pglite@0.5.4)(@opentelemetry/api@1.9.1):
+  drizzle-orm@0.45.2(@electric-sql/pglite@0.5.5)(@opentelemetry/api@1.9.1):
     optionalDependencies:
-      '@electric-sql/pglite': 0.5.4
+      '@electric-sql/pglite': 0.5.5
       '@opentelemetry/api': 1.9.1
 
   dunder-proto@1.0.1:

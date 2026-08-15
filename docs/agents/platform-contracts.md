@@ -727,12 +727,18 @@ are measured alongside the other production reads; SUM samples contribute
 duration and failure data with zero lookup and hit counts. Live-query histogram
 samples represent start and refresh query executions on both renderer and
 Electron paths; subscription lifecycle, update delivery, and teardown are
-tracked separately. A direct unsubscribe terminalizes the pinned PGlite
-live-query handle before its async teardown settles, so the scheduler releases
-its one supported locally counted listener exactly once on the first teardown
-attempt. Repeated unsubscribe is idempotent, while subscribe and refresh reject
-on that dead handle; callers must create a fresh live-query handle. Folder-wide
-token-cache preloads record duration/failure with zero lookup and hit counts.
+tracked separately. A direct unsubscribe stops delivery to the unsubscribed
+listener before its async teardown settles, so the scheduler releases its one
+supported locally counted listener exactly once on the first teardown attempt.
+The scheduled wrapper owns this terminal state itself — it admits exactly one
+listener and rejects subscribe/refresh once released — rather than inheriting it
+from the raw PGlite handle: as of PGlite 0.5.5 (BST-1283) a raw handle stays live
+after one of several listeners unsubscribes, where it previously terminalized for
+all of them. Nothing here subscribes twice to one handle, so that upstream change
+is inert. Repeated unsubscribe is idempotent, while subscribe and refresh reject
+on the released scheduled handle; callers must create a fresh live-query handle.
+Folder-wide token-cache preloads record duration/failure with zero lookup and hit
+counts.
 Concurrent Electron teardown callers share one remote stop attempt;
 a rejected stop remains retryable while renderer-local listener and counter
 ownership release exactly once. Production wrappers log telemetry failures,
