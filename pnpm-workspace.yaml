@@ -52,10 +52,16 @@ catalog:
   '@rolldown/plugin-babel': ^0.2.3
   '@shikijs/langs': ^4.4.3
   '@shikijs/themes': ^4.4.3
-  '@stryker-mutator/api': ^9.6.1
-  '@stryker-mutator/core': ^9.6.1
-  '@stryker-mutator/typescript-checker': ^9.6.1
-  '@stryker-mutator/vitest-runner': ^9.6.1
+  # LOCKSTEP: typescript-checker and vitest-runner peer-depend on
+  # `@stryker-mutator/core` at an EXACT version ("10.0.0"), never a range, so the
+  # `^` below is looser than what the plugins actually accept. Bump all four in
+  # one change. A desync does NOT fail the install — strict-peer-dependencies is
+  # off, so pnpm only warns, and Stryker then dies at plugin load the next time
+  # someone runs `pnpm mutation`. See BST-1287.
+  '@stryker-mutator/api': ^10.0.0
+  '@stryker-mutator/core': ^10.0.0
+  '@stryker-mutator/typescript-checker': ^10.0.0
+  '@stryker-mutator/vitest-runner': ^10.0.0
   # PINNED: 1.16.0 breaks the build — see the @swc/core note in `overrides:` below.
   '@swc/core': ~1.15.47
   '@tailwindcss/typography': ^0.5.20
