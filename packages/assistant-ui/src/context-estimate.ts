@@ -13,7 +13,7 @@
  * streaming tail changes, so live re-walks during a run cost one message.
  */
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import { getMessageParts } from './assistant-run-timeline';
+import { getMessageParts } from './assistant-run-event-derivation';
 
 export interface ToolTokenAttribution {
   readonly name: string;

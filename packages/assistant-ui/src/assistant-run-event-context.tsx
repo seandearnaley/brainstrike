@@ -3,7 +3,7 @@ import type { AssistantRunEventStatus } from '@brainstrike/assistant-contract';
 import { createContext, type ReactNode, use, useMemo } from 'react';
 import { shouldShowBackgroundActivity } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
-import { deriveAssistantRunEventRows } from './assistant-run-timeline';
+import { deriveAssistantRunEventRows } from './assistant-run-event-derivation';
 import { useStableRecord } from './use-stable-record';
 
 interface AssistantRunEventDerivations {

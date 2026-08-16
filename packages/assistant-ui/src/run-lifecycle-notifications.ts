@@ -29,7 +29,7 @@ import {
   denormalizeNativeToolName,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { useEffect, useRef, useState } from 'react';
-import { getMessageParts } from './assistant-run-timeline';
+import { getMessageParts } from './assistant-run-event-derivation';
 
 export interface RunLifecycleNotificationCallbacks {
   /**
