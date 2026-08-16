@@ -3197,7 +3197,7 @@ importers:
         version: link:../test-utils
       '@stryker-mutator/api':
         specifier: 'catalog:'
-        version: 9.6.1
+        version: 10.0.0
       '@stryker-mutator/core':
         specifier: 'catalog:'
         version: 10.0.0(@types/node@24.13.3)
@@ -14639,7 +14639,7 @@ snapshots:
       '@babel/helpers': 8.0.0
       '@babel/parser': 8.0.4
       '@babel/template': 8.0.0
-      '@babel/traverse': 8.0.0
+      '@babel/traverse': 8.0.4
       '@babel/types': 8.0.4
       '@types/gensync': 1.0.5
       convert-source-map: 2.0.0
