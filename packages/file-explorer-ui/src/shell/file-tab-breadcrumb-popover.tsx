@@ -125,6 +125,14 @@ function PopoverTree({
   const rootFailed = treeContext.error !== null && entries.length === 0;
   const parentFailed = parentNode?.loadState === 'error';
   const parentMissing = parentPath !== null && parentNode === null;
+  // Root listing that SETTLED empty (no error, load finished): a real state —
+  // e.g. every entry file-filtered away — distinct from failure and from
+  // loading; without it an empty root would spin forever.
+  const rootSettledEmpty =
+    parentPath === null &&
+    treeContext.error === null &&
+    !treeContext.isLoading &&
+    entries.length === 0;
   const parentLoaded =
     parentPath === null
       ? entries.length > 0
@@ -138,6 +146,17 @@ function PopoverTree({
         data-testid="breadcrumb-popover-unavailable"
       >
         This folder could not be loaded.
+      </div>
+    );
+  }
+
+  if (rootSettledEmpty) {
+    return (
+      <div
+        className="p-4 text-center text-muted-foreground text-xs"
+        data-testid="breadcrumb-popover-empty"
+      >
+        Nothing to show in this folder.
       </div>
     );
   }

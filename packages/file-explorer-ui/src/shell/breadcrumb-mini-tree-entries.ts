@@ -20,6 +20,17 @@ export type MiniTreeEntry =
       readonly kind: 'error';
       readonly message: string;
       readonly path: string;
+    }
+  | {
+      /**
+       * Synthetic row surfacing a PARTIAL listing (a 'truncated'/'loadMore'
+       * pseudo node): dropping it silently would make an incomplete listing
+       * look like the folder's full contents.
+       */
+      readonly depth: number;
+      readonly kind: 'notice';
+      readonly message: string;
+      readonly path: string;
     };
 
 function lastSeparatorIndex(path: string): number {
@@ -85,13 +96,14 @@ export function findMiniTreeNode(nodes: readonly IFileNode[], path: string): IFi
 
 /**
  * Flatten the parent's contents into visible rows, recursing only into
- * expanded directories. Pseudo node types (loadMore/truncated) are
- * transparent per the `isPseudoFileNodeType` contract — the popover is a
- * quick navigator; full browsing (incl. huge-directory pagination) lives in
- * the explorer pane. An expanded directory whose children FAILED to load
- * yields a synthetic error row (visible degradation, never a silent empty
- * branch). An unknown parent yields [] and the caller renders an explicit
- * unavailable state.
+ * expanded directories. Pseudo node types (loadMore/truncated) become inert
+ * NOTICE rows — they mean the listing is PARTIAL, and dropping them silently
+ * would present an incomplete listing as the folder's full contents (the
+ * popover is a quick navigator; full browsing incl. pagination lives in the
+ * explorer pane). An expanded directory whose children FAILED to load yields
+ * a synthetic error row (visible degradation, never a silent empty branch).
+ * An unknown parent yields [] and the caller renders an explicit unavailable
+ * state.
  */
 export function flattenMiniTreeEntries(
   fileTree: readonly IFileNode[],
@@ -104,6 +116,12 @@ export function flattenMiniTreeEntries(
   const visit = (nodes: readonly IFileNode[], depth: number): void => {
     for (const candidate of nodes) {
       if (isPseudoFileNodeType(candidate.type)) {
+        entries.push({
+          depth,
+          kind: 'notice',
+          message: 'Partial listing — browse the rest in the explorer pane.',
+          path: `${candidate.path}#partial`,
+        });
         continue;
       }
       entries.push({ depth, kind: 'node', node: candidate });

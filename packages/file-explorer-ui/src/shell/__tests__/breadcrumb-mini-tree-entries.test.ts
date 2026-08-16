@@ -95,17 +95,26 @@ describe('flattenMiniTreeEntries', () => {
     expect(paths(flattenMiniTreeEntries(tree, '/root/src', new Set()))).toEqual([
       ['/root/src/app.ts', 0],
       ['/root/src/ui', 0],
+      ['/root/src/…more#partial', 0],
     ]);
 
     expect(paths(flattenMiniTreeEntries(tree, '/root/src', new Set(['/root/src/ui'])))).toEqual([
       ['/root/src/app.ts', 0],
       ['/root/src/ui', 0],
       ['/root/src/ui/button.ts', 1],
+      ['/root/src/…more#partial', 0],
     ]);
   });
 
-  it('treats pseudo node types (loadMore/truncated) as transparent — full browsing lives in the pane', () => {
+  it('pseudo node types (loadMore/truncated) become NOTICE rows — a partial listing must not pass as complete', () => {
     const entries = flattenMiniTreeEntries(tree, '/root/src', new Set());
+    const notice = entries.at(-1);
+    expect(notice).toEqual({
+      depth: 0,
+      kind: 'notice',
+      message: 'Partial listing — browse the rest in the explorer pane.',
+      path: '/root/src/…more#partial',
+    });
     expect(entries.some((entry) => entry.kind === 'node' && entry.node.type === 'loadMore')).toBe(
       false
     );

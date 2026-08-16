@@ -107,6 +107,25 @@ describe('BreadcrumbMiniTree', () => {
     expect(screen.getByRole('row', { name: /button\.ts/ })).toHaveAttribute('aria-level', '2');
   });
 
+  it('partial-listing notice entries render as inert rows', () => {
+    const { onPickFile, onToggleDir } = renderTree({
+      entries: [
+        ...ENTRIES,
+        {
+          depth: 0,
+          kind: 'notice',
+          message: 'Partial listing — browse the rest in the explorer pane.',
+          path: '/root/src/…more#partial',
+        },
+      ],
+    });
+
+    const noticeRow = screen.getByRole('row', { name: /Partial listing/ });
+    fireEvent.click(noticeRow);
+    expect(onPickFile).not.toHaveBeenCalled();
+    expect(onToggleDir).not.toHaveBeenCalled();
+  });
+
   it('synthetic error entries render as inert rows (visible degradation)', () => {
     const { onPickFile, onToggleDir } = renderTree({
       entries: [
