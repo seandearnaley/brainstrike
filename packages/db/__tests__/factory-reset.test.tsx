@@ -589,6 +589,79 @@ describe('DbProvider factoryReset', () => {
     expect(unsubscribeOrder).toBeLessThan(initialDb.close.mock.invocationCallOrder[0] ?? 0);
   });
 
+  it('BST-1329: an aborted reset (idle-join timeout) leaves live handles ALIVE', async () => {
+    // Regression pin for the review finding: draining unsubscribes FIRST would
+    // mean a failed reset left every live handle permanently dead (the handle
+    // latches inactive and the hook never re-subscribes — no dep changed, no
+    // error state), so the app would render stale rows forever with nothing
+    // logged. Joining idle first makes the failure path non-destructive.
+    vi.useFakeTimers();
+    try {
+      const liveUnsubscribe = vi.fn(async () => undefined);
+      const liveQuery = vi.fn(async () => ({
+        initialResults: { rows: [] },
+        refresh: vi.fn(async () => undefined),
+        subscribe: vi.fn(),
+        unsubscribe: liveUnsubscribe,
+      }));
+      createPGliteSpy.mockImplementation(async () => {
+        const db = createMockDb();
+        createdDbs.push(db);
+        const liveDb = db as MockDb & { live: { query: typeof liveQuery } };
+        liveDb.live = { query: liveQuery };
+        return liveDb as unknown as PGlite;
+      });
+
+      const { result } = renderHook(
+        () => ({
+          db: usePGliteDatabase(),
+          live: usePGliteLiveQuery<{ id: string }>({ query: 'SELECT id FROM live_probe' }),
+          repo: useFileRecordRepository(),
+          reset: useFactoryReset(),
+        }),
+        { wrapper }
+      );
+      await vi.waitFor(() => {
+        expect(result.current.repo).not.toBeNull();
+        expect(result.current.reset).not.toBeNull();
+        expect(result.current.live.loading).toBe(false);
+      });
+
+      const initialDb = createdDbs[0];
+      if (!initialDb) {
+        throw new Error('Expected initial DB to be created');
+      }
+      initialDb.query.mockImplementation(async (sql: string) => {
+        if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+          return { rows: [{ '?column?': 1 }] };
+        }
+        if (sql === 'SELECT never_settles') {
+          // Never resolves: the scheduler can never reach idle.
+          await new Promise<void>(() => undefined);
+        }
+        return { rows: [] };
+      });
+      void result.current.db?.query('SELECT never_settles');
+
+      let resetError: unknown;
+      const resetPromise = result.current.reset?.().catch((error: unknown) => {
+        resetError = error;
+      });
+      // Past the 5s idle-join timeout.
+      await vi.advanceTimersByTimeAsync(6000);
+      await resetPromise;
+
+      expect(resetError).toBeInstanceOf(Error);
+      expect((resetError as Error).message).toMatch(/did not become idle/);
+      // The whole point: nothing was torn down or closed by the failed reset.
+      expect(liveUnsubscribe).not.toHaveBeenCalled();
+      expect(initialDb.transaction).not.toHaveBeenCalled();
+      expect(initialDb.close).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('surfaces desktop hard reset failure instead of falling back to direct PGlite', async () => {
     installElectronDbBridge({
       clearAll: vi.fn(async () => ({ success: true })),

@@ -56,7 +56,13 @@ function isDatabaseWorkSchedulerIdle(snapshot: DatabaseWorkSchedulerSnapshot): b
  */
 export async function waitForDatabaseWorkSchedulerIdle(
   scheduler: DatabaseWorkScheduler,
-  timeoutMs: number = DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS,
+  /**
+   * Names the scheduler in the timeout error. Exists so `apps/desktop` can
+   * delegate here while keeping its own `Desktop database work…` wording,
+   * which its tests pin — one implementation, two labels.
+   */
+  label = 'Database work'
 ): Promise<void> {
   if (isDatabaseWorkSchedulerIdle(scheduler.getSnapshot())) {
     return;
@@ -90,7 +96,7 @@ export async function waitForDatabaseWorkSchedulerIdle(
       cleanup();
       reject(
         new Error(
-          `Database work did not become idle within ${timeoutMs}ms. ` +
+          `${label} did not become idle within ${timeoutMs}ms. ` +
             `running=${snapshot.runningLabel ?? 'none'} queued=${JSON.stringify(snapshot.queued)}`
         )
       );
@@ -162,14 +168,30 @@ export interface LiveQueryDrainRegistration {
 
 export interface LiveQueryDrainRegistry {
   readonly register: (unsubscribe: () => Promise<void>) => LiveQueryDrainRegistration;
+  /**
+   * Closes the registry to new live handles: every subsequent `register()`
+   * unsubscribes its handle IMMEDIATELY and joins the in-progress drain.
+   *
+   * Without this, a `live.query()` that completes just as the scheduler goes
+   * idle registers its handle from a promise continuation that can land AFTER
+   * the drain took its snapshot — the purge then runs with that handle's
+   * listeners installed, which is the refresh-versus-close wedge this module
+   * exists to prevent. Sealing makes the drain a STATE, not two point-in-time
+   * snapshots.
+   */
+  readonly seal: () => void;
   /** Registered handles not yet unsubscribed (in-flight unsubscribes excluded). */
   readonly size: () => number;
+  /** Reopens registration after an ABORTED close; idempotent. */
+  readonly unseal: () => void;
   /**
    * Unsubscribes every still-registered handle AND awaits owner-initiated
-   * unsubscribes still in flight. Never rejects: each failure is surfaced via
-   * a warn log (allSettled), because one broken handle must not leave the rest
-   * subscribed — the exact rule the desktop registry applies
-   * (`cleanupAllLiveSubscriptions` in `db-ipc.ts`).
+   * unsubscribes still in flight, repeating until nothing remains so handles
+   * registered mid-drain (see {@link LiveQueryDrainRegistry.seal}) are joined
+   * too. Never rejects: each failure is surfaced via a warn log (allSettled),
+   * because one broken handle must not leave the rest subscribed — the exact
+   * rule the desktop registry applies (`cleanupAllLiveSubscriptions` in
+   * `db-ipc.ts`).
    */
   readonly unsubscribeAll: () => Promise<void>;
 }
@@ -179,9 +201,20 @@ function isPGliteClosedError(reason: unknown): boolean {
   return message.toLowerCase().includes('pglite is closed');
 }
 
+/**
+ * Bound on the drain's re-check loop. Each pass unsubscribes everything it can
+ * see; a further pass only happens when a handle registered DURING the previous
+ * one, which is possible for in-flight `live.query` continuations but strictly
+ * finite (the scheduler is already idle when the seal goes up). The bound only
+ * exists so a pathological re-registration loop reports itself instead of
+ * hanging the close forever.
+ */
+const MAX_DRAIN_PASSES = 50;
+
 export function createLiveQueryDrainRegistry(): LiveQueryDrainRegistry {
   const registered = new Set<LiveQueryDrainRegistration>();
   const pending = new Set<Promise<void>>();
+  let sealed = false;
 
   const register = (unsubscribe: () => Promise<void>): LiveQueryDrainRegistration => {
     let started: Promise<void> | null = null;
@@ -205,25 +238,51 @@ export function createLiveQueryDrainRegistry(): LiveQueryDrainRegistry {
         return attempt;
       },
     };
+    if (sealed) {
+      // The drain already passed (or is passing) its snapshot. Tear this handle
+      // down at once; `pending` carries it so an in-progress drain joins it
+      // rather than closing over its listeners.
+      void registration.unsubscribe();
+      return registration;
+    }
     registered.add(registration);
     return registration;
   };
 
   const unsubscribeAll = async (): Promise<void> => {
-    const drainTargets = [...registered].map((registration) => registration.unsubscribe());
-    const inFlight = [...pending];
-    const results = await Promise.allSettled([...drainTargets, ...inFlight]);
-    for (const result of results) {
-      if (result.status !== 'rejected' || isPGliteClosedError(result.reason)) {
-        continue;
+    for (let pass = 0; pass < MAX_DRAIN_PASSES; pass += 1) {
+      if (registered.size === 0 && pending.size === 0) {
+        return;
       }
-      logger.warn('Live query unsubscribe failed during drain', { error: result.reason });
+      const drainTargets = [...registered].map((registration) => registration.unsubscribe());
+      const inFlight = [...pending];
+      const results = await Promise.allSettled([...drainTargets, ...inFlight]);
+      for (const result of results) {
+        if (result.status !== 'rejected' || isPGliteClosedError(result.reason)) {
+          continue;
+        }
+        logger.warn('Live query unsubscribe failed during drain', { error: result.reason });
+      }
     }
+    // Unreachable short of a handle re-registering itself on every unsubscribe.
+    // Report it rather than spinning: the caller is past the seal and committed
+    // to closing, and an endless loop here would hang the very close path this
+    // module exists to keep unwedged.
+    logger.error(
+      `Live query drain did not settle within ${MAX_DRAIN_PASSES} passes; proceeding to close with ` +
+        `${registered.size} registered and ${pending.size} in-flight unsubscribe(s).`
+    );
   };
 
   return {
     register,
+    seal: () => {
+      sealed = true;
+    },
     size: () => registered.size,
+    unseal: () => {
+      sealed = false;
+    },
     unsubscribeAll,
   };
 }

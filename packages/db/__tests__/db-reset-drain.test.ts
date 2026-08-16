@@ -207,4 +207,59 @@ describe('createLiveQueryDrainRegistry', () => {
     expect(failing).toHaveBeenCalledTimes(1);
     expect(healthy).toHaveBeenCalledTimes(1);
   });
+
+  it('unsubscribes a handle registered AFTER the seal (the drain is a state, not a snapshot)', async () => {
+    // The race this closes: a scheduled live.query() settles just as the
+    // scheduler goes idle, so its handle registers from a promise continuation
+    // that lands after the drain took its snapshot. Unsealed, that handle would
+    // still be subscribed when the purge runs — the wedge.
+    const registry = createLiveQueryDrainRegistry();
+    const lateUnsubscribe = vi.fn(async () => undefined);
+
+    registry.seal();
+    registry.register(lateUnsubscribe);
+
+    expect(lateUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(registry.size()).toBe(0);
+    await expect(registry.unsubscribeAll()).resolves.toBeUndefined();
+  });
+
+  it('joins a late registration that lands DURING the drain', async () => {
+    const registry = createLiveQueryDrainRegistry();
+    const slow = createDeferred();
+    const slowUnsubscribe = vi.fn(() => slow.promise);
+    const lateSettled = createDeferred();
+    const lateUnsubscribe = vi.fn(() => lateSettled.promise);
+    registry.register(slowUnsubscribe);
+
+    registry.seal();
+    const drain = registry.unsubscribeAll();
+    let drained = false;
+    void drain.then(() => {
+      drained = true;
+    });
+
+    // Mid-drain arrival, exactly like an in-flight live.query continuation.
+    registry.register(lateUnsubscribe);
+    slow.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(drained).toBe(false);
+
+    lateSettled.resolve();
+    await drain;
+    expect(lateUnsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('unseal reopens registration after an aborted close', async () => {
+    const registry = createLiveQueryDrainRegistry();
+    const unsubscribe = vi.fn(async () => undefined);
+
+    registry.seal();
+    registry.unseal();
+    registry.register(unsubscribe);
+
+    expect(unsubscribe).not.toHaveBeenCalled();
+    expect(registry.size()).toBe(1);
+  });
 });
