@@ -9,7 +9,7 @@ each deferred to. The historical audit those tickets cite now lives at
 `docs/archive/mastra-agent-system-docs-catch-up-2026-05-29.md` (moved by BST-750,
 #1963); it recorded the deferral, never a decision.
 
-Verified against `@mastra/core@1.59.0` and `@mastra/memory@1.26.2` — the only
+Verified against `@mastra/core@1.59.0` and `@mastra/memory@1.26.0` — the only
 installed `@mastra/*` packages (`@mastra/schema-compat` is transitive).
 
 ## SCOPE AND STATUS
@@ -584,10 +584,46 @@ with zero `require`/`import` of it in any `.js`/`.cjs`. No HTTP surface is
 gained, so R1 stands unchanged. Both browser bundles still externalize
 `@mastra/core` and `/^@mastra\//`.
 
-**`@mastra/memory@1.26.2` drops its `image-size` dependency**, removing the
-package from the lockfile entirely and with it two HIGH advisories
-(GHSA-w3rx-r6r6-pgpr, GHSA-5p2g-fcmc-qvqq): `pnpm audit --prod` goes 31 → 29
-findings, 12 → 10 high.
+### `@mastra/memory` IS HELD AT 1.26.0 — DO NOT BUMP IT WITH CORE (BST-1320)
+
+`@mastra/core` moved to ^1.59.0 here; `@mastra/memory` deliberately did NOT move
+with it. **1.26.2 hangs the observational-memory suite forever.** Measured A/B,
+both arms on core 1.59.0, only the memory pin changed:
+
+| `@mastra/memory` | `packages/agent` `mastra-memory-persistence.integration.spec.ts` |
+| --- | --- |
+| **1.26.0** | 19/19 passed, 17.6s, exit 0 |
+| 1.26.2 | 16 passed, then stalls forever (killed at 300s) |
+
+Two-test repro (`-t "DIRECT-provider observer|VECTOR retrieval"`): on 1.26.0 both
+pass (1155ms + 768ms); on 1.26.2 the first passes and
+`completes an observation cycle with VECTOR retrieval + the real OpenAI embedder
+wiring` never returns. Neither test hangs alone on either version, so this is
+state leaking across observation cycles, and the test's own `30_000` timeout
+never fires — the block is not interruptible by vitest's per-test timer. In CI
+this burns the whole `Unit (rest)` job to its 60-minute cancellation.
+
+1.26.2 reworked the OM cycle: every `messageList.get.all.db()` on that path
+became a new `getObservableMessages()` filter, and the documented pipeline went
+from `waitForBuffering → re-check → activate → reflect → blockAfter gate →
+observe` to the same chain WITHOUT the `blockAfter` gate plus a sync fallback.
+That is a lead, not a root cause — it is not instrumented to the exact await.
+(`patchThread` is NOT the cause: core 1.59 implements it as a wrapper that
+delegates to `updateThread`, so this repo's `PgliteMemoryStore` override is
+still reached.) Full evidence: BST-1320.
+
+**Security framing, stated precisely — do not overstate this cost.** 1.26.2 is
+the only thing that drops `image-size@1.2.1` (`@mastra/memory` is its sole
+dependent), which would clear two HIGH advisories (GHSA-w3rx-r6r6-pgpr,
+GHSA-5p2g-fcmc-qvqq) and take `pnpm audit --prod` from 31 → 29 findings and
+12 → 10 high. Holding at 1.26.0 **defers that improvement; it does not introduce
+exposure.** `main` is on 1.26.0 and carries `image-size@1.2.1` today, and this
+branch measures the same 31 findings / 12 high as `main`. The advisory fix
+arrives when BST-1320 unblocks the bump — it is not something this PR gives up.
+
+Peer compatibility is not a concern: 1.26.0 declares
+`"@mastra/core": ">=1.4.1-0 <2.0.0-0"`, which 1.59.0 satisfies, and
+`pnpm peers check` reports no `@mastra/*` issues.
 
 **Adopted deliberately later, not here.** `stepResult.rawReason` on
 `step-finish`/`finish` preserves the provider's own finish reason instead of
