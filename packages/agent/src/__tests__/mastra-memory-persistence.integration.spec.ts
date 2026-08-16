@@ -553,8 +553,15 @@ async function readThreadTitle(database: PGlite, threadId: string): Promise<stri
 describe('mastra memory persistence through the live stream path', () => {
   let database: PGlite;
 
-  beforeEach(() => {
-    database = new PGlite();
+  beforeEach(async () => {
+    // BST-1325: the shared instance must load the vector extension like every
+    // other vector-touching construction site — a bare PGlite silently fails
+    // the OM vector store's CREATE EXTENSION and the VECTOR test goes toothless.
+    database = await PGlite.create({ extensions: { vector } });
+    // Loud fixture probe: on a bare PGlite this THROWS ('extension "vector" is
+    // not available') instead of letting the suite drift back to a false green.
+    // Idempotent with the vector store's own CREATE EXTENSION IF NOT EXISTS.
+    await database.exec('CREATE EXTENSION IF NOT EXISTS vector');
     modelHolder.current = undefined;
   });
 
@@ -563,9 +570,6 @@ describe('mastra memory persistence through the live stream path', () => {
   });
 
   it('re-declares semantic recall index metadata before query and upsert after reset', async () => {
-    await database.close();
-    database = await PGlite.create({ extensions: { vector } });
-
     const threadId = 'thread-semantic-recall-reset';
     const resourceId = 'resource-memory-test';
     const firstTurnText = 'The launch codename is indigo lighthouse.';
