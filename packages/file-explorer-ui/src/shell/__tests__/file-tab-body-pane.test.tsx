@@ -1,10 +1,10 @@
 /**
- * FileTabBody ↔ explorer pane integration (BST-1269, BST-1318): the pane is
- * OPEN by default (absent state = open) docked on the RIGHT, revealed to the
- * file on mount; the header toggle records an explicit close that sticks; a
- * breadcrumb segment click reveals that folder (opening the pane when
- * closed). The pane's own tree behavior is covered by
- * optimized-file-tree-scoping tests; here it is a spy component.
+ * FileTabBody ↔ explorer pane integration (BST-1269, BST-1318, BST-1319):
+ * the pane is OPEN by default (absent state = open) docked on the RIGHT,
+ * revealed to the file on mount; the header toggle records an explicit close
+ * that sticks; a breadcrumb segment click opens the popover picker and never
+ * touches the pane. The pane's and popover's own tree behavior is covered by
+ * their dedicated tests; here they are spy components.
  */
 
 import { createTestActionRegistry } from '@brainstrike/context-actions';
@@ -39,6 +39,27 @@ vi.mock('../file-tab-explorer-pane', () => ({
     paneProps.current.push({ ...props });
     return <div data-testid="pane-spy" />;
   },
+}));
+
+// The popover's own tree behavior is covered by breadcrumb-mini-tree tests;
+// here a spy pins the segment routing and the pick → open-in-new-tab flow.
+vi.mock('../file-tab-breadcrumb-popover', () => ({
+  FileTabBreadcrumbPopover: (props: {
+    compositeKey: string;
+    onPickFile: (path: string) => void;
+    rootPath: string | null;
+    segmentPath: string;
+  }) => (
+    <div data-segment={props.segmentPath} data-testid="breadcrumb-popover-spy">
+      <button
+        data-testid="pick-file"
+        onClick={() => props.onPickFile('/root/src/other.ts')}
+        type="button"
+      >
+        pick
+      </button>
+    </div>
+  ),
 }));
 
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
@@ -115,43 +136,37 @@ describe('FileTabBody explorer pane', () => {
     });
   });
 
-  it('breadcrumb click on the auto-opened pane reveals WITHOUT closing it (review finding)', () => {
+  it('breadcrumb click opens a popover picker and leaves the pane alone (BST-1319)', () => {
     renderBody();
 
-    // Absent state means OPEN — the handler must not read absence as closed
-    // and toggle the auto-opened pane shut. No entry may be materialized.
     fireEvent.click(screen.getByRole('button', { name: 'src' }));
-    expect(screen.getByTestId('file-tab-explorer-pane')).toBeInTheDocument();
+
+    const popover = screen.getByTestId('breadcrumb-popover-spy');
+    expect(popover).toHaveAttribute('data-segment', '/root/src');
+    // The pane is untouched by breadcrumbs: no store entry materialized, no
+    // reveal request issued beyond the mount-time one.
     expect(useFileTabPaneStore.getState().panes[KEY]).toBeUndefined();
-    expect(paneProps.current.at(-1)).toEqual({
-      compositeKey: KEY,
-      revealNonce: 1,
-      revealPath: '/root/src',
-    });
+    expect(paneProps.current.at(-1)?.revealNonce).toBe(0);
+
+    // Picking a file opens it in a NEW tab (same flow as tree file-clicks)
+    // and dismisses the popover; the current tab's pane state is untouched.
+    fireEvent.click(screen.getByTestId('pick-file'));
+    expect(openFileInTab).toHaveBeenCalledExactlyOnceWith(
+      encodeFileSelection('folder-1', '/root/src/other.ts')
+    );
+    expect(screen.queryByTestId('breadcrumb-popover-spy')).not.toBeInTheDocument();
   });
 
-  it('breadcrumb segment click reveals that folder, opening the pane when closed', () => {
+  it('the LEAF segment is a popover trigger too — sibling files are the primary picker', () => {
     renderBody();
-    // Close first so the click exercises the open-when-closed path.
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle explorer pane' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'src' }));
-
-    expect(useFileTabPaneStore.getState().panes[KEY]?.open).toBe(true);
-    expect(paneProps.current.at(-1)).toEqual({
-      compositeKey: KEY,
-      revealNonce: 2,
-      revealPath: '/root/src',
-    });
-
-    // Re-clicking the SAME segment is a fresh reveal request (nonce bump) —
-    // collapsing and re-clicking must re-reveal (review finding).
-    fireEvent.click(screen.getByRole('button', { name: 'src' }));
-    expect(paneProps.current.at(-1)).toEqual({
-      compositeKey: KEY,
-      revealNonce: 3,
-      revealPath: '/root/src',
-    });
+    const leaf = screen.getByRole('button', { name: 'app.ts' });
+    expect(leaf).toHaveAttribute('aria-current', 'page');
+    fireEvent.click(leaf);
+    expect(screen.getByTestId('breadcrumb-popover-spy')).toHaveAttribute(
+      'data-segment',
+      '/root/src/app.ts'
+    );
   });
 
   it('renders breadcrumbs with the file as the current page', () => {
