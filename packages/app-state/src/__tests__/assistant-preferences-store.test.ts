@@ -6,9 +6,9 @@ import {
 import { LocalRuntimeDiscoveryService } from '@brainstrike/local-runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
+import { MODEL_ID_MIGRATIONS } from '../stores/assistant-model-id-migrations';
 import {
   __resetAssistantPreferencesStoreForTests,
-  MODEL_ID_MIGRATIONS,
   useAssistantPreferencesStore,
 } from '../stores/assistant-preferences-store';
 import {
