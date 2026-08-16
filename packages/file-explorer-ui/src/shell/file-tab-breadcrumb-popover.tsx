@@ -89,31 +89,40 @@ function PopoverTree({
 
   const handleToggleDir = useCallback(
     (path: string) => {
+      // Side effects stay OUT of the state updater — React may re-invoke
+      // updaters (they must be pure), which would double-fire loadChildren.
+      const expanding = !expandedPaths.has(path);
       setExpandedPaths((previous) => {
         const next = new Set(previous);
         if (next.has(path)) {
           next.delete(path);
         } else {
           next.add(path);
-          const node = findMiniTreeNode(treeContext.fileTree, path);
-          if (node && node.loadState !== 'loaded') {
-            void loadChildren(path);
-          }
         }
         return next;
       });
+      if (expanding) {
+        const node = findMiniTreeNode(treeContext.fileTree, path);
+        if (node && node.loadState !== 'loaded') {
+          void loadChildren(path);
+        }
+      }
     },
-    [loadChildren, treeContext.fileTree]
+    [expandedPaths, loadChildren, treeContext.fileTree]
   );
 
   // Three terminal render states, resolved in order — never a silent empty
-  // tree for a directory that simply has not loaded yet:
-  //  - unavailable: the chain settled and the parent is still absent, or its
-  //    load errored (deleted, renamed, read failure);
-  //  - loading: the parent (or the root level) has not produced children yet.
-  //    The tab's own file lives under this root/parent, so a loaded listing
-  //    here is never truly empty;
+  // tree (or an eternal spinner) for a directory that failed to enumerate:
+  //  - unavailable: the ROOT enumeration errored (treeContext.error — the
+  //    only failure signal a root-level listing has), the chain settled and
+  //    the parent is still absent, or the parent's own load errored
+  //    (deleted, renamed, read failure). Drilled-down child failures render
+  //    as inline error rows instead (see flattenMiniTreeEntries);
+  //  - loading: the parent (or the root level) has not produced children
+  //    yet. The tab's own file lives under this root/parent, so a loaded
+  //    listing here is never truly empty;
   //  - the tree.
+  const rootFailed = treeContext.error !== null && entries.length === 0;
   const parentFailed = parentNode?.loadState === 'error';
   const parentMissing = parentPath !== null && parentNode === null;
   const parentLoaded =
@@ -122,7 +131,7 @@ function PopoverTree({
       : parentNode !== null &&
         (parentNode.loadState === 'loaded' || parentNode.children !== undefined);
 
-  if (parentFailed || (parentMissing && chainSettled)) {
+  if (rootFailed || parentFailed || (parentMissing && chainSettled)) {
     return (
       <div
         className="p-4 text-center text-muted-foreground text-xs"

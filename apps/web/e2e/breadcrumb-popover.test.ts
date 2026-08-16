@@ -59,14 +59,14 @@ test.describe('Breadcrumb popover mini-tree', () => {
     // The 'src' segment's siblings are the ROOT's contents.
     const miniTree = page.getByTestId('breadcrumb-mini-tree');
     await expect(miniTree).toBeVisible();
-    await expect(miniTree.getByRole('treeitem', { name: 'readme.md' })).toBeVisible();
-    const srcItem = miniTree.getByRole('treeitem', { name: 'src' });
+    await expect(miniTree.getByRole('row', { name: /readme.md/ })).toBeVisible();
+    const srcItem = miniTree.getByRole('row', { name: /src/ });
     await expect(srcItem).toHaveAttribute('aria-selected', 'true');
 
     // Drill down in place: expanding src reveals its children indented.
     await srcItem.click();
-    await expect(miniTree.getByRole('treeitem', { name: 'app.ts' })).toBeVisible();
-    await expect(miniTree.getByRole('treeitem', { name: 'ui' })).toBeVisible();
+    await expect(miniTree.getByRole('row', { name: /app.ts/ })).toBeVisible();
+    await expect(miniTree.getByRole('row', { name: /ui/ })).toBeVisible();
 
     // Escape dismisses without navigating; the tab set is unchanged.
     await page.keyboard.press('Escape');
@@ -80,14 +80,14 @@ test.describe('Breadcrumb popover mini-tree', () => {
     // The leaf's siblings are src's contents, the file itself highlighted.
     const miniTree = page.getByTestId('breadcrumb-mini-tree');
     await expect(miniTree).toBeVisible();
-    await expect(miniTree.getByRole('treeitem', { name: 'app.ts' })).toHaveAttribute(
+    await expect(miniTree.getByRole('row', { name: /app.ts/ })).toHaveAttribute(
       'aria-selected',
       'true'
     );
 
     // Drill into the sibling directory and pick a file.
-    await miniTree.getByRole('treeitem', { name: 'ui' }).click();
-    await miniTree.getByRole('treeitem', { name: 'button.ts' }).click();
+    await miniTree.getByRole('row', { name: /ui/ }).click();
+    await miniTree.getByRole('row', { name: /button.ts/ }).click();
 
     // The popover closes and the picked file opens in a NEW tab; the original
     // tab is still there.

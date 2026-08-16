@@ -81,29 +81,52 @@ describe('flattenMiniTreeEntries', () => {
     ]),
   ];
 
+  const paths = (entries: ReturnType<typeof flattenMiniTreeEntries>) =>
+    entries.map((entry) => [entry.kind === 'node' ? entry.node.path : entry.path, entry.depth]);
+
   it('lists the workspace root level when parentPath is null', () => {
-    const entries = flattenMiniTreeEntries(tree, null, new Set());
-    expect(entries.map((entry) => [entry.node.path, entry.depth])).toEqual([
+    expect(paths(flattenMiniTreeEntries(tree, null, new Set()))).toEqual([
       ['/root/readme.md', 0],
       ['/root/src', 0],
     ]);
   });
 
   it('lists a parent directory contents, recursing ONLY into expanded dirs', () => {
-    const collapsed = flattenMiniTreeEntries(tree, '/root/src', new Set());
-    expect(collapsed.map((entry) => entry.node.path)).toEqual(['/root/src/app.ts', '/root/src/ui']);
+    expect(paths(flattenMiniTreeEntries(tree, '/root/src', new Set()))).toEqual([
+      ['/root/src/app.ts', 0],
+      ['/root/src/ui', 0],
+    ]);
 
-    const expanded = flattenMiniTreeEntries(tree, '/root/src', new Set(['/root/src/ui']));
-    expect(expanded.map((entry) => [entry.node.path, entry.depth])).toEqual([
+    expect(paths(flattenMiniTreeEntries(tree, '/root/src', new Set(['/root/src/ui'])))).toEqual([
       ['/root/src/app.ts', 0],
       ['/root/src/ui', 0],
       ['/root/src/ui/button.ts', 1],
     ]);
   });
 
-  it('filters sentinel node types (loadMore/truncated) — full browsing lives in the pane', () => {
+  it('treats pseudo node types (loadMore/truncated) as transparent — full browsing lives in the pane', () => {
     const entries = flattenMiniTreeEntries(tree, '/root/src', new Set());
-    expect(entries.some((entry) => entry.node.type === 'loadMore')).toBe(false);
+    expect(entries.some((entry) => entry.kind === 'node' && entry.node.type === 'loadMore')).toBe(
+      false
+    );
+  });
+
+  it('an expanded dir whose load ERRORED yields a synthetic error row, never a silent empty branch', () => {
+    const broken = node('/root/src/ui', 'directory');
+    (broken as { loadError?: string; loadState?: string }).loadState = 'error';
+    (broken as { loadError?: string }).loadError = 'Permission denied';
+    const errorTree: IFileNode[] = [node('/root/src', 'directory', [broken])];
+
+    const entries = flattenMiniTreeEntries(errorTree, '/root/src', new Set(['/root/src/ui']));
+    expect(entries).toEqual([
+      { depth: 0, kind: 'node', node: broken },
+      {
+        depth: 1,
+        kind: 'error',
+        message: 'Permission denied',
+        path: '/root/src/ui#load-error',
+      },
+    ]);
   });
 
   it('returns [] when the parent node is not present (caller shows an explicit state)', () => {

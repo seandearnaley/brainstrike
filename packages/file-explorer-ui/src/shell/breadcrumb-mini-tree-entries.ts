@@ -1,4 +1,4 @@
-import type { IFileNode } from '@brainstrike/types';
+import { type IFileNode, isPseudoFileNodeType } from '@brainstrike/types';
 import { buildFileBreadcrumbSegments } from './file-tab-breadcrumb-segments';
 
 /**
@@ -12,10 +12,15 @@ import { buildFileBreadcrumbSegments } from './file-tab-breadcrumb-segments';
  * file-tab-breadcrumb-segments.ts).
  */
 
-export interface MiniTreeEntry {
-  readonly depth: number;
-  readonly node: IFileNode;
-}
+export type MiniTreeEntry =
+  | { readonly depth: number; readonly kind: 'node'; readonly node: IFileNode }
+  | {
+      /** Synthetic row surfacing a failed child load — never silent-empty. */
+      readonly depth: number;
+      readonly kind: 'error';
+      readonly message: string;
+      readonly path: string;
+    };
 
 function lastSeparatorIndex(path: string): number {
   return Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
@@ -80,10 +85,13 @@ export function findMiniTreeNode(nodes: readonly IFileNode[], path: string): IFi
 
 /**
  * Flatten the parent's contents into visible rows, recursing only into
- * expanded directories. Sentinel node types (loadMore/truncated) are filtered
- * — the popover is a quick navigator; full browsing (incl. huge-directory
- * pagination) lives in the explorer pane. An unknown parent yields [] and the
- * caller renders an explicit unavailable state — never a silent empty tree.
+ * expanded directories. Pseudo node types (loadMore/truncated) are
+ * transparent per the `isPseudoFileNodeType` contract — the popover is a
+ * quick navigator; full browsing (incl. huge-directory pagination) lives in
+ * the explorer pane. An expanded directory whose children FAILED to load
+ * yields a synthetic error row (visible degradation, never a silent empty
+ * branch). An unknown parent yields [] and the caller renders an explicit
+ * unavailable state.
  */
 export function flattenMiniTreeEntries(
   fileTree: readonly IFileNode[],
@@ -95,15 +103,23 @@ export function flattenMiniTreeEntries(
   const entries: MiniTreeEntry[] = [];
   const visit = (nodes: readonly IFileNode[], depth: number): void => {
     for (const candidate of nodes) {
-      if (candidate.type !== 'file' && candidate.type !== 'directory') {
+      if (isPseudoFileNodeType(candidate.type)) {
         continue;
       }
-      entries.push({ depth, node: candidate });
-      if (
-        candidate.type === 'directory' &&
-        expandedPaths.has(candidate.path) &&
-        candidate.children
-      ) {
+      entries.push({ depth, kind: 'node', node: candidate });
+      if (candidate.type !== 'directory' || !expandedPaths.has(candidate.path)) {
+        continue;
+      }
+      if (candidate.loadState === 'error') {
+        entries.push({
+          depth: depth + 1,
+          kind: 'error',
+          message: candidate.loadError ?? 'Could not load this folder.',
+          path: `${candidate.path}#load-error`,
+        });
+        continue;
+      }
+      if (candidate.children) {
         visit(candidate.children, depth + 1);
       }
     }
