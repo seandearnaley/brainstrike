@@ -463,13 +463,16 @@
     "@vitejs/plugin-react", // Only used in Vite config
     "babel-plugin-react-compiler", // Resolved indirectly by reactCompilerPreset in Vite config
     // NOTE (BST-1273, knip 6.32.2): the original justification — "used for JSDoc type
-    // annotations in stryker.config.js" — is now obsolete. knip's Stryker plugin resolves that
-    // use natively, so packages/db and packages/workers (the only two carrying an
-    // `import('@stryker-mutator/api/core')` JSDoc tag) are NOT flagged without this entry.
-    // What it still masks is real debt: file-explorer, file-explorer-hooks, hooks and
-    // test-utils declare the dep and never reference it. Removing the ignore surfaces exactly
-    // those 4. Kept so this bump does not change findings; deleting those 4 declarations is
-    // the actual fix.
+    // annotations in stryker.config.js" — is obsolete. knip's Stryker plugin resolves that use
+    // natively, so any package carrying an `import('@stryker-mutator/api/core')` JSDoc tag is
+    // NOT flagged without this entry.
+    // UPDATED (Stryker mutation-lane unbreak): that PR added the tag to file-explorer-hooks,
+    // hooks, test-utils and utils, so this entry now masks exactly ONE package — file-explorer
+    // declares the dep and never references it. Measured by dropping the entry: the sole
+    // finding is `@stryker-mutator/api packages/file-explorer/package.json`. Deleting THAT
+    // declaration is the actual fix; do NOT delete the others, whose tags need the dep.
+    // Also measured: this entry filters unlisted-import findings too, so it would hide a tag
+    // added without a declaration — keep tag and declaration together.
     "@stryker-mutator/api",
     "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
     "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)

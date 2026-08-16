@@ -1,4 +1,5 @@
 // @ts-check
+/** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */
 const config = {
   // Use the TypeScript checker to skip mutants that break type checking
   checkers: ['typescript'],
