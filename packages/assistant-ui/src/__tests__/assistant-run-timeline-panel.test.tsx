@@ -5,7 +5,8 @@ import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { AssistantRunTimeline, resolveAssistantRunEventStatus } from '../assistant-run-timeline';
+import { resolveAssistantRunEventStatus } from '../assistant-run-event-derivation';
+import { AssistantRunTimeline } from '../assistant-run-timeline';
 
 beforeAll(() => {
   global.ResizeObserver = class {

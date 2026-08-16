@@ -4,11 +4,11 @@ import { shouldShowBackgroundActivity } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
 import { useAssistantRunEventDerivation } from './assistant-run-event-context';
 import {
-  AssistantRunTimeline,
   isAlwaysVisibleRunEvent,
   resolveAssistantRunEventRenderPlan,
   resolveAssistantRunEventStatus,
-} from './assistant-run-timeline';
+} from './assistant-run-event-derivation';
+import { AssistantRunTimeline } from './assistant-run-timeline';
 
 function VisibleAssistantRunTimelineDataPart({ data }: { readonly data: unknown }) {
   const { renderPlanKey, status } = useAssistantRunEventDerivation(data);

@@ -1,4 +1,5 @@
 export { TooltipIconButton, type TooltipIconButtonProps } from '@brainstrike/ui';
+export * from './assistant-run-event-derivation';
 export * from './assistant-run-timeline';
 export * from './assistant-ui-panel';
 export {

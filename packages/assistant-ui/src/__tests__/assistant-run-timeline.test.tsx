@@ -4,13 +4,13 @@ import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  AssistantRunTimeline,
   deriveAssistantRunEventRows,
   getMatchingCompletedKind,
   isAlwaysVisibleRunEvent,
   resolveAssistantRunEventRenderPlan,
   resolveAssistantRunEventStatus,
-} from '../assistant-run-timeline';
+} from '../assistant-run-event-derivation';
+import { AssistantRunTimeline } from '../assistant-run-timeline';
 
 beforeAll(() => {
   global.ResizeObserver = class {
