@@ -126,6 +126,7 @@ describe('frontier model refresh (2026-07)', () => {
           'inclusionai/ling-3.0-flash:free',
           'poolside/laguna-s-2.1',
           'poolside/laguna-xs-2.1',
+          'qwen/qwen3.8-2.4t-a95b',
           'google/gemini-3.7-flash',
           'google/gemini-3.6-flash',
           'google/gemini-3.5-flash-lite',
@@ -284,6 +285,27 @@ describe('frontier model refresh (2026-07)', () => {
         supportsStreaming: true,
         type: 'llm',
         vision: 'supported',
+      });
+    });
+
+    it('declares Qwen3.8 2.4T A95B from vendor capabilities and gateway metadata', () => {
+      const qwen = getLlmModelDefinition('openrouter', 'qwen/qwen3.8-2.4t-a95b');
+
+      expect(qwen).toEqual({
+        contextWindow: 1_000_000,
+        id: 'qwen/qwen3.8-2.4t-a95b',
+        label: 'Qwen3.8 2.4T A95B (OpenRouter)',
+        maxOutputTokens: 262_144,
+        pricing: { inputPerMTok: 2, outputPerMTok: 6 },
+        reasoning: {
+          defaultEffort: 'xhigh',
+          defaultEnabled: true,
+          mandatory: true,
+          supportedEfforts: ['xhigh', 'medium', 'low'],
+        },
+        supportsStreaming: true,
+        type: 'llm',
+        vision: 'unsupported',
       });
     });
   });
