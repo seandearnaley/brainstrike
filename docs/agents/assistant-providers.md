@@ -322,6 +322,20 @@
   - User setup: docs/local-model-servers.md
 - OpenRouter is configured through Mastra's `openrouter/<provider>/<model>`
   model-router IDs, not a generic `createOpenAI({ baseURL })` client. The
+  factory materializes the `ModelRouterLanguageModel` itself and injects the
+  strict-content gateway
+  (`packages/agent/src/providers/openrouter-strict-content.ts`): the OpenRouter
+  chat serialization emits `content: text || null` for assistant messages, so a
+  replayed tool-call-only assistant turn reaches the wire as `content: null`,
+  which Alibaba-hosted `qwen/*` models 400 on
+  (`invalid_parameter_error: The content field is a required field.`,
+  field failure 2026-08-16). The gateway resolves the same
+  `@openrouter/ai-sdk-provider` version Mastra bundles (pinned in the workspace
+  catalog) with a fetch that coerces `null` → `""` for strict model families
+  ONLY — a blanket rewrite is unsafe because OpenRouter re-normalizes messages
+  for Anthropic-style upstreams where an empty text block is itself invalid.
+  Paired spec: `packages/agent/src/__tests__/openrouter-strict-content.spec.ts`.
+  Retire the gateway when the upstream converter stops emitting `null`. The
   official OpenRouter adapter preserves `providerMetadata.openrouter.usage.cost`;
   that exact billed amount is aggregated across `step-finish` parts and carried
   on the terminal message. Mastra emits approval/tool-suspension parts before it

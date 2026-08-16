@@ -20,6 +20,7 @@
     "@mastra/core": "^1.59.0",
     "@mastra/memory": "1.26.0",
     "@modelcontextprotocol/sdk": "catalog:",
+    "@openrouter/ai-sdk-provider": "catalog:",
     "fastest-levenshtein": "^1.0.16",
     "minimatch": "catalog:",
     "yaml": "catalog:",
