@@ -26,14 +26,35 @@ import { describe, expect, it } from 'vitest';
  * bundle by design, and the deprecated imports below are the subject under
  * test rather than a usage to migrate.
  *
- * That arrangement is only safe while both families resolve to ONE module
- * instance. The element adapter keeps its `draggableRegistry` and adapter
- * ledger in module scope, so a duplicated core — a bundler that fails to
- * dedupe, or a companion pinned to a range predating core 3.x and pulling its
- * own nested copy — would split the registry. Drop targets would register
- * against one instance while `monitorForElements` and `autoScrollForElements`
- * listen on another: drags would silently do nothing. No type error and no
- * other test in this package catches that.
+ * SCOPE — read before extending this file. What these assertions pin is narrow
+ * and worth stating exactly, because the obvious reading is wrong: they pin that
+ * the legacy path stays a RE-EXPORT of the canonical module within the one
+ * installed copy, rather than becoming an independently-compiled second copy of
+ * the adapter inside that same package. Upstream could ship that regression in a
+ * patch, and it would split the module-scoped `draggableRegistry` just as badly
+ * as a duplicate install.
+ *
+ * What these assertions CANNOT catch is a companion pulling its own nested core
+ * copy — the exact hazard the version pairing in this PR exists to prevent.
+ * Every specifier below shares one package name resolved from one importer, so
+ * pnpm gives them a single symlink target and the bindings are identical under
+ * any installation state reachable from this file. That is structural, not a
+ * flaw in how the assertions are written. MEASURED (BST-1286): with a distinct
+ * physical core copy planted under both `-hitbox` and `-auto-scroll`, so that
+ * core resolved to three different realpaths, this file still passed 3/3.
+ *
+ * The cross-importer invariant lives where it can actually be observed:
+ * `scripts/__tests__/pragmatic-dnd-single-core.test.mjs` (`pnpm test:scripts`)
+ * resolves core from every workspace consumer AND from inside each companion,
+ * and fails if more than one physical copy exists. Neither file subsumes the
+ * other — that one cannot see a same-package re-export regression, this one
+ * cannot see a duplicate install.
+ *
+ * DELIBERATE: the deprecated `/element/adapter` and `/combine` shims are imported
+ * here as the SUBJECT UNDER TEST, not as usage awaiting migration (our shells
+ * already moved to the canonical paths). When upstream finally drops the shims —
+ * 4.x, presumably — this file stops resolving. Delete it then; do not "fix" it by
+ * migrating these imports, which would leave it asserting a tautology.
  */
 describe('pragmatic-drag-and-drop entry points', () => {
   it('resolves the canonical element-adapter path to the same bindings as the legacy shim', () => {
