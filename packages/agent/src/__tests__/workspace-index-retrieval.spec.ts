@@ -36,6 +36,15 @@ describe('workspace-index retrieval helpers', () => {
         workspaceIndexStatusState: 'blocked',
       })
     ).toBeUndefined();
+    // BST-1335: 'unconfigured' means no root has been selected yet, so the
+    // managed collection has never been synced — retrieval has nothing to
+    // search.
+    expect(
+      resolveWorkspaceIndexEmbeddingSetId({
+        ...availableRuntime,
+        workspaceIndexStatusState: 'unconfigured',
+      })
+    ).toBeUndefined();
     expect(
       resolveWorkspaceIndexEmbeddingSetId({
         ...availableRuntime,

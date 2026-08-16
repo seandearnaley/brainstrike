@@ -139,6 +139,12 @@ function getDisplayStatus(args: {
       value: formatSnapshotActivity(snapshot),
     };
   }
+  // BST-1335: no root selected yet is unconfigured, not an error — must not
+  // fall through to the "Ready" default below, which would misreport a fresh,
+  // unconfigured setup as fully synced.
+  if (syncStatus.state === 'unconfigured') {
+    return { busy: false, toneClassName: 'text-muted-foreground', value: 'No root selected' };
+  }
   if (snapshot.status === 'unavailable') {
     return { busy: false, toneClassName: 'text-muted-foreground', value: 'Unavailable' };
   }

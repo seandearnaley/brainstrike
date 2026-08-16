@@ -170,12 +170,20 @@ export interface RuntimeWorkspaceContextMetadata {
   tokenBudget?: number;
 }
 
+/**
+ * Mirrors `WorkspaceCollectionSyncState` (`@brainstrike/app-state/stores/workspace-collection-sync-status-store`)
+ * for this dependency-light wire contract — this package must not import
+ * app-state, so the union is duplicated deliberately and must be kept in
+ * sync by hand. `unconfigured` (BST-1335): no workspace root has been
+ * selected yet; setup is incomplete, not a failure.
+ */
 export type RuntimeWorkspaceIndexStatusState =
   | 'blocked'
   | 'disabled'
   | 'idle'
   | 'paused'
   | 'recovering'
+  | 'unconfigured'
   | 'waiting'
   | 'scanning'
   | 'importing'

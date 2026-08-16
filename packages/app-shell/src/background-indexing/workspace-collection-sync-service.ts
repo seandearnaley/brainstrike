@@ -373,6 +373,30 @@ export class WorkspaceCollectionSyncService {
     });
   }
 
+  /**
+   * No root folder has been selected yet — setup is incomplete, not a
+   * failure (BST-1335). Logged at info (never durably persisted, unlike the
+   * warn+ `errorTransitionLogger` chokepoint the status store owns for
+   * genuine `error`/`blocked` transitions) and carries no `lastError`, so the
+   * store's durable-logging subscription never fires for it.
+   */
+  private setUnconfiguredStatus(args: {
+    activeRootPath: string | null;
+    managedCollectionId: string | null;
+  }): void {
+    this.deps.log?.info('Workspace collection sync is unconfigured: no root folder selected', {
+      activeRootPath: args.activeRootPath,
+      managedCollectionId: args.managedCollectionId,
+    });
+    this.deps.setStatus({
+      activeRootPath: args.activeRootPath,
+      managedCollectionId: args.managedCollectionId,
+      managedCollectionName: null,
+      state: 'unconfigured',
+      ...this.createClearedProgressState(),
+    });
+  }
+
   private async cancelSupersededBackgroundBackfills(args: {
     exceptEmbeddingSetId?: string;
     inFlightBackfills: Array<{
@@ -386,6 +410,32 @@ export class WorkspaceCollectionSyncService {
     }
   }
 
+  /**
+   * BST-1335: `no-root-folder` is unconfigured setup, not a failure, so it
+   * routes to `setUnconfiguredStatus` instead of `setErrorStatus`. Split out
+   * of `resolveContext` to keep that method's cognitive complexity under the
+   * lint ceiling.
+   */
+  private handleInvalidRequest(args: {
+    rootPath: string | null;
+    validation: Extract<ReturnType<typeof validateRootFolderCacheRequest>, { ok: false }>;
+    managedCollectionId: string | null;
+  }): void {
+    if (args.validation.code === 'no-root-folder') {
+      this.setUnconfiguredStatus({
+        activeRootPath: args.rootPath,
+        managedCollectionId: args.managedCollectionId,
+      });
+      return;
+    }
+    this.setErrorStatus({
+      activeRootPath: args.rootPath,
+      managedCollectionId: args.managedCollectionId,
+      managedCollectionName: null,
+      message: args.validation.reason,
+    });
+  }
+
   private async resolveContext(
     request: WorkspaceCollectionSyncRequest
   ): Promise<ResolvedSyncContext | null> {
@@ -397,11 +447,10 @@ export class WorkspaceCollectionSyncService {
     });
 
     if (!validation.ok) {
-      this.setErrorStatus({
-        activeRootPath: rootPath,
+      this.handleInvalidRequest({
         managedCollectionId: request.managedCollectionId,
-        managedCollectionName: null,
-        message: validation.reason,
+        rootPath,
+        validation,
       });
       return null;
     }

@@ -71,6 +71,22 @@ describe('workspace-collection-sync-status-store', () => {
       });
     });
 
+    it('does not log an error-level record when entering the unconfigured (no-root-selected) state (BST-1335)', () => {
+      // "No root folder selected" is an unconfigured/setup-incomplete state,
+      // not a failure — it must never reach the durable warn+ sink that
+      // backs `brainstrike_diagnostic_events`.
+      const store = useWorkspaceCollectionSyncStatusStore.getState();
+
+      store.setStatus({
+        activeRootPath: null,
+        lastError: null,
+        managedCollectionId: 'col-1',
+        state: 'unconfigured',
+      });
+
+      expect(captured).toHaveLength(0);
+    });
+
     it('does not log waiting states that carry a coverage-audit message', () => {
       // BST-1257 review: coverage audits set lastError with state 'waiting'
       // and already warn at the producer — the durable-error invariant is

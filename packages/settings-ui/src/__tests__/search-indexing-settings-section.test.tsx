@@ -102,6 +102,20 @@ describe('SearchIndexingSettingsSection', () => {
     expect(screen.getByText('OpenAI API key not configured.')).not.toBeNull();
   });
 
+  it('shows "No root selected" (not Blocked) when unconfigured (BST-1335)', async () => {
+    useWorkspaceCollectionSyncStatusStore.setState({
+      activeRootPath: null,
+      lastError: null,
+      managedCollectionName: 'Workspace Index',
+      state: 'unconfigured',
+    });
+
+    render(<SearchIndexingSettingsSection />);
+
+    expect(await screen.findByText('No root selected')).not.toBeNull();
+    expect(screen.queryByText('Blocked')).toBeNull();
+  });
+
   it('shows recovering status when reattaching to an in-flight background backfill', async () => {
     useWorkspaceCollectionSyncStatusStore.setState({
       backfillRequestId: 'background-indexing-backfill:test',
