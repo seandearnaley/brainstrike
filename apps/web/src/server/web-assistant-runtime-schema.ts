@@ -1,4 +1,4 @@
-import type { RuntimeData } from '@brainstrike/agent/hosted-web';
+import { OPEN_AI_REASONING_EFFORT_VALUES, type RuntimeData } from '@brainstrike/agent/hosted-web';
 import { z } from 'zod';
 
 const MAX_COUNT = 100_000_000;
@@ -209,7 +209,11 @@ const ACCEPTED_IGNORED_WIRE_SCHEMAS = {
   providerOptions: z.custom<Record<string, unknown>>(isBoundedJsonObject),
   // Accepted for shared desktop/web wire compatibility but ignored: Hosted Web
   // owns model/generation policy server-side and exposes no explicit effort UI.
-  requestedReasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
+  // Derived, not re-listed: the field is typed `OpenAiReasoningEffort`, so the
+  // enum that guards it must be the same declaration and not a copy that can
+  // drift narrower (rejecting an offered effort) or wider (admitting one the
+  // provider rejects).
+  requestedReasoningEffort: z.enum(OPEN_AI_REASONING_EFFORT_VALUES),
   transportImageElision: z
     .object({
       elidedImageBytes: countSchema,

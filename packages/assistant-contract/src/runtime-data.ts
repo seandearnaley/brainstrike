@@ -1,3 +1,9 @@
+import {
+  type GoogleThinkingLevel,
+  OPEN_AI_REASONING_EFFORT_VALUES,
+  type OpenAiReasoningEffort,
+  type OpenAiReasoningSummary,
+} from '@brainstrike/types';
 import type { AssistantTaskItem } from './assistant-task-list.js';
 import type { RuntimeAssistantMemorySettings } from './memory-settings.js';
 import type { SkillsContextRequest } from './skills.js';
@@ -18,15 +24,17 @@ export interface AssistantRunSteeringControl {
   stopRequested(): boolean;
 }
 
-export type OpenAiReasoningEffort =
-  | 'none'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max';
-export type OpenAiReasoningSummary = 'auto' | 'detailed';
+/**
+ * Re-exported, never re-declared. `@brainstrike/types` is the leaf that owns
+ * these reasoning vocabularies; a second declaration here would be free to
+ * drift from the pickers that read them.
+ */
+export {
+  type GoogleThinkingLevel,
+  OPEN_AI_REASONING_EFFORT_VALUES,
+  type OpenAiReasoningEffort,
+  type OpenAiReasoningSummary,
+};
 
 export interface OpenAiProviderOptions extends RuntimeJsonObject {
   reasoningEffort?: OpenAiReasoningEffort;
@@ -81,8 +89,6 @@ export interface AnthropicProviderOptions extends RuntimeJsonObject {
   effort?: AnthropicEffort;
   thinking?: AnthropicThinkingOptions;
 }
-
-export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 export interface GoogleProviderOptions extends RuntimeJsonObject {
   thinkingConfig?: {
