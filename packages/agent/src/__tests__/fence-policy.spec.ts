@@ -122,10 +122,11 @@ describe('buildSandboxRuntimeConfig', () => {
 
   it('REJECTS a root-wide allowRead, the one ancestor srt does not re-deny under', async () => {
     // BST-1071. The ancestor rule above holds because srt re-emits the nested
-    // deny after the broader allow — but at 0.0.67 that re-emission tests
+    // deny after the broader allow — but through 0.0.73 that re-emission tests
     // `denied.startsWith(allowed + '/')`, which for the root compares against
-    // '//' and never matches. Measured on macOS: `allowRead: ['/']` made
-    // ~/.ssh/* and ~/.config/gh/hosts.yml readable from sandboxed code. Linux
+    // '//' and never matches (re-measured at 0.0.73 in BST-1285; unchanged).
+    // Measured on macOS: `allowRead: ['/']` made ~/.ssh/* and
+    // ~/.config/gh/hosts.yml readable from sandboxed code. Linux
     // was unaffected, so this refusal has to live here rather than in a
     // platform branch. Proven end-to-end in
     // fence-escape-resistance.integration.spec.ts.

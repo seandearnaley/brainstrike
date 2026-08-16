@@ -59,8 +59,15 @@ const ALWAYS_DENY_READ_HOME_RELATIVE: readonly string[] = [
  * Resolved here from `os.homedir()` rather than handed to srt as `~/...`: srt
  * resolves paths against its own process context, so a `~`-prefixed deny that
  * reaches it unexpanded is a rule that silently protects nothing. They stay
- * literal (never globbed) because a literal deny is the one srt re-applies on
- * top of a broader `allowRead`; a glob deny is not re-emitted.
+ * literal (never globbed) because a literal path is what the containment
+ * checks below compare against — a glob names a region this module never
+ * resolved — and because the literal re-application on top of a broader
+ * `allowRead` is the srt behavior this layer verifies by execution. srt's
+ * GLOB-deny handling is version-dependent and deliberately NOT relied on:
+ * 0.0.72 changed macOS to re-emit glob denies (carved by the allows each one
+ * covers) where they were previously clobbered by a broader allow, and on
+ * Linux a glob deny still has to be expanded by ripgrep at run time. Globs
+ * never reach srt from here anyway — `assertPolicyPathShape` refuses them.
  */
 export const ALWAYS_DENY_READ_PATHS: readonly string[] = ALWAYS_DENY_READ_HOME_RELATIVE.map(
   (relative) => join(homedir(), relative)
@@ -241,9 +248,12 @@ export async function buildSandboxRuntimeConfig(
     const written = JSON.stringify(parsed.allowRead?.[index] ?? readable);
     // A root-wide read grant is REFUSED, not narrowed. The always-denied
     // stores survive an ANCESTOR allowRead only because srt re-emits the
-    // nested deny after the broader allow — and at srt 0.0.67 that re-emission
-    // tests `denied.startsWith(allowed + '/')`, which for `allowed === '/'`
-    // compares against `'//'` and never matches. Measured on macOS (BST-1071,
+    // nested deny after the broader allow — and through srt 0.0.73 that
+    // re-emission tests `denied.startsWith(allowed + '/')`, which for
+    // `allowed === '/'` compares against `'//'` and never matches. Re-measured
+    // on 0.0.73's generated profile in BST-1285: the root allow is still
+    // emitted AFTER the credential deny under last-match-wins, so this guard
+    // is still load-bearing, not redundant. Measured on macOS (BST-1071,
     // fence-escape-resistance.integration.spec.ts): with `allowRead: ['/']`,
     // sandboxed code read `~/.ssh/*` and the contents of `~/.config/gh/
     // hosts.yml`. Linux masks denied directories with tmpfs and was not

@@ -96,7 +96,10 @@ how people get hurt.
    root-`allowRead` finding with the platforms swapped, which is exactly why
    the refusal lives in the policy layer instead of trusting whichever platform
    the run lands on. (Raised in review of the BST-1071 PR; derived from srt
-   0.0.67's `pushReadDenyDirMounts`, and covered by mutation M12.)
+   0.0.67's `pushReadDenyDirMounts`, and covered by mutation M12. **Still live
+   at 0.0.73**, re-measured by EXECUTION under real bubblewrap rather than by
+   reading that function — see the bump log: a write grant on the store listed
+   9 entries where the control listed 0.)
 6. **A hard crash of the host process leaks the run.** Live process groups are
    reaped on `process exit`, but a `SIGKILL` of the Electron/node host cannot
    run that handler. The sandboxed process keeps going — still inside its
@@ -139,8 +142,10 @@ re-emission works for every ancestor short of the root.
 
 **Linux was not affected.** bubblewrap masks denied directories with `tmpfs` and
 only punches holes for allow paths *under* the deny, so `/` never re-opened
-anything. CI runs on Linux, so CI would never have caught this. That asymmetry
-is why the fix lives in our policy layer rather than in a platform check.
+anything. CI is Linux and would never have caught this — doubly so, since CI
+does not even RUN this suite (it lacks `bwrap`/`socat`/ripgrep, so the host gate
+skips it; see the bump log). That asymmetry is why the fix lives in our policy
+layer rather than in a platform check.
 
 **Fix:** `buildSandboxRuntimeConfig` now refuses a root-wide `allowRead` with a
 `FencePolicyError` — refused, never narrowed, per the no-silent-fallback rule.
@@ -253,7 +258,7 @@ security test is worse than none.
 
 ## This suite is pinned to an exact srt version
 
-`@anthropic-ai/sandbox-runtime` is pinned to **0.0.67** in the workspace
+`@anthropic-ai/sandbox-runtime` is pinned to **0.0.73** in the workspace
 catalog, and a test in this file asserts the installed version matches.
 
 That is deliberate. The fence's guarantees *are* srt's guarantees, and the live
@@ -263,10 +268,84 @@ of thing a patch bump can introduce or remove silently.
 **Bumping srt requires re-greening this suite. Do not just update the constant.**
 
 1. Run the full suite on **macOS and Linux** (the root-`allowRead` finding was
-   macOS-only; a Linux-only run proves nothing about it).
+   macOS-only; a Linux-only run proves nothing about it). **CI does not supply
+   the Linux half** — it has no `bwrap`, `socat` or ripgrep, so the host gate
+   skips everything except the version-pin test. That run has to come from a
+   bubblewrap-equipped host, and the bump log must say which platforms actually
+   ran rather than which ones were assumed to be covered.
 2. Re-read srt's README security sections and reconcile the non-guarantee list
    above with whatever changed.
 3. Re-run the mutation table — a bump can make a guard redundant, which shows up
    as a mutation that stops killing.
 4. Only then update `PINNED_SRT_VERSION` and
    `docs/agents/code-execution.md`.
+
+### Bump log
+
+- **0.0.67 → 0.0.73 (BST-1285).** Six upstream releases, all with published
+  release notes. Nothing in them weakens a restriction this suite relies on;
+  the two macOS filesystem changes (the profile compaction in 0.0.71 and the
+  glob-deny fix in 0.0.72) are respectively text-only and deny-only, and srt's
+  seccomp filter generator is byte-identical across the whole range.
+
+  **Step 1 — macOS: full suite, 32/32 against real Seatbelt. Linux: the full
+  suite did NOT run.** No lane installs srt's Linux dependencies, so the host
+  gate skips it; this bump's own CI logged `SUITE SKIPPED — sandbox-runtime
+  dependencies are missing on this linux host: ripgrep (rg) not found,
+  bubblewrap (bwrap) not installed, socat not installed` (32 tests, 27 skipped,
+  2ms). Do not record "Linux is covered by CI" — it is not, and was not here.
+
+  What WAS measured on Linux, by execution rather than by reading the source:
+  the two PLATFORM-ASYMMETRIC findings, in a bubblewrap container
+  (`node:24-bookworm`, linux/arm64, Docker `--privileged`, srt 0.0.73 from npm,
+  a synthetic 9-entry `~/.ssh`, entry COUNTS only):
+
+  | arm | config handed to srt | `~/.ssh` entries |
+  | --- | --- | --- |
+  | unsandboxed control | — | 9 |
+  | root read grant (the macOS leak) | `allowRead: ['/']` | 0 |
+  | ancestor read grant (control) | `allowRead: [$HOME]` | 0 |
+  | write grant on the store (M12) | `allowWrite: ['~/.ssh']` | **9** |
+  | write grant elsewhere (control) | `allowWrite: [$HOME/plain]` | 0 |
+
+  So at 0.0.73 Linux still HOLDS against the root-`allowRead` hole (tmpfs
+  masking) and still LEAKS a read-denied store through a write grant. Both
+  platform asymmetries this suite documents are re-earned at this version, and
+  the M12 refusal is exactly as load-bearing on Linux as M3 is on macOS.
+
+  That container is not a substitute for the suite: srt's vendored
+  `apply-seccomp` helper cannot run under Docker Desktop's LinuxKit kernel (its
+  `uid_map` write is refused), so it was removed and srt degraded to its
+  documented "seccomp not available" warning. The arms above are bwrap
+  mount-namespace behavior and do not depend on it — the network, unix-socket
+  and process-tree cases do, and they remain UNRUN on Linux at 0.0.73.
+
+  **Step 2 — the root-`allowRead` finding** was re-measured against 0.0.73 on
+  macOS and is **unchanged**: handing srt the config our policy layer refuses
+  (`allowRead: ['/']` plus the credential denies) let sandboxed python list 9
+  entries in `~/.ssh`, while the same probe under a normal non-root ancestor
+  allow (`$HOME/Documents`) listed 0. So the M3 guard did NOT become redundant
+  — dropping it would re-open the stores today.
+
+  **Step 3 — mutation table re-run on macOS at 0.0.73: 16/16 still KILLED.**
+  Every row was re-applied to the source and the named test re-run; a row only
+  counts as killed when that one test is the one that failed (`Tests 1 failed |
+  31 skipped` in every case). A `-t` filter matching nothing also exits
+  non-zero, so a bare non-zero exit is not evidence — one row initially
+  reported `32 skipped` because vitest reads `-t` as a REGEX and `execute()`
+  matched no title; it kills once the pattern is regex-safe. Two rows the
+  release range put in question:
+
+  - **M2 (glob refusal).** 0.0.72 #465 strengthened the DENY side — macOS now
+    re-emits glob `denyRead` entries inside an `allowRead` region. Our refusal
+    is about globs in `allowRead`, which srt would expand into paths the
+    containment guard never compared, so nothing about it became redundant.
+  - **M7 (network allow-list).** 0.0.68's `:port` suffixes cannot be expressed
+    through `policyDomainSchema` (`DOMAIN_PATTERN` has no `:`), and a port-less
+    pattern still matches every port
+    (`matchesDomainPatternWithPort`), so the allow-list means exactly what it
+    meant at 0.0.67.
+
+  New upstream surface (`:port` domain suffixes, `deniedDomainReasons`,
+  `commandId` attribution, Windows credential-store relocation) is additive and
+  unreachable from `ExecPolicy`.
