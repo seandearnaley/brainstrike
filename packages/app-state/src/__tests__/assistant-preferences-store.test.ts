@@ -1031,6 +1031,39 @@ describe('assistant-preferences-store', () => {
     expect(store.enabledModelsByProvider['google']).not.toContain('gemini-3-flash-preview');
   });
 
+  it('remaps the retired OpenRouter Claude 3.5 Sonnet route', async () => {
+    const persistApi = storeWithPersist.persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const staleSnapshot: StorageValue<unknown> = {
+      state: {
+        enabledModelsByProvider: {
+          openrouter: ['openrouter/claude-3-5-sonnet'],
+        },
+        modelsByProvider: {
+          openrouter: 'openrouter/claude-3-5-sonnet',
+        },
+        providerSettings: {},
+        recentModels: ['openrouter::openrouter/claude-3-5-sonnet'],
+        selectedModel: 'openrouter::openrouter/claude-3-5-sonnet',
+      },
+      version: 7,
+    };
+
+    options.storage.setItem(options.name, staleSnapshot);
+    await persistApi.rehydrate?.();
+
+    const store = useAssistantPreferencesStore.getState();
+    expect(store.enabledModelsByProvider.openrouter).toContain('anthropic/claude-sonnet-4.6');
+    expect(store.enabledModelsByProvider.openrouter).not.toContain('openrouter/claude-3-5-sonnet');
+    expect(store.modelsByProvider.openrouter).toBe('anthropic/claude-sonnet-4.6');
+    expect(store.selectedModel).toBe('openrouter::anthropic/claude-sonnet-4.6');
+    expect(store.recentModels).toEqual(['openrouter::anthropic/claude-sonnet-4.6']);
+  });
+
   it('migrates legacy selectedProvider snapshots to composite selectedModel', async () => {
     const persistApi = storeWithPersist.persist;
     const options = persistApi?.getOptions?.();
