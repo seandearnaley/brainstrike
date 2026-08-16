@@ -1,8 +1,9 @@
 /**
- * FileTabBody ↔ explorer pane integration (BST-1269): the header toggle
- * mounts/unmounts the pane split, the pane receives the FILE path as its
- * default reveal target, and a breadcrumb segment click reveals that folder
- * (opening the pane when closed). The pane's own tree behavior is covered by
+ * FileTabBody ↔ explorer pane integration (BST-1269, BST-1318): the pane is
+ * OPEN by default (absent state = open) docked on the RIGHT, revealed to the
+ * file on mount; the header toggle records an explicit close that sticks; a
+ * breadcrumb segment click reveals that folder (opening the pane when
+ * closed). The pane's own tree behavior is covered by
  * optimized-file-tree-scoping tests; here it is a spy component.
  */
 
@@ -41,26 +42,10 @@ vi.mock('../file-tab-explorer-pane', () => ({
 }));
 
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
 import { fileEntryActions } from '../../context-actions/file-entry-actions';
 import { useFileTabPaneStore } from '../../stores/file-tab-pane-store';
 import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
-
-// react-resizable-panels v4 probes `matchMedia('(pointer: coarse)').matches`
-// while mounting a Group. The shared setup's matchMedia is a vi.fn whose
-// implementation is reset between tests (returns undefined) — install a PLAIN
-// function per test instead.
-function stubMatchMedia(): void {
-  window.matchMedia = ((query: string) => ({
-    addEventListener: () => undefined,
-    addListener: () => undefined,
-    dispatchEvent: () => false,
-    matches: false,
-    media: query,
-    onchange: null,
-    removeEventListener: () => undefined,
-    removeListener: () => undefined,
-  })) as unknown as typeof window.matchMedia;
-}
 
 const KEY = encodeFileSelection('folder-1', '/root/src/app.ts');
 
@@ -93,32 +78,54 @@ describe('FileTabBody explorer pane', () => {
     useFileTabPaneStore.getState().hydratePanes({});
   });
 
-  it('toggle opens the pane with the file as the default reveal target', () => {
+  it('pane is open by default, docked RIGHT, revealed to the file (BST-1318)', () => {
     renderBody();
-    expect(screen.queryByTestId('file-tab-explorer-pane')).not.toBeInTheDocument();
+
+    const pane = screen.getByTestId('file-tab-explorer-pane');
+    expect(pane).toBeInTheDocument();
+    // Absent store state means open — no entry may be materialized by rendering.
+    expect(useFileTabPaneStore.getState().panes[KEY]).toBeUndefined();
+    // Mount-time reveal: nonce 0 with the FILE as the target.
+    expect(paneProps.current.at(-1)).toEqual({
+      compositeKey: KEY,
+      revealNonce: 0,
+      revealPath: '/root/src/app.ts',
+    });
+    // Docked right: the content surface precedes the pane in DOM order.
+    const content = screen.getByTestId('file-code-surface');
+    expect(content.compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('toggle records a sticky close, and reopening re-reveals the file', () => {
+    renderBody();
 
     fireEvent.click(screen.getByRole('button', { name: 'Toggle explorer pane' }));
+    expect(screen.queryByTestId('file-tab-explorer-pane')).not.toBeInTheDocument();
+    // The close is an EXPLICIT open: false entry (persists via the snapshot),
+    // not a deleted key (which now means open).
+    expect(useFileTabPaneStore.getState().panes[KEY]?.open).toBe(false);
 
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle explorer pane' }));
     expect(screen.getByTestId('file-tab-explorer-pane')).toBeInTheDocument();
     expect(useFileTabPaneStore.getState().panes[KEY]?.open).toBe(true);
     expect(paneProps.current.at(-1)).toEqual({
       compositeKey: KEY,
-      revealNonce: 1,
+      revealNonce: 2,
       revealPath: '/root/src/app.ts',
     });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle explorer pane' }));
-    expect(screen.queryByTestId('file-tab-explorer-pane')).not.toBeInTheDocument();
   });
 
-  it('breadcrumb segment click opens the pane and reveals that folder', () => {
+  it('breadcrumb segment click reveals that folder, opening the pane when closed', () => {
     renderBody();
+    // Close first so the click exercises the open-when-closed path.
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle explorer pane' }));
+
     fireEvent.click(screen.getByRole('button', { name: 'src' }));
 
     expect(useFileTabPaneStore.getState().panes[KEY]?.open).toBe(true);
     expect(paneProps.current.at(-1)).toEqual({
       compositeKey: KEY,
-      revealNonce: 1,
+      revealNonce: 2,
       revealPath: '/root/src',
     });
 
@@ -127,7 +134,7 @@ describe('FileTabBody explorer pane', () => {
     fireEvent.click(screen.getByRole('button', { name: 'src' }));
     expect(paneProps.current.at(-1)).toEqual({
       compositeKey: KEY,
-      revealNonce: 2,
+      revealNonce: 3,
       revealPath: '/root/src',
     });
   });

@@ -70,6 +70,12 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     useToast: () => ({ toast: toastFn }),
   };
 });
+// The pane is open by default (BST-1318) and the real one requires a
+// FileSystemProvider — stub it; pane behavior is covered by the pane tests.
+vi.mock('../file-tab-explorer-pane', () => ({
+  FileTabExplorerPane: () => <div data-testid="pane-spy" />,
+}));
+
 vi.mock('@brainstrike/ui/markdown-surface', () => ({
   MarkdownSurface: (props: MockMarkdownSurfaceProps) => {
     if (markdownState.shouldThrow) {
@@ -90,6 +96,7 @@ vi.mock('@brainstrike/ui/markdown-surface', () => ({
 }));
 
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
 import { fileEntryActions } from '../../context-actions/file-entry-actions';
 import { MarkdownPreviewCapabilitiesProvider } from '../../contexts/markdown-preview-capabilities';
 import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
@@ -171,6 +178,7 @@ function codeProps(): MockCodeSurfaceProps {
 
 describe('FileTabBody markdown integration', () => {
   beforeEach(() => {
+    stubMatchMedia();
     useEditorViewStateStore.getState().clear();
     vi.clearAllMocks();
     markdownState.shouldThrow = false;

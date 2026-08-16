@@ -19,6 +19,12 @@ vi.mock('../preview/preview-panel', () => ({
   PreviewPanel: vi.fn(() => <div data-testid="preview-panel">PreviewPanel</div>),
 }));
 
+// File tabs mount the explorer pane by default (BST-1318); the real one
+// requires a FileSystemProvider — stub it, pane tests cover its behavior.
+vi.mock('../shell/file-tab-explorer-pane', () => ({
+  FileTabExplorerPane: () => <div data-testid="pane-spy" />,
+}));
+
 // Mock useFileExplorer — minimal shape used by the controller
 vi.mock('../shell/use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({

@@ -5,9 +5,10 @@ import { waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 /**
- * BST-1269 per-file explorer panes: each open file tab can host a
- * navigation-only tree pane (Cursor idiom) that reveals the file's location,
- * with clickable header breadcrumbs revealing folders.
+ * BST-1269/BST-1318 per-file explorer panes: every open file tab hosts a
+ * navigation-only tree pane by default, docked on the RIGHT and revealed to
+ * the file's location. A manual close is sticky per file (persisted through
+ * the per-thread workspace snapshot).
  */
 test.describe('Per-file explorer pane', () => {
   test.beforeEach(async ({ page }) => {
@@ -52,15 +53,15 @@ test.describe('Per-file explorer pane', () => {
     ).toBeVisible();
   });
 
-  test('toggle opens a navigation-only pane revealed at the file location', async ({ page }) => {
-    await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
-
-    await page.getByRole('button', { name: 'Toggle explorer pane' }).click();
+  test('pane auto-opens with the file, docked right, revealed to its location', async ({
+    page,
+  }) => {
+    // No toggle needed: opening the file opened the pane (BST-1318).
     const pane = page.getByTestId('file-tab-explorer-pane');
     await expect(pane).toBeVisible();
 
-    // The pane auto-reveals the file's location: its ancestor directory is
-    // expanded so the file's row is present in the PANE tree.
+    // Revealed to the file: its ancestor directory is expanded so the file's
+    // row is present in the PANE tree.
     const paneTree = pane.getByRole('treegrid', { name: 'File explorer pane' });
     await expect(paneTree).toBeVisible();
     await expect(paneTree.getByText('app.ts', { exact: true })).toBeVisible();
@@ -68,44 +69,50 @@ test.describe('Per-file explorer pane', () => {
     // Navigation-only: no selection checkboxes inside the pane.
     await expect(pane.getByRole('checkbox')).toHaveCount(0);
 
-    // Toggle again closes it.
+    // Docked RIGHT: the pane sits to the right of the file content surface.
+    const contentBox = await page.getByTestId('file-code-surface').boundingBox();
+    const paneBox = await pane.boundingBox();
+    if (!(contentBox && paneBox)) {
+      throw new Error('expected both content and pane to have geometry');
+    }
+    expect(paneBox.x).toBeGreaterThan(contentBox.x + contentBox.width - 1);
+
+    // Toggle closes it.
     await page.getByRole('button', { name: 'Toggle explorer pane' }).click();
     await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
   });
 
-  test('breadcrumb click opens the pane and reveals the folder; state survives reload', async ({
+  test('manual close sticks per file across reload; breadcrumb reveal reopens', async ({
     page,
   }) => {
-    // Header breadcrumbs: src › app.ts (leaf is current page, not a button).
-    const header = page.getByRole('navigation', { name: 'Breadcrumb' });
-    await expect(header).toBeVisible();
-    await header.getByRole('button', { exact: true, name: 'src' }).click();
+    // Close the auto-opened pane — this records an EXPLICIT open: false that
+    // must survive through the per-thread workspace snapshot.
+    await page.getByRole('button', { name: 'Toggle explorer pane' }).click();
+    await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
 
-    const pane = page.getByTestId('file-tab-explorer-pane');
-    await expect(pane).toBeVisible();
-    const paneTree = pane.getByRole('treegrid', { name: 'File explorer pane' });
-    await expect(paneTree.getByText('ui', { exact: true })).toBeVisible();
-
-    // Expand a pane-local folder; the WORKSPACE Files tree must not follow.
-    await paneTree.getByText('ui', { exact: true }).click();
-
-    // Wait out the thread-workspace save debounce, then reload: the pane
-    // (open state + expansions) restores with the tab.
+    // Wait out the thread-workspace save debounce, then reload.
     await page.waitForTimeout(900);
     await page.reload();
     await waitForAppLoad(page, { waitForDatabase: false });
 
-    // The pane's OPEN state restores from the thread workspace snapshot (the
-    // hydration is DB-backed, so allow the PGlite boot).
-    const restoredPane = page.getByTestId('file-tab-explorer-pane');
-    await expect(restoredPane).toBeVisible({ timeout: 20_000 });
+    // The tab restores (hydration is DB-backed, allow the PGlite boot)…
+    await expect(
+      page.getByTestId('workspace-tab-strip').getByRole('tab', { name: /app\.ts/ })
+    ).toBeVisible({ timeout: 20_000 });
+    // …and the pane stays CLOSED: absent state means open, so a restored
+    // closed pane proves the sticky close round-tripped as explicit state.
+    await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
 
+    // A breadcrumb folder click reveals that folder, reopening the pane.
+    const header = page.getByRole('navigation', { name: 'Breadcrumb' });
+    await expect(header).toBeVisible();
+    await header.getByRole('button', { exact: true, name: 'src' }).click();
     // The mock harness cannot restore directory handles across reload, so the
-    // pane shows its explicit not-connected state instead of a tree — proving
-    // the OPEN/width state round-tripped through the per-thread snapshot
-    // while degrading visibly (no silent fallback). Tree re-population with
-    // the persisted pane expansions is covered by the scoping unit tests and
-    // desktop live verification, where real handles survive restarts.
-    await expect(restoredPane.getByTestId('file-tab-pane-unavailable')).toBeVisible();
+    // reopened pane shows its explicit not-connected state instead of a tree —
+    // visible degradation, not a silent fallback. Tree re-population is
+    // covered by the scoping unit tests and desktop live verification.
+    const pane = page.getByTestId('file-tab-explorer-pane');
+    await expect(pane).toBeVisible();
+    await expect(pane.getByTestId('file-tab-pane-unavailable')).toBeVisible();
   });
 });

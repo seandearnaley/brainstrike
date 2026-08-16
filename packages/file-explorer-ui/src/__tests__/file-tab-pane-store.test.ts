@@ -15,12 +15,15 @@ describe('file-tab-pane-store', () => {
     useFileTabPaneStore.getState().hydratePanes({});
   });
 
-  it('togglePane opens with defaults and closes preserving expansions', () => {
+  it('absent state means OPEN (BST-1318): first toggle materializes an explicit close', () => {
+    // The pane auto-opens with the file; a manual close must be RECORDED
+    // (open: false) — deleting the entry instead would evaporate the user's
+    // choice on the next snapshot hydrate.
     const store = useFileTabPaneStore.getState();
     store.togglePane(KEY);
     expect(useFileTabPaneStore.getState().panes[KEY]).toEqual({
       expandedPaths: [],
-      open: true,
+      open: false,
       widthPct: DEFAULT_PANE_WIDTH_PCT,
     });
 
@@ -28,9 +31,21 @@ describe('file-tab-pane-store', () => {
     useFileTabPaneStore.getState().togglePane(KEY);
     expect(useFileTabPaneStore.getState().panes[KEY]).toEqual({
       expandedPaths: ['/root/src'],
-      open: false,
+      open: true,
       widthPct: DEFAULT_PANE_WIDTH_PCT,
     });
+  });
+
+  it('width/expansion writes on an absent key materialize an OPEN pane', () => {
+    // Both actions are only reachable while the pane is visible, and absent
+    // means open — recording open: false here would flip a visible pane shut
+    // on the next hydrate.
+    useFileTabPaneStore.getState().setPaneWidthPct(KEY, 42);
+    expect(useFileTabPaneStore.getState().panes[KEY]?.open).toBe(true);
+
+    useFileTabPaneStore.getState().hydratePanes({});
+    useFileTabPaneStore.getState().toggleExpandedPath(KEY, '/root/src');
+    expect(useFileTabPaneStore.getState().panes[KEY]?.open).toBe(true);
   });
 
   it('toggleExpandedPath adds and removes paths', () => {
