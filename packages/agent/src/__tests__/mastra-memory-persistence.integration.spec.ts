@@ -553,8 +553,11 @@ async function readThreadTitle(database: PGlite, threadId: string): Promise<stri
 describe('mastra memory persistence through the live stream path', () => {
   let database: PGlite;
 
-  beforeEach(() => {
-    database = new PGlite();
+  beforeEach(async () => {
+    // BST-1325: the shared instance must load the vector extension like every
+    // other vector-touching construction site — a bare PGlite silently fails
+    // the OM vector store's CREATE EXTENSION and the VECTOR test goes toothless.
+    database = await PGlite.create({ extensions: { vector } });
     modelHolder.current = undefined;
   });
 
@@ -563,9 +566,6 @@ describe('mastra memory persistence through the live stream path', () => {
   });
 
   it('re-declares semantic recall index metadata before query and upsert after reset', async () => {
-    await database.close();
-    database = await PGlite.create({ extensions: { vector } });
-
     const threadId = 'thread-semantic-recall-reset';
     const resourceId = 'resource-memory-test';
     const firstTurnText = 'The launch codename is indigo lighthouse.';
