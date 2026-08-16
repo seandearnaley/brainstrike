@@ -23,9 +23,15 @@ export const DEFAULT_PANE_WIDTH_PCT = 30;
 export const MIN_PANE_WIDTH_PCT = 10;
 export const MAX_PANE_WIDTH_PCT = 70;
 
-const EMPTY_PANE: FileTabPaneState = {
+/**
+ * Template for a key with no entry. `open: true` because ABSENT STATE MEANS
+ * OPEN (BST-1318): the pane auto-opens with its file, and only an explicit
+ * user close is recorded (open: false) so it persists through the snapshot.
+ * Old snapshots without pane entries adopt auto-open retroactively by design.
+ */
+const DEFAULT_PANE: FileTabPaneState = {
   expandedPaths: [],
-  open: false,
+  open: true,
   widthPct: DEFAULT_PANE_WIDTH_PCT,
 };
 
@@ -60,7 +66,7 @@ export const useFileTabPaneStore = create<FileTabPaneStore>()((set) => ({
   panes: {},
   setPaneWidthPct: (compositeKey, widthPct) => {
     set((state) => {
-      const pane = state.panes[compositeKey] ?? EMPTY_PANE;
+      const pane = state.panes[compositeKey] ?? DEFAULT_PANE;
       return {
         panes: { ...state.panes, [compositeKey]: { ...pane, widthPct: clampWidthPct(widthPct) } },
       };
@@ -68,7 +74,7 @@ export const useFileTabPaneStore = create<FileTabPaneStore>()((set) => ({
   },
   toggleExpandedPath: (compositeKey, path) => {
     set((state) => {
-      const pane = state.panes[compositeKey] ?? EMPTY_PANE;
+      const pane = state.panes[compositeKey] ?? DEFAULT_PANE;
       const expandedPaths = pane.expandedPaths.includes(path)
         ? pane.expandedPaths.filter((candidate) => candidate !== path)
         : [...pane.expandedPaths, path];
@@ -77,7 +83,7 @@ export const useFileTabPaneStore = create<FileTabPaneStore>()((set) => ({
   },
   togglePane: (compositeKey) => {
     set((state) => {
-      const pane = state.panes[compositeKey] ?? EMPTY_PANE;
+      const pane = state.panes[compositeKey] ?? DEFAULT_PANE;
       return { panes: { ...state.panes, [compositeKey]: { ...pane, open: !pane.open } } };
     });
   },

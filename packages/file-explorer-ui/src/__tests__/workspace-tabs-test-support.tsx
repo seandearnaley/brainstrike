@@ -6,6 +6,7 @@ import type { WorkspaceApp } from '../shell/workspace-app';
 import { WorkspaceBody } from '../shell/workspace-body';
 import { WorkspaceTabStrip } from '../shell/workspace-tab-strip';
 import { WorkspaceOpenFileBridge, WorkspaceTabsProvider } from '../shell/workspace-tabs-context';
+import { stubMatchMedia } from './setup/stub-match-media';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 export const FILES_APP: WorkspaceApp = {
@@ -53,5 +54,8 @@ export function WorkspaceHarness({ apps }: { readonly apps: readonly WorkspaceAp
 }
 
 export function renderWorkspace(apps: readonly WorkspaceApp[] = [FILES_APP]): RenderResult {
+  // File tabs mount a resizable Group by default now that the explorer pane
+  // is open-by-default (BST-1318) — it probes matchMedia while mounting.
+  stubMatchMedia();
   return render(<WorkspaceHarness apps={apps} />);
 }

@@ -84,7 +84,10 @@ export function FileTabBody({
   const paneState = useFileTabPaneStore((s) => s.panes[tab.compositeKey]);
   const togglePane = useFileTabPaneStore((s) => s.togglePane);
   const setPaneWidthPct = useFileTabPaneStore((s) => s.setPaneWidthPct);
-  const isPaneOpen = paneState?.open === true;
+  // ABSENT state means OPEN (BST-1318): the pane auto-opens with its file and
+  // only an explicit user close (open: false, recorded by togglePane) hides
+  // it — that entry persists through the snapshot so the close sticks.
+  const isPaneOpen = paneState?.open !== false;
   // The nonce makes every activation a NEW reveal request, so re-clicking the
   // same breadcrumb (or re-opening the pane on the same file) re-reveals.
   const [revealRequest, setRevealRequest] = useState<{ nonce: number; path: string | null }>({
@@ -102,7 +105,10 @@ export function FileTabBody({
   const handleBreadcrumbSegmentClick = useCallback(
     (segmentPath: string) => {
       setRevealRequest((previous) => ({ nonce: previous.nonce + 1, path: segmentPath }));
-      if (!useFileTabPaneStore.getState().panes[tab.compositeKey]?.open) {
+      // Absent state means OPEN (BST-1318): only an EXPLICIT close reopens
+      // here — a truthiness check would read absent as closed and toggle the
+      // auto-opened pane shut.
+      if (useFileTabPaneStore.getState().panes[tab.compositeKey]?.open === false) {
         togglePane(tab.compositeKey);
       }
     },
@@ -370,8 +376,13 @@ export function FileTabBody({
             onLayoutChanged={handlePaneLayoutChanged}
             orientation="horizontal"
           >
+            <Panel id="file-tab-content">
+              <div className="h-full min-h-0">{body}</div>
+            </Panel>
+            <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
+            {/* Docked RIGHT (BST-1318), mirroring the main explorer's side. */}
             <Panel
-              className="overflow-hidden border-r bg-background"
+              className="overflow-hidden border-l bg-background"
               defaultSize={`${paneState?.widthPct ?? DEFAULT_PANE_WIDTH_PCT}%`}
               id="file-tab-pane"
               maxSize={`${MAX_PANE_WIDTH_PCT}%`}
@@ -384,10 +395,6 @@ export function FileTabBody({
                   revealPath={revealRequest.path}
                 />
               </div>
-            </Panel>
-            <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
-            <Panel id="file-tab-content">
-              <div className="h-full min-h-0">{body}</div>
             </Panel>
           </Group>
         ) : (

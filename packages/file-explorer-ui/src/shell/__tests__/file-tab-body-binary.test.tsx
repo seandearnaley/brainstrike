@@ -19,7 +19,14 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+// The pane is open by default (BST-1318) and the real one requires a
+// FileSystemProvider — stub it; pane behavior is covered by the pane tests.
+vi.mock('../file-tab-explorer-pane', () => ({
+  FileTabExplorerPane: () => <div data-testid="pane-spy" />,
+}));
+
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
+import { stubMatchMedia } from '../../__tests__/setup/stub-match-media';
 import { fileEntryActions } from '../../context-actions/file-entry-actions';
 import { useEditorViewStateStore } from '../../stores/editor-view-state-store';
 import { FileTabBodyForTesting as FileTabBody } from '../file-tab-body';
@@ -86,6 +93,7 @@ function createPlatformFsServices() {
 
 describe('FileTabBody binary file preview', () => {
   beforeEach(() => {
+    stubMatchMedia();
     useEditorViewStateStore.getState().clear();
     vi.clearAllMocks();
   });
