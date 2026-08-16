@@ -469,6 +469,7 @@ const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
     'openai/gpt-4-turbo': 'openai/gpt-5.4',
     'openai/gpt-4o': 'openai/gpt-5.4',
     'openai/gpt-4o-mini': 'openai/gpt-5.4-mini',
+    'openrouter/claude-3-5-sonnet': 'anthropic/claude-sonnet-4.6',
   },
   voyage: {},
 };
