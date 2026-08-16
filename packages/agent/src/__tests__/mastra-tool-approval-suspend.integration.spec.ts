@@ -1297,8 +1297,24 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
       .map((chunk) => chunk.value)
       .join('');
     expect(declineText).toContain('will not run that');
-    const encodedDecline = await encodeChunks(resumeChunks);
-    expect(encodedDecline.split('\n').filter((line) => line.startsWith('b:'))).toEqual([]);
+    // @mastra/core 1.59 (BST-1282) SUPERSEDES the older "a decline puts no tool
+    // frames on the wire at all" shape. The tool still never runs, but the
+    // decline leg now emits `tool-output-denied`, and that MUST reach the wire
+    // as a card which is both started and SETTLED — a declined call left
+    // unsettled is the renderer hang mastra #20886 shipped the chunk to fix.
+    // The settle carries the declined envelope and no `isError`: a decline is
+    // terminal, but it is not a failure.
+    const declineLines = (await encodeChunks(resumeChunks)).split('\n');
+    expect(declineLines.filter((line) => line.startsWith('b:'))).toHaveLength(1);
+    const declineResults = declineLines
+      .filter((line) => line.startsWith('a:'))
+      .map((line) => JSON.parse(line.slice(2)) as Record<string, unknown>);
+    expect(declineResults).toHaveLength(1);
+    expect(declineResults[0]).toMatchObject({
+      result: { kind: 'declined' },
+      toolCallId: approval?.toolCallId ?? '',
+    });
+    expect(declineResults[0]).not.toHaveProperty('isError');
 
     await database.close();
   });
