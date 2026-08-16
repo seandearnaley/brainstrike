@@ -46,6 +46,28 @@ describe('model catalog migration contract', () => {
     );
   });
 
+  it('documents the safe procedure for catalog rollback with live user data', () => {
+    const databaseContract = readFileSync(
+      new URL('../../docs/agents/database.md', import.meta.url),
+      'utf8'
+    );
+
+    assert.match(databaseContract, /^### SAFE CATALOG ROLLBACK WITH LIVE USER DATA$/m);
+    assert.match(
+      databaseContract,
+      /Never run a model-catalog `down` migration against a production database with live conversation history without first auditing every referencing row\./
+    );
+    assert.match(databaseContract, /Create and verify a restorable backup before rollback\./);
+    assert.match(
+      databaseContract,
+      /Preserve historical run model text; do not rewrite conversation provenance to make a catalog rollback pass\./
+    );
+    assert.match(
+      databaseContract,
+      /After rollback, verify migrations, model-picker state, historical thread rendering, and a fresh assistant run before returning the database to service\./
+    );
+  });
+
   it('requires catalog-mutating migrations to be registered in the app custom ledger', () => {
     const result = analyzeModelCatalogMigrationContract({
       drizzleMigrateSource: `
