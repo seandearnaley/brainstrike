@@ -675,9 +675,19 @@ Two things ruled OUT, with evidence:
 **No clean in-repo fix exists today.** Draining before close needs a join point
 Mastra does not expose; a `SELECT 1` flush or a sleep only narrows the window
 (silent degradation), and a `Promise.race` timeout cannot fire against a blocked
-event loop. The real fixes are upstream — PGlite must reject in-flight
-statements on close instead of wedging, and Mastra must expose a join point for
-post-run background work. Tracked in BST-1320.
+event loop. The real fixes are upstream, and both are filed:
+
+- [electric-sql/pglite#1084](https://github.com/electric-sql/pglite/issues/1084)
+  — `close()` must serialize against in-flight statements, or reject them with
+  the existing `PGlite is closing` error, instead of wedging. **This is the one
+  that unblocks the bump.**
+- [mastra-ai/mastra#21617](https://github.com/mastra-ai/mastra/issues/21617) —
+  post-run background DB work needs a join point (the `pendingVectorCleanup` /
+  `trackVectorCleanup` handle 1.26.2 added for `deleteThread` is the right
+  shape), plus the reflector retry ladder re-running four identical attempts.
+
+Tracked in BST-1320. **Re-test the bump when pglite#1084 lands** — that is the
+signal, not a new `@mastra/memory` release.
 
 **Security framing, stated precisely — do not overstate this cost.** 1.26.2 is
 the only thing that drops `image-size@1.2.1` (`@mastra/memory` is its sole
