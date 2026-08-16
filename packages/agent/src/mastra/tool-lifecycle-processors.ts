@@ -254,6 +254,25 @@ function makeToolLifecycleRunEventChunk(
       lifecycleState.outputOnlyToolEvents.delete(toolCallId);
       return makeRunEventChunk('tool.failed', 'failed', 'Tool failed', metadata);
     }
+    case 'declined': {
+      if (!toolCallId) {
+        return;
+      }
+      if (lifecycleState.terminalToolCallStates.has(toolCallId)) {
+        return;
+      }
+      lifecycleState.terminalToolCallStates.set(toolCallId, 'failed');
+      lifecycleState.outputOnlyToolEvents.delete(toolCallId);
+      // A declined `requireApproval` call (@mastra/core 1.59 `tool-output-denied`)
+      // keeps the `tool.failed` KIND deliberately, and only relabels. The kind is
+      // what `getMatchingFailedKind` pairs `tool.started` against and what
+      // `collectToolDurations` / `RUN_LEDGER_AGGREGATION_SQL` close a call out
+      // on — and here the call really IS over: the framework consumed the
+      // decline, the tool never runs, and no later terminal part carries this id.
+      // That is the opposite of `tool.resume.unsupported` (BST-558), whose run
+      // stays suspended and can still emit the real terminal later.
+      return makeRunEventChunk('tool.failed', 'failed', 'Tool call declined', metadata);
+    }
     case 'progress':
       return;
   }
@@ -427,9 +446,16 @@ export function createDelegationUsageCapture(
   };
 }
 
-/** The subagent.* run event that mirrors a delegation tool-call/result/error. */
+/** Every Mastra part type that carries a delegation's own lifecycle. */
+export type DelegationLifecyclePartType =
+  | 'tool-call'
+  | 'tool-error'
+  | 'tool-output-denied'
+  | 'tool-result';
+
+/** The subagent.* run event that mirrors a delegation tool-call/result/error/decline. */
 function makeSubagentLifecycleChunk(
-  partType: 'tool-call' | 'tool-error' | 'tool-result',
+  partType: DelegationLifecyclePartType,
   metadata: AssistantRunEventMetadata
 ): StreamChunk {
   if (partType === 'tool-call') {
@@ -438,19 +464,33 @@ function makeSubagentLifecycleChunk(
   if (partType === 'tool-error') {
     return makeRunEventChunk('subagent.failed', 'failed', 'Subagent failed', metadata);
   }
+  if (partType === 'tool-output-denied') {
+    // The user declined the delegation at its approval gate, so the child never
+    // ran. It is still a TERMINAL for the `subagent.started` the parent's
+    // `tool-call` already emitted — the same "never leave an orphan" rule
+    // `makeCancelledDelegationRunEventChunks` enforces on the abort path — so
+    // the decline must not be the one delegation terminal that goes unemitted.
+    // `'cancelled'`, not `'failed'`: nothing broke, the user chose.
+    return makeRunEventChunk(
+      'subagent.failed',
+      'cancelled',
+      'Subagent delegation declined',
+      metadata
+    );
+  }
   return makeRunEventChunk('subagent.finished', 'completed', 'Subagent completed', metadata);
 }
 
 /**
- * A delegation tool-call/result/error part: the generic tool event PLUS a
- * mirrored subagent.* run event, while tracking the delegation's in-flight
+ * A delegation tool-call/result/error/decline part: the generic tool event PLUS
+ * a mirrored subagent.* run event, while tracking the delegation's in-flight
  * lifecycle so an aborted run can emit a terminal event for orphans.
  */
 export function mapToolLifecyclePart(
   part: unknown,
   toolNames: Map<string, string>,
   lifecycleState: ToolLifecycleState,
-  partType: 'tool-call' | 'tool-error' | 'tool-result',
+  partType: DelegationLifecyclePartType,
   sanitizedNameMap: Map<string, string> | undefined,
   delegationToolPersonas: ReadonlyMap<string, string>
 ): ProcessStreamPartResult {

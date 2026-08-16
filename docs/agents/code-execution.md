@@ -286,10 +286,31 @@ composition root in `apps/desktop/src/assistant-server/assistant-tools.ts`.
   idiom as every other ask tool — and Mastra collects the approval BEFORE
   `execute()` runs (same `tool-call-approval` chunk, card, grant surface, and
   approve/decline transport as always). Approve is consumed by the framework
-  and the tool runs once; decline never reaches the tool and streams NO tool
-  result (the approval card's "Declined" state owns the UX, identical to every
-  other ask tool — the tool's typed `declined` result arm is legacy, kept only
-  for pre-rework persisted threads). The pre-1.56 design (self-raised in-tool
+  and the tool runs once; decline never reaches the tool, and **since
+  `@mastra/core` 1.59 (BST-1282) the decline leg streams a `tool-output-denied`
+  chunk** carrying `{toolCallId, toolName, args?, approval:{id, approved:false,
+  reason?}}`. That SUPERSEDES the older "decline streams NO tool result"
+  statement: Brainstrike maps the chunk (disposition `'mapped'`, decoded in
+  `mastra/tool-event-mapper.ts`) to the DECLINE terminal — `StreamChunkTool`
+  status `'declined'`, carrying the shared `DeclinedToolCallResult` envelope —
+  so the call settles with a `toolCallResult` and its durable `tool.started`
+  pairs off against a `tool.failed` row relabelled `Tool call declined`.
+  Without that mapping the renderer's tool part would stay pending forever —
+  the hang mastra #20886 shipped this chunk to fix. It is deliberately NOT the
+  ERROR terminal: a decline queues no visible failure text and sets no
+  `isError`, or a decline followed by no model text would read as "I couldn't
+  complete the tool action because it failed" (see docs/agents/mastra-boundary.md,
+  1.57 → 1.59). Because the envelope is `{kind: 'declined', …}`, a run_python
+  decline still lands on THIS tool's own muted declined surface rather than a
+  generic card. The approval card's "Declined" state still owns the primary UX,
+  identical to every other ask tool; the tool's typed `declined` result arm
+  remains legacy, kept only for pre-rework persisted threads. Paired tests:
+  `mastra-tool-approval-chunks.spec.ts`, *"settles the declined tool call from
+  the 1.59 tool-output-denied chunk instead of leaving it pending"* (mutation-
+  checked: treating the chunk as ignored fails it) and *"does NOT report a
+  declined tool call as a failure when the denial is the last chunk before
+  finish"*, plus the envelope case in `run-python-result.test.tsx`. The
+  pre-1.56 design (self-raised in-tool
   approval suspension; the flag forbidden) is DEAD: 1.56's approval rework
   consumes `{approved}` resumes before the tool can read them, and the same
   rework is what makes the flag safe — the suspend-resume transport now

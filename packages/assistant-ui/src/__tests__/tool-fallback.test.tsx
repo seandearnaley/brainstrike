@@ -83,6 +83,41 @@ describe('ToolFallback', () => {
     expect(screen.queryByText('advisory only')).toBeNull();
   });
 
+  it('renders a declined tool call as Stopped — never Completed, never Failed', () => {
+    // BST-1282: a call the user declined at its approval gate settles with the
+    // shared `DeclinedToolCallResult` envelope. A settled result alone would
+    // earn the green Completed check for a tool that never ran, and an error
+    // flag would paint destructive Failed chrome over something that did not
+    // break. It is the user's choice, so it takes the muted Stopped treatment.
+    renderTool({
+      argsText: '{"command":"rm -rf /"}',
+      result: {
+        kind: 'declined',
+        message: 'The user declined this tool call, so it was not executed.',
+        reason: 'not this path',
+      },
+      status: { type: 'complete' },
+      toolName: 'brainstrike.executeCommand',
+    });
+
+    expect(screen.getByRole('img', { name: 'Stopped' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Failed' })).toBeNull();
+    expect(screen.queryByRole('img', { name: 'Completed' })).toBeNull();
+  });
+
+  it('keeps an ordinary settled result on the Completed path', () => {
+    // Guards the decline check above from swallowing every settled result.
+    renderTool({
+      argsText: '{"q":"x"}',
+      result: { kind: 'something-else', ok: true },
+      status: { type: 'complete' },
+      toolName: 'searchDocs',
+    });
+
+    expect(screen.queryByRole('img', { name: 'Stopped' })).toBeNull();
+    expect(screen.getByRole('img', { name: 'Completed' })).toBeInTheDocument();
+  });
+
   it('does not serialize the result while the details pane is collapsed', () => {
     // Tool results are budgeted at ~3k tokens (~12 KB serialized); every card
     // in the streaming turn re-renders per chunk, so an eager JSON.stringify

@@ -190,6 +190,48 @@ export function isRediscoveredToolApproval(value: unknown): value is Rediscovere
   );
 }
 
+/**
+ * The settled RESULT of a tool call the user declined at its approval gate
+ * (`@mastra/core` 1.59 emits `tool-output-denied` for that leg, BST-1282).
+ *
+ * A decline is TERMINAL but it is NOT a failure: the tool never ran, so nothing
+ * completed and nothing broke. Consumers must therefore render it as a stopped
+ * outcome — never the green Completed a bare settled result would earn, and
+ * never the destructive Failed chrome an error result would.
+ *
+ * It lives in this browser-safe contract, rather than being narrowed
+ * structurally on each side, because BOTH ends must agree on the discriminator:
+ * the producer is the agent package's Mastra stream mapper and the consumer is
+ * the tool card in `@brainstrike/assistant-ui`.
+ */
+export const DECLINED_TOOL_RESULT_KIND = 'declined';
+
+export interface DeclinedToolCallResult {
+  readonly kind: typeof DECLINED_TOOL_RESULT_KIND;
+  /**
+   * Human-readable statement of the DECISION only. Never carries tool
+   * internals: the tool did not run, so there is nothing of its own to report.
+   */
+  readonly message: string;
+  /** The user's own explanation, present only when they supplied one. */
+  readonly reason?: string;
+}
+
+/**
+ * Structural guard for {@link DeclinedToolCallResult}. Extra keys are tolerated
+ * (a settled result is display data and must survive additive evolution), but a
+ * missing/blank `message` fails the guard — a card that showed a declined state
+ * with no statement of the decision would be inventing the outcome.
+ */
+export function isDeclinedToolCallResult(value: unknown): value is DeclinedToolCallResult {
+  return (
+    isRecord(value) &&
+    value['kind'] === DECLINED_TOOL_RESULT_KIND &&
+    typeof value['message'] === 'string' &&
+    value['message'].trim().length > 0
+  );
+}
+
 export type AssistantToolApprovalDecision = 'approve' | 'decline';
 
 export interface AssistantToolApprovalAction {

@@ -1057,7 +1057,7 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
     await database.close();
   }, 120_000);
 
-  it('GATE A DECLINE (BST-1097, 1.56+ idiom): declining the framework pre-execution approval streams NO tool result, never touches the executor, and the run continues', async () => {
+  it('GATE A DECLINE (BST-1097, 1.59 idiom): declining the framework pre-execution approval settles the call with a decline terminal, never touches the executor, and the run continues', async () => {
     const capturedPolicies: unknown[] = [];
     const stubHost = {
       fence: () => ({
@@ -1136,17 +1136,21 @@ describe('suspending tools pause and resume (real @mastra/core/agent + real PGli
         }
       )
     );
-    // Since the @mastra/core 1.56 approval rework, a declined pre-execution
-    // approval is FRAMEWORK-owned and never reaches the tool: no tool result
-    // streams (the approval card's "Declined" state owns the UX, identical to
-    // every other ask-gated tool — see the ordinary-decline case in
-    // mastra-tool-approval-suspend.integration.spec.ts), the executor is
-    // never touched, and the run continues to its final answer.
+    // A declined pre-execution approval is FRAMEWORK-owned and never reaches
+    // the tool: the executor is never touched and the run continues to its
+    // final answer. @mastra/core 1.59 (BST-1282) SUPERSEDES the 1.56/1.57
+    // "streams NO tool result" half of that contract — the decline leg now
+    // emits `tool-output-denied` so the client can RESOLVE the pending call
+    // instead of hanging forever. The one streamed tool event must therefore be
+    // the DECLINE terminal: never a success, and never the ERROR terminal,
+    // which would report the user's own choice as a tool failure (see
+    // docs/agents/mastra-boundary.md, 1.57 → 1.59).
     expect(toolSuccessOutputs(phase2)).toBe('');
-    expect(
-      phase2.some((chunk) => chunk.type === 'tool-event'),
-      'decline must not stream any tool event'
-    ).toBe(false);
+    const declineEvents = phase2.filter(
+      (chunk): chunk is Extract<StreamChunk, { type: 'tool-event' }> => chunk.type === 'tool-event'
+    );
+    expect(declineEvents.map((chunk) => chunk.status)).toEqual(['declined']);
+    expect(declineEvents[0]?.payload).toMatchObject({ result: { kind: 'declined' } });
     expect(capturedPolicies).toHaveLength(0);
     expect(finalText(phase2)).toContain('Understood.');
     expect(phase2.find((chunk) => chunk.type === 'message-finish')).toBeDefined();

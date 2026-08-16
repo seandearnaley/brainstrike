@@ -370,7 +370,16 @@ export interface StreamChunkRunEvent {
 export interface StreamChunkTool {
   name: string;
   payload?: unknown;
-  status: 'start' | 'progress' | 'success' | 'error';
+  /**
+   * `'declined'` is the approval lifecycle's DECLINE terminal (@mastra/core
+   * 1.59 `tool-output-denied`, BST-1282). It is its own status, not a flavour
+   * of `'error'`, precisely because the two must diverge downstream: both
+   * settle the call, but a decline must NOT queue the visible
+   * "I couldn't complete the tool action because it failed" fallback, and must
+   * not paint the tool card with destructive failure chrome. Nothing ran and
+   * nothing broke — the user made a choice.
+   */
+  status: 'start' | 'progress' | 'success' | 'error' | 'declined';
   type: 'tool-event';
 }
 /**

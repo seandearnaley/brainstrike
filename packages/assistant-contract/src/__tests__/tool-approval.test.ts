@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_TOOL_APPROVAL_ID_MAX_CHARS,
   ASSISTANT_TOOL_APPROVAL_TOOL_NAME_MAX_CHARS,
+  DECLINED_TOOL_RESULT_KIND,
   isAssistantToolApprovalAction,
   isCodeExecutionApprovalContext,
+  isDeclinedToolCallResult,
   isRediscoveredToolApproval,
   type RediscoveredToolApproval,
   readToolApprovalRunConfigAction,
@@ -212,5 +214,37 @@ describe('isCodeExecutionApprovalContext', () => {
     expect(isCodeExecutionApprovalContext(null)).toBe(false);
     expect(isCodeExecutionApprovalContext('context')).toBe(false);
     expect(isCodeExecutionApprovalContext([base])).toBe(false);
+  });
+});
+
+describe('isDeclinedToolCallResult', () => {
+  const declined = {
+    kind: DECLINED_TOOL_RESULT_KIND,
+    message: 'The user declined this tool call, so it was not executed.',
+  };
+
+  it('accepts the decline envelope, with or without the user reason', () => {
+    expect(isDeclinedToolCallResult(declined)).toBe(true);
+    expect(isDeclinedToolCallResult({ ...declined, reason: 'not this path' })).toBe(true);
+  });
+
+  it('tolerates unknown extra keys — a settled result is display data', () => {
+    // The run_python surface narrows the SAME value through its own union, so
+    // additive evolution on either side must not blank a card.
+    expect(isDeclinedToolCallResult({ ...declined, exitCode: null })).toBe(true);
+  });
+
+  it('rejects a decline that states no decision', () => {
+    // A declined card with nothing to say would be inventing the outcome.
+    expect(isDeclinedToolCallResult({ kind: DECLINED_TOOL_RESULT_KIND })).toBe(false);
+    expect(isDeclinedToolCallResult({ ...declined, message: '  ' })).toBe(false);
+  });
+
+  it('rejects other results, including error shapes that merely mention a decline', () => {
+    expect(isDeclinedToolCallResult({ kind: 'cancelled', message: 'stopped' })).toBe(false);
+    expect(isDeclinedToolCallResult(declined.message)).toBe(false);
+    expect(isDeclinedToolCallResult(undefined)).toBe(false);
+    expect(isDeclinedToolCallResult(null)).toBe(false);
+    expect(isDeclinedToolCallResult([declined])).toBe(false);
   });
 });

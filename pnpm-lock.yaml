@@ -1080,11 +1080,11 @@ importers:
         specifier: 'catalog:'
         version: 4.2.0
       '@mastra/core':
-        specifier: ^1.57.0
-        version: 1.57.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3)
+        specifier: ^1.59.0
+        version: 1.59.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3)
       '@mastra/memory':
         specifier: 1.26.0
-        version: 1.26.0(@mastra/core@1.57.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3))(supports-color@10.2.2)
+        version: 1.26.0(@mastra/core@1.59.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3))(supports-color@10.2.2)
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
@@ -3467,6 +3467,21 @@ packages:
       express:
         optional: true
 
+  '@a2a-js/sdk@1.0.1':
+    resolution: {integrity: sha512-CJQdh3Wzwo8qIx5UUkSJ7+7BEI16PB+MXMHHNSmx8JQsQed2HlQgvx1ENOiKUfYA3PlcEvxIwv14dBblhDuPmw==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.10.2
+      '@grpc/grpc-js': ^1.11.0
+      express: ^4.21.2 || ^5.1.0
+    peerDependenciesMeta:
+      '@bufbuild/protobuf':
+        optional: true
+      '@grpc/grpc-js':
+        optional: true
+      express:
+        optional: true
+
   '@actions/core@3.0.1':
     resolution: {integrity: sha512-a6d/Nwahm9fliVGRhdhofo40HjHQasUPusmc7vBfyky+7Z+P2A1J68zyFVaNcEclc/Se+eO595oAr5nwEIoIUA==}
 
@@ -5674,8 +5689,8 @@ packages:
   '@marijn/find-cluster-break@1.0.3':
     resolution: {integrity: sha512-FY+MKLBoTsLNJF/eLWaOsXGdz6uh3Iu1axjPf6TUq92IYumcTcXWHoS747JARLkcdlJ/Waiaxc5wQfFO8jC6NA==}
 
-  '@mastra/core@1.57.0':
-    resolution: {integrity: sha512-2ud56Ow5wwyAFegxXkkOHcQfCG0W9Sz1ex2qVf3y/704zwwYZl/RBZXZV/7277RIxWFk8Bnw8pmGtGQ4tZVWEg==}
+  '@mastra/core@1.59.0':
+    resolution: {integrity: sha512-LMPkEtGcAeaCBq0IPPk/yuaaA/p8+BJjaZnNREkoJ4l7p5/CBpFqu3fHfMoBLoiabqCqF+5kaw6JFNztq/4Vtw==}
     engines: {node: '>=22.13.0'}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -5688,6 +5703,12 @@ packages:
 
   '@mastra/schema-compat@1.3.5':
     resolution: {integrity: sha512-9CdBZZ2Fb8q6Ms4r6hs0msH8MTmVn99Zrc+i8BnNNuqKlIrywIoH3BghmPr5VsvkBUx7u/GjdYAsJ6i9nPcZZA==}
+    engines: {node: '>=22.13.0'}
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
+
+  '@mastra/schema-compat@1.3.7':
+    resolution: {integrity: sha512-06WfY+j9rulYnDp8CM7pL7JIyrntkMolqmyyb1VJNEzlYTQCIcJcY0SwQiubZv2tztmoYGikszDiRVyXp0E9gA==}
     engines: {node: '>=22.13.0'}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -5717,6 +5738,10 @@ packages:
   '@mermaid-js/parser@1.2.0':
     resolution: {integrity: sha512-oYPyv8A4As1yH5Bx+04iQEQxXuIQDe0GKCNSRgao6z8AM9jixXIfP0vsppRLvGf+nKIOb9/LdpWA4YuJiVvESA==}
 
+  '@modelcontextprotocol/core@2.0.0':
+    resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
+    engines: {node: '>=20'}
+
   '@modelcontextprotocol/sdk@1.30.0':
     resolution: {integrity: sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==}
     engines: {node: '>=18'}
@@ -5730,6 +5755,10 @@ packages:
   '@modelcontextprotocol/server-filesystem@2026.7.10':
     resolution: {integrity: sha512-Mmjg4anFBD5OzbPnGJOA0jPPN8645ERhQk38HQLpSenx1ox9bfdPkmAzUnNjeQtqQGFLtKe13J20RtLBmUKMZA==}
     hasBin: true
+
+  '@modelcontextprotocol/server@2.0.0':
+    resolution: {integrity: sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==}
+    engines: {node: '>=20'}
 
   '@napi-rs/canvas-android-arm64@0.1.100':
     resolution: {integrity: sha512-hjhCKhntPv9+t4ckHymdx0phYNcVW+GKQR6Lzw2zE+pOVjOplSmtx9nNNknTjbEDLcuLZqA1y8ufKg1XfgftzQ==}
@@ -6846,11 +6875,11 @@ packages:
   '@pondwader/socks5-server@1.0.10':
     resolution: {integrity: sha512-bQY06wzzR8D2+vVCUoBsr5QS2U6UgPUQRmErNwtsuI6vLcyRKkafjkr3KxbtGFf9aBBIV2mcvlsKD1UYaIV+sg==}
 
-  '@posthog/core@1.39.6':
-    resolution: {integrity: sha512-o6ajIwN5zXoNP0D4H/QPmOyibNTUkSyOR6ya7AG5U2ywXx4awo72L2KnCoiZPQM5x/bXv6jPBdimH8M18Ax0aw==}
+  '@posthog/core@1.48.1':
+    resolution: {integrity: sha512-mxw31XdYgt/SnlwqLPAcltK67q+QmsiYjVLGQ4GbBc8OJ7O4yRFSDwAXt8QsokHokeyEZtTRWM6jDHL7LYMx1A==}
 
-  '@posthog/types@1.392.1':
-    resolution: {integrity: sha512-Qg6Gl7/1vlr8+gPtBi5gwnLgAgiyFoKOVmTvTtDcvya9cpTwZfna7rQmkGQ4B63CunUYNNbOlqcwiUwUDyTK6w==}
+  '@posthog/types@1.404.1':
+    resolution: {integrity: sha512-i2Gei6ARfOSBeTN4s2yUP1p97s2UNI+1NWmtLjhnR/V6t3RFOfI1sBWKcJNWHjtoOCCWoAFU+PNPY6SgT2VtEQ==}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -12541,8 +12570,8 @@ packages:
     resolution: {integrity: sha512-u82N74LFzG8ca+dD8puPnplTXoGH4fTPpVGuIbt36G3qvNlkvfD0lEAZSxaly3KX8TS/L1A1gsCEmvKmBcVbkQ==}
     engines: {node: ^10 || ^12 || >=14}
 
-  posthog-node@5.39.4:
-    resolution: {integrity: sha512-+fCQ7htBFRQQFbIzl1T0TA7bDwYyaB9XP308ZFMCUoB5LzTzOFxBa6TYVrxdH/VQl43WXTp6sf0QsG2Z4XlNBg==}
+  posthog-node@5.49.1:
+    resolution: {integrity: sha512-kmjvzc7K8y+wQX7r3oIkLfKc2BzDJPXMJor5D8gAxpGE7qLNlk4HO2y1brc5587GxtdsZzqtGOxfBJXUBE2MiQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       rxjs: ^7.0.0
@@ -14298,6 +14327,13 @@ snapshots:
 
   '@a2a-js/sdk@0.3.14(express@5.2.1(supports-color@10.2.2))':
     dependencies:
+      uuid: 11.1.1
+    optionalDependencies:
+      express: 5.2.1(supports-color@10.2.2)
+
+  '@a2a-js/sdk@1.0.1(express@5.2.1(supports-color@10.2.2))':
+    dependencies:
+      jose: 6.2.3
       uuid: 11.1.1
     optionalDependencies:
       express: 5.2.1(supports-color@10.2.2)
@@ -16456,9 +16492,10 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.3': {}
 
-  '@mastra/core@1.57.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3)':
+  '@mastra/core@1.59.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3)':
     dependencies:
-      '@a2a-js/sdk': 0.3.14(express@5.2.1(supports-color@10.2.2))
+      '@a2a-js/sdk-v0_3': '@a2a-js/sdk@0.3.14(express@5.2.1(supports-color@10.2.2))'
+      '@a2a-js/sdk-v1': '@a2a-js/sdk@1.0.1(express@5.2.1(supports-color@10.2.2))'
       '@ai-sdk/provider-utils-v5': '@ai-sdk/provider-utils@3.0.30(zod@4.4.3)'
       '@ai-sdk/provider-utils-v6': '@ai-sdk/provider-utils@4.0.40(zod@4.4.3)'
       '@ai-sdk/provider-utils-v7': '@ai-sdk/provider-utils@5.0.13(zod@4.4.3)'
@@ -16467,8 +16504,8 @@ snapshots:
       '@ai-sdk/provider-v7': '@ai-sdk/provider@4.0.4'
       '@isaacs/ttlcache': 2.1.5
       '@lukeed/uuid': 2.0.1
-      '@mastra/schema-compat': 1.3.5(zod@4.4.3)
-      '@modelcontextprotocol/sdk': 1.30.0(supports-color@10.2.2)(zod@4.4.3)
+      '@mastra/schema-compat': 1.3.7(zod@4.4.3)
+      '@modelcontextprotocol/server': 2.0.0
       '@sindresorhus/slugify': 2.2.1
       '@standard-schema/spec': 1.1.0
       ajv: 8.20.0
@@ -16485,14 +16522,13 @@ snapshots:
       p-map: 7.0.5
       p-retry: 7.1.1
       picomatch: 4.0.5
-      posthog-node: 5.39.4(rxjs@7.8.2)
+      posthog-node: 5.49.1(rxjs@7.8.2)
       tokenx: 1.3.0
       ws: 8.21.0
       xxhash-wasm: 1.1.0
       zod: 4.4.3
     transitivePeerDependencies:
       - '@bufbuild/protobuf'
-      - '@cfworker/json-schema'
       - '@grpc/grpc-js'
       - ai
       - bufferutil
@@ -16502,9 +16538,9 @@ snapshots:
       - utf-8-validate
       - workflow
 
-  '@mastra/memory@1.26.0(@mastra/core@1.57.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3))(supports-color@10.2.2)':
+  '@mastra/memory@1.26.0(@mastra/core@1.59.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3))(supports-color@10.2.2)':
     dependencies:
-      '@mastra/core': 1.57.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3)
+      '@mastra/core': 1.59.0(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod@4.4.3)
       '@mastra/schema-compat': 1.3.5(zod@4.4.3)
       async-mutex: 0.5.0
       diff: 8.0.4
@@ -16525,6 +16561,12 @@ snapshots:
       zod-from-json-schema: 0.5.3
       zod-from-json-schema-v3: zod-from-json-schema@0.0.5
       zod-to-json-schema: 3.25.2(zod@4.4.3)
+
+  '@mastra/schema-compat@1.3.7(zod@4.4.3)':
+    dependencies:
+      json-schema-to-zod: 2.8.1
+      zod: 4.4.3
+      zod-from-json-schema: 0.5.3
 
   '@mermaid-js/layout-elk@0.2.2(mermaid@11.16.0)':
     dependencies:
@@ -16574,6 +16616,10 @@ snapshots:
     dependencies:
       '@chevrotain/types': 11.1.2
 
+  '@modelcontextprotocol/core@2.0.0':
+    dependencies:
+      zod: 4.4.3
+
   '@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.27)
@@ -16606,6 +16652,11 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
       - zod
+
+  '@modelcontextprotocol/server@2.0.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.0.0
+      zod: 4.4.3
 
   '@napi-rs/canvas-android-arm64@0.1.100':
     optional: true
@@ -17284,11 +17335,11 @@ snapshots:
 
   '@pondwader/socks5-server@1.0.10': {}
 
-  '@posthog/core@1.39.6':
+  '@posthog/core@1.48.1':
     dependencies:
-      '@posthog/types': 1.392.1
+      '@posthog/types': 1.404.1
 
-  '@posthog/types@1.392.1': {}
+  '@posthog/types@1.404.1': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
@@ -23582,9 +23633,9 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-node@5.39.4(rxjs@7.8.2):
+  posthog-node@5.49.1(rxjs@7.8.2):
     dependencies:
-      '@posthog/core': 1.39.6
+      '@posthog/core': 1.48.1
     optionalDependencies:
       rxjs: 7.8.2
 

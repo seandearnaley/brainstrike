@@ -9,7 +9,7 @@ each deferred to. The historical audit those tickets cite now lives at
 `docs/archive/mastra-agent-system-docs-catch-up-2026-05-29.md` (moved by BST-750,
 #1963); it recorded the deferral, never a decision.
 
-Verified against `@mastra/core@1.57.0` and `@mastra/memory@1.26.0` — the only
+Verified against `@mastra/core@1.59.0` and `@mastra/memory@1.26.0` — the only
 installed `@mastra/*` packages (`@mastra/schema-compat` is transitive).
 
 ## SCOPE AND STATUS
@@ -513,11 +513,135 @@ holding below 1.56, the repo adopted the new idiom (settled with the user,
 2026-08-07): run_python's Gate A is now the permission gate's ordinary
 `requireApproval` clone (pre-execution approval), its Gate B plain suspension
 stays resumable because the suspend-resume transport attaches the
-`approved: true` rider Mastra's per-leg re-check demands, declines stream no
-tool result (the approval card's Declined state owns the UX, like every other
-ask tool), and the direct-invocation guard stays in-tool. The old
+`approved: true` rider Mastra's per-leg re-check demands, declines streamed no
+tool result at 1.56/1.57 (the approval card's Declined state owned the UX, like
+every other ask tool — **superseded at 1.59, see below**), and the
+direct-invocation guard stays in-tool. The old
 self-approving registry (`SELF_APPROVING_NATIVE_TOOL_IDS`) is deleted. Full
 narrative + test map: docs/dependency-updates-breaking-changes.md (Mastra
 section) and docs/agents/code-execution.md (Gate A section). The 15-test
 `mastra-tool-suspend-resume.integration.spec.ts` remains the canary for any
 future approval-semantics drift.
+
+## 1.57 → 1.59 UPGRADE NOTES (2026-08-15, BST-1282)
+
+R6 did its job: the only compile-time break in this range was the sealed
+disposition inventory rejecting one newly-added `ChunkType` member. Measured
+diff — **exactly one added, none removed**.
+
+**`tool-output-denied` → disposition `'mapped'` (REQUIRED, not optional).**
+Payload `ToolOutputDeniedPayload` = `{toolCallId, toolName, args?,
+approval:{id, approved:false, reason?}}`. Mastra emits it on the decline leg of
+a `requireApproval` call (mastra #20886) so clients can RESOLVE the pending call
+instead of hanging. It is the DECLINE terminal of the same lifecycle
+`tool-call-approval` opens, and the tool never runs, so no later
+`tool-result`/`tool-error` ever carries that id — `'ignored'` would strand the
+renderer's tool part pending forever and leave the durable `tool.started`
+unpaired, reproducing the exact hang upstream fixed.
+
+**A decline is TERMINAL but it is NOT an error, and the two must diverge —
+settled 2026-08-15 on review, do not collapse them again.** `tool-event-mapper.ts`
+decodes the chunk to its OWN `StreamChunkTool` status, `'declined'`, carrying the
+shared `DeclinedToolCallResult` envelope (`@brainstrike/assistant-contract/tool-approval`:
+`{kind:'declined', message, reason?}`) as its `result`. Routing it through
+`status: 'error'` instead settles the call but breaks three things:
+
+| Routed as `'error'` | Why that is wrong |
+| --- | --- |
+| `handleToolError` records `pendingToolErrorTexts` | that map clears only on a later `text-delta`, so a denial that is the last chunk before `finish` (or a Stop right after it) emits "I couldn't complete the tool action because it failed: The user declined this tool call…" and finalizes the step as errored |
+| the frame carries `isError: true` | `isError` is the destructive-chrome switch in `tool-fallback.tsx`; nothing broke |
+| the result is a bare error string | strings short-circuit `readResultErrorMessage`, so the card falls through to a GREEN Completed for a tool that never ran, and `narrowRunPythonDisplayResult` returns `null`, bypassing run_python's own muted declined surface |
+
+`DataStreamMapper.handleToolDeclined` therefore settles the id (`toolCallResult`
++ `settledToolCallIds`) with the envelope and NO error flag, and queues no
+visible failure text. `tool-fallback.tsx` reads the envelope and renders the
+muted `stopped` treatment — the same one run_python already reserved for a
+decline. Same ruling as the BST-558 resume-unsupported terminal (see
+docs/agents/assistant-runtime.md, "The tool card is SETTLED").
+
+The DURABLE run event deliberately keeps the `tool.failed` KIND and only
+relabels to `Tool call declined`: kind is what `getMatchingFailedKind`,
+`collectToolDurations`, and `RUN_LEDGER_AGGREGATION_SQL` close a call out on, and
+here the call really is over. That is the OPPOSITE conclusion from
+`tool.resume.unsupported` (BST-558) for the opposite reason — that pause stays
+suspended and can still emit its real terminal later; this one cannot.
+
+The part is dispatched through `mapToolLifecyclePart`, NOT `mapGenericToolEvent`:
+a delegation tool (`agent-<persona>`) can be gated by an explicit global approval
+gate, its `tool-call` has already emitted `subagent.started`, and the decline is
+that delegation's only terminal — so it emits `subagent.failed`/`'cancelled'`
+("Subagent delegation declined") and keeps the "never leave an orphaned
+`subagent.started`" rule whole. Mutation-checked paired tests in
+`mastra-tool-approval-chunks.spec.ts` (settlement + the silent-continuation case
+that proves no false failure text) and `mastra-tool-lifecycle.spec.ts` (the
+delegation terminal).
+
+**R1/R2 re-verified.** 1.59 drops `@modelcontextprotocol/sdk` from
+`@mastra/core` and adds `@modelcontextprotocol/server@2.0.0`. The new package is
+**type-only** in the published dist: it appears exactly once, as `import type
+{ ElicitRequest, ElicitResult, ServerContext }` in `dist/tools/types.d.ts:3`,
+with zero `require`/`import` of it in any `.js`/`.cjs`. No HTTP surface is
+gained, so R1 stands unchanged. Both browser bundles still externalize
+`@mastra/core` and `/^@mastra\//`.
+
+### `@mastra/memory` IS HELD AT 1.26.0 — DO NOT BUMP IT WITH CORE (BST-1320)
+
+`@mastra/core` moved to ^1.59.0 here; `@mastra/memory` deliberately did NOT move
+with it. **1.26.2 hangs the observational-memory suite forever.** Measured A/B,
+both arms on core 1.59.0, only the memory pin changed:
+
+| `@mastra/memory` | `packages/agent` `mastra-memory-persistence.integration.spec.ts` |
+| --- | --- |
+| **1.26.0** | 19/19 passed, 17.6s, exit 0 |
+| 1.26.2 | 16 passed, then stalls forever (killed at 300s) |
+
+Two-test repro (`-t "DIRECT-provider observer|VECTOR retrieval"`): on 1.26.0 both
+pass (1155ms + 768ms); on 1.26.2 the first passes and
+`completes an observation cycle with VECTOR retrieval + the real OpenAI embedder
+wiring` never returns. Neither test hangs alone on either version, so this is
+state leaking across observation cycles, and the test's own `30_000` timeout
+never fires — the block is not interruptible by vitest's per-test timer. In CI
+this burns the whole `Unit (rest)` job to its 60-minute cancellation.
+
+1.26.2 reworked the OM cycle: every `messageList.get.all.db()` on that path
+became a new `getObservableMessages()` filter, and the documented pipeline went
+from `waitForBuffering → re-check → activate → reflect → blockAfter gate →
+observe` to the same chain WITHOUT the `blockAfter` gate plus a sync fallback.
+That is a lead, not a root cause — it is not instrumented to the exact await.
+(`patchThread` is NOT the cause: core 1.59 implements it as a wrapper that
+delegates to `updateThread`, so this repo's `PgliteMemoryStore` override is
+still reached.) Full evidence: BST-1320.
+
+**Security framing, stated precisely — do not overstate this cost.** 1.26.2 is
+the only thing that drops `image-size@1.2.1` (`@mastra/memory` is its sole
+dependent), which would clear two HIGH advisories (GHSA-w3rx-r6r6-pgpr,
+GHSA-5p2g-fcmc-qvqq) and take `pnpm audit --prod` from 31 → 29 findings and
+12 → 10 high. Holding at 1.26.0 **defers that improvement; it does not introduce
+exposure.** `main` is on 1.26.0 and carries `image-size@1.2.1` today, and this
+branch measures the same 31 findings / 12 high as `main`. The advisory fix
+arrives when BST-1320 unblocks the bump — it is not something this PR gives up.
+
+Peer compatibility is not a concern: 1.26.0 declares
+`"@mastra/core": ">=1.4.1-0 <2.0.0-0"`, which 1.59.0 satisfies, and
+`pnpm peers check` reports no `@mastra/*` issues.
+
+**Adopted deliberately later, not here.** `stepResult.rawReason` on
+`step-finish`/`finish` preserves the provider's own finish reason instead of
+collapsing to `'error'` — a direct upgrade for `stream-termination.ts` and
+`provider-error-metadata.ts`, additive, and left as a follow-up. 1.58 also made
+streams emit `error` chunks and invoke `onError` when a provider ends
+`finishReason: 'error'` with no error payload; the existing `'error'` mapping
+(`makeRecoveredProviderErrorTermination`) already covers that path and
+`data-stream-stall.spec.ts` / `mastra-streaming.spec.ts` pass unchanged.
+
+**The 1.59 shared-message-id fix does NOT retire the BST-1095 dedupe
+processor.** mastra #21185 makes a streamed assistant message carry the same id
+as its persisted copy, so a chat UI reconciling a live stream against refetched
+history stops double-rendering one reply. BST-1095 is a different defect with
+the same smell: `MessageList.add`'s sealed-boundary re-key persists a SECOND
+durable row (`createdAt + 1ms`) so the prompt replays every `rs_`/`fc_`/`call_`
+reference twice and OpenAI 400s. That re-key is still present verbatim in the
+1.59 dist (`dist/message-list-*.js`, the two
+`createdAt = new Date(existing.createdAt.getTime() + 1)` sites), and the
+processor operates on the PROMPT, so it also protects threads whose twin rows
+were persisted by older builds. `openai-duplicate-item-compat.ts` stays.

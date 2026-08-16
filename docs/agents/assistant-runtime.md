@@ -2445,6 +2445,22 @@ It is deliberately NOT recorded in `pendingToolErrorTexts`: that would append
 "I couldn't complete the tool action because it failed" and mark the step
 errored, both false.
 
+**The APPROVAL DECLINE is the second terminal under that same rule (BST-1282,
+@mastra/core 1.59 `tool-output-denied`).** It arrives as its own tool-event
+status, `'declined'`, and `handleToolDeclined` settles the call — `toolCallResult`
++ `settledToolCallIds`, because a declined call left pending is a permanent
+spinner — while recording NOTHING in `pendingToolErrorTexts` and setting no
+`isError`. `pendingToolErrorTexts` clears only on a following `text-delta`, so an
+error-path decline emitted the false sentence above whenever the model added no
+visible text after the denial, or the user pressed Stop. The frame instead
+carries the shared `DeclinedToolCallResult` envelope (`{kind: 'declined',
+message, reason?}`), which is what `tool-fallback.tsx` reads to render the muted
+`stopped` treatment: a settled result with no envelope earns a green Completed
+for a tool that never ran, and `isError` paints destructive Failed chrome over
+something that never broke. The two terminals differ only in what they say about
+the RUN — this one is over (durable `tool.failed`, relabelled "Tool call
+declined"), the resume-unsupported one is still suspended.
+
 It is deliberately NOT the `makeUnsupportedApprovalChunks` idiom (`run.failed` +
 error finish). **Mastra persists the suspended workflow snapshot BEFORE the
 stream part is mapped**, so terminating the client stream removes nothing:

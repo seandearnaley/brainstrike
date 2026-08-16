@@ -196,6 +196,7 @@ const MASTRA_STATIC_CHUNK_DISPOSITIONS = {
   'tool-execution-start': 'ignored',
   'tool-execution-suspended': 'ignored',
   'tool-output': 'mapped',
+  'tool-output-denied': 'mapped',
   'tool-result': 'mapped',
   tripwire: 'mapped',
   watch: 'ignored',
@@ -444,6 +445,17 @@ async function processMastraStreamPart(
     case 'tool-call':
     case 'tool-result':
     case 'tool-error':
+    // @mastra/core 1.59: the DECLINE terminal of the approval lifecycle. A
+    // `requireApproval` call the user declined never reaches the tool and never
+    // produces a later `tool-result`/`tool-error` for the same id, so this part
+    // is the ONLY chance to settle it. `'ignored'` would reproduce the hang
+    // mastra shipped this chunk to fix: the renderer's tool part stays pending
+    // forever and the durable `tool.started` never pairs off. It sits with the
+    // other TERMINALS on purpose — a declined DELEGATION (`agent-<persona>`,
+    // reachable under an explicit global approval gate) must also pair off the
+    // `subagent.started` its own `tool-call` emitted, so the decline cannot
+    // take a path that skips the subagent lifecycle.
+    case 'tool-output-denied':
       return mapToolLifecyclePart(
         part,
         toolNames,
