@@ -1,6 +1,7 @@
 import type { ManagedCacheEntryMetadata } from '@brainstrike/db';
 import { encodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { WorkspaceIndexingQosPolicy } from '@brainstrike/indexing-contract/workspace-indexing-qos';
+import type { ScopedLogger } from '@brainstrike/logging';
 import type { IFileNode } from '@brainstrike/types';
 import { generateContentHash } from '@brainstrike/utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -3631,6 +3632,47 @@ describe('WorkspaceCollectionSyncService', () => {
         state: 'error',
       })
     );
+  });
+
+  it('marks sync unconfigured (not an error) when no root folder is selected yet', async () => {
+    // BST-1335: a managed collection can exist (background indexing enabled,
+    // default collection created) before the user has picked a workspace
+    // root. That is incomplete setup, not a failure — it must not land as an
+    // `error` status or reach the durable warn+ error-transition logger.
+    const log: ScopedLogger = {
+      debug: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+      info: vi.fn(),
+      trace: vi.fn(),
+      warn: vi.fn(),
+    };
+    const deps = createDeps({ log });
+    const service = new WorkspaceCollectionSyncService(deps);
+
+    await service.sync({
+      enabled: true,
+      indexingPolicyPreset: 'balanced',
+      managedCollectionId: 'set-1',
+      rootDirectoryHandle: null,
+    });
+
+    expect(deps.setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        activeRootPath: null,
+        lastError: null,
+        managedCollectionId: 'set-1',
+        state: 'unconfigured',
+      })
+    );
+    expect(deps.setStatus).not.toHaveBeenCalledWith(expect.objectContaining({ state: 'error' }));
+    expect(log.error).not.toHaveBeenCalled();
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log.info).toHaveBeenCalledWith(
+      expect.stringContaining('unconfigured'),
+      expect.objectContaining({ managedCollectionId: 'set-1' })
+    );
+    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
   });
 
   it('surfaces invalid managed-collection metadata before scanning proceeds', async () => {

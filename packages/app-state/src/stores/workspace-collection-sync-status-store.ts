@@ -1,12 +1,21 @@
 import { createLogger } from '@brainstrike/logging';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
+/**
+ * `unconfigured` (BST-1335): setup is incomplete — e.g. background indexing
+ * is enabled and a managed collection exists, but no workspace root has been
+ * selected yet. Nothing is broken; there is simply nothing to sync yet. It is
+ * intentionally distinct from `error`: the durable-logging invariant below
+ * only fires for genuine `error`/`blocked` transitions, so entering
+ * `unconfigured` is never persisted to `brainstrike_diagnostic_events`.
+ */
 export type WorkspaceCollectionSyncState =
   | 'blocked'
   | 'disabled'
   | 'idle'
   | 'paused'
   | 'recovering'
+  | 'unconfigured'
   | 'waiting'
   | 'scanning'
   | 'importing'

@@ -141,6 +141,14 @@ function getStatusBadge(
         label: 'Ready',
         variant: 'secondary' as const,
       };
+    case 'unconfigured':
+      // BST-1335: no root selected yet — setup incomplete, not an error.
+      return {
+        icon: AlertTriangle,
+        iconClassName: 'size-3.5',
+        label: 'No root selected',
+        variant: 'outline' as const,
+      };
     default:
       return {
         icon: AlertTriangle,

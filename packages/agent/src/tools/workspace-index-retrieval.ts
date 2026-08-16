@@ -33,7 +33,14 @@ export function isWorkspaceIndexRetrievalAvailable(runtime: RuntimeData | undefi
     return false;
   }
   const state = runtime.workspaceIndexStatusState;
-  return !(state === 'blocked' || state === 'disabled' || state === 'error');
+  // 'unconfigured' (BST-1335): no root has been selected yet, so the managed
+  // collection has never been synced — nothing to retrieve.
+  return !(
+    state === 'blocked' ||
+    state === 'disabled' ||
+    state === 'error' ||
+    state === 'unconfigured'
+  );
 }
 
 export function hasWorkspaceIndexRuntimeStatus(
