@@ -102,6 +102,7 @@ import { migration100OpenRouterGrok46 } from './100-openrouter-grok-4-6.js';
 import { migration101AmazonBedrock } from './101-amazon-bedrock.js';
 import { migration102AmazonNova2Lite } from './102-amazon-nova-2-lite.js';
 import { migration103OpenAiCodex } from './103-openai-codex.js';
+import { migration101GoogleGemini37Flash } from './101-google-gemini-3-7-flash.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -210,6 +211,7 @@ export const migrations: Migration[] = [
   migration101AmazonBedrock,
   migration102AmazonNova2Lite,
   migration103OpenAiCodex,
+  migration101GoogleGemini37Flash,
 ];
 
 // Export base migrations (without chunks table) for test environments

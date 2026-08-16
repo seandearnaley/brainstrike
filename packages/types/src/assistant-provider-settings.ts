@@ -85,6 +85,12 @@ export const GOOGLE_FLASH_THINKING_LEVELS: readonly GoogleThinkingLevel[] = [
 /** Gemini 3 Pro restricts thinking to low/high (no minimal/medium). */
 export const GOOGLE_PRO_THINKING_LEVELS: readonly GoogleThinkingLevel[] = ['low', 'high'];
 
+const GOOGLE_GEMINI_37_FLASH_THINKING_LEVELS: readonly GoogleThinkingLevel[] = [
+  'low',
+  'medium',
+  'high',
+];
+
 /**
  * Whether a model ID is a Gemini 3.x Pro model (e.g. gemini-3-pro-preview,
  * gemini-3.1-pro-preview). Single source of truth shared by the settings UI
@@ -102,7 +108,12 @@ export function isGemini3ProModel(modelName: string | undefined): boolean {
 export function getGoogleThinkingLevels(
   modelName: string | undefined
 ): readonly GoogleThinkingLevel[] {
-  return isGemini3ProModel(modelName) ? GOOGLE_PRO_THINKING_LEVELS : GOOGLE_FLASH_THINKING_LEVELS;
+  if (isGemini3ProModel(modelName)) {
+    return GOOGLE_PRO_THINKING_LEVELS;
+  }
+  return modelName === 'gemini-3.7-flash'
+    ? GOOGLE_GEMINI_37_FLASH_THINKING_LEVELS
+    : GOOGLE_FLASH_THINKING_LEVELS;
 }
 
 /**
