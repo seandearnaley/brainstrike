@@ -485,6 +485,25 @@ describe('resolveValidatedPath', () => {
     }
   });
 
+  it.skipIf(isWin32)(
+    'does not dereference symlinks on the rootless allowMissing fast path',
+    async () => {
+      // This pins the lexical no-realpath branch only. Trusted I/O callers must
+      // still bind paths to canonical roots before opening symlink targets (BST-1237).
+      const targetPath = path.join(tempDir, 'target');
+      const symlinkPath = path.join(tempDir, 'link');
+      await fsPromises.mkdir(targetPath);
+      await fsPromises.symlink(targetPath, symlinkPath);
+
+      const result = await resolveValidatedPath({
+        allowMissing: true,
+        requestedPath: symlinkPath,
+      });
+
+      expect(result).toEqual({ ok: true, path: symlinkPath });
+    }
+  );
+
   it('falls back to fallbackPath when requestedPath is a non-string type', async () => {
     // number
     const resultNum = await resolveValidatedPath({
