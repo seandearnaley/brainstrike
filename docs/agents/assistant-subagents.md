@@ -188,6 +188,39 @@ message (keyed by `parentToolCallId`); persisted rows supersede live rows by
 child `toolCallId`, so a running delegation shows its in-progress tool count
 instead of "Running · 0 tool calls".
 
+Because every `subagent.*` row is HIDDEN from the main run timeline (it belongs
+to the card), the timeline's `.started` → terminal pairing never had to be right
+for them — and it was not: `getMatchingCompletedKind` rewrote the suffix, so
+`subagent.started` paired with `subagent.completed`, a kind neither declared in
+`ASSISTANT_RUN_EVENT_KINDS` nor emitted by anything, while
+`getMatchingFailedKind` returned null for both `subagent.started` and
+`subagent.tool.started` despite their `.failed` terminals existing. Both helpers
+now resolve candidate terminals AGAINST the declared kinds, so a pairing can
+never name a kind nothing emits. Both live in
+`packages/assistant-ui/src/assistant-run-event-derivation.ts` (the pure-logic
+module #2477 split out of the component file). No user-visible change — the rows stay hidden either way — but the
+"run-event terminal pairing contract" cases in `assistant-run-timeline.test.tsx`
+pin every declared `.started` kind to its declared terminal so emitters and
+pairing cannot drift apart again.
+
+Enabling that pairing forced two rules the timeline previously never needed,
+both pinned by tests in the same file:
+
+- **Scope by the delegation's own id.** `MAX_CONCURRENT_DELEGATIONS` is 2, so
+  two `subagent.started` rows are open at once, and subagent LIFECYCLE events
+  carry `parentToolCallId` with NO `toolCallId` of their own. The timeline's
+  scoping used to be `tool.started`-only (`toolCallId`); it is now keyed per
+  kind (`scopeMetadataKey`) — `parentToolCallId` for `subagent.started`, the
+  child `toolCallId` for `subagent.tool.started`. Unscoped, the first
+  `subagent.finished` in a run closes EVERY open delegation row and reports one
+  delegation's outcome on another's.
+- **Take the terminal's own status, not a status derived from its kind.**
+  `makeCancelledDelegationRunEventChunks` emits `subagent.failed` carrying
+  status `cancelled`; a kind-derived `failed` would report an aborted run's
+  delegations as hard failures. Both resolvers now read the matched terminal's
+  status, which is identical for every other pairing (`tool.completed` is
+  `completed`, `run.step.finished` is `completed`, and so on).
+
 The SubagentCard routes by tool-name PREFIX for user personas:
 assistant-ui's `by_name` map is exact-match, so only built-ins pre-register;
 `ToolFallbackWithSubagents` (todo-progress.tsx) forwards any `agent-*` part to
