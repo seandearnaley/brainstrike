@@ -2355,7 +2355,7 @@ is excluded from each by construction:
 | --- | --- | --- |
 | `RUN_LEDGER_AGGREGATION_SQL` (`assistant-memory-repository.ts`) | +1 `toolCallCount` AND +1 `failedToolCallCount`, permanently — and when a later build resumes the same pause its real `tool.completed` counts the ONE call twice | not matched by either `FILTER` |
 | `collectToolDurations` (`tool-durations.ts`) | closes the `tool.started`→terminal pair, inventing a duration for a tool that never finished | kind not in its allowlist; no duration recorded |
-| `getMatchingFailedKind` (`assistant-run-timeline.tsx`) | resolves the `tool.started` row to `failed` | only `tool.failed` resolves it; the row stays `running`, which is TRUE — the tool IS still suspended |
+| `getMatchingFailedKind` (`assistant-run-event-derivation.ts`) | resolves the `tool.started` row to `failed` | only `tool.failed` resolves it; the row stays `running`, which is TRUE — the tool IS still suspended |
 
 No tool ran and none failed: this is a CLIENT CAPABILITY MISMATCH. Recording it
 as a failed tool call would contradict `runStillSuspended: true` in the event's
