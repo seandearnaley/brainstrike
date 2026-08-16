@@ -765,7 +765,7 @@ function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {
   const assistantModelRemaps = extractNestedStringRecord(
     input.assistantPreferencesSource,
     'MODEL_ID_MIGRATIONS',
-    'packages/app-state/src/stores/assistant-preferences-store.ts'
+    'packages/app-state/src/stores/assistant-model-id-migrations.ts'
   );
   const memoryModelTargetRemaps = extractStringRecord(
     input.memoryPreferencesSource,
@@ -784,7 +784,7 @@ function findRemovedAssistantModelRemapFailures(input, migrationSummaries) {
       !assistantModelRemaps.get(row.providerId)?.has(row.id)
     ) {
       failures.push({
-        file: 'packages/app-state/src/stores/assistant-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-model-id-migrations.ts',
         message: `Removed assistant catalog model ${modelKey(row)} is missing from MODEL_ID_MIGRATIONS.`,
       });
     }
@@ -898,7 +898,7 @@ export async function checkModelCatalogMigrationContract(rootDir = process.cwd()
     readFile(path.join(rootDir, 'packages/db/src/migrations/index.ts'), 'utf8'),
     readFile(path.join(rootDir, 'packages/db/src/drizzle/migrate.ts'), 'utf8'),
     readFile(
-      path.join(rootDir, 'packages/app-state/src/stores/assistant-preferences-store.ts'),
+      path.join(rootDir, 'packages/app-state/src/stores/assistant-model-id-migrations.ts'),
       'utf8'
     ),
     readFile(
