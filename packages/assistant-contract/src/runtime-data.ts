@@ -1,6 +1,6 @@
 import {
   type GoogleThinkingLevel,
-  OPEN_AI_REASONING_EFFORT_VALUES,
+  OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
   type OpenAiReasoningSummary,
 } from '@brainstrike/types';
@@ -31,7 +31,7 @@ export interface AssistantRunSteeringControl {
  */
 export {
   type GoogleThinkingLevel,
-  OPEN_AI_REASONING_EFFORT_VALUES,
+  OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
   type OpenAiReasoningSummary,
 };

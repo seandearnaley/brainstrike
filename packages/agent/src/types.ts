@@ -13,7 +13,7 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
 import {
   type GoogleThinkingLevel,
-  OPEN_AI_REASONING_EFFORT_VALUES,
+  OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
   type OpenAiReasoningSummary,
 } from '@brainstrike/types';
@@ -281,7 +281,7 @@ export interface RuntimeMemoryContext {
  */
 export {
   type GoogleThinkingLevel,
-  OPEN_AI_REASONING_EFFORT_VALUES,
+  OPENAI_REASONING_EFFORT_VALUES,
   type OpenAiReasoningEffort,
   type OpenAiReasoningSummary,
 };

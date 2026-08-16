@@ -1,4 +1,4 @@
-import { OPEN_AI_REASONING_EFFORT_VALUES, type RuntimeData } from '@brainstrike/agent/hosted-web';
+import { OPENAI_REASONING_EFFORT_VALUES, type RuntimeData } from '@brainstrike/agent/hosted-web';
 import { z } from 'zod';
 
 const MAX_COUNT = 100_000_000;
@@ -213,7 +213,7 @@ const ACCEPTED_IGNORED_WIRE_SCHEMAS = {
   // enum that guards it must be the same declaration and not a copy that can
   // drift narrower (rejecting an offered effort) or wider (admitting one the
   // provider rejects).
-  requestedReasoningEffort: z.enum(OPEN_AI_REASONING_EFFORT_VALUES),
+  requestedReasoningEffort: z.enum(OPENAI_REASONING_EFFORT_VALUES),
   transportImageElision: z
     .object({
       elidedImageBytes: countSchema,

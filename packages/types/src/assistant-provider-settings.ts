@@ -39,7 +39,7 @@
  * the provider rejects reach the wire, and both fail at runtime against a green
  * type-check.
  */
-export const OPEN_AI_REASONING_EFFORT_VALUES = [
+export const OPENAI_REASONING_EFFORT_VALUES = [
   'none',
   'minimal',
   'low',
@@ -49,7 +49,7 @@ export const OPEN_AI_REASONING_EFFORT_VALUES = [
   'max',
 ] as const;
 
-export type OpenAiReasoningEffort = (typeof OPEN_AI_REASONING_EFFORT_VALUES)[number];
+export type OpenAiReasoningEffort = (typeof OPENAI_REASONING_EFFORT_VALUES)[number];
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 /**
  * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39).

@@ -61,11 +61,15 @@ const MIRROR_ROOT_LABEL = MIRROR_ROOTS.map((root) => `${root}/*/src`).join(' or 
 // bound is the sweep's rather than an accident of where mirrors happen to live.
 // Two apps/packages declarations LOOK like candidates and are not:
 // `apps/web/src/server/web-assistant-runtime-schema.ts` validates
-// `requestedReasoningEffort`, typed `OpenAiReasoningEffort` in
-// `@brainstrike/assistant-contract` — it carries `none`/`minimal`, which the
-// Anthropic enum does not have — and `EFFORT_TRACK_ORDER` in
-// `packages/assistant-ui/src/reasoning-effort-controls.tsx` is a cross-provider
-// display ordering, not a wire union. Neither mirrors this provider.
+// `requestedReasoningEffort`, typed `OpenAiReasoningEffort` — which
+// `@brainstrike/types` owns, and whose values that file no longer spells out at
+// all: its `z.enum` is derived from `OPENAI_REASONING_EFFORT_VALUES`, so there
+// is no declaration there to mirror anything. (It used to hand-list the seven
+// values including `none`/`minimal`, which the Anthropic enum lacks; that was
+// the older disqualifier, and deduplicating it made the point moot.) The other
+// is `EFFORT_TRACK_ORDER` in
+// `packages/assistant-ui/src/reasoning-effort-controls.tsx`, a cross-provider
+// display ordering rather than a wire union. Neither mirrors this provider.
 export function sweepMirrorRoots() {
   const files = [];
   const walk = (dir) => {

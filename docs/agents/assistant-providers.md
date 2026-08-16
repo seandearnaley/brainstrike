@@ -376,7 +376,7 @@
   may reject. Widen only once the registry carries per-model
   `reasoning.supportedEfforts` for Anthropic.
 - The OpenAI-family effort vocabulary has exactly ONE declaration:
-  `OPEN_AI_REASONING_EFFORT_VALUES` in `@brainstrike/types`
+  `OPENAI_REASONING_EFFORT_VALUES` in `@brainstrike/types`
   (`assistant-provider-settings.ts`), with `OpenAiReasoningEffort` derived from
   it. `packages/assistant-contract/src/runtime-data.ts` and
   `packages/agent/src/types.ts` RE-EXPORT it, and the Hosted Web request
