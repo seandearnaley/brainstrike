@@ -196,6 +196,36 @@ When changing this flow, update this section and the paired tests.
 
 ---
 
+## PER-FILE EXPLORER PANE (FILE TABS, BST-1269 / BST-1318)
+
+Every file tab hosts a navigation-only tree pane (own `FileTreeProvider` per
+tab root, pane-local expansions in `file-tab-pane-store`, per-thread durable
+via the workspace snapshot `editors[*].pane`).
+
+- **Absence means OPEN (BST-1318).** A compositeKey with NO store entry
+  renders the pane OPEN — the pane auto-opens with its file, revealed to the
+  file's location (mount-time reveal at nonce 0). A manual close is recorded
+  as an EXPLICIT `open: false` entry so it sticks per file across thread
+  switches and restarts; deleting the entry instead would evaporate the
+  user's choice on the next hydrate. Old snapshots without pane entries adopt
+  auto-open retroactively BY DESIGN — no migration. Every store action that
+  materializes an absent key (`togglePane`, `setPaneWidthPct`,
+  `toggleExpandedPath`) starts from the OPEN template, and truthiness checks
+  on `pane?.open` are a bug class: absent must never read as closed (a
+  review-caught regression closed the auto-opened pane on breadcrumb click).
+- **Docked RIGHT.** The pane is the SECOND panel of the file-tab split
+  (content first), mirroring the main explorer. `widthPct` (clamped 10–70 on
+  both write and hydrate) still means pane width.
+- **Reveal is one-shot LOCAL state**, never persisted: `(revealNonce,
+  revealPath)` keyed per activation; the header toggle and breadcrumb folder
+  clicks bump the nonce (re-clicking the same target re-reveals).
+
+Paired tests: `file-tab-pane-store.test.ts`,
+`file-tab-body-pane.test.tsx`, `apps/web/e2e/file-tab-pane.test.ts`. When
+changing pane semantics, update this section and those tests together.
+
+---
+
 ## TAPESTRY
 
 The per-file range model spans Explorer, Search, Tapestry, and every context

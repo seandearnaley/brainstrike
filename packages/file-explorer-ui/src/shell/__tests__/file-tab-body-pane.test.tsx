@@ -115,6 +115,21 @@ describe('FileTabBody explorer pane', () => {
     });
   });
 
+  it('breadcrumb click on the auto-opened pane reveals WITHOUT closing it (review finding)', () => {
+    renderBody();
+
+    // Absent state means OPEN — the handler must not read absence as closed
+    // and toggle the auto-opened pane shut. No entry may be materialized.
+    fireEvent.click(screen.getByRole('button', { name: 'src' }));
+    expect(screen.getByTestId('file-tab-explorer-pane')).toBeInTheDocument();
+    expect(useFileTabPaneStore.getState().panes[KEY]).toBeUndefined();
+    expect(paneProps.current.at(-1)).toEqual({
+      compositeKey: KEY,
+      revealNonce: 1,
+      revealPath: '/root/src',
+    });
+  });
+
   it('breadcrumb segment click reveals that folder, opening the pane when closed', () => {
     renderBody();
     // Close first so the click exercises the open-when-closed path.

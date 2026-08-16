@@ -105,7 +105,10 @@ export function FileTabBody({
   const handleBreadcrumbSegmentClick = useCallback(
     (segmentPath: string) => {
       setRevealRequest((previous) => ({ nonce: previous.nonce + 1, path: segmentPath }));
-      if (!useFileTabPaneStore.getState().panes[tab.compositeKey]?.open) {
+      // Absent state means OPEN (BST-1318): only an EXPLICIT close reopens
+      // here — a truthiness check would read absent as closed and toggle the
+      // auto-opened pane shut.
+      if (useFileTabPaneStore.getState().panes[tab.compositeKey]?.open === false) {
         togglePane(tab.compositeKey);
       }
     },
