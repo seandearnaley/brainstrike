@@ -1,0 +1,10 @@
+# BST-1324: pnpm-lock.yaml must never be merged textually. A textual splice of
+# two concurrent dependency PRs produced a syntactically-valid, semantically
+# broken lockfile that took main fully red twice on 2026-08-16 (#2483, #2485):
+# an importer entry said `catalog:` but kept a stale resolution from before the
+# catalog moved. merge=binary forces a conflict instead, and the resolution is
+# always the same: take either side, then run a real `pnpm install` (NOT
+# --frozen-lockfile) and commit the regenerated file.
+# scripts/verify-lockfile-catalog-conformance.mjs is the backstop that catches
+# a bad lockfile however it was produced.
+pnpm-lock.yaml merge=binary
