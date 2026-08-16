@@ -4,6 +4,7 @@ import type {
   AssistantRunEventStatus,
 } from '@brainstrike/assistant-contract';
 import {
+  ASSISTANT_RUN_EVENT_KINDS,
   readAssistantRunEvent,
   readAssistantRunEventDataPart,
 } from '@brainstrike/assistant-contract';
@@ -94,54 +95,85 @@ export interface AssistantRunEventRows {
 interface RunEventIndex {
   readonly allByKind: Map<string, number>;
   readonly byKindAndRun: Map<string, number>;
-  readonly byKindAndTool: Map<string, number>;
-  readonly byKindRunAndTool: Map<string, number>;
+  readonly byKindAndScope: Map<string, number>;
+  readonly byKindRunAndScope: Map<string, number>;
   readonly withoutRunByKind: Map<string, number>;
-  readonly withoutRunByKindAndTool: Map<string, number>;
+  readonly withoutRunByKindAndScope: Map<string, number>;
+}
+
+/**
+ * Metadata keys that identify WHICH in-flight thing an event belongs to. Every
+ * event is indexed under each key it carries; a `.started` row then matches
+ * terminals through the ONE key `scopeMetadataKey` picks for its kind.
+ */
+const SCOPE_METADATA_KEYS = ['toolCallId', 'parentToolCallId'] as const;
+
+/**
+ * The metadata key scoping a `.started` row to its OWN terminal, or null when
+ * the kind is a per-run singleton that needs no scoping.
+ *
+ * `subagent.started` scopes on `parentToolCallId`: subagent LIFECYCLE events
+ * carry no `toolCallId` of their own (`makeSubagentLifecycleChunk` emits
+ * `personaId`/`toolName`/`parentToolCallId`), and up to
+ * `MAX_CONCURRENT_DELEGATIONS` (2) delegations are in flight at once — unscoped,
+ * the first `subagent.finished` in the run would close out EVERY open
+ * delegation row, reporting one delegation's outcome on another's. Nested
+ * `subagent.tool.started` scopes on its own child `toolCallId`, which
+ * `mapDelegationToolOutput` puts on the started AND terminal chunks.
+ */
+function scopeMetadataKey(kind: AssistantRunEventKind): string | null {
+  if (kind === 'tool.started' || kind === 'subagent.tool.started') {
+    return 'toolCallId';
+  }
+  if (kind === 'subagent.started') {
+    return 'parentToolCallId';
+  }
+  return null;
 }
 
 function runKey(kind: string, runId: string): string {
   return `${kind}\u0000${runId}`;
 }
 
-function toolKey(kind: string, toolCallId: string): string {
-  return `${kind}\u0000${toolCallId}`;
+function scopeKey(kind: string, metadataKey: string, scopeId: string): string {
+  return `${kind}\u0000${metadataKey}\u0000${scopeId}`;
 }
 
-function runToolKey(kind: string, runId: string, toolCallId: string): string {
-  return `${kind}\u0000${runId}\u0000${toolCallId}`;
+function runScopeKey(kind: string, runId: string, metadataKey: string, scopeId: string): string {
+  return `${kind}\u0000${runId}\u0000${metadataKey}\u0000${scopeId}`;
 }
 
 function nextMatchingEventIndex(
   index: RunEventIndex,
   kind: string,
   event: AssistantRunEvent,
-  matchTool: boolean
+  metadataKey: string | null
 ): number {
-  const toolCallId = matchTool ? event.metadata?.['toolCallId'] : undefined;
-  const hasToolScope = typeof toolCallId === 'string';
+  const scopeId = metadataKey === null ? undefined : event.metadata?.[metadataKey];
+  const scoped = metadataKey !== null && typeof scopeId === 'string';
   const runId = event.runId;
 
   if (!runId) {
     return (
-      (hasToolScope
-        ? index.byKindAndTool.get(toolKey(kind, toolCallId))
+      (scoped
+        ? index.byKindAndScope.get(scopeKey(kind, metadataKey, scopeId))
         : index.allByKind.get(kind)) ?? Number.POSITIVE_INFINITY
     );
   }
 
-  const sameRun = hasToolScope
-    ? index.byKindRunAndTool.get(runToolKey(kind, runId, toolCallId))
+  const sameRun = scoped
+    ? index.byKindRunAndScope.get(runScopeKey(kind, runId, metadataKey, scopeId))
     : index.byKindAndRun.get(runKey(kind, runId));
-  const withoutRun = hasToolScope
-    ? index.withoutRunByKindAndTool.get(toolKey(kind, toolCallId))
+  const withoutRun = scoped
+    ? index.withoutRunByKindAndScope.get(scopeKey(kind, metadataKey, scopeId))
     : index.withoutRunByKind.get(kind);
   return Math.min(sameRun ?? Number.POSITIVE_INFINITY, withoutRun ?? Number.POSITIVE_INFINITY);
 }
 
 function resolveIndexedRunEventStatus(
   event: AssistantRunEvent,
-  index: RunEventIndex
+  index: RunEventIndex,
+  events: readonly AssistantRunEvent[]
 ): AssistantRunEventStatus {
   if (event.status !== 'running') {
     return event.status;
@@ -152,39 +184,27 @@ function resolveIndexedRunEventStatus(
     return event.status;
   }
 
-  const candidates: Array<{ index: number; status: AssistantRunEventStatus }> = [];
+  const metadataKey = scopeMetadataKey(event.kind);
+  const candidates: number[] = [];
   if (completedKind) {
-    candidates.push({
-      index: nextMatchingEventIndex(index, completedKind, event, event.kind === 'tool.started'),
-      status: 'completed',
-    });
+    candidates.push(nextMatchingEventIndex(index, completedKind, event, metadataKey));
   }
   if (failedKind) {
-    candidates.push({
-      index: nextMatchingEventIndex(index, failedKind, event, event.kind === 'tool.started'),
-      status: 'failed',
-    });
+    candidates.push(nextMatchingEventIndex(index, failedKind, event, metadataKey));
   }
   candidates.push(
-    {
-      index: nextMatchingEventIndex(index, 'run.failed', event, false),
-      status: 'failed',
-    },
-    {
-      index: nextMatchingEventIndex(index, 'run.cancelled', event, false),
-      status: 'cancelled',
-    }
+    nextMatchingEventIndex(index, 'run.failed', event, null),
+    nextMatchingEventIndex(index, 'run.cancelled', event, null)
   );
   if (event.kind !== 'run.started') {
-    candidates.push({
-      index: nextMatchingEventIndex(index, 'run.finished', event, false),
-      status: 'completed',
-    });
+    candidates.push(nextMatchingEventIndex(index, 'run.finished', event, null));
   }
-  candidates.sort((a, b) => a.index - b.index);
-  return candidates[0]?.index === Number.POSITIVE_INFINITY
-    ? event.status
-    : (candidates[0]?.status ?? event.status);
+  const winner = Math.min(...candidates);
+  // The winning TERMINAL's own status, never one derived from its kind: an
+  // aborted or declined delegation's terminal is `subagent.failed` carrying
+  // status 'cancelled', and a kind-derived 'failed' would misreport it. Every
+  // other pairing is unchanged — terminals carry the status their kind implies.
+  return events[winner]?.status ?? event.status;
 }
 
 function collectIndexedRunEvents(messages: readonly unknown[]): {
@@ -215,10 +235,10 @@ function createRunEventIndex(): RunEventIndex {
   return {
     allByKind: new Map(),
     byKindAndRun: new Map(),
-    byKindAndTool: new Map(),
-    byKindRunAndTool: new Map(),
+    byKindAndScope: new Map(),
+    byKindRunAndScope: new Map(),
     withoutRunByKind: new Map(),
-    withoutRunByKindAndTool: new Map(),
+    withoutRunByKindAndScope: new Map(),
   };
 }
 
@@ -228,20 +248,23 @@ function addFutureRunEvent(
   eventIndex: number
 ): void {
   index.allByKind.set(event.kind, eventIndex);
-  const toolCallId = event.metadata?.['toolCallId'];
-  if (typeof toolCallId === 'string') {
-    index.byKindAndTool.set(toolKey(event.kind, toolCallId), eventIndex);
+  const runId = event.runId;
+  if (runId) {
+    index.byKindAndRun.set(runKey(event.kind, runId), eventIndex);
+  } else {
+    index.withoutRunByKind.set(event.kind, eventIndex);
   }
-  if (event.runId) {
-    index.byKindAndRun.set(runKey(event.kind, event.runId), eventIndex);
-    if (typeof toolCallId === 'string') {
-      index.byKindRunAndTool.set(runToolKey(event.kind, event.runId, toolCallId), eventIndex);
+  for (const metadataKey of SCOPE_METADATA_KEYS) {
+    const scopeId = event.metadata?.[metadataKey];
+    if (typeof scopeId !== 'string') {
+      continue;
     }
-    return;
-  }
-  index.withoutRunByKind.set(event.kind, eventIndex);
-  if (typeof toolCallId === 'string') {
-    index.withoutRunByKindAndTool.set(toolKey(event.kind, toolCallId), eventIndex);
+    index.byKindAndScope.set(scopeKey(event.kind, metadataKey, scopeId), eventIndex);
+    if (runId) {
+      index.byKindRunAndScope.set(runScopeKey(event.kind, runId, metadataKey, scopeId), eventIndex);
+      continue;
+    }
+    index.withoutRunByKindAndScope.set(scopeKey(event.kind, metadataKey, scopeId), eventIndex);
   }
 }
 
@@ -249,14 +272,14 @@ function hasIndexedTerminalEvent(event: AssistantRunEvent, index: RunEventIndex)
   if (!event.kind.endsWith('.started')) {
     return false;
   }
-  const matchTool = event.kind === 'tool.started';
+  const metadataKey = scopeMetadataKey(event.kind);
   const completedKind = getMatchingCompletedKind(event.kind);
   const failedKind = getMatchingFailedKind(event.kind);
   const completedIndex = completedKind
-    ? nextMatchingEventIndex(index, completedKind, event, matchTool)
+    ? nextMatchingEventIndex(index, completedKind, event, metadataKey)
     : Number.POSITIVE_INFINITY;
   const failedIndex = failedKind
-    ? nextMatchingEventIndex(index, failedKind, event, matchTool)
+    ? nextMatchingEventIndex(index, failedKind, event, metadataKey)
     : Number.POSITIVE_INFINITY;
   return Number.isFinite(Math.min(completedIndex, failedIndex));
 }
@@ -321,7 +344,7 @@ export function deriveAssistantRunEventRows(messages: readonly unknown[]): Assis
     if (!event) {
       continue;
     }
-    statusByIndex[eventIndex] = resolveIndexedRunEventStatus(event, futureEvents);
+    statusByIndex[eventIndex] = resolveIndexedRunEventStatus(event, futureEvents, events);
     planByIndex[eventIndex] = initialRenderPlanKey(event, futureEvents, toolCallIds);
     addFutureRunEvent(futureEvents, event, eventIndex);
   }
@@ -344,46 +367,74 @@ function hasSameRunScope(event: AssistantRunEvent, candidate: AssistantRunEvent)
   return !(event.runId && candidate.runId) || event.runId === candidate.runId;
 }
 
+const RUN_EVENT_KINDS: ReadonlySet<string> = new Set(ASSISTANT_RUN_EVENT_KINDS);
+
+const STARTED_SUFFIX = '.started';
+
+/**
+ * Success terminals are spelled `.finished` in some namespaces (`run.started`,
+ * `run.step.started`, `subagent.started`) and `.completed` in others
+ * (`tool.started`, `memory.*.started`, `subagent.tool.started`). Both spellings
+ * are tried and the ONE the contract actually declares wins.
+ */
+const COMPLETED_SUFFIXES = ['.completed', '.finished'] as const;
+
+/** Not every `.started` kind has a failure terminal; only some namespaces emit one. */
+const FAILED_SUFFIXES = ['.failed'] as const;
+
+function isRunEventKind(value: string): value is AssistantRunEventKind {
+  return RUN_EVENT_KINDS.has(value);
+}
+
+/**
+ * Terminal counterpart of a `.started` kind, resolved against
+ * `ASSISTANT_RUN_EVENT_KINDS` rather than by string rewriting: a candidate only
+ * pairs when the contract declares it, so this can never name a kind nothing
+ * emits. That was the `subagent.started` bug — a `.started` → `.completed`
+ * rewrite produced `subagent.completed`, which is not a declared kind and never
+ * arrives (the real terminals are `subagent.finished` / `subagent.failed`), so
+ * the row could only ever resolve through the generic end-of-run fallbacks. It
+ * was invisible because `subagent.*` rows are hidden from the timeline entirely
+ * (they render inside the SubagentExecutionCard).
+ *
+ * BST-947 rationale still applies to the `.failed` side: an observation cycle
+ * can terminate in the durable `memory.observation.failed` event, and without
+ * that pairing a failed cycle leaves its started row spinning forever.
+ */
+function resolveTerminalKind(
+  kind: AssistantRunEventKind,
+  suffixes: readonly string[]
+): AssistantRunEventKind | null {
+  if (!kind.endsWith(STARTED_SUFFIX)) {
+    return null;
+  }
+  const stem = kind.slice(0, -STARTED_SUFFIX.length);
+  for (const suffix of suffixes) {
+    const candidate = `${stem}${suffix}`;
+    if (isRunEventKind(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 export function getMatchingCompletedKind(
   kind: AssistantRunEventKind
 ): AssistantRunEventKind | null {
-  if (kind === 'run.started') {
-    return 'run.finished';
-  }
-  if (kind === 'tool.started') {
-    return 'tool.completed';
-  }
-  if (kind.startsWith('run.') && kind.endsWith('.started')) {
-    return kind.replace(/\.started$/, '.finished') as AssistantRunEventKind;
-  }
-  if (kind.endsWith('.started')) {
-    return kind.replace(/\.started$/, '.completed') as AssistantRunEventKind;
-  }
-  return null;
+  return resolveTerminalKind(kind, COMPLETED_SUFFIXES);
 }
 
-function getMatchingFailedKind(kind: AssistantRunEventKind): AssistantRunEventKind | null {
-  if (kind === 'run.started') {
-    return 'run.failed';
-  }
-  if (kind === 'tool.started') {
-    return 'tool.failed';
-  }
-  if (kind === 'memory.observation.started') {
-    // BST-947: an observation cycle can terminate in the durable
-    // memory.observation.failed event; without this pairing a failed cycle
-    // would leave the started row spinning forever.
-    return 'memory.observation.failed';
-  }
-  return null;
+export function getMatchingFailedKind(kind: AssistantRunEventKind): AssistantRunEventKind | null {
+  return resolveTerminalKind(kind, FAILED_SUFFIXES);
 }
 
-function hasSameToolScope(event: AssistantRunEvent, candidate: AssistantRunEvent): boolean {
-  if (event.kind !== 'tool.started') {
+function hasSameScope(event: AssistantRunEvent, candidate: AssistantRunEvent): boolean {
+  const metadataKey = scopeMetadataKey(event.kind);
+  if (metadataKey === null) {
     return true;
   }
-  const toolCallId = event.metadata?.['toolCallId'];
-  return typeof toolCallId !== 'string' || candidate.metadata?.['toolCallId'] === toolCallId;
+  const scopeId = event.metadata?.[metadataKey];
+  return typeof scopeId !== 'string' || candidate.metadata?.[metadataKey] === scopeId;
 }
 
 function resolveFromLaterRunEvent(
@@ -395,24 +446,21 @@ function resolveFromLaterRunEvent(
   if (!hasSameRunScope(event, candidate)) {
     return null;
   }
-  if (candidate.kind === matchingCompletedKind && hasSameToolScope(event, candidate)) {
-    return 'completed';
-  }
+  // Mirrors the indexed path: the matched TERMINAL's own status, never a status
+  // derived from its kind (an aborted or declined delegation's `subagent.failed`
+  // carries 'cancelled'), and scoped so a terminal only closes its own row.
   if (
-    matchingFailedKind &&
-    candidate.kind === matchingFailedKind &&
-    hasSameToolScope(event, candidate)
+    (candidate.kind === matchingCompletedKind ||
+      (matchingFailedKind !== null && candidate.kind === matchingFailedKind)) &&
+    hasSameScope(event, candidate)
   ) {
-    return 'failed';
+    return candidate.status;
   }
-  if (candidate.kind === 'run.failed') {
-    return 'failed';
-  }
-  if (candidate.kind === 'run.cancelled') {
-    return 'cancelled';
+  if (candidate.kind === 'run.failed' || candidate.kind === 'run.cancelled') {
+    return candidate.status;
   }
   if (event.kind !== 'run.started' && candidate.kind === 'run.finished') {
-    return 'completed';
+    return candidate.status;
   }
   return null;
 }
@@ -467,7 +515,7 @@ function hasTerminalRowForStartedEvent(
       (candidate) =>
         (candidate.kind === completedKind || (failedKind && candidate.kind === failedKind)) &&
         hasSameRunScope(event, candidate) &&
-        hasSameToolScope(event, candidate)
+        hasSameScope(event, candidate)
     );
 }
 
