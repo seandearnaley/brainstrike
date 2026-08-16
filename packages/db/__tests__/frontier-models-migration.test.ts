@@ -45,6 +45,7 @@ describe('frontier models migrations', () => {
       'gpt-5.3-codex',
       'claude-opus-4-8',
       'claude-sonnet-4-6',
+      'gemini-3.7-flash',
       'gemini-3.5-flash',
       'gemini-3.1-pro-preview',
       'gemini-2.5-pro',
@@ -815,7 +816,6 @@ describe('frontier models migrations', () => {
       },
     ]);
   });
-
   it('adds Nemotron 3.5 Lightning disabled, preserves its toggle, and rolls back migration 099', {
     timeout: 60_000,
   }, async () => {
@@ -1020,5 +1020,103 @@ describe('frontier models migrations', () => {
         sort_order: 1,
       },
     ]);
+  });
+  it('adds direct Gemini 3.7 Flash disabled, preserves its toggle, and rolls back migration 101', {
+    timeout: 60_000,
+  }, async () => {
+    await runner.initialize();
+    await runner.up(migrations);
+
+    const readRows = async (): Promise<
+      Array<{
+        capabilities: { streaming: boolean; type: string; vision: boolean };
+        id: string;
+        is_enabled: boolean;
+        name: string;
+        sort_order: number;
+      }>
+    > => {
+      const result = await db.query<{
+        capabilities: { streaming: boolean; type: string; vision: boolean };
+        id: string;
+        is_enabled: boolean;
+        name: string;
+        sort_order: number;
+      }>(`
+        SELECT id, name, capabilities, is_enabled, sort_order
+        FROM models
+        WHERE provider_id = 'google'
+          AND id IN ('gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-3.1-pro-preview')
+        ORDER BY sort_order
+      `);
+      return result.rows;
+    };
+
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'gemini-3.7-flash',
+        is_enabled: false,
+        name: 'Gemini 3.7 Flash',
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'gemini-3.5-flash',
+        is_enabled: true,
+        name: 'Gemini 3.5 Flash',
+        sort_order: 2,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'gemini-3.1-pro-preview',
+        is_enabled: true,
+        name: 'Gemini 3.1 Pro (Preview)',
+        sort_order: 3,
+      },
+    ]);
+
+    await runner.down(migrations, 100);
+    expect(await readRows()).toEqual([
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'gemini-3.5-flash',
+        is_enabled: true,
+        name: 'Gemini 3.5 Flash',
+        sort_order: 1,
+      },
+      {
+        capabilities: { streaming: true, type: 'llm', vision: true },
+        id: 'gemini-3.1-pro-preview',
+        is_enabled: true,
+        name: 'Gemini 3.1 Pro (Preview)',
+        sort_order: 2,
+      },
+    ]);
+
+    await db.query(`
+      INSERT INTO models
+        (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled)
+      VALUES
+        (
+          'gemini-3.7-flash',
+          'google',
+          'stale name',
+          'stale tagline',
+          '[]',
+          '{"type":"llm","streaming":false,"vision":false}',
+          99,
+          true
+        )
+    `);
+    await runner.up(migrations);
+
+    expect((await readRows())[0]).toEqual({
+      capabilities: { streaming: true, type: 'llm', vision: true },
+      id: 'gemini-3.7-flash',
+      is_enabled: true,
+      name: 'Gemini 3.7 Flash',
+      sort_order: 1,
+    });
   });
 });

@@ -100,6 +100,22 @@ describe('frontier model refresh (2026-07)', () => {
       expect(v2?.supportsStandardDimension).toBe(true);
       expect(v2?.dimensionParameter).toBe('output_dimensionality');
     });
+
+    it('declares Gemini 3.7 Flash for the direct Google provider', () => {
+      const gemini = getLlmModelDefinition('google', 'gemini-3.7-flash');
+
+      expect(gemini).toEqual({
+        contextWindow: 1_048_576,
+        id: 'gemini-3.7-flash',
+        label: 'Gemini 3.7 Flash',
+        maxOutputTokens: 65_536,
+        pricing: { inputPerMTok: 0.75, outputPerMTok: 3.75 },
+        supportsStreaming: true,
+        tagline: 'Latest high-speed multimodal reasoning',
+        type: 'llm',
+        vision: 'supported',
+      });
+    });
   });
 
   describe('OpenRouter', () => {
