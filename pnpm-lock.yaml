@@ -3195,6 +3195,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@stryker-mutator/api':
+        specifier: 'catalog:'
+        version: 9.6.1
       '@stryker-mutator/core':
         specifier: 'catalog:'
         version: 10.0.0(@types/node@24.13.3)
