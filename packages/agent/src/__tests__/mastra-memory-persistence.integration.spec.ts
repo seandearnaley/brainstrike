@@ -558,6 +558,10 @@ describe('mastra memory persistence through the live stream path', () => {
     // other vector-touching construction site — a bare PGlite silently fails
     // the OM vector store's CREATE EXTENSION and the VECTOR test goes toothless.
     database = await PGlite.create({ extensions: { vector } });
+    // Loud fixture probe: on a bare PGlite this THROWS ('extension "vector" is
+    // not available') instead of letting the suite drift back to a false green.
+    // Idempotent with the vector store's own CREATE EXTENSION IF NOT EXISTS.
+    await database.exec('CREATE EXTENSION IF NOT EXISTS vector');
     modelHolder.current = undefined;
   });
 
