@@ -419,6 +419,135 @@ describe('db-host-entry', () => {
     });
   });
 
+  it.each(['close', 'reset'] as const)(
+    'BST-1330: %s AWAITS every live-query unsubscribe before touching the database',
+    async (kind) => {
+      // The serial envelope queue joins protocol statements against close, but
+      // the live extension's internal refreshes have no queue entry — a handle
+      // still subscribed when the backend deactivates is the BST-1320 wedge.
+      // The unsubscribe mock is gated on a deferred so this pins the AWAIT: a
+      // fire-and-forget unsubscribe would call the database while the deferred
+      // is still pending, failing the not-called assertion below.
+      let releaseUnsubscribe: (() => void) | undefined;
+      const unsubscribed = new Promise<void>((resolve) => {
+        releaseUnsubscribe = resolve;
+      });
+      const unsubscribe = vi.fn(() => unsubscribed);
+      const liveQuery = vi.fn(async () => ({
+        initialResults: { rows: [] },
+        refresh: vi.fn(),
+        subscribe: vi.fn(),
+        unsubscribe,
+      }));
+      dbMainMocks.getDatabase.mockResolvedValue({
+        live: { query: liveQuery },
+        query: vi.fn(async () => ({ rows: [] })),
+      });
+      const { listeners, parentPort } = installParentPortMock();
+      await import('../../db-host-entry');
+
+      listeners[0]?.({
+        data: {
+          id: 'live-start-request',
+          kind: 'request',
+          request: {
+            kind: 'live:start',
+            payload: { params: [], query: 'SELECT 1' },
+          },
+        },
+      });
+      await flushMicrotasks();
+      expect(liveQuery).toHaveBeenCalledTimes(1);
+
+      listeners[0]?.({
+        data: { id: `${kind}-request`, kind: 'request', request: { kind } },
+      });
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      const databaseCall =
+        kind === 'close' ? dbMainMocks.closeDatabase : dbMainMocks.resetLocalDatabase;
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+      // The drain is still pending — the database must not have been touched.
+      expect(databaseCall).not.toHaveBeenCalled();
+
+      releaseUnsubscribe?.();
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(databaseCall).toHaveBeenCalledTimes(1);
+      expect(parentPort.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: `${kind}-request`, kind: 'response', ok: true })
+      );
+    }
+  );
+
+  it('BST-1330: close with no live queries still responds ok (the common drained-shutdown path)', async () => {
+    dbMainMocks.getDatabase.mockResolvedValue({
+      query: vi.fn(async () => ({ rows: [] })),
+    });
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: { id: 'close-request', kind: 'request', request: { kind: 'close' } },
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(dbMainMocks.closeDatabase).toHaveBeenCalledTimes(1);
+    expect(parentPort.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'close-request', kind: 'response', ok: true })
+    );
+  });
+
+  it('BST-1330: a failed unsubscribe is WARNED about, and close still proceeds', async () => {
+    const unsubscribe = vi.fn(async () => {
+      throw new Error('current transaction is aborted, commands ignored');
+    });
+    const liveQuery = vi.fn(async () => ({
+      initialResults: { rows: [] },
+      refresh: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe,
+    }));
+    dbMainMocks.getDatabase.mockResolvedValue({
+      live: { query: liveQuery },
+      query: vi.fn(async () => ({ rows: [] })),
+    });
+    const { listeners, parentPort } = installParentPortMock();
+    await import('../../db-host-entry');
+
+    listeners[0]?.({
+      data: {
+        id: 'live-start-request',
+        kind: 'request',
+        request: { kind: 'live:start', payload: { params: [], query: 'SELECT 1' } },
+      },
+    });
+    await flushMicrotasks();
+
+    listeners[0]?.({
+      data: { id: 'close-request', kind: 'request', request: { kind: 'close' } },
+    });
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    // The drain failure must be loud (NO SILENT FALLBACKS)...
+    expect(parentPort.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'log',
+        level: 'warn',
+        message: 'Live query unsubscribe failed during close/reset drain',
+      })
+    );
+    // ...and close must still complete rather than leaving the database open.
+    expect(dbMainMocks.closeDatabase).toHaveBeenCalledTimes(1);
+    expect(parentPort.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'close-request', kind: 'response', ok: true })
+    );
+  });
+
   it('rejects unknown request kinds instead of returning a successful undefined result', async () => {
     const { listeners, parentPort } = installParentPortMock();
     await import('../../db-host-entry');

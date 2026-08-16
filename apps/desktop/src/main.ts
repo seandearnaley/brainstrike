@@ -67,7 +67,10 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
-import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
+import {
+  createDesktopFactoryResetHandler,
+  resetDesktopDatabaseProfile,
+} from './desktop-reset-platform';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 import {
   createErrorLogSink,
@@ -751,6 +754,9 @@ async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
 }
 
 let stopAssistantServer: null | (() => Promise<void>) = null;
+// BST-1330: gates the developer-menu database reset so a repeat accelerator
+// press surfaces "already in progress" instead of the reset barrier's throw.
+let developerDatabaseResetInFlight = false;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let unregisterChunkingHostIpcHandlers: null | (() => void) = null;
 let unregisterParserHostIpcHandlers: null | (() => void) = null;
@@ -1787,8 +1793,33 @@ if (singleInstanceLockAcquired) {
                 if (res.response !== 0) {
                   return;
                 }
+                // A second invocation (repeat accelerator press, or an
+                // overlapping factory reset) would hit the reset barrier's
+                // 'already active' throw — surface a readable message instead.
+                if (developerDatabaseResetInFlight) {
+                  await dialog.showMessageBox({
+                    buttons: ['OK'],
+                    message: 'A database reset is already in progress.',
+                    title: 'Database Reset',
+                    type: 'info',
+                  });
+                  return;
+                }
+                developerDatabaseResetInFlight = true;
                 try {
-                  await resetLocalDatabase();
+                  // BST-1330: same drains as shutdown/factory reset — a bare
+                  // resetLocalDatabase() could race in-flight live refreshes.
+                  // Unlike factory reset this does NOT stop the background
+                  // runtimes first: the reload below restarts them anyway, and
+                  // if their submissions keep the scheduler busy past the idle
+                  // timeout the reset FAILS LOUDLY in the dialog rather than
+                  // closing over in-flight work.
+                  await resetDesktopDatabaseProfile({
+                    cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
+                    resetLocalDatabase,
+                    runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
+                    waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
+                  });
                   await dialog.showMessageBox({
                     buttons: ['OK'],
                     message: 'Local database has been reset. The app will reload.',
@@ -1804,7 +1835,12 @@ if (singleInstanceLockAcquired) {
                   }
                 } catch (error) {
                   const message = error instanceof Error ? error.message : String(error);
-                  dialog.showErrorBox('Reset Failed', message);
+                  dialog.showErrorBox(
+                    'Reset Failed',
+                    `The local database was not reset: ${message}\n\nIf background indexing kept the database busy, retry after it settles (or use Factory Reset in Settings, which stops background work first).`
+                  );
+                } finally {
+                  developerDatabaseResetInFlight = false;
                 }
               },
               id: 'dev-reset-db',

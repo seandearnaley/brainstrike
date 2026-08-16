@@ -46,7 +46,15 @@ async function stopDesktopResetRuntimes(runtimes: readonly DesktopResetRuntime[]
   throw new Error(`Failed to stop desktop reset runtimes: ${failedNames}`);
 }
 
-async function resetDesktopDatabaseProfile({
+/**
+ * The ONLY sanctioned way to reset the desktop database: barrier out new
+ * scheduler submissions, drain live subscriptions and queued DB work, then
+ * reset. Exported (BST-1330) so the developer-menu reset shares this exact
+ * sequence instead of calling resetLocalDatabase() bare — the undrained call
+ * was the one desktop close path that could deliberately hit the in-host
+ * live-refresh race.
+ */
+export async function resetDesktopDatabaseProfile({
   cleanupLiveSubscriptionsForShutdown,
   resetLocalDatabase,
   runWithDatabaseResetBarrier,
