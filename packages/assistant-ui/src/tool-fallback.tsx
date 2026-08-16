@@ -1,5 +1,6 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { isRevertibleCaptureStatus } from '@brainstrike/assistant-contract';
+import { isDeclinedToolCallResult } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import {
@@ -103,19 +104,25 @@ function resolveCardStatus(
   isErrorResult: boolean
 ): { displayStatus: DisplayStatus; runPythonResult: RunPythonDisplayResult | null } {
   const hasResult = result !== undefined;
-  const runPythonResult =
-    toolName === NATIVE_TOOL_ID.runPython && hasResult
-      ? narrowRunPythonDisplayResult(result)
-      : null;
   const generic = resolveDisplayStatus(status, hasResult, result, isErrorResult);
-  if (!(runPythonResult && generic === 'success')) {
+  if (generic !== 'success') {
     // Generic path owns the card (running / incomplete / error-shaped): no
     // structured surface either, or it would render under Failed chrome.
     return { displayStatus: generic, runPythonResult: null };
   }
+  const runPythonResult =
+    toolName === NATIVE_TOOL_ID.runPython ? narrowRunPythonDisplayResult(result) : null;
+  if (runPythonResult) {
+    return { displayStatus: runPythonDisplayStatus(runPythonResult), runPythonResult };
+  }
+  // BST-1282: a call the user DECLINED at its approval gate settles with the
+  // shared `DeclinedToolCallResult` envelope and no error flag. Left on the
+  // generic path it would earn a green Completed for a tool that never ran, so
+  // it takes the same muted `stopped` treatment run_python already reserves for
+  // a decline — and never the destructive Failed chrome, because nothing broke.
   return {
-    displayStatus: runPythonDisplayStatus(runPythonResult),
-    runPythonResult,
+    displayStatus: isDeclinedToolCallResult(result) ? 'stopped' : 'success',
+    runPythonResult: null,
   };
 }
 

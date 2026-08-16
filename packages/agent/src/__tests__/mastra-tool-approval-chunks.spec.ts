@@ -1288,17 +1288,22 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       chunks.push(chunk as StreamChunk);
     }
 
-    // Stage 1 — the Mastra boundary maps it to a TERMINAL error tool event.
+    // Stage 1 — the Mastra boundary maps it to the TERMINAL decline tool event,
+    // carrying the shared `DeclinedToolCallResult` envelope (with the user's
+    // own reason) rather than an error string.
     expect(chunks).toContainEqual({
       name: 'shell_tool',
       payload: {
         args: { command: 'echo declined' },
         callId: 'tool-call-2',
-        declined: true,
-        error: `${TOOL_CALL_DECLINED_MESSAGE} Reason: not this path`,
+        result: {
+          kind: 'declined',
+          message: TOOL_CALL_DECLINED_MESSAGE,
+          reason: 'not this path',
+        },
         toolCallId: 'tool-call-2',
       },
-      status: 'error',
+      status: 'declined',
       type: 'tool-event',
     });
     // …and closes the durable timeline row out, relabelled as a decline.
@@ -1310,19 +1315,96 @@ describe('mastra streaming: tool approval and suspend pauses', () => {
       status: 'failed',
     });
 
-    // Stage 2 — the call SETTLES on the wire: an error `toolCallResult` frame
-    // for this id, which is what stops the renderer's part spinning. Its
-    // absence is exactly the hang this chunk exists to fix.
+    // Stage 2 — the call SETTLES on the wire: a `toolCallResult` frame for this
+    // id, which is what stops the renderer's part spinning. Its absence is
+    // exactly the hang this chunk exists to fix. NOT flagged `isError`: that is
+    // the destructive-chrome switch, and the declined envelope is what the card
+    // reads to pick its muted stopped treatment.
     const mapper = new DataStreamMapper('message-declined');
     const frames = chunks.flatMap((chunk) => [...mapper.handleChunk(chunk)]);
     expect(frames).toContainEqual({
       code: DataStreamCode.toolCallResult,
       value: {
-        isError: true,
-        result: `${TOOL_CALL_DECLINED_MESSAGE} Reason: not this path`,
+        result: {
+          kind: 'declined',
+          message: TOOL_CALL_DECLINED_MESSAGE,
+          reason: 'not this path',
+        },
         toolCallId: 'tool-call-2',
       },
     });
+  });
+
+  it('does NOT report a declined tool call as a failure when the denial is the last chunk before finish', async () => {
+    // BST-1282 review. `pendingToolErrorTexts` is cleared only by a later
+    // `text-delta`, so routing the decline through the ERROR path made an empty
+    // continuation (or a Stop right after the denial) emit "I couldn't complete
+    // the tool action because it failed: The user declined this tool call…" and
+    // finalize the step as errored. Nothing failed — the user chose. This is the
+    // fixture the first test deliberately does not cover: no text after the
+    // denial, so nothing clears the map.
+    const storage = { id: 'workflow-storage' };
+    setMockStreamParts([
+      {
+        payload: {
+          approval: { approved: false, id: 'approval-decline-2' },
+          args: { command: 'echo declined' },
+          toolCallId: 'tool-call-2',
+          toolName: 'shell_tool',
+        },
+        type: 'tool-output-denied',
+      },
+      { finishReason: 'stop', type: 'finish', usage: { completionTokens: 0, promptTokens: 1 } },
+    ]);
+
+    const iterator = await streamMastraToolApprovalAction(
+      { action: 'decline', runId: 'run-approval-2', toolCallId: 'tool-call-2' },
+      {
+        requireToolApproval: true,
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        storage: storage as never,
+      }
+    );
+
+    const chunks: StreamChunk[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk as StreamChunk);
+    }
+
+    // No reason given → the envelope carries the decision alone.
+    expect(chunks).toContainEqual({
+      name: 'shell_tool',
+      payload: {
+        args: { command: 'echo declined' },
+        callId: 'tool-call-2',
+        result: { kind: 'declined', message: TOOL_CALL_DECLINED_MESSAGE },
+        toolCallId: 'tool-call-2',
+      },
+      status: 'declined',
+      type: 'tool-event',
+    });
+
+    const mapper = new DataStreamMapper('message-declined-silent');
+    const frames = chunks.flatMap((chunk) => [...mapper.handleChunk(chunk)]);
+    frames.push(...mapper.finalizeOnStreamEnd());
+
+    // The call still settles…
+    expect(frames).toContainEqual({
+      code: DataStreamCode.toolCallResult,
+      value: {
+        result: { kind: 'declined', message: TOOL_CALL_DECLINED_MESSAGE },
+        toolCallId: 'tool-call-2',
+      },
+    });
+    // …and NOTHING claims a failure: no visible fallback text, no error frame,
+    // and the message finishes normally instead of as an errored step.
+    const visibleText = frames
+      .filter((frame) => frame.code === DataStreamCode.textDelta)
+      .map((frame) => String(frame.value))
+      .join('');
+    expect(visibleText).not.toContain('failed');
+    expect(frames.some((frame) => frame.code === DataStreamCode.error)).toBe(false);
+    expect(mapper.getTerminalOutcome()).toEqual({ error: null, status: 'completed' });
   });
 
   it('fails visibly before approval when the suspended snapshot cannot restore tool arguments', async () => {

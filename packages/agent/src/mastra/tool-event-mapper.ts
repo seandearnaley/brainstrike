@@ -1,3 +1,7 @@
+import {
+  DECLINED_TOOL_RESULT_KIND,
+  type DeclinedToolCallResult,
+} from '@brainstrike/assistant-contract/tool-approval';
 import { createLogger } from '@brainstrike/logging';
 import {
   getTransformedToolPayload,
@@ -90,26 +94,37 @@ export function mapMastraToolEvent(
     case 'tool-output-denied': {
       // @mastra/core 1.59 `ToolOutputDeniedPayload`:
       // `{ toolCallId, toolName, args?, approval: { id, approved: false, reason? } }`.
-      // Mapped as a terminal ERROR tool event so `handleToolError` downstream
-      // emits the call's `toolCallResult` and marks the id settled — a declined
-      // call must RESOLVE, not sit pending. `declined: true` keeps the reason
-      // for the decision legible to consumers that care (the approval card owns
-      // the primary UX); the text is model-safe because it contains only the
-      // decision and the user's own optional reason, never tool internals.
+      // Mapped as the DECLINE terminal (`status: 'declined'`) so the call
+      // RESOLVES downstream — a declined call left pending is the hang mastra
+      // #20886 shipped this chunk to fix. Deliberately NOT `'error'`: routing a
+      // decline through the error path queues the visible "I couldn't complete
+      // the tool action because it failed" fallback and marks the step errored
+      // whenever the model adds no text after the denial, which is false. Same
+      // ruling the BST-558 resume-unsupported terminal already settled (see
+      // docs/agents/assistant-runtime.md, "The tool card is SETTLED").
+      //
+      // The result is the SHARED `DeclinedToolCallResult` envelope, not a bare
+      // string: the envelope is what lets a tool card pick the muted declined
+      // treatment instead of inventing a Completed or a Failed, and it carries
+      // the user's reason to consumers on the wire instead of stranding it in a
+      // package-local flag no frame forwards. Model-safe by construction — only
+      // the decision and the user's own optional words, never tool internals.
       const approval = readMastraStreamPartValue(candidate, 'approval');
       const reason = readMastraStreamPartString(approval, 'reason');
+      const result: DeclinedToolCallResult = {
+        kind: DECLINED_TOOL_RESULT_KIND,
+        message: TOOL_CALL_DECLINED_MESSAGE,
+        ...(reason ? { reason } : {}),
+      };
       return {
         name: displayName,
         payload: {
           args: readMastraStreamPartValue(candidate, 'args'),
           callId,
-          declined: true,
-          error: reason
-            ? `${TOOL_CALL_DECLINED_MESSAGE} Reason: ${reason}`
-            : TOOL_CALL_DECLINED_MESSAGE,
+          result,
           toolCallId: callId,
         },
-        status: 'error',
+        status: 'declined',
         type: 'tool-event',
       } satisfies StreamChunk;
     }

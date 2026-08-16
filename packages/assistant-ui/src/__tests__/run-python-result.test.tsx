@@ -341,4 +341,21 @@ describe('declined (Gate A, BST-1097)', () => {
     expect(screen.getByRole('img', { name: 'Stopped' })).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: 'Failed' })).not.toBeInTheDocument();
   });
+
+  it('renders the same surface for the 1.59 framework decline envelope', () => {
+    // BST-1282: since the @mastra/core 1.56 approval rework, Gate A IS the
+    // framework's `requireApproval` gate, so a real decline now arrives as the
+    // agent's shared `DeclinedToolCallResult` envelope rather than the tool's
+    // own legacy `declined` arm. The envelope's extra fields must not defeat
+    // the narrower, or the decline would fall back to the generic card and lose
+    // this surface entirely.
+    renderRunPython({
+      kind: 'declined',
+      message: 'The user declined this tool call, so it was not executed.',
+      reason: 'not this path',
+    });
+    expect(screen.getByTestId('run-python-result-state')).toHaveAttribute('data-state', 'declined');
+    expect(screen.getByRole('img', { name: 'Stopped' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Failed' })).not.toBeInTheDocument();
+  });
 });

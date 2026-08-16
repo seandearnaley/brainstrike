@@ -770,6 +770,9 @@ export class DataStreamMapper {
       case 'error':
         yield* this.handleToolError(callId, chunk.payload);
         break;
+      case 'declined':
+        yield* this.handleToolDeclined(callId, chunk.payload);
+        break;
       default:
         break;
     }
@@ -1132,6 +1135,55 @@ export class DataStreamMapper {
     } satisfies EncodedChunk;
     yield* this.completeArgsStream(callId);
     this.pendingToolErrorTexts.set(callId, readToolOutputErrorText(output));
+    this.startNewStepForNextText = true;
+  }
+
+  /**
+   * The approval lifecycle's DECLINE terminal (@mastra/core 1.59
+   * `tool-output-denied`, BST-1282). It SETTLES the call exactly like an error
+   * would — without a result frame the renderer's part spins forever, the hang
+   * the chunk exists to fix — but it is deliberately NOT `handleToolError`:
+   *
+   *  - It records NOTHING in `pendingToolErrorTexts`. That map only clears on a
+   *    later `text-delta`, so a denial that is the last chunk before `finish`
+   *    (or a Stop right after it) would otherwise append "I couldn't complete
+   *    the tool action because it failed: The user declined this tool call…"
+   *    and finalize the step as errored. Nothing failed; the user chose. Same
+   *    ruling as the BST-558 resume-unsupported terminal — see
+   *    docs/agents/assistant-runtime.md, "The tool card is SETTLED".
+   *  - It leaves `isError` OFF. `isError` is what paints the destructive
+   *    AlertCircle/Failed chrome; a decline is neither a failure nor a success,
+   *    and the `DeclinedToolCallResult` envelope in the result is what tells the
+   *    card to render the muted stopped treatment instead.
+   */
+  private *handleToolDeclined(callId: string, payload: unknown): Generator<EncodedChunk> {
+    // A different call's open args stream must end before this call's `9`
+    // frame can flow (BST-962 crash class).
+    if (this.openArgsCallId !== null && this.openArgsCallId !== callId) {
+      yield* this.closeOpenArgsStreamIfNeeded();
+    }
+    const state = this.toolState.get(callId);
+    if (state && !state.argsEmitted) {
+      state.argsEmitted = true;
+      yield {
+        code: DataStreamCode.toolCall,
+        value: {
+          args: toArgsObject(state.lastInput, state.pendingArgsText),
+          toolCallId: callId,
+          toolName: state.toolName,
+        },
+      } satisfies EncodedChunk;
+    }
+    this.toolState.delete(callId);
+    this.settledToolCallIds.add(callId);
+    yield {
+      code: DataStreamCode.toolCallResult,
+      value: {
+        result: toJsonSafe((payload as { result?: unknown } | undefined)?.result),
+        toolCallId: callId,
+      },
+    } satisfies EncodedChunk;
+    yield* this.completeArgsStream(callId);
     this.startNewStepForNextText = true;
   }
 

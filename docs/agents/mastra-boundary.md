@@ -539,17 +539,42 @@ instead of hanging. It is the DECLINE terminal of the same lifecycle
 renderer's tool part pending forever and leave the durable `tool.started`
 unpaired, reproducing the exact hang upstream fixed.
 
-The mapping routes it through the ORDINARY tool-event path
-(`mapGenericToolEvent`), decoded in `mastra/tool-event-mapper.ts` as a terminal
-`status: 'error'` tool event. Downstream `DataStreamMapper.handleToolError`
-then emits the error `toolCallResult` and adds the id to `settledToolCallIds` —
-the call resolves. The run event deliberately keeps the `tool.failed` KIND and
-only relabels to `Tool call declined`: kind is what `getMatchingFailedKind`,
-`collectToolDurations`, and `RUN_LEDGER_AGGREGATION_SQL` close a call out on,
-and here the call really is over. That is the OPPOSITE conclusion from
+**A decline is TERMINAL but it is NOT an error, and the two must diverge —
+settled 2026-08-15 on review, do not collapse them again.** `tool-event-mapper.ts`
+decodes the chunk to its OWN `StreamChunkTool` status, `'declined'`, carrying the
+shared `DeclinedToolCallResult` envelope (`@brainstrike/assistant-contract/tool-approval`:
+`{kind:'declined', message, reason?}`) as its `result`. Routing it through
+`status: 'error'` instead settles the call but breaks three things:
+
+| Routed as `'error'` | Why that is wrong |
+| --- | --- |
+| `handleToolError` records `pendingToolErrorTexts` | that map clears only on a later `text-delta`, so a denial that is the last chunk before `finish` (or a Stop right after it) emits "I couldn't complete the tool action because it failed: The user declined this tool call…" and finalizes the step as errored |
+| the frame carries `isError: true` | `isError` is the destructive-chrome switch in `tool-fallback.tsx`; nothing broke |
+| the result is a bare error string | strings short-circuit `readResultErrorMessage`, so the card falls through to a GREEN Completed for a tool that never ran, and `narrowRunPythonDisplayResult` returns `null`, bypassing run_python's own muted declined surface |
+
+`DataStreamMapper.handleToolDeclined` therefore settles the id (`toolCallResult`
++ `settledToolCallIds`) with the envelope and NO error flag, and queues no
+visible failure text. `tool-fallback.tsx` reads the envelope and renders the
+muted `stopped` treatment — the same one run_python already reserved for a
+decline. Same ruling as the BST-558 resume-unsupported terminal (see
+docs/agents/assistant-runtime.md, "The tool card is SETTLED").
+
+The DURABLE run event deliberately keeps the `tool.failed` KIND and only
+relabels to `Tool call declined`: kind is what `getMatchingFailedKind`,
+`collectToolDurations`, and `RUN_LEDGER_AGGREGATION_SQL` close a call out on, and
+here the call really is over. That is the OPPOSITE conclusion from
 `tool.resume.unsupported` (BST-558) for the opposite reason — that pause stays
 suspended and can still emit its real terminal later; this one cannot.
-Mutation-checked paired test in `mastra-tool-approval-chunks.spec.ts`.
+
+The part is dispatched through `mapToolLifecyclePart`, NOT `mapGenericToolEvent`:
+a delegation tool (`agent-<persona>`) can be gated by an explicit global approval
+gate, its `tool-call` has already emitted `subagent.started`, and the decline is
+that delegation's only terminal — so it emits `subagent.failed`/`'cancelled'`
+("Subagent delegation declined") and keeps the "never leave an orphaned
+`subagent.started`" rule whole. Mutation-checked paired tests in
+`mastra-tool-approval-chunks.spec.ts` (settlement + the silent-continuation case
+that proves no false failure text) and `mastra-tool-lifecycle.spec.ts` (the
+delegation terminal).
 
 **R1/R2 re-verified.** 1.59 drops `@modelcontextprotocol/sdk` from
 `@mastra/core` and adds `@modelcontextprotocol/server@2.0.0`. The new package is
