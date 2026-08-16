@@ -486,8 +486,10 @@ describe('resolveValidatedPath', () => {
   });
 
   it.skipIf(isWin32)(
-    'preserves a rootless symlink path when missing paths are allowed',
+    'does not dereference symlinks on the rootless allowMissing fast path',
     async () => {
+      // This pins the lexical no-realpath branch only. Trusted I/O callers must
+      // still bind paths to canonical roots before opening symlink targets (BST-1237).
       const targetPath = path.join(tempDir, 'target');
       const symlinkPath = path.join(tempDir, 'link');
       await fsPromises.mkdir(targetPath);
