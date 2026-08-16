@@ -112,7 +112,18 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
     switch (messageType) {
       case 'init': {
         const { rootNodes, folderId } = message.payload;
-        engine.setTree(rootNodes, folderId);
+        const replaced = engine.setTree(rootNodes, folderId);
+        if (!replaced) {
+          // The engine proved this init carries the tree it already holds. Announcing it
+          // would make every downstream consumer rebuild handle maps and re-render for a
+          // tree that did not change, and the snapshot alone costs a full structured clone.
+          log('debug', 'tree init skipped (identical tree)', {
+            folderId,
+            nodeCount: rootNodes.length,
+          });
+          break;
+        }
+
         log('info', 'tree initialized', { folderId, nodeCount: rootNodes.length });
 
         // Send initial snapshot

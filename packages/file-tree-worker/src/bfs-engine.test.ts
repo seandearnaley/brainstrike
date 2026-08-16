@@ -67,6 +67,152 @@ describe('BFSEngine', () => {
 
       expect(engine.getTree()).toEqual(tree2);
     });
+
+    describe('identical-tree skip', () => {
+      const treeReplacedLogs = (): string[] =>
+        messages
+          .filter((message) => message.type === 'log')
+          .map((message) => message.message)
+          .filter((message) => message.startsWith('[setTree] Tree replaced'));
+
+      function createLoadedTree(): WorkerFileNode[] {
+        return [
+          createDirectoryNode({
+            children: [
+              createFileNode({ lastModified: 10, path: '/root/dir/file.txt', size: 5 }),
+              createDirectoryNode({ children: [], depth: 2, path: '/root/dir/nested' }),
+            ],
+            loadState: 'loaded',
+            path: '/root/dir',
+          }),
+        ];
+      }
+
+      it('skips the replacement when an identical tree is set again', () => {
+        engine.setTree(createLoadedTree(), 'root');
+        messages = [];
+
+        const replaced = engine.setTree(createLoadedTree(), 'root');
+
+        expect(replaced).toBe(false);
+        expect(treeReplacedLogs()).toHaveLength(0);
+      });
+
+      it('keeps the existing tree usable after a skipped replacement', () => {
+        engine.setTree(createLoadedTree(), 'root');
+        engine.setTree(createLoadedTree(), 'root');
+        messages = [];
+
+        engine.handleLoadResult('/root/dir/nested', [
+          createFileNode({ depth: 3, path: '/root/dir/nested/child.txt' }),
+        ]);
+
+        expect(
+          messages.some(
+            (message) =>
+              message.type === 'childrenLoaded' && message.payload.path === '/root/dir/nested'
+          )
+        ).toBe(true);
+      });
+
+      it('replaces a same-size tree whose nodes are different files', () => {
+        engine.setTree([createFileNode({ path: '/root/a.txt' })], 'root');
+        messages = [];
+
+        const replaced = engine.setTree([createFileNode({ path: '/root/b.txt' })], 'root');
+
+        expect(replaced).toBe(true);
+        expect(treeReplacedLogs()).toHaveLength(1);
+        expect(engine.getTree()[0]?.path).toBe('/root/b.txt');
+      });
+
+      it('replaces a same-shape tree whose node count matches but content differs', () => {
+        const before = [
+          createDirectoryNode({
+            children: [createFileNode({ path: '/root/dir/old.txt' })],
+            loadState: 'loaded',
+            path: '/root/dir',
+          }),
+        ];
+        const after = [
+          createDirectoryNode({
+            children: [createFileNode({ path: '/root/dir/new.txt' })],
+            loadState: 'loaded',
+            path: '/root/dir',
+          }),
+        ];
+        engine.setTree(before, 'root');
+        messages = [];
+
+        expect(engine.setTree(after, 'root')).toBe(true);
+        // The path index must follow the swap, not the discarded tree.
+        engine.handleLoadResult('/root/dir', after[0]?.children ?? []);
+        expect(
+          messages.some(
+            (message) => message.type === 'childrenLoaded' && message.payload.path === '/root/dir'
+          )
+        ).toBe(true);
+        expect(engine.getTree()[0]?.children?.[0]?.path).toBe('/root/dir/new.txt');
+      });
+
+      it('replaces when only a nested file metadata field changed', () => {
+        engine.setTree(createLoadedTree(), 'root');
+        const withNewSize = createLoadedTree();
+        const changedFile = withNewSize[0]?.children?.[0];
+        if (!changedFile) {
+          throw new Error('expected a nested file fixture');
+        }
+        changedFile.size = 4096;
+        messages = [];
+
+        expect(engine.setTree(withNewSize, 'root')).toBe(true);
+        expect(treeReplacedLogs()).toHaveLength(1);
+      });
+
+      it('replaces when only a directory load state changed', () => {
+        engine.setTree([createDirectoryNode({ loadState: 'unloaded' })], 'root');
+        messages = [];
+
+        expect(engine.setTree([createDirectoryNode({ loadState: 'error' })], 'root')).toBe(true);
+      });
+
+      it('replaces when an enumerated-empty directory becomes never-enumerated', () => {
+        engine.setTree([createDirectoryNode({ children: [], loadState: 'loaded' })], 'root');
+        messages = [];
+
+        expect(
+          engine.setTree(
+            [createDirectoryNode({ children: undefined, loadState: 'loaded' })],
+            'root'
+          )
+        ).toBe(true);
+      });
+
+      it('replaces when the folder id changes even though the nodes are identical', () => {
+        engine.setTree(createLoadedTree(), 'root');
+        messages = [];
+
+        expect(engine.setTree(createLoadedTree(), 'other-root')).toBe(true);
+      });
+
+      it('replaces an empty tree when the folder id changes', () => {
+        engine.setTree([], 'root');
+        messages = [];
+
+        expect(engine.setTree([], 'other-root')).toBe(true);
+        expect(engine.setTree([], 'other-root')).toBe(false);
+      });
+
+      it('replaces after collapseAll so the collapsed paths are re-derived', () => {
+        engine.setTree(createLoadedTree(), 'root');
+        engine.collapseAll();
+        messages = [];
+
+        // collapseAll clears the expansion sets without touching the tree, so an
+        // identical re-init is NOT a no-op: the replacement re-expands those paths.
+        expect(engine.setTree(createLoadedTree(), 'root')).toBe(true);
+      });
+    });
   });
 
   describe('handleLoadResult', () => {
