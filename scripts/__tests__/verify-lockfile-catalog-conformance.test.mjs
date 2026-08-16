@@ -86,27 +86,39 @@ function makeFixture({
   return dir;
 }
 
-test('REAL TREE: every catalog: importer entry conforms to the lockfile catalog block and the workspace catalog', () => {
-  const { violations, checkedCount } = findLockfileCatalogViolations(repoRoot);
+test('REAL TREE: every catalog-family importer entry conforms to the lockfile catalog block and the workspace catalog', () => {
+  const { violations, floorViolation, checkedCount } = findLockfileCatalogViolations(repoRoot);
   assert.deepEqual(
     violations,
     [],
     `pnpm-lock.yaml carries catalog-contradicting entries:\n${formatLockfileViolations(violations)}`
   );
-  assert.ok(
-    checkedCount >= MIN_CATALOG_IMPORTER_ENTRIES,
-    `Only ${checkedCount} catalog: importer entries were checked, below the floor of ` +
+  assert.equal(
+    floorViolation,
+    null,
+    `Only ${checkedCount} catalog-family importer entries were checked, below the floor of ` +
       `${MIN_CATALOG_IMPORTER_ENTRIES}. Either the workspace shrank dramatically or discovery ` +
-      'broke, in which case the conformance assertion above is vacuously green.'
+      'broke (the subset parser stopped reading the real files), in which case the conformance ' +
+      'assertion above is vacuously green.'
   );
 });
 
 test('CONTROL: the conformant fixture passes', () => {
-  const { violations, checkedCount } = findLockfileCatalogViolations(makeFixture(), {
-    minEntries: 1,
+  const { violations, floorViolation, checkedCount } = findLockfileCatalogViolations(
+    makeFixture(),
+    { minEntries: 1 }
+  );
+  assert.deepEqual(violations, []);
+  assert.equal(floorViolation, null);
+  assert.equal(checkedCount, 2);
+});
+
+test('CONTROL: the discovery floor reports separately from conformance violations', () => {
+  const { violations, floorViolation } = findLockfileCatalogViolations(makeFixture(), {
+    minEntries: 10,
   });
   assert.deepEqual(violations, []);
-  assert.equal(checkedCount, 2);
+  assert.match(floorViolation, /floor: 10/);
 });
 
 test('CONTROL: detects the #2483/#2485 outage — importer resolved outside the catalog', () => {
@@ -142,6 +154,66 @@ test('CONTROL: detects lockfile catalogs block drifting from pnpm-workspace.yaml
   assert.ok(violations.some((violation) => /pnpm-workspace\.yaml/.test(violation)));
 });
 
+test('CONTROL: named catalogs and the explicit catalog:default spelling are in scope, not silently skipped', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'lockfile-catalog-guard-'));
+  writeFileSync(
+    path.join(dir, 'pnpm-workspace.yaml'),
+    [
+      'packages:',
+      '  - packages/*',
+      'catalog:',
+      '  react: ^19.0.0',
+      'catalogs:',
+      '  legacy:',
+      '    lodash: ^3.0.0',
+      '',
+    ].join('\n')
+  );
+  writeFileSync(
+    path.join(dir, 'pnpm-lock.yaml'),
+    [
+      "lockfileVersion: '9.0'",
+      'catalogs:',
+      '  default:',
+      '    react:',
+      '      specifier: ^19.0.0',
+      '      version: 19.0.0',
+      '  legacy:',
+      '    lodash:',
+      '      specifier: ^3.0.0',
+      '      version: 3.10.1',
+      'importers:',
+      '  packages/a:',
+      '    dependencies:',
+      '      react:',
+      "        specifier: 'catalog:default'",
+      '        version: 19.0.0',
+      '      lodash:',
+      "        specifier: 'catalog:legacy'",
+      '        version: 3.9.9',
+      'packages:',
+      "  'react@19.0.0':",
+      '    resolution: {integrity: sha512-fake}',
+      "  'lodash@3.9.9':",
+      '    resolution: {integrity: sha512-fake}',
+      'snapshots:',
+      "  'react@19.0.0':",
+      '    dependencies: {}',
+      "  'lodash@3.9.9':",
+      '    dependencies: {}',
+      '',
+    ].join('\n')
+  );
+  const { violations, checkedCount } = findLockfileCatalogViolations(dir, { minEntries: 1 });
+  // Both entries are IN SCOPE: 2 checked, and the stale named-catalog
+  // resolution (3.9.9 vs 3.10.1) is caught rather than skipped.
+  assert.equal(checkedCount, 2);
+  assert.equal(violations.length, 1);
+  assert.match(violations[0], /lodash/);
+  assert.match(violations[0], /3\.9\.9/);
+  assert.match(violations[0], /3\.10\.1/);
+});
+
 test('CONTROL: an importer catalog: entry with no catalogs-block entry at all is a violation', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'lockfile-catalog-guard-'));
   writeFileSync(
@@ -163,5 +235,5 @@ test('CONTROL: an importer catalog: entry with no catalogs-block entry at all is
   );
   const { violations } = findLockfileCatalogViolations(dir, { minEntries: 1 });
   assert.ok(violations.length >= 1);
-  assert.ok(violations.some((violation) => /catalogs block/i.test(violation)));
+  assert.ok(violations.some((violation) => /catalogs\.default/.test(violation)));
 });

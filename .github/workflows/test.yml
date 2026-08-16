@@ -124,6 +124,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # BST-1324: MUST run before `Setup workspace` — the composite ends with
+      # `pnpm install --frozen-lockfile`, which is exactly where a textually
+      # merged lockfile kills the job (#2483/#2485), so a guard placed after it
+      # can never fire on the file it exists to catch. The script is
+      # dependency-free by design (runner's system Node, bare checkout, no
+      # node_modules); scripts/__tests__/verify-lockfile-catalog-conformance.
+      # test.mjs re-runs the same check with full context under
+      # `pnpm test:scripts` below, which also covers the install-silent class.
+      - name: Lockfile catalog conformance (pre-install)
+        run: node scripts/verify-lockfile-catalog-conformance.mjs
+
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:

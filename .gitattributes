@@ -7,4 +7,10 @@
 # --frozen-lockfile) and commit the regenerated file.
 # scripts/verify-lockfile-catalog-conformance.mjs is the backstop that catches
 # a bad lockfile however it was produced.
+#
+# Direction caveat: git reads merge= from the branch being merged INTO. PRs
+# merging into main are covered once this file lands on main; a long-lived
+# branch forked BEFORE this commit that merges main INTO itself picks up this
+# file as part of that same merge, so its lockfile may still splice textually
+# that one time. The conformance guard above is what catches that case.
 pnpm-lock.yaml merge=binary

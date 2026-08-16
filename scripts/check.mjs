@@ -117,6 +117,7 @@ export const CI_GATES_NOT_RUN_LOCALLY = [
 
 /** CI run steps covered by each local plan step. */
 export const CI_GATE_PLAN_IDS = new Map([
+  ['static › Lockfile catalog conformance (pre-install)', ['lockfile-catalog-conformance']],
   ['static › Secret scan', ['secrets-scan']],
   ['static › Package boundaries', ['boundaries']],
   ['static › Script tests', ['script-tests']],
@@ -284,6 +285,15 @@ export function buildPlan(options = {}) {
     // reruns by hand, and the bare subcommand gives back the non-idempotent
     // verdict this step exists to avoid.
     label: 'boundaries',
+  });
+  // BST-1324: mirrors the Static job's pre-install seat. Locally node_modules
+  // already exists, so ordering is immaterial here — the CI placement (before
+  // `pnpm install --frozen-lockfile`) is what lets it fire on a merged-broken
+  // lockfile; this step keeps `pnpm check` an honest mirror of that gate.
+  plan.push({
+    command: 'node scripts/verify-lockfile-catalog-conformance.mjs',
+    id: 'lockfile-catalog-conformance',
+    label: 'lockfile catalog conformance',
   });
   plan.push({
     command: 'pnpm -s run test:scripts',
