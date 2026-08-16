@@ -419,6 +419,61 @@ describe('db-host-entry', () => {
     });
   });
 
+  it.each(['close', 'reset'] as const)(
+    'BST-1330: %s unsubscribes every live query BEFORE touching the database',
+    async (kind) => {
+      // The serial envelope queue joins protocol statements against close, but
+      // the live extension's internal refreshes have no queue entry — a handle
+      // still subscribed when the backend deactivates is the BST-1320 wedge.
+      const unsubscribe = vi.fn(async () => undefined);
+      const liveQuery = vi.fn(async () => ({
+        initialResults: { rows: [] },
+        refresh: vi.fn(),
+        subscribe: vi.fn(),
+        unsubscribe,
+      }));
+      dbMainMocks.getDatabase.mockResolvedValue({
+        live: { query: liveQuery },
+        query: vi.fn(async () => ({ rows: [] })),
+      });
+      const { listeners, parentPort } = installParentPortMock();
+      await import('../../db-host-entry');
+
+      listeners[0]?.({
+        data: {
+          id: 'live-start-request',
+          kind: 'request',
+          request: {
+            kind: 'live:start',
+            payload: { params: [], query: 'SELECT 1' },
+          },
+        },
+      });
+      await flushMicrotasks();
+      expect(liveQuery).toHaveBeenCalledTimes(1);
+
+      listeners[0]?.({
+        data: { id: `${kind}-request`, kind: 'request', request: { kind } },
+      });
+      // Two flushes: the serial drain finishes live:start's envelope, then the
+      // close/reset envelope runs the awaited unsubscribe before responding.
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+      const databaseCall =
+        kind === 'close' ? dbMainMocks.closeDatabase : dbMainMocks.resetLocalDatabase;
+      expect(databaseCall).toHaveBeenCalledTimes(1);
+      // A missing invocation order fails the comparison loudly (Infinity < 0).
+      expect(unsubscribe.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY).toBeLessThan(
+        databaseCall.mock.invocationCallOrder[0] ?? 0
+      );
+      expect(parentPort.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: `${kind}-request`, kind: 'response', ok: true })
+      );
+    }
+  );
+
   it('rejects unknown request kinds instead of returning a successful undefined result', async () => {
     const { listeners, parentPort } = installParentPortMock();
     await import('../../db-host-entry');

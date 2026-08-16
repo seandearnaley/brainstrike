@@ -656,14 +656,28 @@ traffic past the teardown boundary. On 1.26.0 the same leaked statements land
 **So 1.26.0 is not safe by construction — it wins a race.** Holding the pin
 restores green CI; it does not remove the hazard.
 
-**App reachability is INFERRED, not measured — do not cite it as observed.** The
-wedge needs Mastra background work in flight at the moment a PGlite `close()`
-runs. Desktop shutdown and factory reset are the paths that close a PGlite, so
-they are the candidates, but **no app-path repro has been taken**: everything
-measured here is the test harness. Treat this as "plausible, unverified" until
-someone instruments those paths. (Close paths are owned by
-`docs/agents/database.md`; factory reset is a cross-cutting invariant in
-`AGENTS.md`.)
+**App reachability — MEASURED by code-reading audit (2026-08-16, BST-1329/BST-1330).**
+The wedge needs DB work in flight at the moment a PGlite `close()` runs.
+Verdicts, with the evidence in the BST-1329/BST-1330 tickets:
+
+- **Desktop shutdown and factory reset are structurally SAFE.** PGlite lives
+  only in the DB-host utility process; every statement is a serially
+  dispatched envelope (`db-host-entry.ts` runs exactly one request at a time)
+  and `close()` executes only as the `'close'` envelope — a Mastra background
+  statement and the in-host `close()` cannot overlap by construction. On top,
+  `DbHostManager.close()` kills the host after a 2s ack race, so even an
+  in-host wedge is bounded: the main-process event loop is never blocked and
+  the 60-minute CI wedge cannot recur through desktop app paths. The one
+  in-host non-envelope statement issuer (the live extension's internal
+  refreshes) is drained by BST-1330's awaited live-unsubscribe in the
+  `'close'`/`'reset'` handlers.
+- **The web direct path is where the class is reachable**: web factory reset
+  closes with no scheduler join, no submission barrier, and live handles still
+  subscribed (its own purge DELETEs trigger refreshes racing `close()`), plus
+  the narrow DbProvider prod-unmount-mid-init case — tracked as **BST-1329**.
+
+(Close paths are owned by `docs/agents/database.md`; factory reset is a
+cross-cutting invariant in `AGENTS.md`.)
 
 Mastra-free proof of the mechanism — awaiting the statement before `close()`
 returns in 1ms; starting the same statement and calling `close()` without

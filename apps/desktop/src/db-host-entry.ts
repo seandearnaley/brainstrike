@@ -97,6 +97,20 @@ function createLiveId(): string {
   return `live:${randomUUID()}`;
 }
 
+/**
+ * BST-1330: the serial envelope queue joins protocol statements against
+ * close/reset, but the live extension's internal refresh queries are issued by
+ * PGlite itself with no queue entry to await. Unsubscribing every live handle
+ * BEFORE deactivating the backend removes the one in-host statement issuer
+ * that could otherwise wedge close (the BST-1320 race). allSettled: a handle
+ * that fails to unsubscribe must not leave the rest subscribed.
+ */
+async function unsubscribeAllLiveQueries(): Promise<void> {
+  const records = [...liveQueries.values()];
+  liveQueries.clear();
+  await Promise.allSettled(records.map((record) => record.handle.unsubscribe(record.listener)));
+}
+
 function serializeError(error: unknown): DbHostSerializedError {
   const code =
     error && typeof error === 'object' && 'code' in error
@@ -515,10 +529,12 @@ async function handleRequest(request: DbHostRequest): Promise<unknown> {
     case 'diagnostics':
       return getDatabaseDiagnostics();
     case 'reset':
+      await unsubscribeAllLiveQueries();
       await resetLocalDatabase();
       activeTransactionId = null;
       return { reset: true };
     case 'close':
+      await unsubscribeAllLiveQueries();
       await closeDatabase();
       activeTransactionId = null;
       return { closed: true };

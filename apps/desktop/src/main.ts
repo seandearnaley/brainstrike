@@ -67,7 +67,10 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import { getDesktopResetDiagnosticsSnapshot } from './desktop-reset-diagnostics';
-import { createDesktopFactoryResetHandler } from './desktop-reset-platform';
+import {
+  createDesktopFactoryResetHandler,
+  resetDesktopDatabaseProfile,
+} from './desktop-reset-platform';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 import {
   createErrorLogSink,
@@ -1788,7 +1791,14 @@ if (singleInstanceLockAcquired) {
                   return;
                 }
                 try {
-                  await resetLocalDatabase();
+                  // BST-1330: same drains as shutdown/factory reset — a bare
+                  // resetLocalDatabase() could race in-flight live refreshes.
+                  await resetDesktopDatabaseProfile({
+                    cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
+                    resetLocalDatabase,
+                    runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
+                    waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
+                  });
                   await dialog.showMessageBox({
                     buttons: ['OK'],
                     message: 'Local database has been reset. The app will reload.',
