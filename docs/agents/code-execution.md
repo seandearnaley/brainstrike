@@ -434,12 +434,16 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
 - **srt version: `@anthropic-ai/sandbox-runtime` pinned EXACTLY to `0.0.73`**
   (bumped from `0.0.67` in BST-1285) in the workspace catalog (`catalogMode:
   strict` means every package references the catalog; the catalog entry itself
-  carries no caret). It is a
-  fast-moving beta — re-derive the boundary from its README/`.d.ts` before
-  bumping, never from memory. The escape-resistance suite (BST-1071) ASSERTS
-  this version, so a bump goes red until the suite is re-greened on macOS AND
-  Linux; see `packages/agent/src/__tests__/fence-escape-resistance.README.md`
-  for the required procedure and the guarantee/non-guarantee list.
+  carries no caret). It is a fast-moving beta — re-derive the boundary from its
+  README/`.d.ts` before bumping, never from memory. The escape-resistance suite
+  (BST-1071) ASSERTS this version, so a bump goes red until the suite is
+  re-greened on macOS AND Linux; see
+  `packages/agent/src/__tests__/fence-escape-resistance.README.md` for the
+  required procedure and the guarantee/non-guarantee list. **CI cannot supply
+  the Linux half**: no workflow installs `bwrap`/`socat`/ripgrep, so
+  `describeHostSkipReason()` skips the whole suite there and only the ungated
+  version-pin test runs. A Linux re-green has to come from a bubblewrap-equipped
+  host, and the bump log has to say which platforms actually ran.
 - **Platforms: darwin + linux only.** `isFenceSupported()` is the probe and
   `createFenceExecutorFactory()` returns `undefined` on anything else, so an
   unsupported host simply has no `fence` capability and `resolveCodeExecutor`
@@ -502,8 +506,13 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   `.docker`, `.netrc`, `.npmrc`, `.pypirc` — resolved to ABSOLUTE paths from
   `os.homedir()` here, not handed to srt as `~/...`: a path this sensitive
   must not depend on another package's tilde expansion. They stay literal
-  (never globbed) because a literal deny is the one srt re-applies on top of a
-  broader `allowRead`. An `allowRead` entry AT or UNDER one of these throws
+  (never globbed) because a literal path is what the containment checks compare
+  against, and because the literal re-application on top of a broader
+  `allowRead` is the srt behavior this layer verifies by execution. srt's
+  GLOB-deny handling is version-dependent and is NOT relied on (0.0.72 changed
+  macOS to re-emit glob denies where a broader allow used to clobber them; on
+  Linux a glob deny is expanded by ripgrep at run time). An `allowRead` entry
+  AT or UNDER one of these throws
   `FencePolicyError`; it is never silently dropped. An ANCESTOR entry is fine
   (srt re-emits the nested deny).
 - **Every policy path is shape-checked, then RESOLVED, and anything ambiguous
@@ -521,10 +530,12 @@ precedent). Paired tests: `fence-policy.spec.ts` (unit lane, pure mapping) and
   `~/.config/gh/hosts.yml` readable from sandboxed code.** Re-measured against
   0.0.73's generated Seatbelt profile in BST-1285 and UNCHANGED — the root
   allow is still emitted after the credential deny under last-match-wins — so
-  this refusal remains load-bearing, not redundant. Linux was unaffected
-  (bubblewrap masks denied directories with tmpfs), so CI alone would not have
-  caught it — which is why the refusal lives in the policy layer, not a
-  platform branch. Every ancestor SHORT of the root is still accepted.
+  this refusal remains load-bearing, not redundant. Linux is unaffected
+  (bubblewrap masks denied directories with tmpfs) — re-measured by execution
+  under real bwrap at 0.0.73 in BST-1285 — so CI alone would not have caught it
+  even if CI ran this suite, which it does not. That is why the refusal lives
+  in the policy layer, not a platform branch. Every ancestor SHORT of the root
+  is still accepted.
 - **Containment compares `realpath` output** — the reference implementation of
   the seam's "resolve before asking" requirement above, including the
   nonexistent-path error and the best-effort deny canonicalization. The

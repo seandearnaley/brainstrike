@@ -59,8 +59,15 @@ const ALWAYS_DENY_READ_HOME_RELATIVE: readonly string[] = [
  * Resolved here from `os.homedir()` rather than handed to srt as `~/...`: srt
  * resolves paths against its own process context, so a `~`-prefixed deny that
  * reaches it unexpanded is a rule that silently protects nothing. They stay
- * literal (never globbed) because a literal deny is the one srt re-applies on
- * top of a broader `allowRead`; a glob deny is not re-emitted.
+ * literal (never globbed) because a literal path is what the containment
+ * checks below compare against — a glob names a region this module never
+ * resolved — and because the literal re-application on top of a broader
+ * `allowRead` is the srt behavior this layer verifies by execution. srt's
+ * GLOB-deny handling is version-dependent and deliberately NOT relied on:
+ * 0.0.72 changed macOS to re-emit glob denies (carved by the allows each one
+ * covers) where they were previously clobbered by a broader allow, and on
+ * Linux a glob deny still has to be expanded by ripgrep at run time. Globs
+ * never reach srt from here anyway — `assertPolicyPathShape` refuses them.
  */
 export const ALWAYS_DENY_READ_PATHS: readonly string[] = ALWAYS_DENY_READ_HOME_RELATIVE.map(
   (relative) => join(homedir(), relative)
