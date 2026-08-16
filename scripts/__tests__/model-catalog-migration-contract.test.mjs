@@ -64,6 +64,18 @@ describe('model catalog migration contract', () => {
     );
     assert.match(
       databaseContract,
+      /If a present or future foreign key blocks deletion, stop and design an explicit forward migration that preserves or archives the referenced catalog identity; never disable the constraint or cascade-delete user history\./
+    );
+    assert.match(
+      databaseContract,
+      /Remap only mutable preference state to a supported replacement, using the preference-store migration contracts and a store-version bump\. Verify the replacement exists in the target catalog before executing the rollback\./
+    );
+    assert.match(
+      databaseContract,
+      /Run the rollback against the rehearsed backup first, validate its `down` and subsequent `up` behavior, and keep the production database offline if any reference, constraint, or reader fails\./
+    );
+    assert.match(
+      databaseContract,
       /After rollback, verify migrations, model-picker state, historical thread rendering, and a fresh assistant run before returning the database to service\./
     );
   });
