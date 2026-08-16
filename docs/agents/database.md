@@ -103,6 +103,20 @@ background lane must therefore be short and bounded. Long maintenance statements
 an idle database/queue state; do not use background priority as authority to run
 an unbounded maintenance statement.
 
+**Idle means SUSTAINED idle, not an instantaneous sample (BST-1333).** The DB
+host dispatches envelopes strictly serially and cannot preempt one, so a
+maintenance statement that runs for seconds blocks every renderer query behind
+it for its whole duration — a measured `VACUUM (ANALYZE) file_chunks` took
+**7.3s** and started in a momentary gap between the renderer's startup query
+bursts, which a point-in-time "is the scheduler busy right now?" check read as
+safe. `createDesktopDatabaseMaintenanceScheduler` therefore requires the work
+scheduler to have been *continuously* idle for `quietPeriodMs` (default 15s,
+observed via `subscribeToSchedulerSnapshots`) before a pass may begin, and
+`start()` seeds the window as busy so booting never counts as quiet. Skips are
+logged with reason `database-scheduler-recently-busy` and simply retry on the
+next interval — never widen this gate to "idle right now" for a statement whose
+duration is unbounded.
+
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change. Updating only the static registry is NOT enough — the in-app model picker is driven by a DB-backed catalog.

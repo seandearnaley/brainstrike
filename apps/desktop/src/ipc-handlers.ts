@@ -21,6 +21,7 @@ import { getDesktopDatabaseWorkScheduler } from './platform/desktop-database-wor
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 export {
+  getDesktopDatabaseWorkScheduler,
   getDesktopDatabaseWorkSchedulerSnapshot,
   quiesceDesktopDatabaseWorkForRecovery,
   resetDesktopDatabaseWorkSchedulerForTests,
