@@ -103,6 +103,66 @@ function generateRequestId(): string {
 }
 
 /**
+ * Node fields compared when deciding whether an incoming tree is identical to the current
+ * one. Declared as a TOTAL record over every non-`children` key so adding a field to
+ * `WorkerFileNode` fails the build here instead of silently escaping the check — a wrong
+ * "identical" verdict would freeze the tree on stale content, so the comparison covers
+ * every field the node carries, not just the ones this engine reads.
+ */
+const TREE_IDENTITY_FIELDS: Record<Exclude<keyof WorkerFileNode, 'children'>, true> = {
+  depth: true,
+  lastModified: true,
+  loadError: true,
+  loadState: true,
+  name: true,
+  path: true,
+  rootFolderId: true,
+  size: true,
+  type: true,
+};
+
+const TREE_IDENTITY_FIELD_KEYS = Object.keys(
+  TREE_IDENTITY_FIELDS
+) as (keyof typeof TREE_IDENTITY_FIELDS)[];
+
+/**
+ * Order-sensitive deep comparison of two node lists.
+ * Allocates nothing and exits on the first difference, so a genuine change costs almost
+ * nothing while an identical tree costs one flat traversal.
+ */
+function areNodeListsIdentical(current: WorkerFileNode[], next: WorkerFileNode[]): boolean {
+  if (current.length !== next.length) {
+    return false;
+  }
+
+  for (let index = 0; index < current.length; index++) {
+    const currentNode = current[index];
+    const nextNode = next[index];
+    if (!(currentNode && nextNode && areNodesIdentical(currentNode, nextNode))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function areNodesIdentical(current: WorkerFileNode, next: WorkerFileNode): boolean {
+  for (const field of TREE_IDENTITY_FIELD_KEYS) {
+    if (current[field] !== next[field]) {
+      return false;
+    }
+  }
+
+  // Missing children (never enumerated) and `[]` (enumerated, empty) are different states,
+  // so array presence is compared before array contents.
+  if (!(current.children && next.children)) {
+    return current.children === next.children;
+  }
+
+  return areNodeListsIdentical(current.children, next.children);
+}
+
+/**
  * State object for subtree loading operations.
  * Tracks progress through BFS waves of directory loading.
  */
@@ -133,6 +193,11 @@ interface IndexedTreeUpdate {
  */
 export class BFSEngine {
   private tree: WorkerFileNode[] = [];
+  /**
+   * Folder the current tree belongs to. `null` until the first setTree, so the initial
+   * (empty) tree is never mistaken for an identical re-init of a real folder.
+   */
+  private folderId: string | null = null;
   private aborted = false;
   private readonly expandedPaths = new Set<string>();
   private readonly expandedDescendantsByPath = new Map<string, Set<string>>();
@@ -167,11 +232,26 @@ export class BFSEngine {
 
   /**
    * Set the current tree state.
+   *
+   * Returns whether the tree was actually replaced. A re-init that carries the same folder
+   * and a structurally identical tree is skipped: rebuilding the path index and expansion
+   * bookkeeping — and letting the worker emit the tree-replaced snapshot that makes the
+   * main thread rebuild handle maps and re-render — is pure waste when nothing changed.
+   * One FSEvents overflow currently produces such a re-init per mounted provider.
+   *
+   * Node COUNT is never the test: 54 → 54 nodes can be 54 different files. See
+   * `areNodeListsIdentical` for what identity covers.
    */
-  setTree(nodes: WorkerFileNode[], _folderId: string): void {
+  setTree(nodes: WorkerFileNode[], folderId: string): boolean {
+    if (this.canSkipTreeReplacement(nodes, folderId)) {
+      this.logDebug(`[setTree] Identical tree, replacement skipped (${this.pathIndex.size} nodes)`);
+      return false;
+    }
+
     const prevNodeCount = this.countTreeNodes(this.tree);
     const prevLoadedDirs = this.countLoadedDirectories(this.tree);
     this.tree = nodes;
+    this.folderId = folderId;
     // Rebuild path index for O(1) lookups
     this.buildPathIndex(nodes);
     this.replaceExpandedPaths(collectExpandedPaths(nodes));
@@ -180,7 +260,42 @@ export class BFSEngine {
     this.logInfo(
       `[setTree] Tree replaced: ${prevNodeCount} nodes (${prevLoadedDirs} loaded) → ${newNodeCount} nodes (${newLoadedDirs} loaded), index size: ${this.pathIndex.size}`
     );
-    // folderId is passed for future use (e.g., multi-root support)
+    return true;
+  }
+
+  /**
+   * Whether replacing the tree with `nodes` would leave every piece of engine state exactly
+   * as it already is. Anything short of that certainty replaces — the engine never guesses.
+   */
+  private canSkipTreeReplacement(nodes: WorkerFileNode[], folderId: string): boolean {
+    // A different folder is a different tree even when the nodes match. The root-switch
+    // reset sends `init([], nextRootFolderId)`, where no node exists to carry the identity.
+    if (folderId !== this.folderId) {
+      return false;
+    }
+
+    return areNodeListsIdentical(this.tree, nodes) && this.expandedPathsMatchTree();
+  }
+
+  /**
+   * Whether `expandedPaths` already holds exactly what a replacement would re-derive.
+   *
+   * `collapseAll` clears the expansion sets WITHOUT touching the tree, so after a collapse
+   * an identical-content re-init is not a no-op: the replacement re-derives (and therefore
+   * re-expands) those paths, which the `complete` payload then reports to the main thread.
+   * Refusing to skip in that case keeps the guard a true no-op instead of a silent
+   * behavior change. `expandedDescendantsByPath` needs no separate check — it is only ever
+   * mutated in lockstep with `expandedPaths`.
+   */
+  private expandedPathsMatchTree(): boolean {
+    // Compared against the very function the replacement would feed to replaceExpandedPaths.
+    const derivedPaths = collectExpandedPaths(this.tree);
+    if (derivedPaths.length !== this.expandedPaths.size) {
+      return false;
+    }
+
+    // Tree paths are unique, so equal counts plus one-way membership is set equality.
+    return derivedPaths.every((path) => this.expandedPaths.has(path));
   }
 
   /**

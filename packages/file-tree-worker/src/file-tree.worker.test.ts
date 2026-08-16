@@ -35,7 +35,7 @@ const createEngineMock = () => ({
   handleLoadResult: vi.fn(),
   loadPaths: vi.fn(async () => {}),
   loadSubtree: vi.fn(async () => {}),
-  setTree: vi.fn(),
+  setTree: vi.fn(() => true),
 });
 
 const bootstrapWorkerModule = async () => {
@@ -201,6 +201,35 @@ describe('file-tree.worker', () => {
     expect(console.log).not.toHaveBeenCalled();
     expect(console.warn).not.toHaveBeenCalled();
     expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it('emits no tree-replaced signal when the engine skips an identical init', async () => {
+    const { selfMock, engine, collectExpandedPaths } = await bootstrapWorkerModule();
+    const onMessage = selfMock.onmessage;
+    if (!onMessage) {
+      throw new Error('worker onmessage was not initialized');
+    }
+
+    engine.setTree.mockReturnValueOnce(false);
+
+    await onMessage({
+      data: {
+        payload: { folderId: 'folder-1', rootNodes: [{ path: '/root', type: 'directory' }] },
+        type: 'init',
+      },
+    } as MessageEvent<MainToWorkerMessage>);
+
+    expect(engine.setTree).toHaveBeenCalledTimes(1);
+    // No snapshot to clone across the port, and no 'tree initialized' log to act on.
+    expect(collectExpandedPaths).not.toHaveBeenCalled();
+    expect(selfMock.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'treeSnapshot' })
+    );
+    expect(selfMock.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'tree initialized' })
+    );
+    // Only the bootstrap 'ready' message.
+    expect(selfMock.postMessage).toHaveBeenCalledTimes(1);
   });
 
   it('posts an error payload when handler execution throws', async () => {
