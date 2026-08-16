@@ -69,6 +69,13 @@ const ENGINE_MANIFESTS = discoverEngineManifests();
 // and `verify-catalog-references.mjs` is blind for the same reason — both read
 // the workspace globs as their single source of truth.
 //
+// Every number in this block was measured 2026-08-15, and nothing asserts them —
+// they are prose, unlike the claims the tests below back. Date-stamped in the
+// style pnpm-workspace.yaml uses for its own measured notes ("RE-MEASURED
+// 2026-08-15 on pnpm 11.15.0"), so a later reader knows whether to trust them or
+// re-run them. Re-derive with: the importer count from `pnpm-lock.yaml`, and
+//   rg -l '"@types/node": "catalog:"' --glob '**/package.json'
+//
 // One manifest is affected: `spikes/changeset-discovery/package.json` hard-pins
 // `"@types/node": "^24.0.0"`, the only declaration in the repo not on
 // `catalog:` (the sibling `spikes/quickjs-sandbox` declares none). Measured
@@ -87,7 +94,11 @@ const ENGINE_MANIFESTS = discoverEngineManifests();
 //
 // It is accepted because the blast radius is one author's local `npm run
 // typecheck`, not a shipped artifact: the spikes are throwaway prototypes in no
-// CI lane and no turbo task, whose deliverable is `RECOMMENDATION.md`, not the
+// build, typecheck, or test lane and no turbo task — though they are NOT beyond
+// CI entirely, so do not read this as "nothing scans spikes/" and conclude the
+// note has gone stale: `verify-no-raw-nul-bytes.mjs` enumerates them
+// deliberately (no pathspec on `git ls-files`, floor `spikes: 8`) and runs on
+// every PR via `lint:ci`. Their deliverable is `RECOMMENDATION.md`, not the
 // code, and `.nvmrc` pins 24 at the repo root, so anyone using the repo's own
 // toolchain on a tree that contains `spikes/` type-checks and runs it on 24. The
 // `>=22.18` floor records the minimum Node that can type-strip these files, not
@@ -99,11 +110,17 @@ const ENGINE_MANIFESTS = discoverEngineManifests();
 // would also pass unnoticed, for the same structural reason.
 //
 // Do not "fix" it by adopting them into the globs. They would become importers
-// and drag their dependency trees into the root lockfile, and `catalogMode:
-// strict` would force them onto the repo's toolchain — including the aliased
-// `typescript: npm:@typescript/typescript6@6.0.2`, against the `^7.0.2` the
-// spike findings were actually measured on. That destroys the version isolation
-// that makes a spike a spike, to guard code designed to be deleted.
+// and drag their dependency trees into the root lockfile, and — this is
+// `verify-catalog-references.mjs`, not `catalogMode: strict`, which governs what
+// `pnpm add` writes and would not touch an already-declared range — every
+// dependency carrying a catalog entry would have to be restated as `catalog:`,
+// putting them on the repo's toolchain. For `typescript` that is the aliased
+// `npm:@typescript/typescript6@6.0.2`, against the `^7.0.2` the spike findings
+// were actually measured on. TS 7 is not unavailable repo-wide — the catalog
+// also carries `'@typescript/native': 'npm:typescript@7.0.2'` — but reaching it
+// means declaring a different dependency name than the spike did. Either way the
+// version isolation that makes a spike a spike is gone, to guard code designed
+// to be deleted.
 //
 // A SECOND copy — `@types/node@26.1.0` — is also installed, and it is likewise
 // out of scope. History matters here, because the obvious fix was tried and
