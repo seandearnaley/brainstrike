@@ -263,7 +263,18 @@
       "dependsOn": [
         "topo"
       ],
+      // BRAINSTRIKE_FENCE_DEPS_REQUIRED is the one entry that deliberately does
+      // NOT mirror `test`: the real-OS-fence suites live only in this lane. The
+      // Unit job sets it after installing bubblewrap/socat/ripgrep, and it turns
+      // a missing srt dependency from a self-skip into a collection failure
+      // (packages/agent/src/__tests__/fixtures/fence-host-gate.ts). Turbo runs
+      // tasks in Strict env mode, so a variable absent from this list simply
+      // never reaches vitest — which would silently restore the quiet skip this
+      // exists to end. It sits in `env` rather than `passThroughEnv` because it
+      // is result-affecting: moot while `cache: false` holds, correct if that
+      // ever changes.
       "env": [
+        "BRAINSTRIKE_FENCE_DEPS_REQUIRED",
         "CI",
         "NODE_ENV",
         "TEST_TIMEOUT_MULTIPLIER",

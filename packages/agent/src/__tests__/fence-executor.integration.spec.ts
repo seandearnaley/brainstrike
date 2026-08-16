@@ -16,7 +16,6 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { platform } from 'node:process';
-import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -26,6 +25,10 @@ import {
   isExecResultTruncated,
 } from '../code-execution';
 import { createFenceExecutor } from '../fence/fence-executor';
+import {
+  describeFenceHostSkipReason,
+  refuseToSkipInAPromisedLane,
+} from './fixtures/fence-host-gate';
 
 /** Per-request output cap; small enough to overflow without minutes of I/O. */
 const MAX_OUTPUT_BYTES = 256 * 1024;
@@ -70,12 +73,9 @@ async function isNetworkReachable(): Promise<boolean> {
 }
 
 async function describeSkipReason(): Promise<string | undefined> {
-  if (platform !== 'darwin' && platform !== 'linux') {
-    return `the OS fence requires macOS (Seatbelt) or Linux (bubblewrap); this host is '${platform}'`;
-  }
-  const deps = await SandboxManager.checkDependenciesAsync();
-  if (deps.errors.length > 0) {
-    return `sandbox-runtime dependencies are missing on this ${platform} host: ${deps.errors.join(', ')}`;
+  const hostReason = await describeFenceHostSkipReason();
+  if (hostReason) {
+    return hostReason;
   }
   if (!pythonPath) {
     return 'no python3/python interpreter is on PATH';
@@ -87,7 +87,15 @@ async function describeSkipReason(): Promise<string | undefined> {
 }
 
 // Resolved before the suite body so the skip message can name the reason.
-const skipReason = await describeSkipReason();
+// Routed through the shared gate LAST, once every prerequisite has had its say:
+// a lane that declared BRAINSTRIKE_FENCE_DEPS_REQUIRED promised all of them, so
+// there it throws rather than skipping. Note this suite skips ENTIRELY when the
+// probe host is unreachable — the filesystem and process-tree proofs go with it
+// — which is why the escalation cannot be scoped to the dependency reason alone.
+const skipReason = refuseToSkipInAPromisedLane(
+  'fence-executor.integration',
+  await describeSkipReason()
+);
 if (skipReason) {
   // Loud, not silent: the lane prints why the real-fence proof did not run.
   console.warn(`[fence-executor.integration] SKIPPED — ${skipReason}`);
@@ -208,7 +216,21 @@ describe.skipIf(skipReason !== undefined)('FenceExecutor against the real OS fen
     );
     expect(existsSync(target)).toBe(false);
     expect(result.stdout).not.toContain('CHILD-RC 0');
-    expect(result.stdout).toMatch(/PermissionError|Operation not permitted|denied/i);
+    // The denial WORDING is platform-specific and both shapes are real
+    // denials: Seatbelt refuses the open outright (`PermissionError` /
+    // "Operation not permitted"), while bubblewrap masks everything outside
+    // the write grant by re-mounting it read-only, so CPython raises
+    // `OSError: [Errno 30] Read-only file system`. Its sibling "DENIES a write
+    // outside scratchDir" above already names that shape; this case simply
+    // missed it, which only surfaced once Linux CI started running these
+    // suites for real (measured on Ubuntu 24.04 / bubblewrap 0.9.0).
+    // Deliberately still an ENUMERATION of denial shapes rather than "any
+    // error": the two assertions above pin that nothing was written, and this
+    // one has to keep proving the write was REFUSED rather than failing for
+    // some unrelated reason.
+    expect(result.stdout).toMatch(
+      /PermissionError|Operation not permitted|Read-only file system|denied/i
+    );
   });
 
   it('kills the WHOLE process tree on timeout and reports timedOut', async () => {

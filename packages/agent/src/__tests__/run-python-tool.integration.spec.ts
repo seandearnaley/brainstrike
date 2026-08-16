@@ -4,11 +4,14 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { platform } from 'node:process';
-import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { describe, expect, it } from 'vitest';
 import type { CodeExecutorHostCapabilities } from '../code-execution';
 import { createFenceExecutor } from '../fence/fence-executor';
 import { createRunPythonTool, type RunPythonResult } from '../tools/run-python-tool';
+import {
+  describeFenceHostSkipReason,
+  refuseToSkipInAPromisedLane,
+} from './fixtures/fence-host-gate';
 
 /**
  * BST-1067 acceptance proofs for `run_python` against the REAL OS fence and a
@@ -55,12 +58,9 @@ async function isNetworkReachable(): Promise<boolean> {
 }
 
 async function describeSkipReason(): Promise<string | undefined> {
-  if (platform !== 'darwin' && platform !== 'linux') {
-    return `the OS fence requires macOS (Seatbelt) or Linux (bubblewrap); this host is '${platform}'`;
-  }
-  const deps = await SandboxManager.checkDependenciesAsync();
-  if (deps.errors.length > 0) {
-    return `sandbox-runtime dependencies are missing on this ${platform} host: ${deps.errors.join(', ')}`;
+  const hostReason = await describeFenceHostSkipReason();
+  if (hostReason) {
+    return hostReason;
   }
   if (!pythonPath) {
     return 'no python3/python interpreter is on PATH';
@@ -71,7 +71,14 @@ async function describeSkipReason(): Promise<string | undefined> {
   return;
 }
 
-const skipReason = await describeSkipReason();
+// Through the shared gate LAST, once every prerequisite has had its say: in a
+// lane that declared BRAINSTRIKE_FENCE_DEPS_REQUIRED this throws instead of
+// skipping, for the interpreter and reachability reasons as well as the srt
+// dependency one — each of them skips this suite just as completely.
+const skipReason = refuseToSkipInAPromisedLane(
+  'run-python-tool.integration',
+  await describeSkipReason()
+);
 if (skipReason) {
   console.warn(`[run-python-tool.integration] SKIPPED — ${skipReason}`);
 }
