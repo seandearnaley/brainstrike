@@ -542,6 +542,25 @@ Construction sites (keep in sync when adding extensions or new sites):
 Tests that construct PGlite directly and run migrations must also pass the full
 extension set (see drizzle-migrate.test.ts / drizzle-job-queue-compatibility.test.ts).
 
+### CLOSING a PGlite: drain first — an overlapping statement wedges it forever
+
+`PGlite.close()` (verified on the pinned 0.5.5) deactivates the WASM backend
+(`mod._pgl_setPGliteActive(0)`) **before** it awaits the shutdown protocol and
+`closeFs()`, and `_checkReady()` only guards *entry*. A statement still in
+flight at that moment enters `execProtocolRawSync`'s **synchronous** main loop
+against a dead backend: neither that statement nor `close()` ever settles, and
+because the spin is synchronous WASM the **event loop is blocked** — no timer,
+no `AbortSignal`, no `Promise.race` timeout can recover it. `SIGKILL` is the
+only exit.
+
+Any close path must therefore drain in-flight work first. This is not
+theoretical: it wedged a CI job to its 60-minute cancellation cap (BST-1320,
+diagnosis and the Mastra-free repro in `docs/agents/mastra-boundary.md`;
+upstream [electric-sql/pglite#1084](https://github.com/electric-sql/pglite/issues/1084)).
+Whether the app's own close paths (shutdown, factory reset) can hit it is
+**inferred, not measured** — they are the paths that close a PGlite, but no
+app-path repro has been taken.
+
 ### The test snapshot `globalSetup` lives on ONE project — do not hoist it
 
 `packages/db/vitest.config.mts` declares
