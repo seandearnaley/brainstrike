@@ -210,6 +210,33 @@ describe('OpenRouterStrictContentGateway', () => {
     expect(gateway.handlesModel('openrouter/z-ai/glm-5.2')).toBe(true);
     expect(gateway.handlesModel('anthropic/claude-sonnet-5')).toBe(false);
   });
+
+  it('preserves the provider callable model dispatch (instruct -> /completions)', async () => {
+    // The OpenRouter adapter's provider callable routes
+    // `openai/gpt-3.5-turbo-instruct` to its completion model; forcing
+    // `.chat()` would send it to /chat/completions. Parity with the bundled
+    // models.dev gateway requires the callable's dispatch.
+    const captures: CapturedRequest[] = [];
+    vi.stubGlobal('fetch', makeCapturingFetch(captures));
+    const gateway = new OpenRouterStrictContentGateway();
+    const model = gateway.resolveLanguageModel({
+      apiKey: 'test-key',
+      modelId: 'openai/gpt-3.5-turbo-instruct',
+      providerId: 'openrouter',
+    }) as { doStream: (options: LanguageModelV2CallOptions) => Promise<unknown> };
+
+    await model
+      .doStream({
+        prompt: [{ content: [{ text: 'hello', type: 'text' }], role: 'user' }],
+      } as LanguageModelV2CallOptions)
+      .catch(() => {
+        // The fake SSE body is chat-shaped; only the request URL matters here.
+      });
+
+    expect(captures).toHaveLength(1);
+    expect(captures[0]?.url.endsWith('/completions')).toBe(true);
+    expect(captures[0]?.url.endsWith('/chat/completions')).toBe(false);
+  });
 });
 
 describe('createProvider openrouter wiring', () => {

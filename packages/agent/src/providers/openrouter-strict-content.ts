@@ -152,7 +152,9 @@ export class OpenRouterStrictContentGateway implements MastraModelGatewayInterfa
     // The npm package is the exact provider version Mastra bundles for its
     // own openrouter resolution, so the runtime stream shape (including
     // providerMetadata cost accounting) is identical; only the declared
-    // @ai-sdk type lineage differs, hence the cast.
-    return provider.chat(args.modelId) as unknown as GatewayLanguageModel;
+    // @ai-sdk type lineage differs, hence the cast. The provider CALLABLE
+    // (not `.chat()`) is required for parity: it dispatches
+    // `openai/gpt-3.5-turbo-instruct` to the completion model.
+    return provider(args.modelId) as unknown as GatewayLanguageModel;
   }
 }
