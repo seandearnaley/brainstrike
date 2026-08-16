@@ -71,13 +71,32 @@ const ENGINE_MANIFESTS = discoverEngineManifests();
 //
 // One manifest is affected: `spikes/changeset-discovery/package.json` hard-pins
 // `"@types/node": "^24.0.0"`, the only declaration in the repo not on
-// `catalog:` (the sibling `spikes/quickjs-sandbox` declares none). The exposure
-// is smaller than it looks. A caret cannot cross a major, this contract compares
-// MAJORS, and the spike's own lockfile resolves 24.13.3 — identical to the
-// catalog today. So while that range stays on 24 it cannot produce the skew this
-// file exists to catch; only an edit to a foreign major would, and nothing would
-// notice. That residual is accepted: spikes are throwaway prototypes in no CI
-// lane and no turbo task, whose deliverable is `RECOMMENDATION.md`, not the code.
+// `catalog:` (the sibling `spikes/quickjs-sandbox` declares none). Measured
+// against the runtime THIS repo pins, that is aligned and cannot drift across a
+// major: a caret cannot cross one, this contract compares majors, and the
+// spike's own lockfile resolves 24.13.3 — identical to the catalog.
+//
+// Against the spike's OWN declared floor it is not aligned, and that exposure is
+// accepted here explicitly rather than left implied. The spike declares
+// `engines.node: ">=22.18"` (22.18 is where unflagged type-stripping landed,
+// which is how it runs — `node src/*.ts`) while installing Node 24 typings, and
+// its tsconfig sets `"types": ["node"]`, so those typings really are loaded into
+// its program. Type-check it on a Node 22.x release it claims to support and you
+// get the higher-types/lower-runtime direction described at the top of this file
+// — today, with no edit to a foreign major required.
+//
+// It is accepted because the blast radius is one author's local `npm run
+// typecheck`, not a shipped artifact: the spikes are throwaway prototypes in no
+// CI lane and no turbo task, whose deliverable is `RECOMMENDATION.md`, not the
+// code, and `.nvmrc` pins 24 at the repo root, so anyone using the repo's own
+// toolchain on a tree that contains `spikes/` type-checks and runs it on 24. The
+// `>=22.18` floor records the minimum Node that can type-strip these files, not
+// a runtime the spike is exercised on. Aligning the two ranges is the
+// alternative; it was not taken because it edits throwaway code whose findings
+// are already published, to buy nothing at runtime.
+//
+// A second unguarded case remains alongside it: an edit to a foreign types major
+// would also pass unnoticed, for the same structural reason.
 //
 // Do not "fix" it by adopting them into the globs. They would become importers
 // and drag their dependency trees into the root lockfile, and `catalogMode:
