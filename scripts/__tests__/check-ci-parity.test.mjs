@@ -71,6 +71,13 @@ const PROVISIONING_STEPS = new Set([
   'admission › Wait for pull request activity to settle',
   'static › Require successful admission',
   'unit-shard › Require successful admission',
+  // Runner plumbing, not a gate: it apt-installs bubblewrap/socat/ripgrep and
+  // lifts the AppArmor userns restriction so the real-OS-fence suites can run
+  // on Linux at all. `pnpm check` has nothing to mirror — a developer machine
+  // supplies its own fence (Seatbelt on macOS) or the suites skip loudly. What
+  // this step must keep providing is asserted in
+  // scripts/__tests__/linux-fence-lane-contract.test.mjs.
+  'unit-shard › Install the Linux OS-fence dependencies',
   'unit › Require successful admission',
   'unit › Check shard results',
   'build › Require successful admission',

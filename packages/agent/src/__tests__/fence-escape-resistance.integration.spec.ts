@@ -41,7 +41,6 @@ import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { platform } from 'node:process';
-import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -53,6 +52,10 @@ import {
 } from '../code-execution';
 import { createFenceExecutor, INHERITED_ENV_VARS } from '../fence/fence-executor';
 import { isFencePolicyError } from '../fence/fence-policy';
+import {
+  describeFenceHostSkipReason,
+  refuseToSkipInAPromisedLane,
+} from './fixtures/fence-host-gate';
 
 /**
  * The srt version this suite is proven against.
@@ -200,12 +203,9 @@ const NETWORK_PRECONDITION_PROBE = [
 ].join('\n');
 
 async function describeHostSkipReason(): Promise<string | undefined> {
-  if (platform !== 'darwin' && platform !== 'linux') {
-    return `the OS fence requires macOS (Seatbelt) or Linux (bubblewrap); this host is '${platform}'`;
-  }
-  const deps = await SandboxManager.checkDependenciesAsync();
-  if (deps.errors.length > 0) {
-    return `sandbox-runtime dependencies are missing on this ${platform} host: ${deps.errors.join(', ')}`;
+  const hostReason = await describeFenceHostSkipReason();
+  if (hostReason) {
+    return hostReason;
   }
   if (!pythonPath) {
     return 'no python3/python interpreter is on PATH';
@@ -238,11 +238,22 @@ function describeNetworkSkipReason(): string | undefined {
   return;
 }
 
-const hostSkipReason = await describeHostSkipReason();
+// Both gates route through the shared escalation, and BOTH matter: in a lane
+// that declared BRAINSTRIKE_FENCE_DEPS_REQUIRED, quietly dropping the egress
+// proofs (raw sockets, DNS, the allow-list) is the same broken promise as
+// dropping the whole suite — the lane would report green having never exercised
+// the network boundary. Everywhere else they stay warn-and-skip, so an offline
+// laptop still gets the filesystem, policy and process-tree proofs.
+const hostSkipReason = refuseToSkipInAPromisedLane(
+  'fence-escape-resistance',
+  await describeHostSkipReason()
+);
 if (hostSkipReason) {
   console.warn(`[fence-escape-resistance] SUITE SKIPPED — ${hostSkipReason}`);
 }
-const networkSkipReason = hostSkipReason ?? describeNetworkSkipReason();
+const networkSkipReason =
+  hostSkipReason ??
+  refuseToSkipInAPromisedLane('fence-escape-resistance network cases', describeNetworkSkipReason());
 if (!hostSkipReason && networkSkipReason) {
   console.warn(`[fence-escape-resistance] NETWORK CASES SKIPPED — ${networkSkipReason}`);
 }

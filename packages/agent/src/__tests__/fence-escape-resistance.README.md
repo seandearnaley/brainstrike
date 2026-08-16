@@ -142,10 +142,13 @@ re-emission works for every ancestor short of the root.
 
 **Linux was not affected.** bubblewrap masks denied directories with `tmpfs` and
 only punches holes for allow paths *under* the deny, so `/` never re-opened
-anything. CI is Linux and would never have caught this — doubly so, since CI
-does not even RUN this suite (it lacks `bwrap`/`socat`/ripgrep, so the host gate
-skips it; see the bump log). That asymmetry is why the fix lives in our policy
-layer rather than in a platform check.
+anything. CI is Linux and would never have caught this. That asymmetry is why
+the fix lives in our policy layer rather than in a platform check — and it is
+the durable reason, independent of what CI happens to run. (Two earlier
+revisions of this note leaned on CI instead: first "CI runs on Linux", then
+"CI does not even RUN this suite". The second was true when written and is no
+longer — see [Getting the two platforms](#getting-the-two-platforms). The
+asymmetry argument never depended on either.)
 
 **Fix:** `buildSandboxRuntimeConfig` now refuses a root-wide `allowRead` with a
 `FencePolicyError` — refused, never narrowed, per the no-silent-fallback rule.
@@ -229,7 +232,11 @@ decoration.
 
 - **Host gate** (platform is not macOS/Linux, srt dependencies missing, no
   python on `PATH`) skips the whole suite with a `console.warn` naming exactly
-  what is missing.
+  what is missing. Shared with the other two real-fence suites in
+  `fixtures/fence-host-gate.ts`, which is also where the skip becomes a THROW
+  in a lane that declared `BRAINSTRIKE_FENCE_DEPS_REQUIRED=1` — a skip is the
+  right answer on a laptop without bwrap and the wrong one in a lane built to
+  run this.
 - **Network gate** skips *only* the network cases, so an offline machine still
   gets the filesystem, policy, process-tree, environment and teardown proofs.
 - Where an assertion cannot be proven on a given host — no populated credential
@@ -268,17 +275,89 @@ of thing a patch bump can introduce or remove silently.
 **Bumping srt requires re-greening this suite. Do not just update the constant.**
 
 1. Run the full suite on **macOS and Linux** (the root-`allowRead` finding was
-   macOS-only; a Linux-only run proves nothing about it). **CI does not supply
-   the Linux half** — it has no `bwrap`, `socat` or ripgrep, so the host gate
-   skips everything except the version-pin test. That run has to come from a
-   bubblewrap-equipped host, and the bump log must say which platforms actually
-   ran rather than which ones were assumed to be covered.
+   macOS-only; a Linux-only run proves nothing about it — and the converse
+   holds for the write-grant finding, non-guarantee 5). **CI supplies the Linux
+   half as of BST-1316**; before that it did not, and the bump log's 0.0.73
+   entry is what a bump reads like without it. See
+   [Getting the two platforms](#getting-the-two-platforms) for where each half
+   comes from and how to confirm the Linux one actually ran. Either way the
+   bump log must say which platforms actually ran rather than which ones were
+   assumed to be covered.
 2. Re-read srt's README security sections and reconcile the non-guarantee list
    above with whatever changed.
 3. Re-run the mutation table — a bump can make a guard redundant, which shows up
    as a mutation that stops killing.
 4. Only then update `PINNED_SRT_VERSION` and
    `docs/agents/code-execution.md`.
+
+### Getting the two platforms
+
+**macOS: run it yourself.** Seatbelt needs nothing installed.
+
+```bash
+pnpm --filter @brainstrike/agent test:integration
+```
+
+**Linux: CI supplies it — as of 2026-08-16.** Do not read a green Unit check as
+the Linux half without confirming the suite actually RAN. It did not, for the
+whole life of this suite before that date: `checkDependenciesAsync()` requires
+`bwrap`, `socat` and `rg` on Linux, no workflow installed them, and all three
+real-fence suites skipped themselves — loudly in the log, green in the check
+(`32 tests | 27 skipped`, with only the ungated version pin actually running).
+The `unit-shard` job in `.github/workflows/test.yml` now installs the three
+binaries and lifts `kernel.apparmor_restrict_unprivileged_userns`, which the
+Ubuntu 24.04 runner image sets and without which bubblewrap cannot create a
+namespace at all (`bwrap: setting up uid map: Permission denied`) — the
+dependency check passes and every fenced run still produces nothing.
+`docs/agents/code-execution.md` carries the measurements.
+
+A bump PR reaches that lane on its own: the pin lives in `pnpm-workspace.yaml`,
+so the lockfile change puts `@brainstrike/agent` in turbo's affected set.
+
+What to check on the bump PR, in order:
+
+1. `Unit (rest)` is green **and** its integration step shows this file with **no
+   skips attributable to the host gate**. A `SUITE SKIPPED —` line in that log
+   means the Linux half did not happen, whatever the check says.
+2. The network cases ran (no `NETWORK CASES SKIPPED —` line). Runner egress is
+   open, so a skip there is a signal, not weather.
+
+If the lane ever cannot supply it — a runner image that blocks user namespaces
+outright, say — the honest fallback is a documented manual run recorded in the
+bump PR the way the macOS half is, **not** a green check. The 0.0.73 entry in
+the bump log below is the worked example: a `--privileged` `node:24-bookworm`
+container, and an explicit statement of which cases it could and could not
+reach. Note what it could not: srt's vendored `apply-seccomp` cannot run under
+Docker Desktop's LinuxKit kernel, so the network, unix-socket and process-tree
+cases stayed unrun there. **The CI lane has no such hole** — it runs on a real
+kernel with seccomp active (`checkDependenciesAsync()` returns no warnings), so
+those cases now execute for the first time.
+
+What any such host has to prove first, before a suite result from it counts, is
+the thing this lane learned the hard way: that bubblewrap can actually build a
+namespace there. `bwrap --ro-bind / / --dev /dev --unshare-all /bin/echo ok`
+exiting 0 is that proof; the dependency check passing is not, since it only
+looks for binaries on `PATH`.
+
+**A skip can no longer go quiet.** The Unit integration steps set
+`BRAINSTRIKE_FENCE_DEPS_REQUIRED=1`, and `fixtures/fence-host-gate.ts` throws
+rather than skips when it is set — so a runner that stops meeting the
+prerequisites fails the lane instead of reporting a security suite it never
+ran. The variable is deliberately unset on developer machines and in the
+coverage lanes, which install nothing and keep the loud-skip behaviour.
+
+**Every suite-wide reason escalates, not just the missing-dependency one.** The
+escalation sits at `refuseToSkipInAPromisedLane`, the choke point that sees the
+final reason, rather than inside the dependency check. Scoping it to
+dependencies alone (this PR's first shape, caught in review) still left a
+promised lane able to go green having proven nothing: a missing interpreter
+skips all three suites, and an unreachable probe host skips `fence-executor`
+and `run-python-tool` *entirely* — filesystem and process-tree proofs included.
+The NETWORK-cases gate in this file escalates for the same reason: dropping the
+raw-socket, DNS and allow-list proofs quietly is the same broken promise as
+dropping the file.
+
+---
 
 ### Bump log
 
@@ -349,3 +428,16 @@ of thing a patch bump can introduce or remove silently.
   New upstream surface (`:port` domain suffixes, `deniedDomainReasons`,
   `commandId` attribution, Windows credential-store relocation) is additive and
   unreachable from `ExecPolicy`.
+
+  **Postscript (BST-1316, one day later): the Linux gap this entry documents is
+  closed.** The `unit-shard` job now installs `bwrap`/`socat`/ripgrep and lifts
+  `kernel.apparmor_restrict_unprivileged_userns`, and the full suite runs on
+  Linux at 0.0.73 — 53 tests, **zero skips**, the same 53 macOS runs. The cases
+  this entry had to leave unrun (network, unix-socket, process-tree) execute
+  there on a real kernel with seccomp active, which the `--privileged` container
+  could not offer. One assertion needed fixing rather than the fence: the
+  child-write case in `fence-executor` matched only Seatbelt's wording, while
+  bubblewrap masks paths outside the write grant by re-mounting them read-only
+  (`OSError: [Errno 30] Read-only file system`). Everything this entry measured
+  by hand still stands; the next bump gets it from CI instead.
+
