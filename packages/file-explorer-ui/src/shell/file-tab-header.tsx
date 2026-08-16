@@ -1,16 +1,24 @@
-import { type BreadcrumbSegment, Breadcrumbs, CopyTextButton, cn } from '@brainstrike/ui';
+import {
+  type BreadcrumbSegment,
+  type BreadcrumbSegmentPopoverRenderer,
+  Breadcrumbs,
+  CopyTextButton,
+  cn,
+} from '@brainstrike/ui';
 import { Code, Eye, PanelLeft } from 'lucide-react';
 import { memo } from 'react';
 import type { FileViewMode } from '../stores/editor-view-state-store';
 
 export interface FileTabHeaderProps {
   /**
-   * Clickable path trail (BST-1269). When provided it REPLACES the plain
+   * Path trail (BST-1269/BST-1319). When provided it REPLACES the plain
    * fileName/directory spans — the leaf segment carries the file identity.
+   * Every segment opens a popover mini-tree (siblings + drill-down) rendered
+   * by `renderSegmentPopover`.
    */
   readonly breadcrumbs?:
     | {
-        readonly onSegmentClick: (segmentPath: string) => void;
+        readonly renderSegmentPopover: BreadcrumbSegmentPopoverRenderer;
         readonly segments: readonly BreadcrumbSegment[];
       }
     | undefined;
@@ -71,7 +79,7 @@ export const FileTabHeader = memo(function FileTabHeader({
         ) : null}
         {breadcrumbs ? (
           <Breadcrumbs
-            onSegmentClick={breadcrumbs.onSegmentClick}
+            renderSegmentPopover={breadcrumbs.renderSegmentPopover}
             segments={breadcrumbs.segments}
           />
         ) : (

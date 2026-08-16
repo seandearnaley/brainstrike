@@ -82,9 +82,7 @@ test.describe('Per-file explorer pane', () => {
     await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
   });
 
-  test('manual close sticks per file across reload; breadcrumb reveal reopens', async ({
-    page,
-  }) => {
+  test('manual close sticks per file across reload; the toggle reopens', async ({ page }) => {
     // Close the auto-opened pane — this records an EXPLICIT open: false that
     // must survive through the per-thread workspace snapshot.
     await page.getByRole('button', { name: 'Toggle explorer pane' }).click();
@@ -103,14 +101,12 @@ test.describe('Per-file explorer pane', () => {
     // closed pane proves the sticky close round-tripped as explicit state.
     await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
 
-    // A breadcrumb folder click reveals that folder, reopening the pane.
-    const header = page.getByRole('navigation', { name: 'Breadcrumb' });
-    await expect(header).toBeVisible();
-    await header.getByRole('button', { exact: true, name: 'src' }).click();
-    // The mock harness cannot restore directory handles across reload, so the
-    // reopened pane shows its explicit not-connected state instead of a tree —
-    // visible degradation, not a silent fallback. Tree re-population is
-    // covered by the scoping unit tests and desktop live verification.
+    // The header toggle reopens it. The mock harness cannot restore directory
+    // handles across reload, so the reopened pane shows its explicit
+    // not-connected state instead of a tree — visible degradation, not a
+    // silent fallback. Tree re-population is covered by the scoping unit
+    // tests and desktop live verification.
+    await page.getByRole('button', { name: 'Toggle explorer pane' }).click();
     const pane = page.getByTestId('file-tab-explorer-pane');
     await expect(pane).toBeVisible();
     await expect(pane.getByTestId('file-tab-pane-unavailable')).toBeVisible();

@@ -83,11 +83,11 @@ describe('FileTabHeader', () => {
   });
 
   it('renders breadcrumbs instead of the plain identity spans when provided (BST-1269)', () => {
-    const onSegmentClick = vi.fn();
+    const renderSegmentPopover = vi.fn(() => <div data-testid="segment-popover" />);
     render(
       <FileTabHeader
         breadcrumbs={{
-          onSegmentClick,
+          renderSegmentPopover,
           segments: [
             { label: 'src', path: '/r/src' },
             { label: 'a.ts', path: '/r/src/a.ts' },
@@ -103,8 +103,9 @@ describe('FileTabHeader', () => {
     expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument();
     expect(screen.getByText('a.ts')).toHaveAttribute('aria-current', 'page');
     expect(screen.queryByText('/r/src')).not.toBeInTheDocument();
+    // Segments are popover triggers (BST-1319): clicking renders the picker.
     fireEvent.click(screen.getByRole('button', { name: 'src' }));
-    expect(onSegmentClick).toHaveBeenCalledExactlyOnceWith('/r/src');
+    expect(screen.getByTestId('segment-popover')).toBeInTheDocument();
   });
 
   it('renders the pane toggle with pressed state when wired (BST-1269)', () => {

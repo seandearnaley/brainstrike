@@ -1,0 +1,112 @@
+/**
+ * Pure helpers behind the breadcrumb popover mini-tree (BST-1319): which
+ * directory a clicked segment lists (its PARENT — the segment's siblings),
+ * the ancestor chain to materialize lazily, and flattening loaded nodes into
+ * visible rows. Both '/' and Windows '\\' separator forms are exercised —
+ * segment paths are sliced from the original tab path, so the helpers must
+ * never normalize.
+ */
+
+import type { IFileNode } from '@brainstrike/types';
+import { describe, expect, it } from 'vitest';
+import {
+  collectMiniTreeLoadChain,
+  flattenMiniTreeEntries,
+  resolveMiniTreeParentPath,
+} from '../breadcrumb-mini-tree-entries';
+
+function node(
+  path: string,
+  type: 'file' | 'directory' | 'loadMore',
+  children?: IFileNode[]
+): IFileNode {
+  return {
+    depth: 0,
+    handle: {} as unknown as IFileNode['handle'],
+    name: path.split(/[/\\]/).pop() ?? path,
+    path,
+    type,
+    ...(children ? { children } : {}),
+  } as IFileNode;
+}
+
+describe('resolveMiniTreeParentPath', () => {
+  it('maps a first-level segment to the workspace root level (null)', () => {
+    expect(resolveMiniTreeParentPath('/root/src', '/root')).toBeNull();
+  });
+
+  it('maps deeper segments to their parent directory', () => {
+    expect(resolveMiniTreeParentPath('/root/src/app.ts', '/root')).toBe('/root/src');
+    expect(resolveMiniTreeParentPath('/root/src/ui/button.ts', '/root')).toBe('/root/src/ui');
+  });
+
+  it('handles relative (web) tab paths', () => {
+    expect(resolveMiniTreeParentPath('src', null)).toBeNull();
+    expect(resolveMiniTreeParentPath('src/app.ts', null)).toBe('src');
+  });
+
+  it('handles Windows separators without normalizing', () => {
+    expect(resolveMiniTreeParentPath('C:\\root\\src', 'C:\\root')).toBeNull();
+    expect(resolveMiniTreeParentPath('C:\\root\\src\\app.ts', 'C:\\root')).toBe('C:\\root\\src');
+  });
+});
+
+describe('collectMiniTreeLoadChain', () => {
+  it('is empty at the root level (the provider loads the root itself)', () => {
+    expect(collectMiniTreeLoadChain(null, '/root')).toEqual([]);
+  });
+
+  it('lists every cumulative ancestor directory down to the parent', () => {
+    expect(collectMiniTreeLoadChain('/root/src/ui', '/root')).toEqual([
+      '/root/src',
+      '/root/src/ui',
+    ]);
+  });
+
+  it('preserves Windows separator form', () => {
+    expect(collectMiniTreeLoadChain('C:\\root\\src\\ui', 'C:\\root')).toEqual([
+      'C:\\root\\src',
+      'C:\\root\\src\\ui',
+    ]);
+  });
+});
+
+describe('flattenMiniTreeEntries', () => {
+  const tree: IFileNode[] = [
+    node('/root/readme.md', 'file'),
+    node('/root/src', 'directory', [
+      node('/root/src/app.ts', 'file'),
+      node('/root/src/ui', 'directory', [node('/root/src/ui/button.ts', 'file')]),
+      node('/root/src/…more', 'loadMore'),
+    ]),
+  ];
+
+  it('lists the workspace root level when parentPath is null', () => {
+    const entries = flattenMiniTreeEntries(tree, null, new Set());
+    expect(entries.map((entry) => [entry.node.path, entry.depth])).toEqual([
+      ['/root/readme.md', 0],
+      ['/root/src', 0],
+    ]);
+  });
+
+  it('lists a parent directory contents, recursing ONLY into expanded dirs', () => {
+    const collapsed = flattenMiniTreeEntries(tree, '/root/src', new Set());
+    expect(collapsed.map((entry) => entry.node.path)).toEqual(['/root/src/app.ts', '/root/src/ui']);
+
+    const expanded = flattenMiniTreeEntries(tree, '/root/src', new Set(['/root/src/ui']));
+    expect(expanded.map((entry) => [entry.node.path, entry.depth])).toEqual([
+      ['/root/src/app.ts', 0],
+      ['/root/src/ui', 0],
+      ['/root/src/ui/button.ts', 1],
+    ]);
+  });
+
+  it('filters sentinel node types (loadMore/truncated) — full browsing lives in the pane', () => {
+    const entries = flattenMiniTreeEntries(tree, '/root/src', new Set());
+    expect(entries.some((entry) => entry.node.type === 'loadMore')).toBe(false);
+  });
+
+  it('returns [] when the parent node is not present (caller shows an explicit state)', () => {
+    expect(flattenMiniTreeEntries(tree, '/root/missing', new Set())).toEqual([]);
+  });
+});

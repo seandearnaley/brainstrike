@@ -23,6 +23,7 @@ import {
   MIN_PANE_WIDTH_PCT,
   useFileTabPaneStore,
 } from '../stores/file-tab-pane-store';
+import { FileTabBreadcrumbPopover } from './file-tab-breadcrumb-popover';
 import { buildFileBreadcrumbSegments } from './file-tab-breadcrumb-segments';
 import { FileTabExplorerPane } from './file-tab-explorer-pane';
 import { FileTabHeader } from './file-tab-header';
@@ -102,17 +103,40 @@ export function FileTabBody({
     () => buildFileBreadcrumbSegments(path, rootPath),
     [path, rootPath]
   );
-  const handleBreadcrumbSegmentClick = useCallback(
-    (segmentPath: string) => {
-      setRevealRequest((previous) => ({ nonce: previous.nonce + 1, path: segmentPath }));
-      // Absent state means OPEN (BST-1318): only an EXPLICIT close reopens
-      // here — a truthiness check would read absent as closed and toggle the
-      // auto-opened pane shut.
-      if (useFileTabPaneStore.getState().panes[tab.compositeKey]?.open === false) {
-        togglePane(tab.compositeKey);
+  // Breadcrumb popover mini-tree (BST-1319): a segment click opens a picker
+  // of that segment's siblings; picking a file opens it in a NEW tab via the
+  // same flow tree file-clicks use. The pane is untouched by breadcrumbs.
+  const handleBreadcrumbPick = useCallback(
+    (filePath: string) => {
+      let folderId: string;
+      try {
+        folderId = decodeFileSelection(tab.compositeKey).folderId;
+      } catch {
+        toast({ description: filePath, title: 'Could not resolve file', variant: 'destructive' });
+        return;
       }
+      const openFileInTab = ideEditor.openFileInTab;
+      if (!openFileInTab) {
+        toast({ description: filePath, title: 'File opening unavailable', variant: 'destructive' });
+        return;
+      }
+      openFileInTab(encodeFileSelection(folderId, filePath));
     },
-    [tab.compositeKey, togglePane]
+    [ideEditor.openFileInTab, tab.compositeKey, toast]
+  );
+  const renderBreadcrumbPopover = useCallback(
+    (segment: { label: string; path: string }, close: () => void) => (
+      <FileTabBreadcrumbPopover
+        compositeKey={tab.compositeKey}
+        onPickFile={(filePath) => {
+          handleBreadcrumbPick(filePath);
+          close();
+        }}
+        rootPath={rootPath}
+        segmentPath={segment.path}
+      />
+    ),
+    [handleBreadcrumbPick, rootPath, tab.compositeKey]
   );
   const handlePaneLayoutChanged = useCallback(
     (layout: Layout, meta: { isUserInteraction: boolean }) => {
@@ -358,7 +382,7 @@ export function FileTabBody({
       >
         <FileTabHeader
           breadcrumbs={{
-            onSegmentClick: handleBreadcrumbSegmentClick,
+            renderSegmentPopover: renderBreadcrumbPopover,
             segments: breadcrumbSegments,
           }}
           copyText={copyText}

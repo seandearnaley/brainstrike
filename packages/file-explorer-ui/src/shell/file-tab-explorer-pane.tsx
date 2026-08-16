@@ -1,10 +1,9 @@
-import { decodeFileSelection } from '@brainstrike/file-explorer/selection';
 import type { ReactElement } from 'react';
 import { useCallback, useMemo } from 'react';
 import { useFileTabPaneStore } from '../stores/file-tab-pane-store';
 import { FileTreeProvider, useFileTreeContext } from '../tree/file-tree-provider';
 import OptimizedFileTree from '../tree/optimized-file-tree';
-import { useFileSystem } from './file-system-provider';
+import { useTabRootHandle } from './use-tab-root-handle';
 
 /**
  * Per-file explorer pane (BST-1269): a navigation-only tree scoped to the
@@ -63,22 +62,7 @@ export function FileTabExplorerPane({
   revealNonce,
   revealPath,
 }: FileTabExplorerPaneProps): ReactElement {
-  const { rootDirectoryHandles, rootIdByPath } = useFileSystem();
-  const folderId = useMemo(() => {
-    try {
-      return decodeFileSelection(compositeKey).folderId;
-    } catch {
-      return null;
-    }
-  }, [compositeKey]);
-  const handle = useMemo(
-    () =>
-      rootDirectoryHandles.find(
-        (candidate) =>
-          (candidate.rootId ?? rootIdByPath?.get(candidate.path) ?? candidate.path) === folderId
-      ) ?? null,
-    [folderId, rootDirectoryHandles, rootIdByPath]
-  );
+  const { folderId, handle } = useTabRootHandle(compositeKey);
 
   if (!(folderId && handle)) {
     // Visible degradation, not a silent fallback: the tab's root is not
