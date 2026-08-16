@@ -1799,10 +1799,12 @@ describe('mastra streaming integration', () => {
 
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
+    // The factory now materializes the router model itself (strict-content
+    // gateway wiring) instead of handing Mastra a bare descriptor.
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.id).toBe('openrouter/openai/gpt-5.6-terra');
+    expect(agent.model?.provider).toBe('openrouter');
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.apiKey).toBe('test-key');
+    expect(agent.model?.modelId).toBe('openai/gpt-5.6-terra');
   });
 
   it('bounds OpenRouter output by default while preserving an explicit override', async () => {
