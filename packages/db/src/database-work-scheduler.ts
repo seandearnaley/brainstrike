@@ -894,9 +894,13 @@ function createScheduledLiveQueryHandle<THandle extends object>(
               'Scheduled PGlite live-query unsubscribe listener does not match the active listener'
             );
           }
-          // PGlite 0.5.4 marks a live-query handle dead before it awaits the
-          // teardown transaction. Once cleanup starts, even a rejected
-          // unsubscribe cannot be retried or re-subscribed on this handle.
+          // This wrapper OWNS its terminal state; it does not read the raw
+          // handle's. Releasing before the await is deliberate and mirrors
+          // PGlite, which removes the callback and latches `dead = true`
+          // SYNCHRONOUSLY before awaiting its teardown transaction — so a
+          // rejected unsubscribe leaves the raw handle permanently dead
+          // upstream too, and no retry is available there either. Verified
+          // unchanged in 0.5.5 (BST-1283).
           active = false;
           const entry = subscribedListener;
           try {
@@ -904,8 +908,9 @@ function createScheduledLiveQueryHandle<THandle extends object>(
               entry?.wrappedListener ?? listener,
             ]);
           } finally {
-            // The pinned PGlite lifecycle clears every downstream callback
-            // before teardown. Release the one supported local owner too.
+            // PGlite detaches the callback before it can reject, so the
+            // listener is genuinely gone on both the success and failure
+            // paths. Release the one supported local owner to match.
             if (entry?.counted) {
               entry.counted = false;
               recordDatabaseLiveSubscriptionEnded();

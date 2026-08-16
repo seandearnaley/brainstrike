@@ -34,15 +34,28 @@ these seams and their paired tests aligned when a query path moves.
 Folder-wide token-cache preloads record duration and failure with zero lookup and
 hit counts, because they are population reads rather than cache-hit decisions.
 
-The pinned PGlite 0.5.4 live-query implementation marks a handle dead before its
-unsubscribe transaction settles and clears its callback collection during that
-teardown. Scheduler instrumentation therefore supports exactly one listener,
+`createScheduledLiveQueryHandle` OWNS its terminal state; it does not inherit it
+from the raw PGlite handle. The scheduled handle admits exactly one listener,
 releases that local ownership on the first teardown attempt, treats repeated
 unsubscribe as idempotent, and rejects later subscribe or refresh calls on the
-dead handle; a caller that wants to continue must create a fresh live-query
-handle. Do not add same-handle retry or reactivation semantics that the underlying
-dependency cannot honor. The collector latches retention-clock failure per
-instance, logs the first producer failure, stops timer-driven publication, and
+released handle; a caller that wants to continue must create a fresh live-query
+handle. Do not add same-handle retry or reactivation semantics.
+
+The upstream fact that justifies "no retry" is narrower than it once read here,
+and it did NOT change in the 0.5.5 bump (BST-1283): PGlite's `unsubscribe`
+detaches the callback and latches `dead = true` SYNCHRONOUSLY, before it awaits
+the teardown transaction. So a rejected teardown still leaves the listener
+detached and the raw handle permanently dead — upstream itself offers no retry,
+and the wrapper's own `active = false`-before-await mirrors that exactly. What
+0.5.5 DID change is the multi-listener case only: `unsubscribe(cb)` previously
+ran `callbacks.filter((callback) => callback !== callback)`, a shadowed
+parameter that made the predicate always false and so emptied the whole
+collection, terminalizing the handle for every listener. 0.5.5 fixes the shadow
+(`(cb) => cb !== callback`), so a handle with other listeners now stays live.
+Nothing in this repo subscribes twice to one handle, so that fix is inert here.
+
+The collector latches retention-clock failure per instance, logs the first
+producer failure, stops timer-driven publication, and
 publishes a stable explicit failed snapshot to `useSyncExternalStore` reads.
 Imperative `snapshot()` calls still throw the latched error.
 Count buckets use a boundary-inclusive bucket interval: a count can remain for
@@ -397,11 +410,14 @@ extension control file" error on that path only:
 - `pg_trgm` (from `@electric-sql/pglite/contrib/pg_trgm` — powers `brainstrike.grepSearch` trigram prefilter, migration 038)
 - `pg_textsearch` (BM25 index AM, from
   `@electric-sql/pglite-pg_textsearch`) is a fail-closed, version-qualified
-  runtime dependency. The compatible package family is pinned together:
-  `@electric-sql/pglite@0.5.4`,
-  `@electric-sql/pglite-pgvector@0.0.5`, and
-  `@electric-sql/pglite-pg_textsearch@0.0.6`, whose bundled extension reports
-  exactly `pg_textsearch 1.3.1`. Do not independently bump one member — this
+  runtime dependency. The compatible package family is pinned together in ONE
+  place, the `catalog:` block of `pnpm-workspace.yaml`:
+  `@electric-sql/pglite@0.5.5`,
+  `@electric-sql/pglite-pgvector@0.0.6`, and
+  `@electric-sql/pglite-pg_textsearch@0.0.7`, whose bundled extension reports
+  exactly `pg_textsearch 1.3.1`. The literal triple is enforced by
+  `packages/db/__tests__/migration-066-restore-pg-textsearch.test.ts`; keep this
+  paragraph in step with it. Do not independently bump one member — this
   is not just a peerDependency lint warning: BST-1063 verified empirically
   that constructing `new PGlite()` with pglite core 0.5.4 and a held-back
   `pglite-pg_textsearch@0.0.4` (built against core 0.5.3) throws "PGlite
@@ -424,6 +440,19 @@ extension control file" error on that path only:
   `packages/db/src/pg-textsearch-compatibility.ts` for the qualification
   record.
 
+  That 1.3.1 qualification CARRIES FORWARD across the BST-1283 bump to
+  0.5.5/0.0.6/0.0.7 without a re-run, because both extension bumps are pure
+  peer-pin re-releases: unpacking the published tarballs and diffing the inner
+  payloads shows `pg_textsearch.so`, `pg_textsearch.control`, every versioned
+  `.sql`, and the pgvector equivalents are BYTE-IDENTICAL to 0.0.6/0.0.5; the
+  only delta in either package is its own `version` and its exact
+  `@electric-sql/pglite` peer (0.5.4 → 0.5.5). `default_version` stays
+  `1.3.1`, so `QUALIFIED_PG_TEXTSEARCH_VERSION`, `PGLITE_DATA_DIR_VERSION`
+  (`pg18`), and `BUNDLED_PG_MAJOR` (`18`) are all unchanged and no data-dir
+  migration is implied. Re-derive this the same way before assuming it of a
+  FUTURE bump — an extension release that actually rebuilds the binary does
+  need the gate re-run on the terms this section sets out.
+
   **The guard protects greenfield installs only — RESOLVED BY RULING
   (BST-1081, Canceled 2026-08-02): Brainstrike is a greenfield app with no
   existing installs, so greenfield is the entire population.** The structural
@@ -431,8 +460,10 @@ extension control file" error on that path only:
   (never re-runs for an already-migrated database), nothing calls
   `ALTER EXTENSION UPDATE`, and no runtime code compares the catalog's
   extversion against the loaded binary. They simply have nobody to affect —
-  the first public build ships the 0.5.4/1.3.1 family, so every install that
-  will ever exist runs migration 066 under it. Pre-bump DEVELOPMENT databases
+  the first public build ships a 1.3.1 family (0.5.4 when this ruling was
+  written; 0.5.5 since BST-1283 — the same 1.3.1 binary either way), so every
+  install that will ever exist runs migration 066 under it. Pre-bump
+  DEVELOPMENT databases
   are the one exception: they land in the 1.2.0-catalog/1.3.1-binary mixed
   state after upgrading, which is accepted (3/3 clean upgrade-path trials;
   the BM25 index is derived data) — if such a DB misbehaves in search, reset

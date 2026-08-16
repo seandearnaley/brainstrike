@@ -84,11 +84,11 @@ describe('createCspQualifiedEvalWarningFilter', () => {
     {
       code: 'EVAL',
       // Since BST-1063 this is the SHIPPED state, not a hypothetical: the
-      // catalog pins 0.5.4 while the allowlist stays at 0.5.3, so PGlite
-      // EVAL warnings forward (visibly) in every build. Do not "fix" the
-      // noise by adding 0.5.4 to the allowlist without redoing the
-      // BST-573/594 CSP review.
-      id: '../../node_modules/.pnpm/@electric-sql+pglite@0.5.4/node_modules/@electric-sql/pglite/dist/index.js',
+      // catalog pins the current PGlite (0.5.5 since BST-1283) while the
+      // allowlist stays at 0.5.3, so PGlite EVAL warnings forward (visibly)
+      // in every build. Do not "fix" the noise by adding the current version
+      // to the allowlist without redoing the BST-573/594 CSP review.
+      id: '../../node_modules/.pnpm/@electric-sql+pglite@0.5.5/node_modules/@electric-sql/pglite/dist/index.js',
       message: 'A direct eval after an unreviewed dependency upgrade',
     },
     {
