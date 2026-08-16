@@ -598,19 +598,86 @@ both arms on core 1.59.0, only the memory pin changed:
 Two-test repro (`-t "DIRECT-provider observer|VECTOR retrieval"`): on 1.26.0 both
 pass (1155ms + 768ms); on 1.26.2 the first passes and
 `completes an observation cycle with VECTOR retrieval + the real OpenAI embedder
-wiring` never returns. Neither test hangs alone on either version, so this is
-state leaking across observation cycles, and the test's own `30_000` timeout
-never fires — the block is not interruptible by vitest's per-test timer. In CI
-this burns the whole `Unit (rest)` job to its 60-minute cancellation.
+wiring` never returns. The test's own `30_000` timeout never fires — the block is
+not interruptible by vitest's per-test timer. In CI this burns the whole
+`Unit (rest)` job to its 60-minute cancellation.
 
-1.26.2 reworked the OM cycle: every `messageList.get.all.db()` on that path
-became a new `getObservableMessages()` filter, and the documented pipeline went
-from `waitForBuffering → re-check → activate → reflect → blockAfter gate →
-observe` to the same chain WITHOUT the `blockAfter` gate plus a sync fallback.
-That is a lead, not a root cause — it is not instrumented to the exact await.
-(`patchThread` is NOT the cause: core 1.59 implements it as a wrapper that
-delegates to `updateThread`, so this repo's `PgliteMemoryStore` override is
-still reached.) Full evidence: BST-1320.
+#### Root cause: a PGlite `close()` race, NOT an OM state leak
+
+The earlier "state leaks across observation cycles" reading, and the
+`getObservableMessages` / removed-`blockAfter` lead, are **both refuted**. What
+actually happens was instrumented end to end (PGlite statement trace with
+`close()` wrapped, plus a CDP pause + CPU profile of the wedged fork):
+
+1. After a run's stream is consumed, `@mastra/core` fires its agentic-loop
+   workflow-snapshot cleanup (`DELETE FROM mastra_workflow_snapshot WHERE
+   workflow_name = $1 AND run_id = $2`) as **unawaited background work** — the
+   caller gets no join point for it.
+2. The spec's `afterEach` then calls `await database.close()`.
+3. `PGlite.close()` (0.5.4) calls `mod._pgl_setPGliteActive(0)` — deactivating
+   the WASM backend — **before** it awaits the shutdown protocol and `closeFs()`.
+   A statement still in flight at that moment enters `execProtocolRawSync`'s
+   **synchronous** main loop against a dead backend and never returns. Neither
+   the statement nor `close()` ever settles.
+
+Because the wedge is inside synchronous WASM, the event loop is blocked: no
+timer, no per-test timeout, and no unhandled rejection can fire. That is exactly
+why the job runs to the CI cap instead of failing.
+
+Statement trace, 1.26.2 (the DELETE and the `close()` that follows it 5ms later
+both have a `START` and never an `END`):
+
+```
+[…368299] START #356 query: DELETE FROM mastra_workflow_snapshot WHERE …
+[…368304] START #357 close
+```
+
+`@mastra/memory@1.26.2` does not introduce the hang — it **loses the race**. The
+same two tests issue 705 statements on 1.26.2 versus 322 on 1.26.0 (the OM
+observer/reflector does more cycles), which pushes the tail of that background
+traffic past the teardown boundary. On 1.26.0 the same leaked statements land
+*after* `close()` finished and reject cleanly with `Error: PGlite is closed`.
+
+**So 1.26.0 is not safe by construction — it wins a race.** Holding the pin
+restores green CI; it does not remove the hazard, and the same wedge is reachable
+in the app anywhere a PGlite is closed while Mastra background work is in flight
+(shutdown, factory reset).
+
+Mastra-free proof of the mechanism — awaiting the statement before `close()`
+returns in 1ms; starting the same statement and calling `close()` without
+awaiting it hangs both promises forever:
+
+```js
+const db = new PGlite();
+await db.query('CREATE TABLE t (workflow_name TEXT, run_id TEXT)');
+await db.query("INSERT INTO t VALUES ('agentic-loop', 'run-1')");
+
+// The unawaited background statement, exactly as core leaves it after a run.
+const background = db.query('DELETE FROM t WHERE workflow_name = $1 AND run_id = $2', [
+  'agentic-loop',
+  'run-1',
+]);
+
+// await background;   // <- with this line: close() returns in 1ms
+await db.close(); //    <- without it: this promise never settles
+```
+
+Two things ruled OUT, with evidence:
+
+- `patchThread` — core 1.59 implements it as a wrapper that delegates to
+  `updateThread`, so this repo's `PgliteMemoryStore` override is still reached.
+- `error: extension "vector" is not available` (logged by the VECTOR test's OM
+  cycle) — this fires **identically on 1.26.0 and 1.26.2**. It is pre-existing
+  test wiring: the spec's `beforeEach` builds a bare `new PGlite()` with no
+  `vector` extension, so that one test's vector-store init always fails. Worth
+  fixing separately; it is not the hang.
+
+**No clean in-repo fix exists today.** Draining before close needs a join point
+Mastra does not expose; a `SELECT 1` flush or a sleep only narrows the window
+(silent degradation), and a `Promise.race` timeout cannot fire against a blocked
+event loop. The real fixes are upstream — PGlite must reject in-flight
+statements on close instead of wedging, and Mastra must expose a join point for
+post-run background work. Tracked in BST-1320.
 
 **Security framing, stated precisely — do not overstate this cost.** 1.26.2 is
 the only thing that drops `image-size@1.2.1` (`@mastra/memory` is its sole
