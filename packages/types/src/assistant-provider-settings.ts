@@ -20,14 +20,36 @@
  *     `SupportedProvider` brand is available.
  */
 
-export type OpenAiReasoningEffort =
-  | 'none'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max';
+/**
+ * THE reasoning-effort vocabulary, weakest to strongest.
+ *
+ * This is the union's MEMBERSHIP, not an offered list. Nothing here says a
+ * given model accepts every value: what a particular model offers is resolved
+ * per-family by `resolveReasoningControlsAvailability`
+ * (`@brainstrike/assistant-contract/model-reasoning`), and narrowing an offered
+ * list must never be expressed by narrowing this declaration — see the
+ * `ANTHROPIC_REASONING_EFFORTS` ruling in `docs/agents/assistant-providers.md`.
+ * Its only job is to be the single place the values are written down.
+ *
+ * Declared as a value so the one place that needs them at RUNTIME — the Hosted
+ * Web request-boundary `z.enum` in
+ * `apps/web/src/server/web-assistant-runtime-schema.ts` — derives from the same
+ * source as the type it validates. It was previously a fourth hand-copy: a
+ * narrower copy rejects an effort the picker offers, a wider one lets a value
+ * the provider rejects reach the wire, and both fail at runtime against a green
+ * type-check.
+ */
+export const OPENAI_REASONING_EFFORT_VALUES = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const;
+
+export type OpenAiReasoningEffort = (typeof OPENAI_REASONING_EFFORT_VALUES)[number];
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 /**
  * Mirrors the `effort` enum of the installed `@ai-sdk/anthropic` (4.0.39).

@@ -375,6 +375,52 @@
   with no per-model lookup, so widening it would offer efforts a given model
   may reject. Widen only once the registry carries per-model
   `reasoning.supportedEfforts` for Anthropic.
+- The OpenAI-family effort vocabulary has exactly ONE declaration:
+  `OPENAI_REASONING_EFFORT_VALUES` in `@brainstrike/types`
+  (`assistant-provider-settings.ts`), with `OpenAiReasoningEffort` derived from
+  it. `packages/assistant-contract/src/runtime-data.ts` and
+  `packages/agent/src/types.ts` RE-EXPORT it, and the Hosted Web request
+  boundary (`apps/web/src/server/web-assistant-runtime-schema.ts`) builds its
+  `z.enum` from the same const, reached through `@brainstrike/agent/hosted-web`
+  so the enum and the `RuntimeData.requestedReasoningEffort` it guards come from
+  one source. Do NOT re-declare it. The contrast with `AnthropicEffort` is the
+  whole point: that one mirrors a zod schema `@ai-sdk/anthropic` never exports
+  as a value, so its three copies are unavoidable and are policed by
+  `scripts/__tests__/ai-sdk-anthropic-mirror-contract.test.mjs`; nothing
+  upstream forces a copy here, so the copies were deleted instead of a second
+  drift contract being added.
+  The const is union MEMBERSHIP, not an offered list — the
+  `ANTHROPIC_REASONING_EFFORTS` ruling above is unchanged by it. What a given
+  model offers stays in `resolveReasoningControlsAvailability`; never express an
+  offered-list narrowing by narrowing this union.
+  `EFFORT_TRACK_ORDER` in
+  `packages/assistant-ui/src/reasoning-effort-controls.tsx` is deliberately NOT
+  derived from it. It is a cross-provider display ranking typed
+  `readonly string[]` precisely so an unranked value sorts last rather than
+  being dropped from the track.
+- `OpenAiReasoningSummary` and `GoogleThinkingLevel` follow the same rule and
+  for the same reason: declared once in `@brainstrike/types`, re-exported by
+  `packages/assistant-contract/src/runtime-data.ts` and
+  `packages/agent/src/types.ts`. Neither has a values const, deliberately.
+  `OPENAI_SUMMARY_OPTIONS` (`provider-settings-panel.tsx`) is typed
+  `OpenAiReasoningSummary | 'off'` — its `off` entry is a UI sentinel, not a
+  wire value, so the list cannot be derived from the union. Google already has
+  TWO offered lists in the same file as the type —
+  `GOOGLE_FLASH_THINKING_LEVELS` and `GOOGLE_PRO_THINKING_LEVELS`, selected
+  per-model by `getGoogleThinkingLevels` — and a third "all values" const sitting
+  beside them is precisely the offered-vs-membership confusion the
+  `ANTHROPIC_REASONING_EFFORTS` ruling exists to prevent. That
+  `GOOGLE_FLASH_THINKING_LEVELS` happens to list all four levels today is a fact
+  about what the Flash line offers, not a definition of the type.
+- The provider-options INTERFACES (`OpenAiProviderOptions`,
+  `GoogleProviderOptions`, `AnthropicProviderOptions`, `LocalProviderOptions`,
+  `OpenRouterProviderOptions`) are NOT shared between
+  `assistant-contract/runtime-data.ts` and `agent/types.ts`, and that is not
+  oversight: the contract's extend `RuntimeJsonObject` (a wire-side
+  `Record<string, unknown>`) while the agent's extend `JSONObject` from
+  `@ai-sdk/provider`, which is the constraint the SDK actually imposes on
+  `providerOptions`. They are structurally parallel, not the same type. Unify
+  them only by resolving that base-type split first.
 - OpenRouter request options use the native `providerOptions.openrouter`
   namespace. The shared reasoning controls map to
   `{openrouter:{reasoning:{effort,summary},provider:{require_parameters:true}}}`.

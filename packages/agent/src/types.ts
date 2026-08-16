@@ -11,6 +11,12 @@ import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run
 import type { AssistantToolApprovalRequest } from '@brainstrike/assistant-contract/tool-approval';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract/tool-metadata';
 import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contract/tool-suspend';
+import {
+  type GoogleThinkingLevel,
+  OPENAI_REASONING_EFFORT_VALUES,
+  type OpenAiReasoningEffort,
+  type OpenAiReasoningSummary,
+} from '@brainstrike/types';
 import type { AgentMemoryOption, ToolsInput } from '@mastra/core/agent';
 import type { WorkspaceSkills } from '@mastra/core/skills';
 import type { AssistantPermissionPolicyRequest } from './mastra/permission-policy-request';
@@ -268,15 +274,17 @@ export interface RuntimeMemoryContext {
   threadId: string;
 }
 
-export type OpenAiReasoningEffort =
-  | 'none'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max';
-export type OpenAiReasoningSummary = 'auto' | 'detailed';
+/**
+ * Re-exported, never re-declared. This package is the one that actually hands
+ * `providerOptions` to the SDK, so a local copy narrower than the picker's
+ * would drop a selected value on the floor with nothing to catch it.
+ */
+export {
+  type GoogleThinkingLevel,
+  OPENAI_REASONING_EFFORT_VALUES,
+  type OpenAiReasoningEffort,
+  type OpenAiReasoningSummary,
+};
 
 export interface OpenAiProviderOptions extends JSONObject {
   reasoningEffort?: OpenAiReasoningEffort;
@@ -314,8 +322,6 @@ export interface AnthropicProviderOptions extends JSONObject {
   effort?: AnthropicEffort;
   thinking?: AnthropicThinkingOptions;
 }
-
-export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
 
 export interface GoogleProviderOptions extends JSONObject {
   thinkingConfig?: {

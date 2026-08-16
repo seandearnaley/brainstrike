@@ -18,6 +18,12 @@ export {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
+// Sourced from the contract subpath rather than './types' so this entrypoint's
+// './types' edge stays type-only. The Hosted Web request boundary validates
+// `RuntimeData.requestedReasoningEffort` against it, and deriving the wire enum
+// from the same declaration that types the field is the whole point — a
+// hand-listed copy is free to accept more or less than the type admits.
+export { OPENAI_REASONING_EFFORT_VALUES } from '@brainstrike/assistant-contract/runtime-data';
 export type {
   AssistantToolApprovalAction,
   AssistantToolApprovalDecision,

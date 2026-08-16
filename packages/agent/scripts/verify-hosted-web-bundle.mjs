@@ -1,4 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,9 +45,104 @@ const forbiddenBundledSymbols = [
   { label: 'tool-schema display table body', pattern: /\bNATIVE_TOOL_SCHEMAS\b/u },
 ];
 
+/**
+ * Workspace packages the CJS hosted bundles already `require()` even though
+ * they are ESM-only. Each one throws ERR_REQUIRE_ESM under a loader with
+ * `require(ESM)` genuinely disabled, so this list is PRE-EXISTING DEBT that is
+ * recorded here to make it visible — not a set of approved exceptions. It works
+ * today only because Node enables `require(ESM)` by default (>= 22.12). Shrink
+ * it by adding the package to the hosted `noExternal` in `tsup.config.ts`;
+ * never grow it. A new entry means a freshly broken deploy path, which is
+ * exactly what this check exists to stop (BST-1310 review, PR #2476: the
+ * `@brainstrike/types` re-export landed here and nothing caught it).
+ */
+const KNOWN_ESM_ONLY_CJS_REQUIRES = new Set([
+  '@brainstrike/local-runtime',
+  '@brainstrike/logging',
+  '@brainstrike/tokenization',
+  '@brainstrike/utils',
+]);
+
+const requireFromAgent = createRequire(path.join(packageRoot, 'package.json'));
+
+/**
+ * The manifest of a required package.
+ *
+ * Resolved by walking up from the package's ENTRY file rather than by resolving
+ * `<specifier>/package.json`, because a package with an `exports` map need not
+ * expose its own manifest as a subpath — `@brainstrike/types` does not, and an
+ * earlier version of this check resolved that throw into "assume it is fine",
+ * which made the whole comparison pass vacuously on the exact package that
+ * prompted it. Failure to locate a manifest now THROWS: an unreadable package
+ * must fail the build, never quietly count as safe.
+ */
+function readPackageManifest(specifier) {
+  let directory = path.dirname(requireFromAgent.resolve(specifier));
+  while (true) {
+    const candidate = path.join(directory, 'package.json');
+    if (existsSync(candidate)) {
+      const manifest = JSON.parse(readFileSync(candidate, 'utf8'));
+      if (manifest.name === specifier) {
+        return manifest;
+      }
+    }
+    const parent = path.dirname(directory);
+    if (parent === directory) {
+      throw new Error(
+        `verify-hosted-web-bundle could not locate the package manifest for ${specifier}; resolve this rather than skipping the package.`
+      );
+    }
+    directory = parent;
+  }
+}
+
+/**
+ * Whether `require(specifier)` resolves to something Node can actually load as
+ * CommonJS. Read from the resolved manifest rather than assumed: a package is
+ * requireable when it is not `type: module`, or when its `require` condition
+ * points at an explicit `.cjs` file.
+ */
+function isRequireable(specifier) {
+  const manifest = readPackageManifest(specifier);
+  if (manifest.type !== 'module') {
+    return true;
+  }
+  const requireTarget = manifest.exports?.['.']?.require ?? manifest.main;
+  return typeof requireTarget === 'string' && requireTarget.endsWith('.cjs');
+}
+
+/**
+ * The CJS outputs must not `require()` an ESM-only package. tsup emits a bare
+ * `require("<pkg>")` for anything left external, and the Hosted Web functions
+ * are built as CommonJS — so an ESM-only external fails at LOAD time, before a
+ * single request is handled, with a green build and a green type-check.
+ */
+function collectEsmOnlyRequires(source) {
+  // Reduced to the package name: `require("@brainstrike/utils/string-utils")`
+  // and `require("@brainstrike/utils")` are the same package, and it is the
+  // package manifest that decides whether either can be loaded as CommonJS.
+  const packageNames = new Set(
+    [...source.matchAll(/require\(["'](?<specifier>@brainstrike\/[^"']+)["']\)/gu)].map((match) =>
+      match.groups.specifier.split('/').slice(0, 2).join('/')
+    )
+  );
+  return [...packageNames]
+    .filter((packageName) => !isRequireable(packageName))
+    .filter((packageName) => !KNOWN_ESM_ONLY_CJS_REQUIRES.has(packageName))
+    .sort();
+}
+
 for (const relativePath of hostedOutputs) {
   const outputPath = path.join(packageRoot, relativePath);
   const source = await readFile(outputPath, 'utf8');
+  if (relativePath.endsWith('.js')) {
+    const esmOnlyRequires = collectEsmOnlyRequires(source);
+    if (esmOnlyRequires.length > 0) {
+      throw new Error(
+        `${relativePath} requires ESM-only package(s) ${esmOnlyRequires.join(', ')}; the CJS Hosted Web function would throw ERR_REQUIRE_ESM on load. Add them to the hosted \`noExternal\` in tsup.config.ts so they are bundled.`
+      );
+    }
+  }
   for (const forbidden of forbiddenRuntimeImports) {
     if (forbidden.pattern.test(source)) {
       throw new Error(`${relativePath} contains a forbidden ${forbidden.label}.`);
