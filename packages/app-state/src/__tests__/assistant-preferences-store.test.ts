@@ -1057,9 +1057,11 @@ describe('assistant-preferences-store', () => {
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
-    expect(store.enabledModelsByProvider.openrouter).toContain('anthropic/claude-sonnet-4.6');
-    expect(store.enabledModelsByProvider.openrouter).not.toContain('openrouter/claude-3-5-sonnet');
-    expect(store.modelsByProvider.openrouter).toBe('anthropic/claude-sonnet-4.6');
+    expect(store.enabledModelsByProvider['openrouter']).toContain('anthropic/claude-sonnet-4.6');
+    expect(store.enabledModelsByProvider['openrouter']).not.toContain(
+      'openrouter/claude-3-5-sonnet'
+    );
+    expect(store.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.6');
     expect(store.selectedModel).toBe('openrouter::anthropic/claude-sonnet-4.6');
     expect(store.recentModels).toEqual(['openrouter::anthropic/claude-sonnet-4.6']);
   });
