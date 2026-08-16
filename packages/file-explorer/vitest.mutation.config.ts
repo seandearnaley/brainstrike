@@ -17,7 +17,7 @@ export default defineConfig({
     ],
     globals: true,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
-    reporters: 'basic',
+    reporters: [['default', { summary: false }]],
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     silent: true,
   },

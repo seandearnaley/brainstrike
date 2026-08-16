@@ -1,4 +1,5 @@
 // @ts-check
+/** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */
 const config = {
   checkers: ['typescript'],
   concurrency: 2,
@@ -30,4 +31,4 @@ const config = {
   },
 };
 
-module.exports = config;
+export default config;
