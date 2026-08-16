@@ -485,6 +485,23 @@ describe('resolveValidatedPath', () => {
     }
   });
 
+  it.skipIf(isWin32)(
+    'preserves a rootless symlink path when missing paths are allowed',
+    async () => {
+      const targetPath = path.join(tempDir, 'target');
+      const symlinkPath = path.join(tempDir, 'link');
+      await fsPromises.mkdir(targetPath);
+      await fsPromises.symlink(targetPath, symlinkPath);
+
+      const result = await resolveValidatedPath({
+        allowMissing: true,
+        requestedPath: symlinkPath,
+      });
+
+      expect(result).toEqual({ ok: true, path: symlinkPath });
+    }
+  );
+
   it('falls back to fallbackPath when requestedPath is a non-string type', async () => {
     // number
     const resultNum = await resolveValidatedPath({
