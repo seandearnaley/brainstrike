@@ -106,9 +106,31 @@ function createLiveId(): string {
  * that fails to unsubscribe must not leave the rest subscribed.
  */
 async function unsubscribeAllLiveQueries(): Promise<void> {
-  const records = [...liveQueries.values()];
+  const entries = [...liveQueries.entries()];
   liveQueries.clear();
-  await Promise.allSettled(records.map((record) => record.handle.unsubscribe(record.listener)));
+  const results = await Promise.allSettled(
+    entries.map(([, record]) => record.handle.unsubscribe(record.listener))
+  );
+  for (const [index, result] of results.entries()) {
+    if (result.status !== 'rejected') {
+      continue;
+    }
+    const rawMessage =
+      result.reason instanceof Error ? result.reason.message : String(result.reason ?? '');
+    // Same carve-out as db-ipc's cleanupLiveSubscription: an already-closed
+    // PGlite is the benign losing-the-race arm, not a drain failure.
+    if (rawMessage.toLowerCase().includes('pglite is closed')) {
+      continue;
+    }
+    // Warn, don't throw: close/reset must still proceed (blocking them keeps
+    // the wedge risk AND leaves the database open), but a failed unsubscribe
+    // means the drain guarantee did not hold for this handle — say so loudly
+    // instead of letting allSettled swallow it (NO SILENT FALLBACKS).
+    postLog('warn', 'Live query unsubscribe failed during close/reset drain', {
+      error: rawMessage,
+      liveId: entries[index]?.[0],
+    });
+  }
 }
 
 function serializeError(error: unknown): DbHostSerializedError {

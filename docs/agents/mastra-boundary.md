@@ -656,21 +656,27 @@ traffic past the teardown boundary. On 1.26.0 the same leaked statements land
 **So 1.26.0 is not safe by construction — it wins a race.** Holding the pin
 restores green CI; it does not remove the hazard.
 
-**App reachability — MEASURED by code-reading audit (2026-08-16, BST-1329/BST-1330).**
-The wedge needs DB work in flight at the moment a PGlite `close()` runs.
-Verdicts, with the evidence in the BST-1329/BST-1330 tickets:
+**App reachability — AUDITED by code reading (2026-08-16, BST-1329/BST-1330); not
+instrumented.** The wedge needs DB work in flight at the moment a PGlite
+`close()` runs. Verdicts, with the evidence in the BST-1329/BST-1330 tickets —
+a stronger inference than the earlier "plausible, unverified", but still
+inference: nobody has instrumented desktop shutdown or factory reset.
 
-- **Desktop shutdown and factory reset are structurally SAFE.** PGlite lives
-  only in the DB-host utility process; every statement is a serially
-  dispatched envelope (`db-host-entry.ts` runs exactly one request at a time)
-  and `close()` executes only as the `'close'` envelope — a Mastra background
-  statement and the in-host `close()` cannot overlap by construction. On top,
-  `DbHostManager.close()` kills the host after a 2s ack race, so even an
-  in-host wedge is bounded: the main-process event loop is never blocked and
-  the 60-minute CI wedge cannot recur through desktop app paths. The one
-  in-host non-envelope statement issuer (the live extension's internal
-  refreshes) is drained by BST-1330's awaited live-unsubscribe in the
-  `'close'`/`'reset'` handlers.
+- **Desktop shutdown and factory reset: structurally safe, conditional on one
+  invariant.** PGlite lives only in the DB-host utility process; every
+  statement is a serially dispatched envelope (`db-host-entry.ts` runs exactly
+  one request at a time) and `close()` executes only as the `'close'`
+  envelope — a Mastra background statement and the in-host `close()` cannot
+  overlap **as long as that dispatch stays strictly serial**; that seriality
+  is the invariant this verdict rests on. Independently, `DbHostManager.close()`
+  kills the host after a 2s ack race, so an in-host wedge is bounded — the
+  main-process event loop is never blocked, which is the proven bound (the
+  60-minute CI-shaped wedge would need that kill path to fail too). Note
+  `close`/`reset` are *control* requests dispatched even while a transaction
+  is open. The one in-host non-envelope statement issuer (the live
+  extension's internal refreshes) is drained by BST-1330's awaited
+  live-unsubscribe in the `'close'`/`'reset'` handlers, which warns on any
+  handle that fails to unsubscribe.
 - **The web direct path is where the class is reachable**: web factory reset
   closes with no scheduler join, no submission barrier, and live handles still
   subscribed (its own purge DELETEs trigger refreshes racing `close()`), plus

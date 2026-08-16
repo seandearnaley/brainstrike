@@ -557,9 +557,15 @@ Any close path must therefore drain in-flight work first. This is not
 theoretical: it wedged a CI job to its 60-minute cancellation cap (BST-1320,
 diagnosis and the Mastra-free repro in `docs/agents/mastra-boundary.md`;
 upstream [electric-sql/pglite#1084](https://github.com/electric-sql/pglite/issues/1084)).
-Whether the app's own close paths (shutdown, factory reset) can hit it is
-**inferred, not measured** — they are the paths that close a PGlite, but no
-app-path repro has been taken.
+App-path reachability was **audited by code reading (2026-08-16,
+BST-1329/BST-1330; not instrumented)**: desktop shutdown/factory reset cannot
+hit it as an event-loop wedge — every statement reaching the DB-host utility
+process is a serially dispatched envelope and `close()` runs only as the
+`'close'` envelope, so overlap is impossible *as long as `db-host-entry.ts`
+stays strictly serial*, and `DbHostManager` caps any in-host wedge at its 2s
+ack-race kill. The `'close'`/`'reset'` handlers drain live-query handles first
+(BST-1330). The reachable exposure is the **web direct path** — web factory
+reset and the DbProvider prod-unmount close, tracked as **BST-1329**.
 
 ### The test snapshot `globalSetup` lives on ONE project — do not hoist it
 
