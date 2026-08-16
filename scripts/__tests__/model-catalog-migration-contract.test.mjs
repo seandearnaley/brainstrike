@@ -59,13 +59,13 @@ describe('model catalog migration contract', () => {
     );
     assert.match(
       databaseContract,
-      /complete, platform-appropriate profile clone[\s\S]*PGlite store and persisted JSON storage[\s\S]*if a verified clone is unavailable, stop/,
-      'the runbook must require a verified local-first profile clone and fail closed without one'
+      /On desktop, capture both `Documents\/BrainStrike\[-dev\]\/profiles\/<profile>\/pgdata`[\s\S]*Chromium renderer `localStorage` and `electron-storage\.json`[\s\S]*On web, capture the origin's PGlite IndexedDB store and `localStorage`[\s\S]*if any required store or a verified restore is unavailable, stop/,
+      'the runbook must enumerate every platform-specific store and fail closed without a verified restore'
     );
     assert.match(
       databaseContract,
-      /Query PGlite tables such as `models`, `brainstrike_assistant_thread_runs\.model`, and `brainstrike_assistant_run_usage\.model`[\s\S]*persisted JSON keys `assistant-preferences\.v1` and `assistant-memory-preferences\.v1`/,
-      'the runbook must inventory SQL model references separately from persisted JSON stores'
+      /Query PGlite tables such as `models`, `brainstrike_assistant_thread_runs\.model`, and `brainstrike_assistant_run_usage\.model`[\s\S]*`assistant-preferences\.v1` in renderer `window\.localStorage` on desktop and web[\s\S]*`assistant-memory-preferences\.v1` through the Electron storage bridge \(`electron-storage\.json`\) on desktop or browser `localStorage` on web/,
+      'the runbook must map SQL and each persisted JSON key to its actual platform storage'
     );
     assert.match(
       databaseContract,
