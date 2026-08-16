@@ -329,12 +329,17 @@
   replayed tool-call-only assistant turn reaches the wire as `content: null`,
   which Alibaba-hosted `qwen/*` models 400 on
   (`invalid_parameter_error: The content field is a required field.`,
-  field failure 2026-08-16). The gateway resolves the same
-  `@openrouter/ai-sdk-provider` version Mastra bundles (pinned in the workspace
-  catalog) with a fetch that coerces `null` → `""` for strict model families
-  ONLY — a blanket rewrite is unsafe because OpenRouter re-normalizes messages
-  for Anthropic-style upstreams where an empty text block is itself invalid.
-  Paired spec: `packages/agent/src/__tests__/openrouter-strict-content.spec.ts`.
+  field failure 2026-08-16). The gateway CLAIMS only strict-content model
+  families (`qwen/*`) — every other OpenRouter model still resolves through
+  Mastra's own models.dev gateway untouched — and resolves them via the same
+  `@openrouter/ai-sdk-provider` version Mastra bundles (workspace-catalog pin,
+  guarded against vendored-copy drift by
+  `scripts/__tests__/openrouter-provider-mirror-contract.test.mjs`) with a
+  fetch that coerces `null` → `""`. A blanket rewrite is unsafe because
+  OpenRouter re-normalizes messages for Anthropic-style upstreams where an
+  empty text block is itself invalid. Paired spec (incl. a request-equivalence
+  test against the models.dev path):
+  `packages/agent/src/__tests__/openrouter-strict-content.spec.ts`.
   Retire the gateway when the upstream converter stops emitting `null`. The
   official OpenRouter adapter preserves `providerMetadata.openrouter.usage.cost`;
   that exact billed amount is aggregated across `step-finish` parts and carried

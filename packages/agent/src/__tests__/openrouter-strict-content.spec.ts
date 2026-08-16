@@ -100,14 +100,7 @@ const TOOL_CALL_ONLY_HISTORY: LanguageModelV2Prompt = [
   { content: [{ text: 'and now?', type: 'text' }], role: 'user' },
 ];
 
-async function streamThroughRouter(modelName: string): Promise<void> {
-  const config = createProvider('openrouter', 'test-key', modelName);
-  const model =
-    typeof config === 'object' && config !== null && 'doStream' in config
-      ? (config as ModelRouterLanguageModel)
-      : new ModelRouterLanguageModel(
-          config as ConstructorParameters<typeof ModelRouterLanguageModel>[0]
-        );
+async function drainDoStream(model: ModelRouterLanguageModel): Promise<void> {
   const { stream } = await model.doStream({
     prompt: TOOL_CALL_ONLY_HISTORY,
   } as LanguageModelV2CallOptions);
@@ -115,6 +108,25 @@ async function streamThroughRouter(modelName: string): Promise<void> {
   while (!(await reader.read()).done) {
     // drain so the fake SSE response is fully consumed
   }
+}
+
+async function streamThroughRouter(modelName: string): Promise<void> {
+  const config = createProvider('openrouter', 'test-key', modelName);
+  expect(config).toBeInstanceOf(ModelRouterLanguageModel);
+  await drainDoStream(config as ModelRouterLanguageModel);
+}
+
+/**
+ * The pre-change resolution path: a bare descriptor materialized with NO
+ * custom gateways, i.e. Mastra's own models.dev gateway construction. The
+ * equivalence test uses it as the reference request shape.
+ */
+async function streamThroughMastraOwnGateway(modelName: string): Promise<void> {
+  const model = new ModelRouterLanguageModel({
+    apiKey: 'test-key',
+    id: `openrouter/${modelName}`,
+  });
+  await drainDoStream(model);
 }
 
 afterEach(() => {
@@ -204,10 +216,13 @@ describe('createOpenRouterStrictContentFetch', () => {
 });
 
 describe('OpenRouterStrictContentGateway', () => {
-  it('claims openrouter router ids and nothing else', () => {
+  it('claims only strict-content openrouter router ids', () => {
     const gateway = new OpenRouterStrictContentGateway();
     expect(gateway.handlesModel('openrouter/qwen/qwen3.8-max')).toBe(true);
-    expect(gateway.handlesModel('openrouter/z-ai/glm-5.2')).toBe(true);
+    expect(gateway.handlesModel('openrouter/qwen/qwen3-coder')).toBe(true);
+    // Non-strict OpenRouter models stay on Mastra's own models.dev gateway.
+    expect(gateway.handlesModel('openrouter/z-ai/glm-5.2')).toBe(false);
+    expect(gateway.handlesModel('openrouter/anthropic/claude-sonnet-5')).toBe(false);
     expect(gateway.handlesModel('anthropic/claude-sonnet-5')).toBe(false);
   });
 
@@ -240,13 +255,21 @@ describe('OpenRouterStrictContentGateway', () => {
 });
 
 describe('createProvider openrouter wiring', () => {
-  it('routes openrouter models through the strict-content gateway', () => {
+  it('routes strict-content openrouter models through the compat gateway', () => {
     const model = createProvider('openrouter', 'test-key', 'qwen/qwen3.8-max');
     expect(model).toBeInstanceOf(ModelRouterLanguageModel);
     const router = model as ModelRouterLanguageModel;
     expect(router.provider).toBe('openrouter');
     expect(router.modelId).toBe('qwen/qwen3.8-max');
     expect(router.gatewayId).toBe(new OpenRouterStrictContentGateway().id);
+  });
+
+  it('leaves non-strict openrouter models on Mastra own gateway', () => {
+    const model = createProvider('openrouter', 'test-key', 'z-ai/glm-5.2');
+    expect(model).toBeInstanceOf(ModelRouterLanguageModel);
+    const router = model as ModelRouterLanguageModel;
+    expect(router.gatewayId).toBe('models.dev');
+    expect(router.modelId).toBe('z-ai/glm-5.2');
   });
 
   it('serializes replayed tool-call-only assistant turns with string content for qwen', async () => {
@@ -278,5 +301,35 @@ describe('createProvider openrouter wiring', () => {
     const toolCallTurn = body.messages.find((message) => Array.isArray(message['tool_calls']));
     expect(toolCallTurn).toBeDefined();
     expect(toolCallTurn?.['content']).toBeNull();
+  });
+
+  it('produces a request identical to Mastra own gateway except the coerced content', async () => {
+    // The negative assertion the resolution swap needs: everything the app
+    // depends on downstream (stream_options, usage accounting fields, tool
+    // serialization) must survive unchanged. Capture the SAME prompt through
+    // Mastra's own models.dev construction and through the compat gateway,
+    // then require the bodies to be equal once the coercion is applied to
+    // the reference.
+    const captures: CapturedRequest[] = [];
+    vi.stubGlobal('fetch', makeCapturingFetch(captures));
+
+    await streamThroughMastraOwnGateway('qwen/qwen3.8-max');
+    await streamThroughRouter('qwen/qwen3.8-max');
+
+    expect(captures).toHaveLength(2);
+    const [reference, compat] = captures.map((captured) => jsonBody(captured));
+    expect(reference).toBeDefined();
+    expect(compat).toBeDefined();
+    const coercedReference = {
+      ...reference,
+      messages: reference?.messages.map((message) =>
+        message['role'] === 'assistant' && message['content'] === null
+          ? { ...message, content: '' }
+          : message
+      ),
+    };
+    expect(compat).toEqual(coercedReference);
+    // and both hit the same endpoint
+    expect(captures[1]?.url).toBe(captures[0]?.url);
   });
 });

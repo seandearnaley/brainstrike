@@ -97,22 +97,31 @@ export function createOpenRouterStrictContentFetch(baseFetch?: typeof fetch): ty
 }
 
 /**
- * Custom Mastra model-router gateway claiming `openrouter/*` router ids.
+ * Custom Mastra model-router gateway claiming ONLY the `openrouter/*` router
+ * ids whose model family needs the strict-content coercion (`qwen/*`). Every
+ * other OpenRouter model falls through to Mastra's own models.dev gateway
+ * untouched, so this PR-sized blast radius is exactly the models that 400
+ * without it.
  *
  * Resolution parity with the built-in models.dev gateway is deliberate:
- * same provider package + version, same base URL (`OPENROUTER_BASE_URL`
- * env override honored), same `OPENROUTER_API_KEY` env fallback wording —
- * the only delta is the strict-content fetch. Everything else the router
- * does (explicit-credential precedence, sampling-param stripping keyed by
- * router id, instance model caching) is unchanged because the router class
- * itself is unchanged.
+ * same provider package + version (guarded by
+ * `scripts/__tests__/openrouter-provider-mirror-contract.test.mjs`), same
+ * base URL (`OPENROUTER_BASE_URL` env override honored), same
+ * `OPENROUTER_API_KEY` env fallback wording — the only delta is the
+ * strict-content fetch, pinned by the request-equivalence spec. Everything
+ * else the router does (explicit-credential precedence, sampling-param
+ * stripping keyed by router id) is unchanged because the router class itself
+ * is unchanged.
  */
 export class OpenRouterStrictContentGateway implements MastraModelGatewayInterface {
   readonly id = 'brainstrike-openrouter';
   readonly name = 'Brainstrike OpenRouter strict-content gateway';
 
   handlesModel(modelId: string): boolean {
-    return modelId.startsWith(OPENROUTER_ROUTER_PREFIX);
+    if (!modelId.startsWith(OPENROUTER_ROUTER_PREFIX)) {
+      return false;
+    }
+    return openRouterModelRequiresStringContent(modelId.slice(OPENROUTER_ROUTER_PREFIX.length));
   }
 
   fetchProviders(): Promise<Record<string, ProviderConfig>> {

@@ -33,8 +33,9 @@ export type LocalLanguageModelFactory = (
 
 let localLanguageModelFactory: LocalLanguageModelFactory | undefined;
 
-// One shared gateway instance so the router's per-gateway model cache is
-// reused across the per-request model constructions.
+// Stateless singleton; explicit-key routers use their per-instance model
+// cache (fresh per createProvider call), so sharing this instance is for
+// tidiness, not cache reuse.
 const openRouterStrictContentGateway = new OpenRouterStrictContentGateway();
 
 export type ConcreteLanguageModel = Exclude<MastraModelConfig, string | OpenAICompatibleConfig>;
