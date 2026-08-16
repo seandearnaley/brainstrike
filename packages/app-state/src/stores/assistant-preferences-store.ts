@@ -414,7 +414,7 @@ function pushRecentModel(recents: readonly string[], compositeKey: string): stri
   return next.slice(0, RECENT_MODELS_MAX);
 }
 
-const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
+export const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
   anthropic: {
     'claude-3-5-haiku-20241022': 'claude-haiku-4-5',
     'claude-3-5-haiku-latest': 'claude-haiku-4-5',

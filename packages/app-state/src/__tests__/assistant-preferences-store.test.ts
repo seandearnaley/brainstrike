@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
 import {
   __resetAssistantPreferencesStoreForTests,
+  MODEL_ID_MIGRATIONS,
   useAssistantPreferencesStore,
 } from '../stores/assistant-preferences-store';
 import {
@@ -1029,6 +1030,21 @@ describe('assistant-preferences-store', () => {
     expect(store.enabledModelsByProvider['google']).toContain('gemini-2.5-flash');
     expect(store.enabledModelsByProvider['google']).toContain('gemini-3.5-flash');
     expect(store.enabledModelsByProvider['google']).not.toContain('gemini-3-flash-preview');
+  });
+
+  it('keeps every model migration target live and terminal', () => {
+    for (const provider of Object.keys(MODEL_ID_MIGRATIONS) as SupportedProvider[]) {
+      const migrations = MODEL_ID_MIGRATIONS[provider];
+      for (const [source, target] of Object.entries(migrations)) {
+        expect(
+          PROVIDER_MODELS[provider],
+          `${provider}:${source} target must remain live`
+        ).toContain(target);
+        expect(migrations, `${provider}:${source} target must be terminal`).not.toHaveProperty(
+          target
+        );
+      }
+    }
   });
 
   it('remaps the retired OpenRouter Claude 3.5 Sonnet route', async () => {
