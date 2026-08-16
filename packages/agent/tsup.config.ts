@@ -57,6 +57,13 @@ export default defineConfig((_options) => [
     // Vercel builds these functions as CommonJS and disables require(ESM).
     // Bundle the browser-safe contract into the Hosted Web entries so the
     // emitted function never crosses that incompatible package boundary.
-    noExternal: [assistantContractExternal],
+    //
+    // `@brainstrike/types` is inlined for the same reason and must stay that
+    // way. It is ESM-only (`type: module`, no `require` condition), so leaving
+    // it external emits `require("@brainstrike/types")` into the CJS output and
+    // that throws ERR_REQUIRE_ESM the moment the function loads — before any
+    // request is served. It is externalized for every OTHER entry via
+    // `sharedExternal`; this override is deliberately hosted-only.
+    noExternal: [assistantContractExternal, '@brainstrike/types'],
   },
 ]);
