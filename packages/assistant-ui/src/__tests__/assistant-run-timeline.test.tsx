@@ -1,4 +1,8 @@
-import { ASSISTANT_RUN_EVENT_DATA_NAME } from '@brainstrike/assistant-contract';
+import type { AssistantRunEventKind } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_RUN_EVENT_DATA_NAME,
+  ASSISTANT_RUN_EVENT_KINDS,
+} from '@brainstrike/assistant-contract';
 import { UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND } from '@brainstrike/assistant-contract/tool-suspend';
 import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -6,6 +10,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import {
   deriveAssistantRunEventRows,
   getMatchingCompletedKind,
+  getMatchingFailedKind,
   isAlwaysVisibleRunEvent,
   resolveAssistantRunEventRenderPlan,
   resolveAssistantRunEventStatus,
@@ -204,6 +209,81 @@ describe('getMatchingCompletedKind', () => {
   });
 });
 
+describe('run-event terminal pairing contract', () => {
+  const STARTED_KINDS = ASSISTANT_RUN_EVENT_KINDS.filter((kind) => kind.endsWith('.started'));
+  const declares = (kind: string): kind is AssistantRunEventKind =>
+    (ASSISTANT_RUN_EVENT_KINDS as readonly string[]).includes(kind);
+  const stemOf = (kind: string) => kind.slice(0, -'.started'.length);
+
+  // The pairing the helpers MUST produce, written out so a rename on either
+  // side (contract kind or helper) fails here instead of drifting silently.
+  // `subagent.started` is the case that regressed: its terminals are
+  // `.finished`/`.failed`, never the `.completed` a suffix rewrite invents.
+  const PAIRINGS = [
+    ['memory.observation.started', 'memory.observation.completed', 'memory.observation.failed'],
+    ['memory.reflection.started', 'memory.reflection.completed', null],
+    ['memory.semantic.started', 'memory.semantic.completed', null],
+    ['run.started', 'run.finished', 'run.failed'],
+    ['run.step.started', 'run.step.finished', null],
+    ['subagent.started', 'subagent.finished', 'subagent.failed'],
+    ['subagent.tool.started', 'subagent.tool.completed', 'subagent.tool.failed'],
+    ['tool.started', 'tool.completed', 'tool.failed'],
+  ] as const;
+
+  it('tables exactly the .started kinds the contract declares', () => {
+    // Exhaustive, not a floor: a new declared `.started` kind fails HERE with
+    // "add me to the table" rather than being covered only by the generic
+    // loops below, which would let the table quietly stop being the full map
+    // it advertises. Also catches a silently narrowed STARTED_KINDS filter.
+    expect([...STARTED_KINDS].sort()).toEqual(PAIRINGS.map(([started]) => started).sort());
+  });
+
+  it.each(PAIRINGS)('pairs %s with %s / %s', (started, completed, failed) => {
+    expect(getMatchingCompletedKind(started)).toBe(completed);
+    expect(getMatchingFailedKind(started)).toBe(failed);
+  });
+
+  it('never pairs a .started kind with a terminal the contract does not declare', () => {
+    for (const started of STARTED_KINDS) {
+      const completed = getMatchingCompletedKind(started);
+      const failed = getMatchingFailedKind(started);
+      // A success terminal is mandatory: without one, a running row can only be
+      // closed by the generic end-of-run fallbacks (or, when the failure
+      // pairing is also absent, not at all — it spins for the whole run).
+      expect(completed).not.toBeNull();
+      expect(declares(completed as string)).toBe(true);
+      if (failed !== null) {
+        expect(declares(failed)).toBe(true);
+      }
+    }
+  });
+
+  it('pairs a failure terminal exactly when the contract declares one', () => {
+    for (const started of STARTED_KINDS) {
+      expect(getMatchingFailedKind(started) === null).toBe(!declares(`${stemOf(started)}.failed`));
+    }
+  });
+
+  it('leaves no .started kind with an ambiguous success terminal', () => {
+    // Both spellings are tried, so a namespace declaring `.completed` AND
+    // `.finished` would make the lookup order load-bearing. None may.
+    for (const started of STARTED_KINDS) {
+      const stem = stemOf(started);
+      expect([declares(`${stem}.completed`), declares(`${stem}.finished`)]).not.toEqual([
+        true,
+        true,
+      ]);
+    }
+  });
+
+  it('returns null for kinds that are not .started', () => {
+    for (const kind of ASSISTANT_RUN_EVENT_KINDS.filter((k) => !k.endsWith('.started'))) {
+      expect(getMatchingCompletedKind(kind)).toBeNull();
+      expect(getMatchingFailedKind(kind)).toBeNull();
+    }
+  });
+});
+
 describe('isAlwaysVisibleRunEvent', () => {
   const ts = '2026-06-16T10:00:00.000Z';
   const event = (kind: string, status: string) => ({
@@ -288,6 +368,192 @@ describe('resolveAssistantRunEventStatus', () => {
       { parts: [runEventPart(started), runEventPart(rejected)], role: 'assistant' },
     ];
     expect(resolveAssistantRunEventStatus(messages, started as never)).toBe('running');
+  });
+
+  it.each([
+    ['subagent.finished', 'completed'],
+    ['subagent.failed', 'failed'],
+  ])('resolves subagent.started from its own %s terminal', (terminalKind, expected) => {
+    // These rows are hidden from the timeline today (they render inside the
+    // SubagentExecutionCard), so this pins the pairing itself rather than a
+    // visible change: before the fix `subagent.started` paired with the
+    // undeclared `subagent.completed` and could only resolve at end of run.
+    const started = {
+      id: 'sa1',
+      kind: 'subagent.started',
+      label: 'Subagent started',
+      metadata: { parentToolCallId: 'delegation-1', personaId: 'explore' },
+      runId: 'run-1',
+      status: 'running',
+      timestamp: '2026-06-05T00:00:00.000Z',
+    };
+    const terminal = {
+      id: 'sa2',
+      kind: terminalKind,
+      label: 'Subagent terminal',
+      metadata: { parentToolCallId: 'delegation-1', personaId: 'explore' },
+      runId: 'run-1',
+      status: expected,
+      timestamp: '2026-06-05T00:00:01.000Z',
+    };
+    // `run.finished` last: reaching it instead of the subagent terminal is the
+    // exact fallback the broken pairing was silently relying on.
+    const runFinished = {
+      id: 'sa3',
+      kind: 'run.finished',
+      label: 'Done',
+      runId: 'run-1',
+      status: 'completed',
+      timestamp: '2026-06-05T00:00:02.000Z',
+    };
+    const messages = [
+      {
+        parts: [runEventPart(started), runEventPart(terminal), runEventPart(runFinished)],
+        role: 'assistant',
+      },
+    ];
+
+    expect(resolveAssistantRunEventStatus(messages, started as never)).toBe(expected);
+    expect(deriveAssistantRunEventRows(messages).statuses[started.id]).toBe(expected);
+    // Unchanged either way: subagent rows never render in the main timeline.
+    expect(resolveAssistantRunEventRenderPlan(messages, started).hidden).toBe(true);
+    expect(deriveAssistantRunEventRows(messages).renderPlanKeys[started.id]).toBe('hidden');
+  });
+
+  it('never lets one delegation terminal close another delegation row', () => {
+    // MAX_CONCURRENT_DELEGATIONS is 2, so two `subagent.started` rows are open
+    // at once in one run. Subagent lifecycle events carry `parentToolCallId`
+    // and NO `toolCallId` of their own, so the pairing must scope on
+    // `parentToolCallId`. Delegation B's terminal deliberately lands FIRST:
+    // unscoped, it would close A's row too and report B's outcome on it.
+    const startedA = {
+      id: 'a1',
+      kind: 'subagent.started',
+      label: 'Subagent started',
+      metadata: { parentToolCallId: 'delegation-a', personaId: 'explore' },
+      runId: 'run-1',
+      status: 'running',
+      timestamp: '2026-06-05T00:00:00.000Z',
+    };
+    const startedB = { ...startedA, id: 'b1' };
+    startedB.metadata = { parentToolCallId: 'delegation-b', personaId: 'plan' };
+    const finishedB = {
+      id: 'b2',
+      kind: 'subagent.finished',
+      label: 'Subagent completed',
+      metadata: { parentToolCallId: 'delegation-b', personaId: 'plan' },
+      runId: 'run-1',
+      status: 'completed',
+      timestamp: '2026-06-05T00:00:01.000Z',
+    };
+    const failedA = {
+      id: 'a2',
+      kind: 'subagent.failed',
+      label: 'Subagent failed',
+      metadata: { parentToolCallId: 'delegation-a', personaId: 'explore' },
+      runId: 'run-1',
+      status: 'failed',
+      timestamp: '2026-06-05T00:00:02.000Z',
+    };
+    const messages = [
+      {
+        parts: [startedA, startedB, finishedB, failedA].map(runEventPart),
+        role: 'assistant',
+      },
+    ];
+    const rows = deriveAssistantRunEventRows(messages);
+
+    expect(resolveAssistantRunEventStatus(messages, startedA as never)).toBe('failed');
+    expect(resolveAssistantRunEventStatus(messages, startedB as never)).toBe('completed');
+    expect(rows.statuses[startedA.id]).toBe('failed');
+    expect(rows.statuses[startedB.id]).toBe('completed');
+  });
+
+  it('scopes nested subagent.tool rows by their own child toolCallId', () => {
+    // Same hazard one level down: two child tool calls inside ONE delegation,
+    // scoped by the child `toolCallId` that mapDelegationToolOutput puts on
+    // both the started and terminal chunks.
+    const parent = { parentToolCallId: 'delegation-a', personaId: 'explore' };
+    const startedOne = {
+      id: 'c1',
+      kind: 'subagent.tool.started',
+      label: 'Subagent tool started',
+      metadata: { ...parent, toolCallId: 'child-1' },
+      runId: 'run-1',
+      status: 'running',
+      timestamp: '2026-06-05T00:00:00.000Z',
+    };
+    const startedTwo = {
+      ...startedOne,
+      id: 'c2',
+      metadata: { ...parent, toolCallId: 'child-2' },
+    };
+    const failedTwo = {
+      id: 'c3',
+      kind: 'subagent.tool.failed',
+      label: 'Subagent tool failed',
+      metadata: { ...parent, toolCallId: 'child-2' },
+      runId: 'run-1',
+      status: 'failed',
+      timestamp: '2026-06-05T00:00:01.000Z',
+    };
+    const completedOne = {
+      id: 'c4',
+      kind: 'subagent.tool.completed',
+      label: 'Subagent tool completed',
+      metadata: { ...parent, toolCallId: 'child-1' },
+      runId: 'run-1',
+      status: 'completed',
+      timestamp: '2026-06-05T00:00:02.000Z',
+    };
+    const messages = [
+      {
+        parts: [startedOne, startedTwo, failedTwo, completedOne].map(runEventPart),
+        role: 'assistant',
+      },
+    ];
+    const rows = deriveAssistantRunEventRows(messages);
+
+    expect(resolveAssistantRunEventStatus(messages, startedOne as never)).toBe('completed');
+    expect(resolveAssistantRunEventStatus(messages, startedTwo as never)).toBe('failed');
+    expect(rows.statuses[startedOne.id]).toBe('completed');
+    expect(rows.statuses[startedTwo.id]).toBe('failed');
+  });
+
+  it('preserves the CANCELLED status of an aborted delegation terminal', () => {
+    // TWO producers emit `subagent.failed` carrying status 'cancelled', and
+    // neither means a hard failure:
+    //   - `makeCancelledDelegationRunEventChunks` — every delegation still in
+    //     flight when the parent run aborts;
+    //   - `makeSubagentLifecycleChunk`'s `tool-output-denied` leg (BST-1282) —
+    //     the user declined the delegation at its approval gate. Its comment
+    //     is explicit: "'cancelled', not 'failed': nothing broke, the user
+    //     chose."
+    // Resolution takes the terminal's OWN status, so both stay 'cancelled'.
+    // No `run.cancelled` in this fixture on purpose: the subagent terminal
+    // alone must carry it.
+    const started = {
+      id: 'x1',
+      kind: 'subagent.started',
+      label: 'Subagent started',
+      metadata: { parentToolCallId: 'delegation-a', personaId: 'explore' },
+      runId: 'run-1',
+      status: 'running',
+      timestamp: '2026-06-05T00:00:00.000Z',
+    };
+    const cancelled = {
+      id: 'x2',
+      kind: 'subagent.failed',
+      label: 'Subagent cancelled',
+      metadata: { parentToolCallId: 'delegation-a', personaId: 'explore' },
+      runId: 'run-1',
+      status: 'cancelled',
+      timestamp: '2026-06-05T00:00:01.000Z',
+    };
+    const messages = [{ parts: [started, cancelled].map(runEventPart), role: 'assistant' }];
+
+    expect(resolveAssistantRunEventStatus(messages, started as never)).toBe('cancelled');
+    expect(deriveAssistantRunEventRows(messages).statuses[started.id]).toBe('cancelled');
   });
 });
 
