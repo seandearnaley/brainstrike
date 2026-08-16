@@ -567,6 +567,49 @@ ack-race kill. The `'close'`/`'reset'` handlers drain live-query handles first
 (BST-1330). The reachable exposure is the **web direct path** — web factory
 reset and the DbProvider prod-unmount close, tracked as **BST-1329**.
 
+Drains mean **canonical join points only** — sleeps, `SELECT 1` flushes, and
+`Promise.race` timeouts are rejected (a narrowed window is silent degradation,
+and no timer can fire against the blocked event loop anyway). The sanctioned
+seams, per surface:
+
+- **Desktop (main process / DB host):** the reset barrier + scheduler idle
+  join in `apps/desktop/src/platform/desktop-database-work.ts` (the idle join
+  delegates to the shared `waitForDatabaseWorkSchedulerIdle` below), the
+  awaited live-subscription cleanup in
+  `apps/desktop/src/ipc-domains/db-ipc.ts`, and the in-host live-unsubscribe
+  in `db-host-entry.ts`'s `'close'`/`'reset'` handlers (BST-1330).
+  `resetDesktopDatabaseProfile` (`desktop-reset-platform.ts`) composes them:
+  barrier → unsubscribe → idle → unsubscribe again → reset.
+- **Web direct path (BST-1329):** `packages/db/src/db-reset-drain.ts` mirrors
+  those seams for the renderer-owned PGlite — a reset-barrier scheduler facade
+  (new submissions wait out an active reset; no browser `AsyncLocalStorage`,
+  so reset-internal statements MUST run on the raw connection, never the
+  scheduled handle), `waitForDatabaseWorkSchedulerIdle` over the renderer
+  `DatabaseWorkScheduler`'s `getSnapshot`/`subscribe`, and a provider-level
+  live-query drain registry that `usePGliteLiveQuery` unsubscribes route
+  through (PGlite's live refreshes have no scheduler entry to join — the
+  purge's own DELETEs trigger them). The web drain order is deliberately
+  **idle join FIRST, then seal, then unsubscribe** — the reverse of the
+  desktop's unsubscribe-first double-cleanup: the web barrier already blocks
+  new subscriptions (`live.query` is scheduler work), so nothing can attach
+  while the scheduler drains, and joining idle first means an idle-timeout
+  abort leaves every live handle alive and subscribed instead of silently
+  killing them all. Sealing the registry closes the tail where scheduler work
+  settled before idle but its handle registration lands after the drain's
+  snapshot: a sealed `register()` immediately initiates unsubscribe and the
+  drain joins those late unsubscribes before returning; a failed reset
+  unseals on barrier release. `DbProvider.resetPGliteState` therefore runs
+  barrier → idle → seal → unsubscribeAll → purge → close, and the prod
+  unmount close joins the in-flight initialization promise plus the same
+  idle → seal → unsubscribeAll drain before `closeDirectConnection`
+  (`connectionRef` is populated before `migrate()`, so unmount-mid-init is
+  otherwise a close under running migration statements). A failed idle join
+  aborts/skips the close loudly — never close over a drain you could not
+  complete; past the seal the close is committed and unsubscribe failures
+  warn and proceed. Pinned by
+  `packages/db/__tests__/db-reset-drain.test.ts`, the BST-1329 cases in
+  `factory-reset.test.tsx`, and `db-provider-lifecycle.test.tsx`.
+
 ### The test snapshot `globalSetup` lives on ONE project — do not hoist it
 
 `packages/db/vitest.config.mts` declares

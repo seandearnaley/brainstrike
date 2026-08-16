@@ -12,6 +12,7 @@
  */
 import { createContext } from 'react';
 import type { DbHandle } from './db-handle.js';
+import type { LiveQueryDrainRegistry } from './db-reset-drain.js';
 import type { DrizzleDb } from './drizzle/database.js';
 import type { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import type { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
@@ -37,6 +38,13 @@ export interface DbContextValue {
   initializationStatus: DbInitializationStatus;
   initializeDatabase: () => Promise<void>; // Lazy initialization trigger
   initializing: boolean; // Whether database initialization is in progress
+  /**
+   * Provider-scoped registry `usePGliteLiveQuery` handles register into so
+   * factory reset / unmount can AWAIT unsubscribing them before a PGlite
+   * `close()` — a still-subscribed handle's internal refresh statements race
+   * close into the BST-1320 wedge (BST-1329).
+   */
+  liveQueryDrainRegistry: LiveQueryDrainRegistry;
   ready: boolean;
   vectorEnabled: boolean; // Whether pgvector extension is available
   viewFilterPresetsRepository: IViewFilterPresetsRepository | null;

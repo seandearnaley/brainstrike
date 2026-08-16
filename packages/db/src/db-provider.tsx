@@ -22,6 +22,11 @@ import {
 } from './database-work-scheduler.js';
 import { DbContext, type DbContextValue, type DbInitializationStatus } from './db-context.js';
 import { createDbHandle, type DbHandle, type QueryExecutor } from './db-handle.js';
+import {
+  createLiveQueryDrainRegistry,
+  createResetBarrierDatabaseWork,
+  waitForDatabaseWorkSchedulerIdle,
+} from './db-reset-drain.js';
 import { getDefaultDbPath } from './default-db-path.js';
 import { type DrizzleDb, drizzle } from './drizzle/database.js';
 import { migrate, PGVECTOR_EXTENSION_PRESENCE_QUERY } from './migrations/bootstrap.js';
@@ -439,7 +444,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const initializingRef = useRef<boolean>(false);
   const initializingPromiseRef = useRef<Promise<void> | null>(null);
   const resetPendingReloadRef = useRef<boolean>(false);
-  const databaseWorkSchedulerRef = useRef(createDatabaseWorkScheduler());
+  // BST-1329: the scheduler is wrapped in a reset barrier so factory reset can
+  // hold NEW submissions out while it drains in-flight work before close();
+  // the registry lets reset/unmount await unsubscribing every live handle.
+  const databaseWorkRef = useRef(createResetBarrierDatabaseWork(createDatabaseWorkScheduler()));
+  const liveQueryDrainRegistryRef = useRef(createLiveQueryDrainRegistry());
 
   const testElectronConnection = useCallback(async (electronDB: ElectronDatabaseAPI) => {
     if (!electronDB.test) {
@@ -565,7 +574,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       const scheduledDb = createScheduledDbHandle(
         db as unknown as QueryExecutor & object,
-        databaseWorkSchedulerRef.current,
+        databaseWorkRef.current.scheduler,
         getRendererDefaultDatabaseWorkPriority()
       ) as unknown as PGlite & ScheduledDbHandle;
 
@@ -675,8 +684,34 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       if (conn) {
         if (conn.kind === 'direct' && !isDevEnv()) {
           const { db, dataDir } = conn;
+          // BST-1329: `connectionRef` is populated BEFORE `migrate()` runs, so
+          // an unmount mid-initialization can observe a connection whose init
+          // statements are still in flight — closing under them is the
+          // BST-1320 synchronous wedge. Join initialization, drain live
+          // handles, and join the scheduler before close; if the drain fails,
+          // skip the close loudly (a leaked instance beats a wedged renderer).
+          const initInFlight = initializingPromiseRef.current;
+          const liveQueryDrainRegistry = liveQueryDrainRegistryRef.current;
+          const { scheduler } = databaseWorkRef.current;
           setTimeout(() => {
-            void closeDirectConnection(db, dataDir);
+            void (async () => {
+              // The initialization promise never rejects (failures are
+              // dispatched into provider state), so a bare await is safe.
+              if (initInFlight) {
+                await initInFlight;
+              }
+              await liveQueryDrainRegistry.unsubscribeAll();
+              try {
+                await waitForDatabaseWorkSchedulerIdle(scheduler);
+              } catch (error) {
+                logger.error(
+                  '[DbProvider] Skipping unmount close: database work never drained',
+                  error
+                );
+                return;
+              }
+              await closeDirectConnection(db, dataDir);
+            })();
           }, 0);
         }
         connectionRef.current = null;
@@ -967,15 +1002,39 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
   }, [resolvedPath]);
 
+  /**
+   * BST-1329: the canonical pre-close drain, mirroring the desktop's
+   * `resetDesktopDatabaseProfile` sequence (unsubscribe → scheduler idle →
+   * unsubscribe again). The second unsubscribe is deliberate: live
+   * subscriptions can attach while scheduled work drains, and PGlite's live
+   * refresh statements have no scheduler entry — a handle still subscribed at
+   * close time is the BST-1320 wedge. Runs on the renderer's OWN scheduler
+   * and registry; callers must already hold the reset barrier.
+   */
+  const drainDatabaseWorkForClose = useCallback(async () => {
+    const liveQueryDrainRegistry = liveQueryDrainRegistryRef.current;
+    await liveQueryDrainRegistry.unsubscribeAll();
+    await waitForDatabaseWorkSchedulerIdle(databaseWorkRef.current.scheduler);
+    await liveQueryDrainRegistry.unsubscribeAll();
+  }, []);
+
   const resetPGliteState = useCallback(async () => {
     resetPendingReloadRef.current = true;
 
     try {
-      if (connectionRef.current) {
-        await purgeAndClosePGlite();
-      } else {
-        logger.warn('[DbProvider] No active database to purge during factory reset');
-      }
+      // Barrier up first: new scheduler submissions wait behind the reset, so
+      // the drain can actually reach idle. The purge below runs on the RAW
+      // connection (never the scheduled handle), so it cannot deadlock on its
+      // own barrier. A drain failure (idle timeout) aborts the reset loudly —
+      // closing anyway would trade a failed reset for a wedged renderer.
+      await databaseWorkRef.current.runWithResetBarrier(async () => {
+        await drainDatabaseWorkForClose();
+        if (connectionRef.current) {
+          await purgeAndClosePGlite();
+        } else {
+          logger.warn('[DbProvider] No active database to purge during factory reset');
+        }
+      });
     } catch (error) {
       resetPendingReloadRef.current = false;
       throw error;
@@ -988,7 +1047,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     clearActiveEmbeddingSetIdFromStorage();
 
     await cleanupAndWaitForReset();
-  }, [purgeAndClosePGlite, cleanupAndWaitForReset]);
+  }, [drainDatabaseWorkForClose, purgeAndClosePGlite, cleanupAndWaitForReset]);
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {
     const w = typeof window === 'undefined' ? null : window;
@@ -1069,6 +1128,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       initializationStatus,
       initializeDatabase,
       initializing,
+      liveQueryDrainRegistry: liveQueryDrainRegistryRef.current,
       ready,
       vectorEnabled,
       viewFilterPresetsRepository,

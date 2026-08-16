@@ -13,8 +13,11 @@ import {
   usePGliteLiveQuery,
 } from '../src/use-live-query.js';
 
-// Mock the database provider
+// Mock the database provider. The drain registry is null here on purpose:
+// these tests cover subscription mechanics without a DbProvider, and a null
+// registry exercises the registry-less fallback path (BST-1329).
 vi.mock('../src/use-db.js', () => ({
+  useLiveQueryDrainRegistry: vi.fn(() => null),
   usePGliteDatabase: vi.fn(),
 }));
 
