@@ -156,6 +156,19 @@ When changing the model catalog:
    jsonb (migration 061 backfilled existing rows), and frontier-models-migration.test.ts fails
    if any LLM row is left without a vision value.
 
+### SAFE CATALOG ROLLBACK WITH LIVE USER DATA
+
+Never run a model-catalog `down` migration against a production database with live conversation history without first auditing every referencing row. Catalog IDs are durable provenance even though `brainstrike_assistant_thread_runs.model` is currently plain text rather than a foreign key, and other user-owned tables or downstream readers may depend on the row.
+
+Use this procedure:
+
+1. Stop assistant writes and schedule a maintenance window. Create and verify a restorable backup before rollback. Restore that backup into an isolated database and rehearse the exact rollback there first.
+2. Inventory every model ID the `down` statement deletes, then query all repository schemas and user-data tables for those IDs. At minimum, inspect historical assistant runs, persisted model-picker selections, recent models, and observational-memory targets. Record the affected row counts and representative IDs before continuing.
+3. Preserve historical run model text; do not rewrite conversation provenance to make a catalog rollback pass. If a present or future foreign key blocks deletion, stop and design an explicit forward migration that preserves or archives the referenced catalog identity; never disable the constraint or cascade-delete user history.
+4. Remap only mutable preference state to a supported replacement, using the preference-store migration contracts and a store-version bump. Verify the replacement exists in the target catalog before executing the rollback.
+5. Run the rollback against the rehearsed backup first, validate its `down` and subsequent `up` behavior, and keep the production database offline if any reference, constraint, or reader fails.
+6. After rollback, verify migrations, model-picker state, historical thread rendering, and a fresh assistant run before returning the database to service. Retain the pre-rollback backup until those checks and the next normal startup complete.
+
 ---
 
 ## ASSISTANT THREAD GROUP PRESENTATION
