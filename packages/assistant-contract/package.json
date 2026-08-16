@@ -10,6 +10,7 @@
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
     "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

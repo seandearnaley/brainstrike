@@ -57,28 +57,50 @@ const ENGINE_MANIFESTS = discoverEngineManifests();
 // transitive pin like that cannot change what `tsc` loads for our sources, so
 // reporting it here would fail the lane for someone else's dependency graph.
 //
-// The same reasoning covers a case that LOOKS like a gap and is not. Six
-// packages (assistant-contract, assistant-wire, config, indexing-contract,
-// local-runtime, pipeline) take `vitest` from the catalog but do not declare
-// `@types/node` themselves. `@types/node` is an optional PEER of vite/vitest,
-// and a catalog does not govern peers it is not asked about, so pnpm resolves
-// those peers from the registry at the newest satisfying version and keeps a
-// second copy — `@types/node@26.1.0` — in the store. It is real; it is not in
-// any compile graph. Measured with `tsc --noEmit --traceResolution` in all six:
-// zero references to the `@types+node@26.1.0` store path, 2.1k to 24.13.3.
+// A SECOND copy — `@types/node@26.1.0` — is also installed, and it is likewise
+// out of scope. History matters here, because the obvious fix was tried and
+// only half worked.
 //
-// The mechanism, from the trace in packages/config: `vite/dist/node/index.d.ts`
-// — served out of the 26.1.0-keyed vite copy — really does emit
-// `/// <reference types="node" />`. But a type reference directive resolves
-// against `typeRoots`, which are anchored at the TSCONFIG directory and walk
-// UP (config/node_modules/@types → packages/node_modules/@types →
-// <root>/node_modules/@types), never at the directory of the file that asked.
-// The first two do not exist, so it lands on the root copy — 24.13.3, logged
-// `primary: true`. The containing-file-relative fallback that would have found
-// 26.1.0 never runs. All 40 package-local `@types/node` links are 24.13.3 too,
-// so no package shadows the root. Bare `node:*` specifiers never resolve as
-// modules at all; they are satisfied by the ambient `declare module` blocks in
-// the single `@types/node` the program loaded.
+// `@types/node` is an optional PEER of vite/vitest, and a catalog does not
+// govern peers it is not asked about. Six packages (assistant-contract,
+// assistant-wire, config, indexing-contract, local-runtime, pipeline) took
+// `vitest` from the catalog while declaring no `@types/node` of their own, so
+// pnpm resolved that peer straight from the registry at the newest satisfying
+// version and keyed a THIRD vite/vitest instance on 26.1.0. Those six now
+// declare `"@types/node": "catalog:"` like the other 41, which collapsed the
+// peer keying: vite and vitest each went 3 peer-keyed instances -> 2, and the
+// lockfile lost 5 snapshots / 70 lines. Every one of the six genuinely imports
+// a `node:` builtin (`node:path` in five vitest configs, `node:crypto` in
+// config's `src/vitest-browser.ts`), so the declaration is honest and knip
+// counts it used — it reports no new unused dependency.
+//
+// What that did NOT do is evict 26.1.0. Nine unrelated third-party packages
+// depend on `@types/node` with UNBOUNDED ranges — happy-dom `>=20.0.0`,
+// protobufjs `>=13.7.0`, buffer-image-size `*`, plus the `@types/*` wrappers
+// (cacheable-request, fs-extra, keyv, responselike, ws, yauzl) — and pnpm
+// resolves an unbounded range to the newest published version. Nothing in this
+// repo can pin someone else's floor, so the second copy stays. Do not chase it
+// again expecting the tree to shrink; that experiment has been run.
+//
+// It never mattered for correctness, which is the part worth not relitigating.
+// Measured with `tsc --noEmit --traceResolution` in all six BEFORE they
+// declared the dependency: zero references to the `@types+node@26.1.0` store
+// path, 2.1k to 24.13.3. The mechanism, from the trace in packages/config:
+// `vite/dist/node/index.d.ts` — served out of the 26.1.0-keyed vite copy —
+// really does emit `/// <reference types="node" />`. But a type reference
+// directive resolves against `typeRoots`, which are anchored at the TSCONFIG
+// directory and walk UP (config/node_modules/@types →
+// packages/node_modules/@types → <root>/node_modules/@types), never at the
+// directory of the file that asked. It therefore landed on the root copy —
+// 24.13.3, logged `primary: true`. The containing-file-relative fallback that
+// would have found 26.1.0 never runs. Bare `node:*` specifiers never resolve
+// as modules at all; they are satisfied by the ambient `declare module` blocks
+// in the single `@types/node` the program loaded.
+//
+// Every package-local `@types/node` link is 24.13.3, so no package shadows the
+// root. (A stale untracked `packages/<name>/node_modules` left behind by an old
+// branch can still hold a 26.1.0 link; those directories have no package.json
+// and are in no workspace glob, so they are install debris, not a shadow.)
 //
 // So the duplicate is dev-only install weight, not a types skew. Reproduce with:
 //   cd packages/config && pnpm exec tsc --noEmit --traceResolution \
