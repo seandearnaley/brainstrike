@@ -597,6 +597,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   }, [
     enabled,
     mode,
+    options.clearOnDisable,
     options.key,
     options.limit,
     options.offset,
