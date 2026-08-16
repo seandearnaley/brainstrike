@@ -28,9 +28,13 @@ export default defineConfig({
       ],
     },
     environment: 'node',
-    exclude: ['node_modules', 'dist'],
+    exclude: ['**/node_modules/**', '**/dist/**'],
     globals: true,
-    include: ['*.test.ts', '*.test.tsx', '**/__tests__/**/*.test.{ts,tsx}'],
+    // Scope the __tests__ glob to src/ as every other package does. An unscoped
+    // '**/__tests__/**' walks the pnpm symlink farm under node_modules and picks
+    // up third-party and sibling-workspace specs (394 files here) whenever the
+    // exclude list stops matching, so the include must not be the only guard.
+    include: ['*.test.ts', '*.test.tsx', 'src/**/__tests__/**/*.test.{ts,tsx}'],
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   },
 });
