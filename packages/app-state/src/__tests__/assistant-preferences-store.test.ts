@@ -1076,13 +1076,17 @@ describe('assistant-preferences-store', () => {
     const staleSnapshot: StorageValue<unknown> = {
       state: {
         enabledModelsByProvider: {
-          openrouter: ['openrouter/gpt-4o', 'openrouter/gpt-4o-mini'],
+          openrouter: ['openrouter/gpt-4o', 'openai/gpt-4o', 'openrouter/gpt-4o-mini'],
         },
         modelsByProvider: {
           openrouter: 'openrouter/gpt-4o',
         },
         providerSettings: {},
-        recentModels: ['openrouter::openrouter/gpt-4o-mini', 'openrouter::openrouter/gpt-4o'],
+        recentModels: [
+          'openrouter::openrouter/gpt-4o-mini',
+          'openrouter::openrouter/gpt-4o',
+          'openrouter::openai/gpt-4o',
+        ],
         selectedModel: 'openrouter::openrouter/gpt-4o-mini',
       },
       version: 8,
@@ -1092,11 +1096,13 @@ describe('assistant-preferences-store', () => {
     await persistApi.rehydrate?.();
 
     const store = useAssistantPreferencesStore.getState();
-    expect(store.enabledModelsByProvider.openrouter).toContain('openai/gpt-5.4');
-    expect(store.enabledModelsByProvider.openrouter).toContain('openai/gpt-5.4-mini');
-    expect(store.enabledModelsByProvider.openrouter).not.toContain('openrouter/gpt-4o');
-    expect(store.enabledModelsByProvider.openrouter).not.toContain('openrouter/gpt-4o-mini');
-    expect(store.modelsByProvider.openrouter).toBe('openai/gpt-5.4');
+    const enabledOpenRouter = store.enabledModelsByProvider['openrouter'];
+    expect(enabledOpenRouter).toContain('openai/gpt-5.4');
+    expect(enabledOpenRouter).toContain('openai/gpt-5.4-mini');
+    expect(enabledOpenRouter.filter((id) => id === 'openai/gpt-5.4')).toHaveLength(1);
+    expect(enabledOpenRouter).not.toContain('openrouter/gpt-4o');
+    expect(enabledOpenRouter).not.toContain('openrouter/gpt-4o-mini');
+    expect(store.modelsByProvider['openrouter']).toBe('openai/gpt-5.4');
     expect(store.selectedModel).toBe('openrouter::openai/gpt-5.4-mini');
     expect(store.recentModels).toEqual([
       'openrouter::openai/gpt-5.4-mini',
