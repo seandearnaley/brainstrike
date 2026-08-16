@@ -27,6 +27,19 @@ import { createLogger } from '@brainstrike/logging';
 import { parsePositiveIntegerConfig } from '@brainstrike/platform-utils';
 
 const logger = createLogger('EmbeddingWorkerConfig');
+// BST-1334: these two fire once per completed streaming batch (hundreds of pairs in a
+// single backfill) and dominate desktop diagnostic-log exports at `info`. The measured
+// payloads are unchanged — only the emitted level drops to `debug` — so the QoS telemetry
+// derived from `embedding_pipeline_timing` in recordLog() below is unaffected. Every other
+// embedding-worker log message (worker_metrics, embedding_stats_refresh,
+// worker_model_dimension_notice, embedding_cache_stats, embedding_cache_eviction, etc.) is
+// low-frequency and stays at `info`.
+const EMBEDDING_PIPELINE_TIMING_LOG_MESSAGE = 'embedding_pipeline_timing';
+const EMBEDDING_COMPLETION_BATCH_LOG_MESSAGE = 'embedding_completion_batch';
+const HIGH_FREQUENCY_EMBEDDING_LOG_MESSAGES = new Set<string>([
+  EMBEDDING_COMPLETION_BATCH_LOG_MESSAGE,
+  EMBEDDING_PIPELINE_TIMING_LOG_MESSAGE,
+]);
 // Desktop local embedding runs in a hidden renderer backed by the DB scheduler.
 // Use WebGPU-sized batches when the scheduler is idle, then collapse to one-at-a-time
 // under foreground pressure so browsing/searching remains foreground-first.
@@ -255,7 +268,11 @@ function createEmbeddingPipelineTelemetry(
       };
     },
     recordLog: (msg, meta) => {
-      if (msg !== 'embedding_pipeline_timing' || typeof meta !== 'object' || meta === null) {
+      if (
+        msg !== EMBEDDING_PIPELINE_TIMING_LOG_MESSAGE ||
+        typeof meta !== 'object' ||
+        meta === null
+      ) {
         return;
       }
       const record = meta as Record<string, unknown>;
@@ -638,11 +655,12 @@ export function createEmbeddingWorkerConfig(
     ...(modelKey ? { modelKey } : {}),
     log: (msg: string, meta?: unknown) => {
       telemetry.recordLog(msg, meta);
+      const emit = HIGH_FREQUENCY_EMBEDDING_LOG_MESSAGES.has(msg) ? logger.debug : logger.info;
       if (meta) {
-        logger.info(msg, meta);
+        emit(msg, meta);
         return;
       }
-      logger.info(msg);
+      emit(msg);
     },
     onDownloadProgress: (modelId: string, progress: number) => {
       const store = useModelRegistryStore.getState();

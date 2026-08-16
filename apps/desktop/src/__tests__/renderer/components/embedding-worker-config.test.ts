@@ -10,11 +10,13 @@ import type {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+  loggerDebugMock,
   loggerInfoMock,
   loggerWarnMock,
   registryStoreState,
   resolveWorkspaceIndexingQosPolicyMock,
 } = vi.hoisted(() => ({
+  loggerDebugMock: vi.fn(),
   loggerInfoMock: vi.fn(),
   loggerWarnMock: vi.fn(),
   registryStoreState: {
@@ -36,6 +38,7 @@ vi.mock('@brainstrike/logging', async () => {
   return {
     ...actual,
     createLogger: () => ({
+      debug: loggerDebugMock,
       info: loggerInfoMock,
       warn: loggerWarnMock,
     }),
@@ -794,6 +797,23 @@ describe('createEmbeddingWorkerConfig', () => {
     expect(registryStoreState.setDownloading).toHaveBeenNthCalledWith(1, 'model-a', true);
     expect(registryStoreState.setDownloadProgress).toHaveBeenNthCalledWith(2, 'model-a', 100);
     expect(registryStoreState.setDownloading).toHaveBeenNthCalledWith(2, 'model-a', false);
+  });
+
+  it('logs the high-frequency per-batch embedding events at debug, not info', () => {
+    const { scheduledDb } = createScheduledTestDb();
+    const config = createEmbeddingWorkerConfig(scheduledDb as never);
+
+    config.log?.('embedding_pipeline_timing', { completionWaitMs: 90, inferenceMs: 10 });
+    config.log?.('embedding_completion_batch', { completedJobCount: 8 });
+
+    expect(loggerDebugMock).toHaveBeenNthCalledWith(1, 'embedding_pipeline_timing', {
+      completionWaitMs: 90,
+      inferenceMs: 10,
+    });
+    expect(loggerDebugMock).toHaveBeenNthCalledWith(2, 'embedding_completion_batch', {
+      completedJobCount: 8,
+    });
+    expect(loggerInfoMock).not.toHaveBeenCalled();
   });
 
   it('fails fast when embed concurrency is not a positive integer', () => {
