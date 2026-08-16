@@ -57,6 +57,35 @@ const ENGINE_MANIFESTS = discoverEngineManifests();
 // transitive pin like that cannot change what `tsc` loads for our sources, so
 // reporting it here would fail the lane for someone else's dependency graph.
 //
+// `spikes/*` is outside this contract BY DESIGN, and the gap is recorded here so
+// it stays a known boundary rather than a latent one. The spikes are isolated
+// npm projects with their own committed `package-lock.json`, deliberately kept
+// out of the `pnpm-workspace.yaml` globs (`apps/*`, `packages/*`,
+// `packages/config/*`) — see the global constraint in
+// `docs/superpowers/plans/2026-08-03-changeset-discovery-spike.md`: "NOT part of
+// the pnpm workspace — use `npm` inside it, never add it to
+// pnpm-workspace.yaml". Mechanically that means they are not lockfile importers
+// (measured: 0 of 50 importer ids), so `importerVersions` below cannot see them,
+// and `verify-catalog-references.mjs` is blind for the same reason — both read
+// the workspace globs as their single source of truth.
+//
+// One manifest is affected: `spikes/changeset-discovery/package.json` hard-pins
+// `"@types/node": "^24.0.0"`, the only declaration in the repo not on
+// `catalog:` (the sibling `spikes/quickjs-sandbox` declares none). The exposure
+// is smaller than it looks. A caret cannot cross a major, this contract compares
+// MAJORS, and the spike's own lockfile resolves 24.13.3 — identical to the
+// catalog today. So while that range stays on 24 it cannot produce the skew this
+// file exists to catch; only an edit to a foreign major would, and nothing would
+// notice. That residual is accepted: spikes are throwaway prototypes in no CI
+// lane and no turbo task, whose deliverable is `RECOMMENDATION.md`, not the code.
+//
+// Do not "fix" it by adopting them into the globs. They would become importers
+// and drag their dependency trees into the root lockfile, and `catalogMode:
+// strict` would force them onto the repo's toolchain — including the aliased
+// `typescript: npm:@typescript/typescript6@6.0.2`, against the `^7.0.2` the
+// spike findings were actually measured on. That destroys the version isolation
+// that makes a spike a spike, to guard code designed to be deleted.
+//
 // A SECOND copy — `@types/node@26.1.0` — is also installed, and it is likewise
 // out of scope. History matters here, because the obvious fix was tried and
 // only half worked.
