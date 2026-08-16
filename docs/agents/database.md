@@ -158,16 +158,17 @@ When changing the model catalog:
 
 ### SAFE CATALOG ROLLBACK WITH LIVE USER DATA
 
-Never run a model-catalog `down` migration against a production database with live conversation history without first auditing every referencing row. Catalog IDs are durable provenance even though `brainstrike_assistant_thread_runs.model` is currently plain text rather than a foreign key, and other user-owned tables or downstream readers may depend on the row.
+BrainStrike has no shipped production `down` path. The app applies only forward migrations through Drizzle's append-only `__drizzle_migrations` ledger; `MigrationRunner.down()` and its `_migrations` ledger are test-only. Never execute raw `down` SQL or edit the production ledger in an active local profile: the next startup can reapply the migration or continue from a schema the ledger falsely reports as current. A reviewed forward migration is the only sanctioned production recovery.
 
-Use this procedure:
+Use this fail-closed procedure:
 
-1. Stop assistant writes and schedule a maintenance window. Create and verify a restorable backup before rollback. Restore that backup into an isolated database and rehearse the exact rollback there first.
-2. Inventory every model ID the `down` statement deletes, then query all repository schemas and user-data tables for those IDs. At minimum, inspect historical assistant runs, persisted model-picker selections, recent models, and observational-memory targets. Record the affected row counts and representative IDs before continuing.
-3. Preserve historical run model text; do not rewrite conversation provenance to make a catalog rollback pass. If a present or future foreign key blocks deletion, stop and design an explicit forward migration that preserves or archives the referenced catalog identity; never disable the constraint or cascade-delete user history.
-4. Remap only mutable preference state to a supported replacement, using the preference-store migration contracts and a store-version bump. Verify the replacement exists in the target catalog before executing the rollback.
-5. Run the rollback against the rehearsed backup first, validate its `down` and subsequent `up` behavior, and keep the production database offline if any reference, constraint, or reader fails.
-6. After rollback, verify migrations, model-picker state, historical thread rendering, and a fresh assistant run before returning the database to service. Retain the pre-rollback backup until those checks and the next normal startup complete.
+1. Prefer a forward catalog migration that restores compatibility without deleting durable IDs. Treat any manual rollback as an exceptional developer/support investigation, not a supported app operation.
+2. Before an exceptional investigation, fully quit BrainStrike (all desktop processes or browser tabs/workers) to quiesce writes. Capture a complete, platform-appropriate profile clone that includes both the PGlite store and persisted JSON storage, then prove that clone can be restored into an isolated profile. BrainStrike does not ship a catalog-rollback backup command; if a verified clone is unavailable, stop.
+3. Inventory references in both storage systems. Query PGlite tables such as `models`, `brainstrike_assistant_thread_runs.model`, and `brainstrike_assistant_run_usage.model`, plus any additional model-ID columns found in the current schemas. Separately inspect persisted JSON keys `assistant-preferences.v1` and `assistant-memory-preferences.v1` through the Electron storage bridge or browser `localStorage`; include selected/current models, enabled and recent models, and observational-memory targets. Record affected counts and representative IDs.
+4. Preserve historical run model text; do not rewrite conversation provenance to make a catalog change pass. If a present or future foreign key blocks deletion, design a forward migration that preserves or archives the referenced catalog identity; never disable the constraint or cascade-delete user history.
+5. Remap only mutable preference state to a supported replacement through the relevant preference-store migration contract and a store-version bump. Verify the replacement exists in the target catalog first.
+6. Rehearse the exact forward recovery against the isolated clone with the production Drizzle runner and its real ledger state. Tests may additionally exercise numbered-runner `down` then `up` behavior, but that is rollback verification—not a production deployment path. Keep the live profile untouched if any reference, constraint, reader, or ledger assertion fails.
+7. Apply only the reviewed forward migration through the production Drizzle runner. Afterward verify migration-ledger state, model-picker state, historical thread rendering, and a fresh assistant run; retain the pre-change clone through the next normal startup.
 
 ---
 
