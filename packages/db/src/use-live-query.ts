@@ -12,8 +12,9 @@ import {
   recordDatabaseLiveSubscriptionStarted,
   recordDatabaseLiveUpdate,
 } from './database-query-telemetry.js';
+import type { LiveQueryDrainRegistration } from './db-reset-drain.js';
 import { escapePGliteLiveQueryFormatPercents } from './pglite-live-query-format.js';
-import { usePGliteDatabase } from './use-db.js';
+import { useLiveQueryDrainRegistry, usePGliteDatabase } from './use-db.js';
 
 const logger = createLogger('UsePGliteLiveQuery');
 
@@ -444,6 +445,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   options: UsePGliteLiveQueryOptions<T>
 ): LiveQueryHookResult<T> {
   const db = usePGliteDatabase();
+  const drainRegistry = useLiveQueryDrainRegistry();
   const source = useMemo(() => resolveLiveSource(db), [db]);
   const [leaderRevision, setLeaderRevision] = useState(0);
   const hasCacheKey = options.cacheKey !== undefined;
@@ -503,6 +505,11 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   useEffect(() => {
     let cancelled = false;
     let subscription: LiveSubscription<T> | null = null;
+    // BST-1329: every unsubscribe is routed through the provider's drain
+    // registry (when one exists) so factory reset / unmount can AWAIT it
+    // before closing PGlite — a still-subscribed handle's internal refresh
+    // statements racing close() is the BST-1320 wedge.
+    let registration: LiveQueryDrainRegistration | null = null;
 
     if (!enabled) {
       if (options.clearOnDisable) {
@@ -538,8 +545,14 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
 
     void subscribeToLiveSource<T>(source as LiveSource, normalizedOptions, handleUpdate)
       .then((result) => {
+        // Register before the cancelled check: even an immediately discarded
+        // subscription's unsubscribe is in-flight database work a concurrent
+        // reset must be able to join.
+        const liveRegistration = drainRegistry
+          ? drainRegistry.register(() => result.unsubscribe())
+          : null;
         if (cancelled) {
-          void result.unsubscribe().catch((error: unknown) => {
+          void (liveRegistration?.unsubscribe() ?? result.unsubscribe()).catch((error: unknown) => {
             logger.error('Live query unsubscribe failed after a cancelled subscription', {
               error: error instanceof Error ? error.message : String(error),
             });
@@ -547,6 +560,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
           return;
         }
         subscription = result;
+        registration = liveRegistration;
         refreshRef.current = async () => {
           await result.refresh();
         };
@@ -568,21 +582,28 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
       cancelled = true;
       refreshRef.current = noopAsync;
       if (subscription) {
-        void subscription.unsubscribe().catch((error: unknown) => {
-          logger.error('Live query unsubscribe failed during effect cleanup', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+        // The registration dedupes with any concurrent registry drain, so the
+        // underlying unsubscribe runs exactly once no matter who starts it.
+        const activeSubscription = subscription;
+        void (registration?.unsubscribe() ?? activeSubscription.unsubscribe()).catch(
+          (error: unknown) => {
+            logger.error('Live query unsubscribe failed during effect cleanup', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        );
       }
     };
   }, [
     enabled,
     mode,
+    options.clearOnDisable,
     options.key,
     options.limit,
     options.offset,
     leaderRevision,
     paramsDep,
+    drainRegistry,
     options.query,
     // select intentionally omitted to prevent re-subscription
     source,

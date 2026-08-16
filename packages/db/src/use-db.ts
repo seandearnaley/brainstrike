@@ -14,6 +14,7 @@ import { createLogger } from '@brainstrike/logging';
 import { useContext, useEffect } from 'react';
 import { DbContext, type DbContextValue, type DbInitializationStatus } from './db-context.js';
 import type { DbHandle } from './db-handle.js';
+import type { LiveQueryDrainRegistry } from './db-reset-drain.js';
 import type { DrizzleDb } from './drizzle/database.js';
 import type { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import type { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
@@ -158,6 +159,18 @@ export function usePGliteDatabase(): DbHandle | null {
     select: (ctx) => ctx.db,
     watch: 'db',
   });
+}
+
+/**
+ * The provider-scoped live-query drain registry (BST-1329). Deliberately NOT
+ * a `useDbSelector` hook: registering a handle must neither trigger lazy DB
+ * initialization nor wait for readiness, and there is no provider-missing
+ * warning — a registry-less environment (no provider) simply means the handle
+ * has no drain owner.
+ */
+export function useLiveQueryDrainRegistry(): LiveQueryDrainRegistry | null {
+  const ctx = useContext(DbContext);
+  return ctx?.liveQueryDrainRegistry ?? null;
 }
 
 export function useOptionalPGliteDatabase(): DbHandle | null {

@@ -15,6 +15,7 @@ import {
   useFactoryReset,
   useFileChunkRepository,
   useFileRecordRepository,
+  useLiveQueryDrainRegistry,
   useOptionalPGliteDatabase,
   usePGliteDatabase,
   useVectorEnabled,
@@ -27,7 +28,9 @@ import {
 //   - warn:  nullable accessors that return null but must leave a trace,
 //            so a missing provider is never mistaken for pre-init state
 //            (AGENTS.md: no silent fallbacks)
-//   - silent: useOptionalPGliteDatabase only — "optional" is its contract
+//   - silent: hooks whose contract is explicitly optional —
+//            useOptionalPGliteDatabase, and useLiveQueryDrainRegistry
+//            (BST-1329: no provider means no drain owner, by design)
 // A new hook must land in one of these tables.
 
 const THROW_HOOKS = [
@@ -73,7 +76,7 @@ describe('use-db hooks outside a DbProvider', () => {
       .sort();
     const classified: string[] = [...THROW_HOOKS, ...WARN_HOOKS]
       .map(([name]) => name)
-      .concat('useOptionalPGliteDatabase')
+      .concat('useLiveQueryDrainRegistry', 'useOptionalPGliteDatabase')
       .sort();
     expect(exported).toEqual(classified);
   });
@@ -99,6 +102,13 @@ describe('use-db hooks outside a DbProvider', () => {
 
   it('useOptionalPGliteDatabase returns null without logging', () => {
     const { result } = renderHook(() => useOptionalPGliteDatabase());
+
+    expect(result.current).toBeNull();
+    expect(captured).toEqual([]);
+  });
+
+  it('useLiveQueryDrainRegistry returns null without logging', () => {
+    const { result } = renderHook(() => useLiveQueryDrainRegistry());
 
     expect(result.current).toBeNull();
     expect(captured).toEqual([]);

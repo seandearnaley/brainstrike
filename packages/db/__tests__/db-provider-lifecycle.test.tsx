@@ -231,6 +231,80 @@ describe('DbProvider lifecycle', () => {
       }
     );
 
+    // BST-1329: `connectionRef` is populated BEFORE `migrate()` runs, so a prod
+    // unmount mid-initialization used to close under running migration
+    // statements — the BST-1320 synchronous close wedge. The unmount close must
+    // join initialization (and scheduler drain) before touching close().
+    it('BST-1329: defers the prod unmount close until initialization completes', async () => {
+      const mockDb = createMockDb();
+      vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(
+        mockDb as unknown as Awaited<ReturnType<typeof wasmLoaderModule.wasmLoader.createPGlite>>
+      );
+      let releaseMigrate!: () => void;
+      const migrateGate = new Promise<void>((resolve) => {
+        releaseMigrate = resolve;
+      });
+      const migrateSpy = vi
+        .spyOn(migrations, 'migrate')
+        .mockImplementation(async () => await migrateGate);
+      vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
+
+      const { unmount } = renderHook(() => useFileRecordRepository(), {
+        wrapper: directWrapper('memory://'),
+      });
+      // Initialization is mid-flight: the connection exists, migrate has not
+      // settled. This is exactly the window the close race lives in.
+      await waitFor(() => expect(migrateSpy).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+
+      unmount();
+      // Give the deferred close every chance to run early (setTimeout(0) plus
+      // microtasks): it must still be waiting on initialization.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25);
+      });
+      expect(mockDb.close).not.toHaveBeenCalled();
+
+      releaseMigrate();
+      await waitFor(() => expect(mockDb.close).toHaveBeenCalledTimes(1), { timeout: 1000 });
+    });
+
+    // BST-1329 (review): the EARLIER half of the unmount-mid-init window.
+    // `connectionRef` is populated only after `createPGliteClient` resolves, so
+    // an unmount during that await (first-run bootstrap + initdb + extension
+    // load — seconds on a cold browser store) saw `conn === null`, took no
+    // branch, and leaked the instance that resolved a moment later. On an
+    // `idb://` store that strands the IndexedDB lock and the next tab's open
+    // fails with the "close other tabs" recovery error.
+    it('BST-1329: closes a PGlite that finishes being created AFTER unmount', async () => {
+      const mockDb = createMockDb();
+      let releaseCreate!: () => void;
+      const createGate = new Promise<void>((resolve) => {
+        releaseCreate = resolve;
+      });
+      const createSpy = vi
+        .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
+        .mockImplementation(async () => {
+          await createGate;
+          return mockDb as unknown as Awaited<
+            ReturnType<typeof wasmLoaderModule.wasmLoader.createPGlite>
+          >;
+        });
+      vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
+      vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
+
+      const { unmount } = renderHook(() => useFileRecordRepository(), {
+        wrapper: directWrapper('memory://'),
+      });
+      await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+
+      // Unmount BEFORE the client exists: nothing is in connectionRef yet.
+      unmount();
+      releaseCreate();
+
+      // The instance that arrives after unmount must still be closed, not leaked.
+      await waitFor(() => expect(mockDb.close).toHaveBeenCalledTimes(1), { timeout: 1000 });
+    });
+
     it('calls db.close() for memory databases in production', async () => {
       const mockDb = createMockDb();
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);

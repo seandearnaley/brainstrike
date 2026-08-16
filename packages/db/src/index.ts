@@ -25,6 +25,18 @@ export { CHUNKING_CONFIG } from './config/chunking-config.js';
 export * from './database-pressure-controller.js';
 export * from './database-query-telemetry.js';
 export * from './database-work-scheduler.js';
+// Close-drain seams (BST-1329). Shared with apps/desktop: the idle join is the
+// single implementation both surfaces use — see docs/agents/database.md
+// "CLOSING a PGlite: drain first".
+export {
+  createLiveQueryDrainRegistry,
+  createResetBarrierDatabaseWork,
+  DEFAULT_DATABASE_WORK_IDLE_TIMEOUT_MS,
+  type LiveQueryDrainRegistration,
+  type LiveQueryDrainRegistry,
+  type ResetBarrierDatabaseWork,
+  waitForDatabaseWorkSchedulerIdle,
+} from './db-reset-drain.js';
 // Drizzle ORM utilities and database wrapper
 export {
   type DrizzleDb,

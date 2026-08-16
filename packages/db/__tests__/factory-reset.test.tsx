@@ -7,7 +7,8 @@ import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DbProvider } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
-import { useFactoryReset, useFileRecordRepository } from '../src/use-db';
+import { useFactoryReset, useFileRecordRepository, usePGliteDatabase } from '../src/use-db';
+import { usePGliteLiveQuery } from '../src/use-live-query';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 // Mocks (not real PGlite) so jsdom doesn't hit PGlite 0.4's browser-only
@@ -463,6 +464,202 @@ describe('DbProvider factoryReset', () => {
     });
     expect(query).not.toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
     expect(initialDb.close).toHaveBeenCalledTimes(1);
+  });
+
+  // BST-1329: `PGlite.close()` deactivates the WASM backend before draining, so
+  // a statement already in flight at close time wedges the event loop forever
+  // (BST-1320). The web factory reset must therefore join the scheduler and
+  // unsubscribe live handles BEFORE the purge/close sequence touches the DB.
+  it('BST-1329: waits for scheduled database work before purging and closing', async () => {
+    const { result } = renderHook(
+      () => ({
+        db: usePGliteDatabase(),
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.db).not.toBeNull();
+      expect(result.current.reset).not.toBeNull();
+    });
+
+    const initialDb = createdDbs[0];
+    if (!initialDb) {
+      throw new Error('Expected initial DB to be created');
+    }
+
+    let releasePending!: () => void;
+    const pendingGate = new Promise<void>((resolve) => {
+      releasePending = resolve;
+    });
+    initialDb.query.mockImplementation(async (sql: string) => {
+      if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+        return { rows: [{ '?column?': 1 }] };
+      }
+      if (sql === 'SELECT pending_work') {
+        await pendingGate;
+      }
+      return { rows: [] };
+    });
+
+    // In-flight scheduled work at the moment reset begins — the exact shape
+    // that wedges close() when it is not drained first.
+    const pendingWork = result.current.db?.query('SELECT pending_work');
+    if (!pendingWork) {
+      throw new Error('Expected the scheduled DB handle to accept work');
+    }
+
+    let resetSettled = false;
+    let resetPromise: Promise<void> | undefined;
+    act(() => {
+      resetPromise = result.current.reset?.()?.finally(() => {
+        resetSettled = true;
+      });
+    });
+    // Let the reset reach its drain: with the scheduled statement still in
+    // flight, neither the purge transaction nor close may have run.
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25);
+      });
+    });
+    expect(resetSettled).toBe(false);
+    expect(initialDb.transaction).not.toHaveBeenCalled();
+    expect(initialDb.close).not.toHaveBeenCalled();
+
+    releasePending();
+    await act(async () => {
+      await pendingWork;
+      await resetPromise;
+    });
+    expect(initialDb.transaction).toHaveBeenCalledTimes(1);
+    expect(initialDb.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('BST-1329: unsubscribes live query handles before the purge/close sequence', async () => {
+    const liveUnsubscribe = vi.fn(async () => undefined);
+    const liveQuery = vi.fn(async () => ({
+      initialResults: { rows: [] },
+      refresh: vi.fn(async () => undefined),
+      subscribe: vi.fn(),
+      unsubscribe: liveUnsubscribe,
+    }));
+
+    createPGliteSpy.mockImplementation(async () => {
+      const db = createMockDb();
+      createdDbs.push(db);
+      const liveDb = db as MockDb & { live: { query: typeof liveQuery } };
+      liveDb.live = { query: liveQuery };
+      return liveDb as unknown as PGlite;
+    });
+
+    const { result } = renderHook(
+      () => ({
+        live: usePGliteLiveQuery<{ id: string }>({ query: 'SELECT id FROM live_probe' }),
+        repo: useFileRecordRepository(),
+        reset: useFactoryReset(),
+      }),
+      { wrapper }
+    );
+    await waitFor(() => {
+      expect(result.current.repo).not.toBeNull();
+      expect(result.current.reset).not.toBeNull();
+      expect(result.current.live.loading).toBe(false);
+    });
+    expect(liveQuery).toHaveBeenCalledTimes(1);
+
+    const initialDb = createdDbs[0];
+    if (!initialDb) {
+      throw new Error('Expected initial DB to be created');
+    }
+
+    await act(async () => {
+      await result.current.reset?.();
+    });
+
+    // The purge transaction's DELETEs trigger live refreshes in the leader, so
+    // every handle must be unsubscribed before the purge — and therefore
+    // before close. Missing invocations fail the order check loudly.
+    expect(liveUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(initialDb.close).toHaveBeenCalledTimes(1);
+    const unsubscribeOrder =
+      liveUnsubscribe.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY;
+    expect(unsubscribeOrder).toBeLessThan(initialDb.transaction.mock.invocationCallOrder[0] ?? 0);
+    expect(unsubscribeOrder).toBeLessThan(initialDb.close.mock.invocationCallOrder[0] ?? 0);
+  });
+
+  it('BST-1329: an aborted reset (idle-join timeout) leaves live handles ALIVE', async () => {
+    // Regression pin for the review finding: draining unsubscribes FIRST would
+    // mean a failed reset left every live handle permanently dead (the handle
+    // latches inactive and the hook never re-subscribes — no dep changed, no
+    // error state), so the app would render stale rows forever with nothing
+    // logged. Joining idle first makes the failure path non-destructive.
+    vi.useFakeTimers();
+    try {
+      const liveUnsubscribe = vi.fn(async () => undefined);
+      const liveQuery = vi.fn(async () => ({
+        initialResults: { rows: [] },
+        refresh: vi.fn(async () => undefined),
+        subscribe: vi.fn(),
+        unsubscribe: liveUnsubscribe,
+      }));
+      createPGliteSpy.mockImplementation(async () => {
+        const db = createMockDb();
+        createdDbs.push(db);
+        const liveDb = db as MockDb & { live: { query: typeof liveQuery } };
+        liveDb.live = { query: liveQuery };
+        return liveDb as unknown as PGlite;
+      });
+
+      const { result } = renderHook(
+        () => ({
+          db: usePGliteDatabase(),
+          live: usePGliteLiveQuery<{ id: string }>({ query: 'SELECT id FROM live_probe' }),
+          repo: useFileRecordRepository(),
+          reset: useFactoryReset(),
+        }),
+        { wrapper }
+      );
+      await vi.waitFor(() => {
+        expect(result.current.repo).not.toBeNull();
+        expect(result.current.reset).not.toBeNull();
+        expect(result.current.live.loading).toBe(false);
+      });
+
+      const initialDb = createdDbs[0];
+      if (!initialDb) {
+        throw new Error('Expected initial DB to be created');
+      }
+      initialDb.query.mockImplementation(async (sql: string) => {
+        if (sql === migrations.PGVECTOR_EXTENSION_PRESENCE_QUERY) {
+          return { rows: [{ '?column?': 1 }] };
+        }
+        if (sql === 'SELECT never_settles') {
+          // Never resolves: the scheduler can never reach idle.
+          await new Promise<void>(() => undefined);
+        }
+        return { rows: [] };
+      });
+      void result.current.db?.query('SELECT never_settles');
+
+      let resetError: unknown;
+      const resetPromise = result.current.reset?.().catch((error: unknown) => {
+        resetError = error;
+      });
+      // Past the 5s idle-join timeout.
+      await vi.advanceTimersByTimeAsync(6000);
+      await resetPromise;
+
+      expect(resetError).toBeInstanceOf(Error);
+      expect((resetError as Error).message).toMatch(/did not become idle/);
+      // The whole point: nothing was torn down or closed by the failed reset.
+      expect(liveUnsubscribe).not.toHaveBeenCalled();
+      expect(initialDb.transaction).not.toHaveBeenCalled();
+      expect(initialDb.close).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('surfaces desktop hard reset failure instead of falling back to direct PGlite', async () => {
