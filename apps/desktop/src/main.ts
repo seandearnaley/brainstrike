@@ -113,6 +113,7 @@ import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
+  getDesktopDatabaseWorkScheduler,
   getDesktopDatabaseWorkSchedulerSnapshot,
   quiesceDesktopDatabaseWorkForRecovery,
   registerIpcHandlers,
@@ -1209,6 +1210,10 @@ desktopDatabaseMaintenanceScheduler = createDesktopDatabaseMaintenanceScheduler(
   getSchedulerSnapshot: getDesktopDatabaseWorkSchedulerSnapshot,
   logger,
   runScheduledWork: runDesktopScheduledDatabaseWork,
+  // BST-1333: lets the scheduler require SUSTAINED idle before starting an
+  // unpreemptable maintenance statement, instead of trusting a single sample.
+  subscribeToSchedulerSnapshots: (listener) =>
+    getDesktopDatabaseWorkScheduler().subscribe(listener),
 });
 desktopDimensionIndexMaintenanceScheduler = createDesktopDimensionIndexMaintenanceScheduler({
   getDatabase,

@@ -27,6 +27,11 @@ const COMPLETED_MAINTENANCE_RESULT: ScheduledDatabaseMaintenanceResult = {
   ],
 };
 
+interface SchedulerSnapshotForTest {
+  readonly queued: Record<DatabaseWorkPriority, number>;
+  readonly runningPriority: DatabaseWorkPriority | null;
+}
+
 function createQueuedCounts(
   overrides: Partial<Record<DatabaseWorkPriority, number>> = {}
 ): Record<DatabaseWorkPriority, number> {
@@ -36,6 +41,131 @@ function createQueuedCounts(
     normal: overrides.normal ?? 0,
   };
 }
+
+/**
+ * BST-1333: the quiet-period gate. A measured `VACUUM (ANALYZE) file_chunks`
+ * ran 7.3s and, because the DB host dispatches serially and cannot preempt it,
+ * every renderer query queued behind it — it had started in a momentary gap
+ * between the renderer's startup query bursts, which the instantaneous
+ * "is it busy right now?" check read as safe.
+ */
+describe('DesktopDatabaseMaintenanceScheduler quiet period (BST-1333)', () => {
+  interface QuietPeriodHarness {
+    readonly advance: (ms: number) => void;
+    readonly reportBusy: () => void;
+    readonly runMaintenance: ReturnType<typeof vi.fn>;
+    readonly scheduler: ReturnType<typeof createDesktopDatabaseMaintenanceScheduler>;
+  }
+
+  function createHarness(quietPeriodMs?: number): QuietPeriodHarness {
+    let nowMs = 1_000_000;
+    let listener: ((snapshot: SchedulerSnapshotForTest) => void) | null = null;
+    const runMaintenance = vi.fn(async () => COMPLETED_MAINTENANCE_RESULT);
+    const scheduler = createDesktopDatabaseMaintenanceScheduler({
+      getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+      getSchedulerSnapshot: () => ({
+        queued: createQueuedCounts(),
+        runningPriority: null,
+      }),
+      logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+      now: () => new Date(nowMs),
+      ...(quietPeriodMs === undefined ? {} : { quietPeriodMs }),
+      runMaintenance,
+      runScheduledWork: (async <TResult>(
+        _options: DatabaseWorkOptions,
+        work: () => Promise<TResult>
+      ): Promise<TResult> =>
+        await work()) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'],
+      subscribeToSchedulerSnapshots: (snapshotListener) => {
+        listener = snapshotListener;
+        return () => {
+          listener = null;
+        };
+      },
+    });
+    return {
+      advance: (ms: number) => {
+        nowMs += ms;
+      },
+      reportBusy: () => {
+        listener?.({ queued: createQueuedCounts(), runningPriority: 'foreground' });
+      },
+      runMaintenance,
+      scheduler,
+    };
+  }
+
+  it('refuses to start a pass while the scheduler has only just gone idle', async () => {
+    const harness = createHarness();
+    harness.scheduler.start(); // start seeds "busy": the app is booting
+    harness.advance(5000);
+
+    const result = await harness.scheduler.runOnce();
+
+    expect(result.status).toBe('skipped');
+    expect((result as { reason: string }).reason).toBe('database-scheduler-recently-busy');
+    expect(harness.runMaintenance).not.toHaveBeenCalled();
+    harness.scheduler.stop();
+  });
+
+  it('runs once the scheduler has been continuously idle for the quiet period', async () => {
+    const harness = createHarness();
+    harness.scheduler.start();
+    harness.advance(20_000);
+
+    const result = await harness.scheduler.runOnce();
+
+    expect(result).toBe(COMPLETED_MAINTENANCE_RESULT);
+    expect(harness.runMaintenance).toHaveBeenCalledTimes(1);
+    harness.scheduler.stop();
+  });
+
+  it('restarts the quiet window when observed work arrives between passes', async () => {
+    // The failure this pins: the instantaneous check samples only at run time,
+    // so a burst that ended microseconds ago looked identical to a long lull.
+    const harness = createHarness();
+    harness.scheduler.start();
+    harness.advance(20_000);
+    harness.reportBusy(); // a renderer query burst lands via the subscription
+    harness.advance(2000);
+
+    const result = await harness.scheduler.runOnce();
+
+    expect(result.status).toBe('skipped');
+    expect((result as { reason: string }).reason).toBe('database-scheduler-recently-busy');
+    expect(harness.runMaintenance).not.toHaveBeenCalled();
+    harness.scheduler.stop();
+  });
+
+  it('honors quietPeriodMs: 0 for callers that opt out of the gate', async () => {
+    const harness = createHarness(0);
+    harness.scheduler.start();
+
+    const result = await harness.scheduler.runOnce();
+
+    expect(result).toBe(COMPLETED_MAINTENANCE_RESULT);
+    harness.scheduler.stop();
+  });
+
+  it('rejects a negative quiet period instead of coercing it', () => {
+    expect(() =>
+      createDesktopDatabaseMaintenanceScheduler({
+        getDatabase: vi.fn(async () => ({ query: vi.fn() })),
+        getSchedulerSnapshot: () => ({
+          queued: createQueuedCounts(),
+          runningPriority: null,
+        }),
+        logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn() },
+        quietPeriodMs: -1,
+        runScheduledWork: (async <TResult>(
+          _options: DatabaseWorkOptions,
+          work: () => Promise<TResult>
+        ): Promise<TResult> =>
+          await work()) as unknown as DesktopDatabaseMaintenanceSchedulerOptions['runScheduledWork'],
+      })
+    ).toThrow(/quietPeriodMs must be a non-negative number/);
+  });
+});
 
 describe('DesktopDatabaseMaintenanceScheduler', () => {
   it('does not request a database handle while scheduled DB work is already busy', async () => {
@@ -249,6 +379,10 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
           error: vi.fn(),
           info: vi.fn(),
         },
+        // Timer mechanics in isolation: opt out of the BST-1333 quiet-period
+        // gate, which start() would otherwise arm for 15s and which has its
+        // own describe block above.
+        quietPeriodMs: 0,
         runMaintenance: vi.fn(async () => COMPLETED_MAINTENANCE_RESULT),
         runScheduledWork,
       });
@@ -288,6 +422,8 @@ describe('DesktopDatabaseMaintenanceScheduler', () => {
           error: vi.fn(),
           info: vi.fn(),
         },
+        // Timer mechanics in isolation — see the note on the initial-pass test.
+        quietPeriodMs: 0,
         runMaintenance: vi.fn(async () => COMPLETED_MAINTENANCE_RESULT),
         runScheduledWork,
       });
