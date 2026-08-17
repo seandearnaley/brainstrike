@@ -10,9 +10,9 @@ import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, SerializedState } from '@brainstrike/types';
 import type { PersistOptions, PersistStorage } from 'zustand/middleware';
 import { FILE_EXPLORER_STORAGE_KEY, FILE_EXPLORER_STORAGE_VERSION } from './persistence-constants';
-import { migrateState } from './state-migration';
+import { migrateState, validateAndRecoverSerializedState } from './state-migration';
 import { mergeState, serializeState } from './state-serialization';
-import { createStorageWrapper } from './storage-wrapper';
+import { createStorageWrapper, type PersistedStateDiscardReason } from './storage-wrapper';
 import { detectTestEnvironment } from './test-environment';
 import { initWorker } from './worker-init';
 
@@ -62,8 +62,14 @@ export const createPersistOptions = (
 ): PersistOptions<FileExplorerState, SerializedState> => {
   const { workerStorage, useWorker } = initWorker(storageAdapter, isTest, shouldLog);
   let didDiscardPersistedState = false;
-  const recordPersistedStateDiscard = (): void => {
+  let unavailableReadWriteFingerprint: string | null = null;
+  let shouldPreserveUnreadSnapshot = false;
+  const recordPersistedStateDiscard = (reason?: PersistedStateDiscardReason): void => {
     didDiscardPersistedState = true;
+    if (reason === 'unavailable-read') {
+      unavailableReadWriteFingerprint = null;
+      shouldPreserveUnreadSnapshot = true;
+    }
   };
 
   // Add legacy-key migration from v3 to v4 (only if localStorage exists)
@@ -112,6 +118,24 @@ export const createPersistOptions = (
       await persistedStorage.removeItem(name);
       return null;
     },
+    setItem: async (name, value) => {
+      // Zustand persists even when only the ephemeral recovery notice changes.
+      // Preserve the unread snapshot across those identical writes, but allow a
+      // later intentional state change (and therefore a different snapshot).
+      if (name === FILE_EXPLORER_STORAGE_KEY && shouldPreserveUnreadSnapshot) {
+        const writeFingerprint = JSON.stringify(value);
+        if (unavailableReadWriteFingerprint === null) {
+          unavailableReadWriteFingerprint = writeFingerprint;
+          return;
+        }
+        if (writeFingerprint === unavailableReadWriteFingerprint) {
+          return;
+        }
+        shouldPreserveUnreadSnapshot = false;
+        unavailableReadWriteFingerprint = null;
+      }
+      await persistedStorage.setItem(name, value);
+    },
   };
 
   return {
@@ -119,9 +143,8 @@ export const createPersistOptions = (
       if (persisted === null || persisted === undefined) {
         return mergeState(null, current, shouldLog);
       }
-      const validatedState = migrateState(
+      const validatedState = validateAndRecoverSerializedState(
         persisted,
-        FILE_EXPLORER_STORAGE_VERSION,
         shouldLog,
         recordPersistedStateDiscard
       );
@@ -133,6 +156,7 @@ export const createPersistOptions = (
     name: FILE_EXPLORER_STORAGE_KEY,
 
     onRehydrateStorage: (preHydrationState) => (state, error) => {
+      const failureStage = didDiscardPersistedState ? 'storage-read' : 'merge-or-set';
       if (didDiscardPersistedState) {
         didDiscardPersistedState = false;
         preHydrationState.reportPersistedStateDiscard();
@@ -143,6 +167,7 @@ export const createPersistOptions = (
       if (error) {
         logger.warn('onRehydrateStorage - Storage rehydration failed', {
           errorName: error instanceof Error ? error.name : typeof error,
+          stage: failureStage,
         });
         return;
       }

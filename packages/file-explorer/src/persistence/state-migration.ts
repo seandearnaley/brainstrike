@@ -114,6 +114,32 @@ function logPersistedStateCandidate(
   });
 }
 
+export function validateAndRecoverSerializedState(
+  persistedState: unknown,
+  shouldLog: boolean,
+  onDiscard?: () => void
+): SerializedState {
+  if (!looksLikeSerializedState(persistedState)) {
+    return discardInvalidPayload(
+      'Migrate - Payload does not match SerializedState shape, discarding.',
+      shouldLog,
+      onDiscard
+    );
+  }
+
+  if (shouldLog) {
+    logger.debug('Migrate - Returning valid SerializedState summary', {
+      folderStateCount: Object.keys(persistedState.folderStates ?? {}).length,
+      hasCurrentFolder: persistedState.currentFolderId !== null,
+      hasSelectionModel: Boolean(persistedState.selectionModel),
+      selectedFileCount: Array.isArray(persistedState.selectedFilePaths)
+        ? persistedState.selectedFilePaths.length
+        : 0,
+    });
+  }
+  return persistedState;
+}
+
 function unwrapPersistedState(
   rawPersistedState: unknown,
   shouldLog: boolean
@@ -172,15 +198,6 @@ export function migrateState(
     );
   }
 
-  if (!looksLikeSerializedState(stateToProcess)) {
-    return discardInvalidPayload(
-      'Migrate - Payload does not match SerializedState shape, discarding.',
-      shouldLog,
-      onDiscard
-    );
-  }
-
-  const serialized = stateToProcess as SerializedState;
   if (version > FILE_EXPLORER_STORAGE_VERSION) {
     return discardInvalidPayload(
       `Migrate - Future persisted version ${version} is not supported, discarding.`,
@@ -195,15 +212,5 @@ export function migrateState(
       onDiscard
     );
   }
-  if (shouldLog) {
-    logger.debug('Migrate - Returning valid SerializedState summary', {
-      folderStateCount: Object.keys(serialized.folderStates ?? {}).length,
-      hasCurrentFolder: serialized.currentFolderId !== null,
-      hasSelectionModel: Boolean(serialized.selectionModel),
-      selectedFileCount: Array.isArray(serialized.selectedFilePaths)
-        ? serialized.selectedFilePaths.length
-        : 0,
-    });
-  }
-  return serialized;
+  return validateAndRecoverSerializedState(stateToProcess, shouldLog, onDiscard);
 }

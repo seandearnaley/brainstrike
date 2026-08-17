@@ -33,6 +33,44 @@ async function seedPersistedState(
 }
 
 describe('persisted explorer recovery notice', () => {
+  it('surfaces an unavailable read without overwriting the valid snapshot', async () => {
+    const backingStorage = new MemoryStorageAdapter();
+    await seedPersistedState(backingStorage, validSerializedState);
+    const originalSnapshot = await backingStorage.getItem(FILE_EXPLORER_STORAGE_KEY);
+    let failNextRead = true;
+    const setItem = vi.fn(async (key: string, value: string) => {
+      await backingStorage.setItem(key, value);
+    });
+    const unavailableStorage = {
+      clear: () => backingStorage.clear(),
+      getAllKeys: () => backingStorage.getAllKeys(),
+      getItem: async (key: string) => {
+        if (failNextRead) {
+          failNextRead = false;
+          throw new Error('Storage temporarily unavailable');
+        }
+        return await backingStorage.getItem(key);
+      },
+      removeItem: (key: string) => backingStorage.removeItem(key),
+      setItem,
+    };
+
+    const store = createFileExplorerStore(unavailableStorage);
+    await vi.waitFor(() =>
+      expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded')
+    );
+
+    expect(store.persist.hasHydrated()).toBe(false);
+    expect(setItem).not.toHaveBeenCalled();
+    expect(await unavailableStorage.getItem(FILE_EXPLORER_STORAGE_KEY)).toBe(originalSnapshot);
+
+    expect(store.getState().consumePersistenceRecoveryNotice()).toBe(true);
+    await vi.waitFor(() => expect(setItem).not.toHaveBeenCalled());
+
+    store.getState().setQuickFilter('intentional-change');
+    await vi.waitFor(() => expect(setItem).toHaveBeenCalledOnce());
+  });
+
   it('recovers a corrupt-shaped payload to empty state and records one discard notice', async () => {
     const storage = new MemoryStorageAdapter();
     await seedPersistedState(storage, {
