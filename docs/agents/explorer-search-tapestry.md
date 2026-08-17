@@ -602,9 +602,15 @@ fallback.
   excluded-path prefixes (`.claude/worktrees`) checked ROOT-RELATIVELY via
   `isExcludedBackgroundIndexingPath` — a subscription root opened inside an
   excluded tree watches normally; only nested excluded trees are silenced.
-  DEFAULT_IGNORE_PATTERNS and (for roots outside excluded trees) the
-  excluded-path globs also feed native-level ignore globs — same rules,
-  never broader. A per-subscription `ignorePatterns` override exists
+  Deliberate consequence: a NESTED worktree subtree stays VISIBLE in the
+  Explorer (`fileFilter` unchanged; the token-indexer e2e still expands into
+  it) but is no longer live-refreshed — external changes there appear only
+  on manual re-enumeration. That is the point of the fix (run-5189: worktree
+  churn flooding FSEvents drove overflow → full-refresh storms → DB-host
+  saturation that killed an active run); do not "fix" the staleness back
+  into a watch. DEFAULT_IGNORE_PATTERNS and (for roots outside excluded
+  trees) the excluded-path globs also feed native-level ignore globs — same
+  rules, never broader. A per-subscription `ignorePatterns` override exists
   (BST-1112, see `docs/agents/platform-contracts.md`) for main-owned callers
   outside this pipeline, e.g. a git-metadata watcher; the Explorer refresh
   pipeline described here NEVER passes it, so "same names, never broader"
