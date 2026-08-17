@@ -308,9 +308,11 @@ export function useSelectionResolver(): SelectionResolverState {
         descriptor,
         manifest: latestManifest,
       }) &&
-      (latestManifestStatus === 'ready' || (latestManifestStatus === 'loading' && !db))
+      (latestManifestStatus === 'ready' ||
+        latestManifestStatus === 'error' ||
+        (latestManifestStatus === 'loading' && !db))
     ) {
-      if (latestManifestStatus === 'ready') {
+      if (latestManifestStatus === 'ready' || latestManifestStatus === 'error') {
         loadingPromotionStartRef.current = null;
       }
       return;

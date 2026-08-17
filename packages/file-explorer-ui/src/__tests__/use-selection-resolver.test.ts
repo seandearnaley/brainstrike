@@ -860,7 +860,7 @@ describe('useSelectionResolver', () => {
     expect(result.current.effectiveRelativePaths).toEqual(['src/index.ts']);
   });
 
-  it('replaces a prior resolver error when a new snapshot attempt fails differently', async () => {
+  it('replaces a prior resolver error after the snapshot descriptor changes', async () => {
     const state = {
       currentFolderId: 'folder-1',
       querySelectionManifest: {
@@ -886,8 +886,8 @@ describe('useSelectionResolver', () => {
           includedPaths: [],
           includeFilters: ['**/*.ts'],
           kind: 'recursive-select-all' as const,
-          manifestFingerprint: 'fp-1',
-          manifestSnapshotId: 'snapshot-1',
+          manifestFingerprint: 'fp-2',
+          manifestSnapshotId: 'snapshot-2',
           rootPath: null,
           totalSelectedCount: 1,
           useRegex: false,

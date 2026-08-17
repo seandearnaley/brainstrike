@@ -200,6 +200,66 @@ describe('useSelectionResolver', () => {
     expect(result.current.effectiveRelativePaths).toEqual(['src/index.ts']);
   });
 
+  it('does not retry a matching snapshot after a fast error publication', async () => {
+    const state = {
+      currentFolderId: 'folder-1',
+      querySelectionManifest: null as null | {
+        directoryCounts: Map<string, number>;
+        errorMessage: string | null;
+        filePaths: string[];
+        fingerprint: string;
+        pathSet: Set<string>;
+        snapshotId: string;
+        status: 'error' | 'loading' | 'ready';
+      },
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: new Set<string>(),
+        mode: 'query' as const,
+        queryDescriptor: {
+          coveredDirectoryPaths: ['/src'],
+          excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
+          totalSelectedCount: 1,
+          useRegex: false,
+        },
+      },
+      setQuerySelectionManifest: vi.fn((manifest) => {
+        state.querySelectionManifest = manifest;
+      }),
+    };
+
+    useOptionalPGliteDatabaseMock.mockReturnValue({ query: vi.fn() });
+    useFileExplorerStoreContextMock.mockReturnValue({ getState: () => state });
+    loadQuerySelectionSnapshotMock.mockRejectedValue(new Error('database failure'));
+
+    const { rerender } = renderHook(() => useSelectionResolver());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledTimes(1);
+    expect(state.querySelectionManifest).toEqual(
+      expect.objectContaining({ errorMessage: 'database failure', status: 'error' })
+    );
+
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(loadQuerySelectionSnapshotMock).toHaveBeenCalledTimes(1);
+  });
+
   it('does not let a late snapshot rejection downgrade a matching ready manifest', async () => {
     const { promise, reject } = Promise.withResolvers<string[]>();
     const state = {
