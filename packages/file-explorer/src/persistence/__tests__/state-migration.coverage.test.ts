@@ -130,8 +130,8 @@ describe('state-migration coverage', () => {
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'Migrate - Returning valid SerializedState summary',
       expect.objectContaining({
-        currentFolderId: 'folder-1',
         folderStateCount: 0,
+        hasCurrentFolder: true,
         hasSelectionModel: true,
         selectedFileCount: 1,
       })

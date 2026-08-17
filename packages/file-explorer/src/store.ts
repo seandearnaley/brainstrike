@@ -43,6 +43,8 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     isAccessLoading: false,
     // Ensure lastActiveTab is explicitly set from DEFAULT_STATE or provide default
     lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
+    // Ephemeral recovery signal (not persisted)
+    persistenceRecoveryNotice: null,
     quickFilter: '',
     rootDescriptors: {} as FileExplorerState['rootDescriptors'],
     selectedFilePaths: new Set<string>(),
@@ -58,6 +60,20 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createActiveRootActions(set, get),
     clearQuickFilter: () => {
       set({ quickFilter: '' });
+    },
+    consumePersistenceRecoveryNotice: () => {
+      let consumed = false;
+      set((state) => {
+        if (state.persistenceRecoveryNotice === null) {
+          return state;
+        }
+        consumed = true;
+        return { persistenceRecoveryNotice: null };
+      });
+      return consumed;
+    },
+    reportPersistedStateDiscard: () => {
+      set({ persistenceRecoveryNotice: 'persisted-state-discarded' });
     },
     setDevInlineFixtureEnabled: (value: boolean) => {
       set({ devInlineFixtureEnabled: value });

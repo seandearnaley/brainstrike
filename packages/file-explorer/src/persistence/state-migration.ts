@@ -41,22 +41,38 @@ function createEmptySerializedState(): SerializedState {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
 function looksLikeSerializedState(value: unknown): value is SerializedState {
-  if (!(value && typeof value === 'object')) {
+  if (!isRecord(value)) {
     return false;
   }
 
-  const candidate = value as Record<string, unknown>;
+  const candidate = value;
+  const currentFolderId = candidate['currentFolderId'];
+  const folderStates = candidate['folderStates'];
   return Boolean(
-    candidate['folderStates'] &&
-      typeof candidate['folderStates'] === 'object' &&
-      Array.isArray(candidate['folderAccessOrder']) &&
-      Array.isArray(candidate['selectedFilePaths']) &&
-      Array.isArray(candidate['expandedDirectoryPaths'])
+    (currentFolderId === null || typeof currentFolderId === 'string') &&
+      isRecord(folderStates) &&
+      Object.values(folderStates).every(isRecord) &&
+      isStringArray(candidate['folderAccessOrder']) &&
+      isStringArray(candidate['selectedFilePaths']) &&
+      isStringArray(candidate['expandedDirectoryPaths'])
   );
 }
 
-function discardInvalidPayload(message: string, shouldLog: boolean): SerializedState {
+function discardInvalidPayload(
+  message: string,
+  shouldLog: boolean,
+  onDiscard?: () => void
+): SerializedState {
+  onDiscard?.();
   if (shouldLog) {
     logger.debug(message);
   }
@@ -118,7 +134,8 @@ function unwrapPersistedState(
 export function migrateState(
   rawPersistedState: unknown,
   version: number,
-  shouldLog: boolean
+  shouldLog: boolean,
+  onDiscard?: () => void
 ): SerializedState {
   logPersistedStateCandidate(rawPersistedState, version, shouldLog);
   const stateToProcess = unwrapPersistedState(rawPersistedState, shouldLog);
@@ -134,14 +151,16 @@ export function migrateState(
       isWrappedStateMissingPayload
         ? 'Migrate - Wrapped state missing payload, discarding.'
         : 'Migrate - Invalid non-object persisted payload, discarding.',
-      shouldLog
+      shouldLog,
+      onDiscard
     );
   }
 
   if (!looksLikeSerializedState(stateToProcess)) {
     return discardInvalidPayload(
       'Migrate - Payload does not match SerializedState shape, discarding.',
-      shouldLog
+      shouldLog,
+      onDiscard
     );
   }
 
@@ -149,19 +168,21 @@ export function migrateState(
   if (version > FILE_EXPLORER_STORAGE_VERSION) {
     return discardInvalidPayload(
       `Migrate - Future persisted version ${version} is not supported, discarding.`,
-      shouldLog
+      shouldLog,
+      onDiscard
     );
   }
   if (version < FILE_EXPLORER_STORAGE_VERSION) {
     return discardInvalidPayload(
       `Migrate - Persisted version ${version} is older than supported version ${FILE_EXPLORER_STORAGE_VERSION}, discarding.`,
-      shouldLog
+      shouldLog,
+      onDiscard
     );
   }
   if (shouldLog) {
     logger.debug('Migrate - Returning valid SerializedState summary', {
-      currentFolderId: serialized.currentFolderId,
       folderStateCount: Object.keys(serialized.folderStates ?? {}).length,
+      hasCurrentFolder: serialized.currentFolderId !== null,
       hasSelectionModel: Boolean(serialized.selectionModel),
       selectedFileCount: Array.isArray(serialized.selectedFilePaths)
         ? serialized.selectedFilePaths.length

@@ -1,8 +1,9 @@
 import { registerFactoryResetSessionStore } from '@brainstrike/app-state/factory-reset';
 import { createFileExplorerStore } from '@brainstrike/file-explorer';
+import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
-import type { FileExplorerState } from '@brainstrike/types';
+import { type FileExplorerState, FileExplorerStrings } from '@brainstrike/types';
 import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand';
 import { type UseBoundStoreWithEqualityFn, useStoreWithEqualityFn } from 'zustand/traditional';
@@ -89,8 +90,32 @@ export function FileExplorerProvider({
   );
 
   return (
-    <FileExplorerStoreContext.Provider value={store}>{children}</FileExplorerStoreContext.Provider>
+    <FileExplorerStoreContext.Provider value={store}>
+      <PersistenceRecoveryNotifier />
+      {children}
+    </FileExplorerStoreContext.Provider>
   );
+}
+
+function PersistenceRecoveryNotifier() {
+  const store = useFileExplorerStoreContext();
+  const notice = useFileExplorerStoreSelector((state) => state.persistenceRecoveryNotice);
+  const { showToast } = useToastManager();
+
+  useEffect(() => {
+    if (notice !== 'persisted-state-discarded') {
+      return;
+    }
+    if (!store.getState().consumePersistenceRecoveryNotice()) {
+      return;
+    }
+    showToast({
+      description: FileExplorerStrings.recovery.persistedStateDiscarded,
+      title: FileExplorerStrings.recovery.title,
+    });
+  }, [notice, showToast, store]);
+
+  return null;
 }
 
 export function useFileExplorerStoreContext(): FileExplorerStore {

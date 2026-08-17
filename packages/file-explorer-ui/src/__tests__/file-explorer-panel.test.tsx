@@ -1016,14 +1016,23 @@ describe('FileExplorerPanel', () => {
 
     // Update the mock before rendering
     const { useToastManager } = await import('@brainstrike/file-explorer-hooks');
-    vi.mocked(useToastManager).mockReturnValueOnce({
-      handleBrowserCompatibilityError: handleBrowserCompatibilityErrorMock,
-      handleDirectorySelectError: vi.fn(),
-      handlePartialRefreshError: vi.fn(),
-      handleRefreshError: vi.fn(),
-      showToast: vi.fn(),
-      toast: vi.fn(),
-    });
+    vi.mocked(useToastManager)
+      .mockReturnValueOnce({
+        handleBrowserCompatibilityError: vi.fn(),
+        handleDirectorySelectError: vi.fn(),
+        handlePartialRefreshError: vi.fn(),
+        handleRefreshError: vi.fn(),
+        showToast: vi.fn(),
+        toast: vi.fn(),
+      })
+      .mockReturnValueOnce({
+        handleBrowserCompatibilityError: handleBrowserCompatibilityErrorMock,
+        handleDirectorySelectError: vi.fn(),
+        handlePartialRefreshError: vi.fn(),
+        handleRefreshError: vi.fn(),
+        showToast: vi.fn(),
+        toast: vi.fn(),
+      });
 
     const user = userEvent.setup();
     renderWithProviders(<FileExplorerPanel />);
@@ -1091,14 +1100,23 @@ describe('FileExplorerPanel', () => {
 
     // Update the mock before rendering
     const { useToastManager } = await import('@brainstrike/file-explorer-hooks');
-    vi.mocked(useToastManager).mockReturnValueOnce({
-      handleBrowserCompatibilityError: vi.fn(),
-      handleDirectorySelectError: vi.fn(),
-      handlePartialRefreshError: vi.fn(),
-      handleRefreshError: handleRefreshErrorMock,
-      showToast: errorShowToast,
-      toast: vi.fn(),
-    });
+    vi.mocked(useToastManager)
+      .mockReturnValueOnce({
+        handleBrowserCompatibilityError: vi.fn(),
+        handleDirectorySelectError: vi.fn(),
+        handlePartialRefreshError: vi.fn(),
+        handleRefreshError: vi.fn(),
+        showToast: vi.fn(),
+        toast: vi.fn(),
+      })
+      .mockReturnValueOnce({
+        handleBrowserCompatibilityError: vi.fn(),
+        handleDirectorySelectError: vi.fn(),
+        handlePartialRefreshError: vi.fn(),
+        handleRefreshError: handleRefreshErrorMock,
+        showToast: errorShowToast,
+        toast: vi.fn(),
+      });
 
     window.addEventListener(FILE_EXPLORER_REFRESH_EVENT, onRefresh);
     try {

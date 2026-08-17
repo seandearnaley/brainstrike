@@ -123,7 +123,7 @@ describe('StorageWrapper', () => {
       expect(await mockStorage.getItem('bad-json')).toBeNull();
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Invalid JSON from storage adapter; clearing value',
-        expect.objectContaining({ error: expect.any(SyntaxError), name: 'bad-json' })
+        { name: 'bad-json' }
       );
     });
 
@@ -158,7 +158,7 @@ describe('StorageWrapper', () => {
       expect(result).toBeNull();
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Invalid JSON from worker storage; ignoring value',
-        expect.objectContaining({ error: expect.any(SyntaxError), name: 'bad-json' })
+        { name: 'bad-json' }
       );
     });
   });

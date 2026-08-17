@@ -48,6 +48,11 @@ export const FileExplorerStrings = {
     waitForContext: 'Please wait while we prepare your context',
     waitForLoading: 'Please wait while we load the file tree',
   },
+  recovery: {
+    persistedStateDiscarded:
+      'Saved explorer settings could not be restored and were reset. Your files were not changed.',
+    title: 'Explorer settings reset',
+  },
   refresh: 'Refresh',
 
   // Status Messages

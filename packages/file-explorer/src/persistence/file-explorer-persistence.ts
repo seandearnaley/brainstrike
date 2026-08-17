@@ -51,6 +51,10 @@ export const createPersistOptions = (
   storageAdapter: StorageAdapter
 ): PersistOptions<FileExplorerState, SerializedState> => {
   const { workerStorage, useWorker } = initWorker(storageAdapter, isTest, shouldLog);
+  let didDiscardPersistedState = false;
+  const recordPersistedStateDiscard = (): void => {
+    didDiscardPersistedState = true;
+  };
 
   // Add legacy-key migration from v3 to v4 (only if localStorage exists)
   if (typeof localStorage !== 'undefined') {
@@ -75,13 +79,28 @@ export const createPersistOptions = (
   }
 
   return {
-    merge: (persisted, current) =>
-      mergeState(persisted as SerializedState | null, current, shouldLog),
+    merge: (persisted, current) => {
+      if (persisted === null || persisted === undefined) {
+        return mergeState(null, current, shouldLog);
+      }
+      const validatedState = migrateState(
+        persisted,
+        FILE_EXPLORER_STORAGE_VERSION,
+        shouldLog,
+        recordPersistedStateDiscard
+      );
+      return mergeState(validatedState, current, shouldLog);
+    },
 
-    migrate: (rawPersistedState, version) => migrateState(rawPersistedState, version, shouldLog),
+    migrate: (rawPersistedState, version) =>
+      migrateState(rawPersistedState, version, shouldLog, recordPersistedStateDiscard),
     name: FILE_EXPLORER_STORAGE_KEY,
 
-    onRehydrateStorage: () => (state, error) => {
+    onRehydrateStorage: (preHydrationState) => (state, error) => {
+      if (didDiscardPersistedState) {
+        didDiscardPersistedState = false;
+        preHydrationState.reportPersistedStateDiscard();
+      }
       if (!shouldLog) {
         return;
       }
@@ -96,8 +115,8 @@ export const createPersistOptions = (
       logger.debug(
         'onRehydrateStorage - Storage rehydrated. Folder count:',
         Object.keys(state.folderStates).length,
-        'Current folder:',
-        state.currentFolderId
+        'Has current folder:',
+        state.currentFolderId !== null
       );
     },
 
@@ -107,7 +126,8 @@ export const createPersistOptions = (
       storageAdapter,
       useWorker,
       workerStorage,
-      shouldLog
+      shouldLog,
+      recordPersistedStateDiscard
     ) as PersistStorage<SerializedState>,
     version: FILE_EXPLORER_STORAGE_VERSION,
   };

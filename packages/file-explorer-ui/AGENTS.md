@@ -89,6 +89,12 @@ export default function Explorer() {
 
 * We instantiate a **scoped Zustand store** via `FileExplorerProvider`. Do **not** import or mutate the global store; always use `useFileExplorerStoreContext()`.
 * Selectors must use `createWithEqualityFn` or `shallow` where appropriate to prevent re-renders on large trees. See Zustand docs for `createWithEqualityFn` and `useShallow`. ([Zustand Documentation][1])
+* `FileExplorerProvider` owns the persisted-state recovery notification. It
+  atomically consumes the core store's redacted `persistenceRecoveryNotice`
+  and shows one informational toast: saved explorer settings were reset, while
+  user files were not changed. The toast must never include the rejection
+  reason, persisted values, root identifiers, or paths. Missing first-run state
+  and valid hydration remain silent.
 
 ### 2) Virtualization / treegrid
 

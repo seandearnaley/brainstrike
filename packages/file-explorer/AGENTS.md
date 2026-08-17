@@ -103,6 +103,16 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
 
 * Storage key: **`file-explorer-storage-v4`**. Legacy key **`fileExplorerSettings`** is auto-migrated on startup only when no current-key snapshot exists.
 * We persist only a **partialized** slice (no functions, no cache) and **merge** back into current defaults on hydration. Schema changes use `version` + `migrate`; because this app is still greenfield, older file-explorer snapshots are discarded rather than migrated when their semantics are no longer trusted. See Zustand docs for `persist` options (`partialize`, `merge`, `version`, `migrate`). ([Zustand Documentation][2])
+* Invalid JSON, corrupt same-version shapes, and unsupported versions recover to
+  the empty serialized state and set the ephemeral
+  `persistenceRecoveryNotice`. Missing first-run state and valid hydration do
+  not set it. Consumers atomically drain the notice through
+  `consumePersistenceRecoveryNotice()` so one discarded payload can produce at
+  most one notification; the notice itself is never persisted.
+* Persistence diagnostics are summaries only (counts, booleans, and schema
+  versions). Never log persisted identifiers, root-map keys, paths, raw
+  payloads, or JSON parser errors because parser messages can echo payload
+  fragments.
 * **Never persist large content** (leave it in the LRU). Web Storage is synchronous; large writes/reads can degrade responsiveness—offload to a Worker (below) and keep the payloads small. ([MDN Web Docs][3])
 
 ---

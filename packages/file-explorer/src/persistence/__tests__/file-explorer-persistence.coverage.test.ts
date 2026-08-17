@@ -112,8 +112,8 @@ describe('file-explorer-persistence coverage', () => {
     expect(mockLogger.debug).toHaveBeenCalledWith(
       'onRehydrateStorage - Storage rehydrated. Folder count:',
       2,
-      'Current folder:',
-      'folder-1'
+      'Has current folder:',
+      true
     );
     expect(mockLogger.warn).toHaveBeenCalledWith(
       'onRehydrateStorage - Storage rehydration failed:',
