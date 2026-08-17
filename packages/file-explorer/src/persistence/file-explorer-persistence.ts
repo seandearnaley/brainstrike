@@ -101,7 +101,7 @@ export const createPersistOptions = (
     ...persistedStorage,
     getItem: async (name) => {
       const envelope = await persistedStorage.getItem(name);
-      if (envelope === null || isPersistEnvelope(envelope)) {
+      if (name !== FILE_EXPLORER_STORAGE_KEY || envelope === null || isPersistEnvelope(envelope)) {
         return envelope;
       }
 
