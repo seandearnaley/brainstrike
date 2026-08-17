@@ -5,6 +5,7 @@ import {
   PRODUCT_STORY,
   STORY_CHAPTERS,
   sceneAnchorId,
+  stageIdFromSceneAnchor,
 } from './product-story';
 
 describe('product story registry', () => {
@@ -30,6 +31,15 @@ describe('product story registry', () => {
     expect(new Set(anchorIds).size).toBe(PRODUCT_STORY.length);
     expect(new Set([...sectionIds, ...anchorIds]).size).toBe(PRODUCT_STORY.length * 2);
     expect(anchorIds).toEqual(sectionIds.map((id) => `${id}-scene`));
+  });
+
+  it('maps every scene anchor back to its stage id for the rail highlight', () => {
+    // The timeline publishes stage ids derived from anchor DOM ids; a broken
+    // inverse would silently deactivate StageRail's is-active/aria-current.
+    for (const stage of PRODUCT_STORY) {
+      expect(stageIdFromSceneAnchor(sceneAnchorId(stage))).toBe(stage.id);
+    }
+    expect(() => stageIdFromSceneAnchor('signal')).toThrow('not a scene anchor id');
   });
 
   it('derives primary navigation only from registered story stages', () => {

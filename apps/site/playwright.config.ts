@@ -83,7 +83,11 @@ export default defineConfig({
     reuseExistingServer: false,
     stderr: 'pipe',
     stdout: 'pipe',
-    timeout: 30_000,
+    // Ceiling, not a wait: covers a COLD `vite build` + preview bind inside
+    // the CI Playwright container (no Vite cache), where this suite gates the
+    // required Web E2E check and failOnFlakyTests turns one opaque
+    // "Timed out waiting from config.webServer" into a red required check.
+    timeout: 120_000,
     url: baseURL,
   },
   workers: 2,

@@ -93,7 +93,10 @@ export class WebGPUScene {
       if (!navigator.gpu) {
         throw new WebGPUCapabilityError('This browser does not expose WebGPU.');
       }
-      const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+      // 'low-power' on purpose: ≤12,288 additive point sprites is comfortable
+      // for an integrated adapter, and 'high-performance' would force dGPU
+      // switching (and its power draw) on dual-GPU laptops for a landing page.
+      const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'low-power' });
       if (!adapter) {
         throw new WebGPUCapabilityError('No compatible GPU adapter was available.');
       }

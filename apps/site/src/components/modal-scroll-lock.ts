@@ -15,6 +15,15 @@ export interface DocumentScrollLock {
   readonly release: () => void;
 }
 
+let activeLockCount = 0;
+
+// Section navigation must not compute scroll targets while the lock is
+// engaged: `position: fixed` collapses `window.scrollY` to 0, which makes
+// document-top math negative for sections above the locked position.
+export function isDocumentScrollLocked(): boolean {
+  return activeLockCount > 0;
+}
+
 export function lockDocumentScroll(
   body: ScrollLockBody = document.body,
   viewport: ScrollLockViewport = window
@@ -35,6 +44,7 @@ export function lockDocumentScroll(
   body.style.left = `${-scrollX}px`;
   body.style.width = '100%';
   body.style.overflow = 'hidden';
+  activeLockCount += 1;
 
   let released = false;
   return {
@@ -43,6 +53,7 @@ export function lockDocumentScroll(
         return;
       }
       released = true;
+      activeLockCount -= 1;
       body.style.position = previous.position;
       body.style.top = previous.top;
       body.style.right = previous.right;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { lockDocumentScroll } from './modal-scroll-lock';
+import { isDocumentScrollLocked, lockDocumentScroll } from './modal-scroll-lock';
 
 describe('lockDocumentScroll', () => {
   it('freezes at the measured offset and restores every inline style exactly once', () => {
@@ -43,5 +43,21 @@ describe('lockDocumentScroll', () => {
     });
     expect(viewport.scrollTo).toHaveBeenCalledOnce();
     expect(viewport.scrollTo).toHaveBeenCalledWith({ behavior: 'instant', left: 7, top: 911 });
+  });
+
+  it('reports the lock state so section navigation can bail while engaged', () => {
+    const body = {
+      style: { left: '', overflow: '', position: '', right: '', top: '', width: '' },
+    };
+    const viewport = { scrollTo: vi.fn(), scrollX: 0, scrollY: 0 };
+
+    expect(isDocumentScrollLocked()).toBe(false);
+    const lock = lockDocumentScroll(body, viewport);
+    expect(isDocumentScrollLocked()).toBe(true);
+    lock.release();
+    expect(isDocumentScrollLocked()).toBe(false);
+    // Double release must not underflow the shared counter.
+    lock.release();
+    expect(isDocumentScrollLocked()).toBe(false);
   });
 });

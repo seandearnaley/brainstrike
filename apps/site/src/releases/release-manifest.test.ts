@@ -154,6 +154,9 @@ describe('parseReleaseManifest', () => {
     [{ tag: '1.2.3' }, 'must equal'],
     [{ version: '01.2.3' }, 'valid stable semantic version'],
     [{ tag: 'v1.2.3-beta.1', version: '1.2.3-beta.1' }, 'valid stable semantic version'],
+    // Build metadata is rejected: `+` diverges between encodeURIComponent and
+    // URL parsing, so such a tag could never satisfy the canonical-URL check.
+    [{ tag: 'v1.2.3+build.5', version: '1.2.3+build.5' }, 'valid stable semantic version'],
   ])('rejects invalid or disagreeing stable versions', (overrides, message) => {
     const manifest = publishedManifest();
     expect(() =>

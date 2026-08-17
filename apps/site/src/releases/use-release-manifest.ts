@@ -82,7 +82,12 @@ function refresh(): void {
   if (releaseState.status !== 'ready') {
     return;
   }
-  runRequest(client.load(), false);
+  // retry() invalidates before loading, so opening the chooser always performs
+  // the network revalidation RELEASES.md documents. Plain load() would
+  // short-circuit inside the cache TTL and republish a clean ready state —
+  // silently clearing a prior refresh-failure warning without any fetch
+  // having confirmed the data.
+  runRequest(client.retry(), false);
 }
 
 function subscribe(listener: () => void): () => void {

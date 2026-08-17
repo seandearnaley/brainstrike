@@ -1,8 +1,18 @@
 import { useEffect } from 'react';
+import { isDocumentScrollLocked } from '../components/modal-scroll-lock';
 import { computeSectionScrollTop } from './section-scroll';
 
 function scrollToSectionFrame(hash: string, behavior: ScrollBehavior): boolean {
   if (!(hash.length > 1 && hash.startsWith('#'))) {
+    return false;
+  }
+
+  // Under the modal scroll lock `window.scrollY` collapses to 0 and sections
+  // above the locked position measure a negative document top, which
+  // computeSectionScrollTop rejects. hashchange/popstate still fire while the
+  // download dialog is open (e.g. browser Back), so bail instead of throwing
+  // out of the listener; the lock release restores the pre-dialog position.
+  if (isDocumentScrollLocked()) {
     return false;
   }
 

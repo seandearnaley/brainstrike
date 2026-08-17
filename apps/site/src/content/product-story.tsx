@@ -150,6 +150,19 @@ export const PRODUCT_STAGE_RAIL: readonly ProductStageRailEntry[] = PRODUCT_STOR
   ({ id, railLabel }) => ({ id, railLabel })
 );
 
+const SCENE_ANCHOR_SUFFIX = '-scene';
+
 export function sceneAnchorId(stage: Pick<ProductStoryStage, 'id'>): string {
-  return `${stage.id}-scene`;
+  return `${stage.id}${SCENE_ANCHOR_SUFFIX}`;
+}
+
+// Inverse of sceneAnchorId: scene anchors own the `${id}-scene` DOM ids, but
+// consumers of the timeline (the stage rail) key on plain stage ids. Throws on
+// a non-anchor id so a mismatch surfaces instead of silently deactivating the
+// rail highlight.
+export function stageIdFromSceneAnchor(anchorId: string): string {
+  if (!anchorId.endsWith(SCENE_ANCHOR_SUFFIX)) {
+    throw new Error(`"${anchorId}" is not a scene anchor id.`);
+  }
+  return anchorId.slice(0, -SCENE_ANCHOR_SUFFIX.length);
 }

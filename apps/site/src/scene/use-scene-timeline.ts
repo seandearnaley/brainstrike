@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { stageIdFromSceneAnchor } from '../content/product-story';
 import { parseSceneFormationIndex } from './scene-formations';
 import {
   computeSceneFrame,
@@ -44,9 +45,11 @@ export function useSceneTimeline(): SceneTimelineController {
     const next = computeSceneFrame(anchorsRef.current, window.scrollY, window.innerHeight);
     stateRef.current = next.scene;
     window.dispatchEvent(new Event(SCENE_CHANGE_EVENT));
-    setActiveStageId((current) =>
-      current === next.activeAnchorId ? current : next.activeAnchorId
-    );
+    // Scene anchors carry `${stageId}-scene` DOM ids; the rail keys on plain
+    // stage ids, so translate before publishing (BST product-site review).
+    const nextStageId =
+      next.activeAnchorId === null ? null : stageIdFromSceneAnchor(next.activeAnchorId);
+    setActiveStageId((current) => (current === nextStageId ? current : nextStageId));
   }, []);
 
   const scheduleUpdate = useCallback((): void => {

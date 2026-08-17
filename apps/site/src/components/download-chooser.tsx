@@ -87,7 +87,11 @@ export function DownloadChooser(props: DownloadChooserProps) {
       aria-label="Brainstrike downloads"
       className={`download-chooser download-chooser-${presentation}`}
     >
-      <div aria-atomic="true" aria-live="polite" className="download-status-line" role={statusRole}>
+      {/* No explicit aria-live: the dynamic role supplies it — status is
+          implicitly polite, alert implicitly assertive. An explicit polite
+          would contradict the alert role and screen readers resolve that
+          inconsistently. */}
+      <div aria-atomic="true" className="download-status-line" role={statusRole}>
         <span
           aria-hidden="true"
           className={`status-dot ${view.status.kind === 'live' ? 'status-dot-live' : ''}`}

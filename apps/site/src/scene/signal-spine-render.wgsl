@@ -67,7 +67,10 @@ fn vertex_main(
   let seed = source.w;
   let size_ndc = (1.3 + seed * 2.4 + pop * 4.2) * uniforms.pointer.w;
   let corner = corners[vertex_index];
-  let offset = corner * size_ndc;
+  // size_ndc is a pixel->NDC-y scale; divide the x component by the aspect
+  // ratio so sprites rasterize as discs rather than aspect-stretched ellipses
+  // (fragment_main discards outside length(corner) > 1).
+  let offset = vec2f(corner.x * size_ndc / uniforms.pointer.z, corner.y * size_ndc);
 
   let accent = instance_index % 31u == 0u || pop > 0.1;
   let is_diagnostic = instance_index % 47u == 0u && !accent;

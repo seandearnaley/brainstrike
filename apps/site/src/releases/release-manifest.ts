@@ -56,8 +56,12 @@ const ARCHITECTURE_ORDER: Readonly<Record<ReleaseArchitecture, number>> = {
   universal: 1,
   x64: 2,
 };
-const STABLE_SEMVER =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+// Plain stable semver only — no prerelease, no build metadata. The release
+// pipeline never emits either, and permitting `+build` here would admit a
+// version whose tag can never satisfy the canonical-URL check below
+// (`encodeURIComponent` escapes `+` while a literal-`+` URL parses unchanged),
+// i.e. a version shape the schema accepts but the URL rule always rejects.
+const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
 const SOURCE_COMMIT = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const SHA_256 = /^sha256:[a-f0-9]{64}$/u;
