@@ -245,7 +245,7 @@ export const migrations = [
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/app-state/src/stores/assistant-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-model-id-migrations.ts',
         message:
           'Removed assistant catalog model openrouter::anthropic/claude-sonnet-4.5 is missing from MODEL_ID_MIGRATIONS.',
       },
@@ -344,7 +344,7 @@ export const migrations = [
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/app-state/src/stores/assistant-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-model-id-migrations.ts',
         message:
           'Removed assistant catalog model openrouter::anthropic/claude-sonnet-4.6 is missing from MODEL_ID_MIGRATIONS.',
       },
@@ -416,7 +416,7 @@ export const migrations = [
 
     assert.deepEqual(result.failures, [
       {
-        file: 'packages/app-state/src/stores/assistant-preferences-store.ts',
+        file: 'packages/app-state/src/stores/assistant-model-id-migrations.ts',
         message:
           'Removed assistant catalog model openrouter::anthropic/claude-sonnet-4.5 is missing from MODEL_ID_MIGRATIONS.',
       },

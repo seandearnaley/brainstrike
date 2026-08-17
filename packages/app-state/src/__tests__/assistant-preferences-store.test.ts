@@ -6,6 +6,7 @@ import {
 import { LocalRuntimeDiscoveryService } from '@brainstrike/local-runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StorageValue } from 'zustand/middleware';
+import { MODEL_ID_MIGRATIONS } from '../stores/assistant-model-id-migrations';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
@@ -1031,6 +1032,21 @@ describe('assistant-preferences-store', () => {
     expect(store.enabledModelsByProvider['google']).not.toContain('gemini-3-flash-preview');
   });
 
+  it('keeps every model migration target live and terminal', () => {
+    for (const provider of Object.keys(MODEL_ID_MIGRATIONS) as SupportedProvider[]) {
+      const migrations = MODEL_ID_MIGRATIONS[provider];
+      for (const [source, target] of Object.entries(migrations)) {
+        expect(
+          PROVIDER_MODELS[provider],
+          `${provider}:${source} target must remain live`
+        ).toContain(target);
+        expect(migrations, `${provider}:${source} target must be terminal`).not.toHaveProperty(
+          target
+        );
+      }
+    }
+  });
+
   it('remaps the retired OpenRouter Claude 3.5 Sonnet route', async () => {
     const persistApi = storeWithPersist.persist;
     const options = persistApi?.getOptions?.();
@@ -1064,6 +1080,50 @@ describe('assistant-preferences-store', () => {
     expect(store.modelsByProvider['openrouter']).toBe('anthropic/claude-sonnet-4.6');
     expect(store.selectedModel).toBe('openrouter::anthropic/claude-sonnet-4.6');
     expect(store.recentModels).toEqual(['openrouter::anthropic/claude-sonnet-4.6']);
+  });
+
+  it('remaps retired OpenRouter GPT-4o family routes', async () => {
+    const persistApi = storeWithPersist.persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const staleSnapshot: StorageValue<unknown> = {
+      state: {
+        enabledModelsByProvider: {
+          openrouter: ['openrouter/gpt-4o', 'openai/gpt-4o', 'openrouter/gpt-4o-mini'],
+        },
+        modelsByProvider: {
+          openrouter: 'openrouter/gpt-4o',
+        },
+        providerSettings: {},
+        recentModels: [
+          'openrouter::openrouter/gpt-4o-mini',
+          'openrouter::openrouter/gpt-4o',
+          'openrouter::openai/gpt-4o',
+        ],
+        selectedModel: 'openrouter::openrouter/gpt-4o-mini',
+      },
+      version: 8,
+    };
+
+    options.storage.setItem(options.name, staleSnapshot);
+    await persistApi.rehydrate?.();
+
+    const store = useAssistantPreferencesStore.getState();
+    const enabledOpenRouter = store.enabledModelsByProvider['openrouter'];
+    expect(enabledOpenRouter).toContain('openai/gpt-5.4');
+    expect(enabledOpenRouter).toContain('openai/gpt-5.4-mini');
+    expect(enabledOpenRouter.filter((id) => id === 'openai/gpt-5.4')).toHaveLength(1);
+    expect(enabledOpenRouter).not.toContain('openrouter/gpt-4o');
+    expect(enabledOpenRouter).not.toContain('openrouter/gpt-4o-mini');
+    expect(store.modelsByProvider['openrouter']).toBe('openai/gpt-5.4');
+    expect(store.selectedModel).toBe('openrouter::openai/gpt-5.4-mini');
+    expect(store.recentModels).toEqual([
+      'openrouter::openai/gpt-5.4-mini',
+      'openrouter::openai/gpt-5.4',
+    ]);
   });
 
   it('migrates legacy selectedProvider snapshots to composite selectedModel', async () => {
