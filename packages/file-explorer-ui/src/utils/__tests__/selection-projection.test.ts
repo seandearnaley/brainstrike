@@ -7,6 +7,8 @@ import { createEmptySelectionModel } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 
 import {
+  __getSelectionProjectionCacheStatsForTests,
+  __resetSelectionProjectionCachesForTests,
   getDirectorySelectedCount,
   getQuerySelectionMatchingCount,
   getSelectionCount,
@@ -60,6 +62,124 @@ function createSelectionModel(overrides: Partial<SelectionModel> = {}): Selectio
 }
 
 describe('selection-projection', () => {
+  it('reuses materialized directory counts across structurally equal hydrated sets', () => {
+    __resetSelectionProjectionCachesForTests();
+    const descriptor = createDescriptor();
+    const firstMaterializedPaths = new Set([
+      '/src/index.ts',
+      '/src/nested/a.ts',
+      '/src/nested/deeper/b.ts',
+    ]);
+    const rehydratedMaterializedPaths = new Set([...firstMaterializedPaths].reverse());
+
+    expect(
+      getDirectorySelectedCount(descriptor, null, 'folder-1', '/src', firstMaterializedPaths)
+    ).toBe(3);
+    expect(
+      getDirectorySelectedCount(descriptor, null, 'folder-1', '/src', rehydratedMaterializedPaths)
+    ).toBe(3);
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      materializedDirectoryCountBuilds: 1,
+      materializedStructuralHits: 1,
+    });
+  });
+
+  it('verifies structural-key collisions by exact materialized-path membership', () => {
+    __resetSelectionProjectionCachesForTests();
+    const descriptor = createDescriptor();
+    const firstMaterializedPaths = new Set(['/a/file.ts']);
+    const collidingMaterializedPaths = new Set(['/b/file.ts']);
+
+    expect(
+      getDirectorySelectedCount(descriptor, null, 'folder-1', '/a', firstMaterializedPaths)
+    ).toBe(1);
+    expect(
+      getDirectorySelectedCount(descriptor, null, 'folder-1', '/a', collidingMaterializedPaths)
+    ).toBe(0);
+    expect(
+      getDirectorySelectedCount(descriptor, null, 'folder-1', '/b', collidingMaterializedPaths)
+    ).toBe(1);
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      materializedDirectoryCountBuilds: 2,
+      materializedStructuralHits: 0,
+    });
+  });
+
+  it('bounds structurally cached materialized projections by entry count and weight', () => {
+    __resetSelectionProjectionCachesForTests();
+    const descriptor = createDescriptor();
+    const initialStats = __getSelectionProjectionCacheStatsForTests();
+    const materializedPathSets = Array.from(
+      { length: initialStats.maxMaterializedStructuralEntries + 1 },
+      (_, index) => new Set([`/${'directory'.repeat(index + 1)}/file.ts`])
+    );
+
+    for (const materializedPaths of materializedPathSets) {
+      getDirectorySelectedCount(descriptor, null, 'folder-1', '/', materializedPaths);
+    }
+
+    const afterEntryChurn = __getSelectionProjectionCacheStatsForTests();
+    expect(afterEntryChurn.materializedStructuralEntries).toBe(
+      initialStats.maxMaterializedStructuralEntries
+    );
+    expect(afterEntryChurn.materializedStructuralWeight).toBeLessThanOrEqual(
+      initialStats.maxMaterializedStructuralWeight
+    );
+
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set(materializedPathSets[0]));
+    expect(__getSelectionProjectionCacheStatsForTests().materializedDirectoryCountBuilds).toBe(
+      materializedPathSets.length + 1
+    );
+
+    __resetSelectionProjectionCachesForTests();
+    for (const materializedPaths of materializedPathSets.slice(0, 8)) {
+      getDirectorySelectedCount(descriptor, null, 'folder-1', '/', materializedPaths);
+    }
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set(materializedPathSets[0]));
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', materializedPathSets[8]);
+    const afterPromotionAndChurn = __getSelectionProjectionCacheStatsForTests();
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set(materializedPathSets[1]));
+    const afterEvictedRead = __getSelectionProjectionCacheStatsForTests();
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set(materializedPathSets[0]));
+    expect(afterEvictedRead.materializedDirectoryCountBuilds).toBe(
+      afterPromotionAndChurn.materializedDirectoryCountBuilds + 1
+    );
+    expect(__getSelectionProjectionCacheStatsForTests().materializedDirectoryCountBuilds).toBe(
+      afterEvictedRead.materializedDirectoryCountBuilds
+    );
+
+    __resetSelectionProjectionCachesForTests();
+    const weightedPathSets = Array.from({ length: 5 }, (_, selectionIndex) => {
+      const longSegment = `${selectionIndex}-${'x'.repeat(900)}`;
+      return new Set(
+        Array.from(
+          { length: 2000 },
+          (_, pathIndex) => `root-${selectionIndex}/${longSegment}/file-${pathIndex}.ts`
+        )
+      );
+    });
+    for (const materializedPaths of weightedPathSets) {
+      getDirectorySelectedCount(descriptor, null, 'folder-1', '/', materializedPaths);
+    }
+    const afterWeightChurn = __getSelectionProjectionCacheStatsForTests();
+    expect(afterWeightChurn.materializedStructuralEntries).toBeLessThan(weightedPathSets.length);
+    expect(afterWeightChurn.materializedStructuralWeight).toBeLessThanOrEqual(
+      initialStats.maxMaterializedStructuralWeight
+    );
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set(weightedPathSets[0]));
+    expect(__getSelectionProjectionCacheStatsForTests().materializedDirectoryCountBuilds).toBe(
+      afterWeightChurn.materializedDirectoryCountBuilds + 1
+    );
+
+    __resetSelectionProjectionCachesForTests();
+    const oversizedPath = `/${'x'.repeat(initialStats.maxMaterializedStructuralWeight + 1)}`;
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set([oversizedPath]));
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      materializedStructuralEntries: 0,
+      materializedStructuralWeight: 0,
+    });
+  });
+
   it('does not report a query-selected path before the manifest is ready unless it is materialized', () => {
     const descriptor = createDescriptor();
 

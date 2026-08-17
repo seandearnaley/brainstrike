@@ -18,8 +18,25 @@ interface DescriptorMatchers {
   matchesInclude: (path: string) => boolean;
 }
 
-const descriptorMatcherCache = new WeakMap<SelectionQueryDescriptor, DescriptorMatchers>();
-const materializedDirectoryCountCache = new WeakMap<ReadonlySet<string>, Map<string, number>>();
+interface MaterializedDirectoryCountCacheEntry {
+  counts: Map<string, number>;
+  materializedPaths: ReadonlySet<string>;
+  weight: number;
+}
+
+const CACHE_ENTRY_WEIGHT = 32;
+const MAX_MATERIALIZED_STRUCTURAL_CACHE_ENTRIES = 4;
+// Approximate retained UTF-16 units plus per-entry container overhead. The
+// structural tier is deliberately small because every entry strongly retains
+// a path snapshot and its derived ancestor map; the identity tier stays weak.
+const MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT = 8_000_000;
+
+let descriptorMatcherCache = new WeakMap<SelectionQueryDescriptor, DescriptorMatchers>();
+let materializedDirectoryCountCache = new WeakMap<ReadonlySet<string>, Map<string, number>>();
+const materializedStructuralCache = new Map<string, MaterializedDirectoryCountCacheEntry>();
+let materializedDirectoryCountBuilds = 0;
+let materializedStructuralCacheHits = 0;
+let materializedStructuralCacheWeight = 0;
 
 function matchesAnyPathVariant(path: string, matcher: (value: string) => boolean): boolean {
   if (matcher(path)) {
@@ -67,10 +84,86 @@ function getDescriptorMatchers(descriptor: SelectionQueryDescriptor): Descriptor
 function buildMaterializedDirectoryCounts(
   materializedPaths: ReadonlySet<string>
 ): Map<string, number> {
+  materializedDirectoryCountBuilds += 1;
   return accumulateAncestorDirectoryCounts(materializedPaths, {
     cache: new Map<string, readonly string[]>(),
     includeRoot: true,
   });
+}
+
+function getMaterializedPathSetSignature(materializedPaths: ReadonlySet<string>): string {
+  let totalPathLength = 0;
+  for (const path of materializedPaths) {
+    totalPathLength += path.length;
+  }
+  return `${materializedPaths.size}:${totalPathLength}`;
+}
+
+function areMaterializedPathSetsEqual(
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>
+): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const path of left) {
+    if (!right.has(path)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function estimateMaterializedProjectionWeight(
+  materializedPaths: ReadonlySet<string>,
+  counts: ReadonlyMap<string, number>
+): number {
+  let weight = (materializedPaths.size + counts.size) * CACHE_ENTRY_WEIGHT;
+  for (const path of materializedPaths) {
+    weight += path.length;
+  }
+  for (const directoryPath of counts.keys()) {
+    weight += directoryPath.length;
+  }
+  return weight;
+}
+
+function rememberMaterializedStructuralProjection(
+  signature: string,
+  materializedPaths: ReadonlySet<string>,
+  counts: Map<string, number>
+): void {
+  const weight = estimateMaterializedProjectionWeight(materializedPaths, counts);
+  if (weight > MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT) {
+    return;
+  }
+
+  const collidingEntry = materializedStructuralCache.get(signature);
+  if (collidingEntry) {
+    materializedStructuralCache.delete(signature);
+    materializedStructuralCacheWeight -= collidingEntry.weight;
+  }
+
+  while (
+    materializedStructuralCache.size >= MAX_MATERIALIZED_STRUCTURAL_CACHE_ENTRIES ||
+    materializedStructuralCacheWeight + weight > MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT
+  ) {
+    const oldestEntry = materializedStructuralCache.entries().next();
+    if (oldestEntry.done) {
+      break;
+    }
+    materializedStructuralCache.delete(oldestEntry.value[0]);
+    materializedStructuralCacheWeight -= oldestEntry.value[1].weight;
+  }
+
+  materializedStructuralCache.set(signature, {
+    counts,
+    // Snapshot membership so collision verification never consults canonical
+    // selection state or depends on a later caller mutation.
+    materializedPaths: new Set(materializedPaths),
+    weight,
+  });
+  materializedStructuralCacheWeight += weight;
 }
 
 function getMaterializedDirectoryCounts(
@@ -85,9 +178,52 @@ function getMaterializedDirectoryCounts(
     return cached;
   }
 
+  const signature = getMaterializedPathSetSignature(materializedPaths);
+  const structurallyCached = materializedStructuralCache.get(signature);
+  if (
+    structurallyCached &&
+    areMaterializedPathSetsEqual(materializedPaths, structurallyCached.materializedPaths)
+  ) {
+    // Refresh insertion order so the bounded structural tier evicts least
+    // recently used projections first.
+    materializedStructuralCache.delete(signature);
+    materializedStructuralCache.set(signature, structurallyCached);
+    materializedDirectoryCountCache.set(materializedPaths, structurallyCached.counts);
+    materializedStructuralCacheHits += 1;
+    return structurallyCached.counts;
+  }
+
   const counts = buildMaterializedDirectoryCounts(materializedPaths);
   materializedDirectoryCountCache.set(materializedPaths, counts);
+  rememberMaterializedStructuralProjection(signature, materializedPaths, counts);
   return counts;
+}
+
+export function __resetSelectionProjectionCachesForTests(): void {
+  descriptorMatcherCache = new WeakMap<SelectionQueryDescriptor, DescriptorMatchers>();
+  materializedDirectoryCountCache = new WeakMap<ReadonlySet<string>, Map<string, number>>();
+  materializedStructuralCache.clear();
+  materializedDirectoryCountBuilds = 0;
+  materializedStructuralCacheHits = 0;
+  materializedStructuralCacheWeight = 0;
+}
+
+export function __getSelectionProjectionCacheStatsForTests(): {
+  materializedDirectoryCountBuilds: number;
+  materializedStructuralEntries: number;
+  materializedStructuralHits: number;
+  materializedStructuralWeight: number;
+  maxMaterializedStructuralEntries: number;
+  maxMaterializedStructuralWeight: number;
+} {
+  return {
+    materializedDirectoryCountBuilds,
+    materializedStructuralEntries: materializedStructuralCache.size,
+    materializedStructuralHits: materializedStructuralCacheHits,
+    materializedStructuralWeight: materializedStructuralCacheWeight,
+    maxMaterializedStructuralEntries: MAX_MATERIALIZED_STRUCTURAL_CACHE_ENTRIES,
+    maxMaterializedStructuralWeight: MAX_MATERIALIZED_STRUCTURAL_CACHE_WEIGHT,
+  };
 }
 
 function isPathWithinRoot(path: string, rootPath: string | null): boolean {
