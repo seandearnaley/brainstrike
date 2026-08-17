@@ -54,8 +54,11 @@ describe('apps/*/e2e module format contract', () => {
       .map((root) => path.relative(repoRoot, root))
       .sort();
 
-    // Both known lanes must be found; a new apps/<x>/e2e is covered automatically.
-    assert.deepEqual(roots, ['apps/desktop/e2e', 'apps/web/e2e']);
+    // Every known lane must be found; a new apps/<x>/e2e is covered automatically.
+    // apps/site/e2e satisfies the contract through its app manifest: apps/site/
+    // package.json declares "type": "module", so its .ts specs and .ts Playwright
+    // config resolve as ESM without a dedicated e2e manifest.
+    assert.deepEqual(roots, ['apps/desktop/e2e', 'apps/site/e2e', 'apps/web/e2e']);
   });
 
   it('holds on the real tree: every E2E graph resolves to an ESM manifest', () => {
