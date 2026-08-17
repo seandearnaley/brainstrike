@@ -161,6 +161,35 @@ describe('startParcelWatch', () => {
     stop();
   });
 
+  it('watches normally when the subscription root is itself inside .claude/worktrees (BST-1342 review)', async () => {
+    // Explorer visibility of worktrees is pinned product behavior, and a
+    // user can open a worktree copy AS the workspace root. The exclusion is
+    // root-RELATIVE (like the index-side policy): a root inside an excluded
+    // tree must not have every event silently dropped — that would be the
+    // exact silent-total-failure class git-inventory-watcher.ts documents
+    // for a subscription rooted at .git.
+    const worktreeRoot = join(root, '.claude', 'worktrees', 'agent-1');
+    await mkdir(worktreeRoot, { recursive: true });
+    const fake = createFakeBinding();
+    const stop = await startParcelWatch(makeHandle(worktreeRoot), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+    });
+
+    // The native layer must not swallow the whole subscription either:
+    // parcel matches ignore globs against absolute paths, so the worktrees
+    // globs are omitted for a root already inside an excluded tree.
+    expect(fake.lastSubscribeArgs.ignore).toEqual(
+      DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`])
+    );
+
+    const filePath = join(worktreeRoot, 'src.ts');
+    await writeFile(filePath, 'x');
+    fake.emit([{ path: filePath, type: 'create' }]);
+    await waitForBatch(batches);
+    expect(batches[0]).toEqual([{ kind: 'file', path: filePath, type: 'added' }]);
+    stop();
+  });
+
   it('replaces both the native ignore globs and the shouldIgnorePath guard with custom patterns (BST-1112)', async () => {
     const fake = createFakeBinding();
     const stop = await startParcelWatch(makeHandle(root), collect, {

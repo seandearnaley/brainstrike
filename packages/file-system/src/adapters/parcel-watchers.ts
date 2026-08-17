@@ -16,18 +16,23 @@
 //   (`.claude/worktrees`, BST-1342): trees no consumer may ever index also
 //   never emit watch events, because worktree churn flooding FSEvents is what
 //   drove the run-5189 overflow → full-refresh → DB-saturation failure
-//   (2026-08-17). DEFAULT_IGNORE_PATTERNS and the excluded-path globs also
-//   feed native-level ignore globs purely as a resource saving (same rules,
-//   no broadening). Both clauses are conditional on `options.ignorePatterns`
-//   being unset: a per-subscription override (BST-1112) REPLACES all default
-//   layers for that subscription — its own regex stands in for the default
-//   check, and its own native globs may be broader or narrower than the
-//   defaults (the git-inventory watcher's `ignorePatterns: []` relies on
-//   this to keep seeing worktree git metadata).
+//   (2026-08-17). The prefix check is ROOT-RELATIVE (relativize, then reuse
+//   the index-side predicate) and gated on the subscription root: a root
+//   deliberately opened inside an excluded tree watches normally.
+//   DEFAULT_IGNORE_PATTERNS and (for roots outside excluded trees) the
+//   excluded-path globs also feed native-level ignore globs purely as a
+//   resource saving (same rules, no broadening). Both clauses are
+//   conditional on `options.ignorePatterns` being unset: a per-subscription
+//   override (BST-1112) REPLACES all default layers for that subscription —
+//   its own regex stands in for the default check, and its own native globs
+//   may be broader or narrower than the defaults (the git-inventory
+//   watcher's `ignorePatterns: []` relies on this to keep seeing worktree
+//   git metadata).
 import fs from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import {
+  isExcludedBackgroundIndexingPath,
   isUnconditionalExcludedNativePath,
   UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
 } from '@brainstrike/utils/background-indexing-policy';
@@ -105,10 +110,6 @@ export async function startParcelWatch(
   // provided array (including []) REPLACES the default at both layers.
   const ignorePatterns = options.ignorePatterns;
   const ignoreRegex = ignorePatterns === undefined ? null : buildIgnorePatternRegex(ignorePatterns);
-  const shouldIgnore = (eventPath: string): boolean =>
-    ignoreRegex
-      ? ignoreRegex.test(eventPath)
-      : fileFilter.shouldIgnorePath(eventPath) || isUnconditionalExcludedNativePath(eventPath);
 
   // Health transitions fire exactly once per state change; a repeated cause
   // (e.g. an FSEvents error storm) cannot re-emit the same state.
@@ -173,6 +174,29 @@ export async function startParcelWatch(
     }
     return eventPath;
   };
+
+  // Root-RELATIVE exclusion, reusing the index-side predicate: a subscription
+  // root deliberately opened INSIDE an excluded tree (a worktree copy as the
+  // workspace root — Explorer visibility of worktrees is pinned product
+  // behavior) must watch normally; only a nested excluded tree under the
+  // root is silenced. An absolute-path match here would drop EVERY event for
+  // such roots — the silent-total-failure class git-inventory-watcher.ts
+  // documents for a subscription rooted at `.git`.
+  const rootInsideExcludedTree = isUnconditionalExcludedNativePath(rootPath);
+  const isExcludedEventPath = (eventPath: string): boolean => {
+    if (rootInsideExcludedTree || !eventPath.startsWith(rootPath + path.sep)) {
+      return false;
+    }
+    const relativePath = eventPath
+      .slice(rootPath.length + 1)
+      .split(path.sep)
+      .join('/');
+    return isExcludedBackgroundIndexingPath(relativePath);
+  };
+  const shouldIgnore = (eventPath: string): boolean =>
+    ignoreRegex
+      ? ignoreRegex.test(eventPath)
+      : fileFilter.shouldIgnorePath(eventPath) || isExcludedEventPath(eventPath);
 
   const processEvent = async (event: ParcelEvent): Promise<void> => {
     const eventPath = rerootEventPath(event.path);
@@ -261,15 +285,21 @@ export async function startParcelWatch(
 
   const subscribePromise = module.subscribe(handle.path, handleBackendCallback, {
     backend,
-    // Must agree with the `ignoreRegex` derivation above (undefined -> default
-    // patterns, defined -> override REPLACES defaults) — that agreement is
-    // the whole per-subscription-override feature.
-    ignore: ignorePatterns
-      ? nativeIgnoreGlobs(ignorePatterns)
-      : [
-          ...nativeIgnoreGlobs(DEFAULT_IGNORE_PATTERNS),
-          ...UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS,
-        ],
+    // Must agree with the `ignoreRegex` derivation above — same
+    // `=== undefined` selector, literally, not by accident (undefined ->
+    // default patterns, defined -> override REPLACES defaults); that
+    // agreement is the whole per-subscription-override feature. Parcel
+    // matches ignore globs against ABSOLUTE event paths, so the
+    // excluded-path globs are omitted when the root itself sits inside an
+    // excluded tree: they would otherwise swallow the whole subscription at
+    // the native layer.
+    ignore:
+      ignorePatterns === undefined
+        ? [
+            ...nativeIgnoreGlobs(DEFAULT_IGNORE_PATTERNS),
+            ...(rootInsideExcludedTree ? [] : UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS),
+          ]
+        : nativeIgnoreGlobs(ignorePatterns),
   });
 
   let timedOut = false;

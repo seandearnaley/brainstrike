@@ -598,8 +598,13 @@ fallback.
   shape; backend callback errors (e.g. FSEvents dropped-events) degrade to a
   root-level invalidation with log-once semantics while the subscription
   stays alive. The 150ms/500-item batcher and `fileFilter.shouldIgnorePath`
-  apply (DEFAULT_IGNORE_PATTERNS also feed native-level ignore globs — same
-  names, never broader). A per-subscription `ignorePatterns` override exists
+  apply, plus (BST-1342) the background-indexing policy's unconditional
+  excluded-path prefixes (`.claude/worktrees`) checked ROOT-RELATIVELY via
+  `isExcludedBackgroundIndexingPath` — a subscription root opened inside an
+  excluded tree watches normally; only nested excluded trees are silenced.
+  DEFAULT_IGNORE_PATTERNS and (for roots outside excluded trees) the
+  excluded-path globs also feed native-level ignore globs — same rules,
+  never broader. A per-subscription `ignorePatterns` override exists
   (BST-1112, see `docs/agents/platform-contracts.md`) for main-owned callers
   outside this pipeline, e.g. a git-metadata watcher; the Explorer refresh
   pipeline described here NEVER passes it, so "same names, never broader"
