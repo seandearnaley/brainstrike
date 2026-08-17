@@ -99,6 +99,17 @@ describe('useSelectionResolver', () => {
       materializedStructuralEntries: 1,
     });
 
+    state.selectionModel.queryDescriptor = {
+      ...state.selectionModel.queryDescriptor,
+      totalSelectedCount: 3,
+    };
+    firstResolver.rerender();
+    secondResolver.rerender();
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      activeStructuralCacheConsumers: 2,
+      materializedStructuralEntries: 1,
+    });
+
     firstResolver.unmount();
     expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
       activeStructuralCacheConsumers: 1,

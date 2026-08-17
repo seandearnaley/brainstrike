@@ -469,16 +469,16 @@ export function useSelectionResolver(): SelectionResolverState {
         querySelectionManifest.snapshotId === selectionModel.queryDescriptor.manifestSnapshotId
     );
 
+  const ownsSelectionProjectionCache =
+    selectionModel.mode === 'query' &&
+    Boolean(selectionModel.queryDescriptor) &&
+    !isQuerySelectionReady;
   useEffect(() => {
-    if (
-      selectionModel.mode !== 'query' ||
-      !selectionModel.queryDescriptor ||
-      isQuerySelectionReady
-    ) {
+    if (!ownsSelectionProjectionCache) {
       return;
     }
     return acquireSelectionProjectionStructuralCache();
-  }, [currentFolderId, isQuerySelectionReady, selectionModel.mode, selectionModel.queryDescriptor]);
+  }, [ownsSelectionProjectionCache]);
 
   const queryMaterializedFallbackPaths = useMemo(() => {
     const descriptor = selectionModel.queryDescriptor;
