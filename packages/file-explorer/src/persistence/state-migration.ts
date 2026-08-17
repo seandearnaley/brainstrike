@@ -65,7 +65,7 @@ function looksLikeSerializedFolderState(value: unknown): boolean {
   );
 }
 
-function looksLikeSerializedState(value: unknown): value is SerializedState {
+export function isSerializedStateCandidate(value: unknown): value is SerializedState {
   if (!isRecord(value)) {
     return false;
   }
@@ -76,7 +76,6 @@ function looksLikeSerializedState(value: unknown): value is SerializedState {
   return Boolean(
     (currentFolderId === null || typeof currentFolderId === 'string') &&
       isRecord(folderStates) &&
-      Object.values(folderStates).every(looksLikeSerializedFolderState) &&
       isArray(candidate['folderAccessOrder']) &&
       isArray(candidate['selectedFilePaths']) &&
       isArray(candidate['expandedDirectoryPaths'])
@@ -119,7 +118,7 @@ export function validateAndRecoverSerializedState(
   shouldLog: boolean,
   onDiscard?: () => void
 ): SerializedState {
-  if (!looksLikeSerializedState(persistedState)) {
+  if (!isSerializedStateCandidate(persistedState)) {
     return discardInvalidPayload(
       'Migrate - Payload does not match SerializedState shape, discarding.',
       shouldLog,
@@ -127,14 +126,44 @@ export function validateAndRecoverSerializedState(
     );
   }
 
+  const folderStates = persistedState.folderStates ?? {};
+  const validFolderStates = Object.fromEntries(
+    Object.entries(folderStates).filter(([, folderState]) =>
+      looksLikeSerializedFolderState(folderState)
+    )
+  );
+  const droppedFolderStateCount =
+    Object.keys(folderStates).length - Object.keys(validFolderStates).length;
+  if (droppedFolderStateCount > 0) {
+    onDiscard?.();
+    if (shouldLog) {
+      logger.debug('Migrate - Dropped malformed nested folder snapshots.', {
+        droppedFolderStateCount,
+      });
+    }
+    const droppedFolderIds = Object.keys(folderStates).filter(
+      (folderId) => !(folderId in validFolderStates)
+    );
+    const droppedFolderIdSet = new Set(droppedFolderIds);
+    return {
+      ...persistedState,
+      currentFolderId:
+        persistedState.currentFolderId && droppedFolderIdSet.has(persistedState.currentFolderId)
+          ? null
+          : persistedState.currentFolderId,
+      folderAccessOrder: persistedState.folderAccessOrder.filter(
+        (folderId) => !droppedFolderIdSet.has(folderId)
+      ),
+      folderStates: validFolderStates,
+    };
+  }
+
   if (shouldLog) {
     logger.debug('Migrate - Returning valid SerializedState summary', {
-      folderStateCount: Object.keys(persistedState.folderStates ?? {}).length,
+      folderStateCount: Object.keys(folderStates).length,
       hasCurrentFolder: persistedState.currentFolderId !== null,
       hasSelectionModel: Boolean(persistedState.selectionModel),
-      selectedFileCount: Array.isArray(persistedState.selectedFilePaths)
-        ? persistedState.selectedFilePaths.length
-        : 0,
+      selectedFileCount: persistedState.selectedFilePaths.length,
     });
   }
   return persistedState;
@@ -208,8 +237,7 @@ export function migrateState(
   if (version < FILE_EXPLORER_STORAGE_VERSION) {
     return discardInvalidPayload(
       `Migrate - Persisted version ${version} is older than supported version ${FILE_EXPLORER_STORAGE_VERSION}, discarding.`,
-      shouldLog,
-      onDiscard
+      shouldLog
     );
   }
   return validateAndRecoverSerializedState(stateToProcess, shouldLog, onDiscard);

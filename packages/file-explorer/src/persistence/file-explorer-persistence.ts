@@ -10,7 +10,11 @@ import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, SerializedState } from '@brainstrike/types';
 import type { PersistOptions, PersistStorage } from 'zustand/middleware';
 import { FILE_EXPLORER_STORAGE_KEY, FILE_EXPLORER_STORAGE_VERSION } from './persistence-constants';
-import { migrateState, validateAndRecoverSerializedState } from './state-migration';
+import {
+  isSerializedStateCandidate,
+  migrateState,
+  validateAndRecoverSerializedState,
+} from './state-migration';
 import { mergeState, serializeState } from './state-serialization';
 import { createStorageWrapper, type PersistedStateDiscardReason } from './storage-wrapper';
 import { detectTestEnvironment } from './test-environment';
@@ -26,12 +30,18 @@ const isTest = detectTestEnvironment();
 const shouldLog = isDev && !isTest;
 
 function isPersistEnvelope(value: unknown): value is { state: unknown; version?: number } {
-  return Boolean(
-    value &&
-      typeof value === 'object' &&
-      !Array.isArray(value) &&
-      'state' in value &&
-      (value as { state?: unknown }).state !== undefined
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    return false;
+  }
+  const envelope = value as Record<string, unknown>;
+  const version = envelope['version'];
+  return (
+    'state' in envelope &&
+    envelope['state'] !== null &&
+    typeof envelope['state'] === 'object' &&
+    !Array.isArray(envelope['state']) &&
+    (version === undefined ||
+      (typeof version === 'number' && Number.isInteger(version) && Number.isFinite(version)))
   );
 }
 
@@ -62,12 +72,12 @@ export const createPersistOptions = (
 ): PersistOptions<FileExplorerState, SerializedState> => {
   const { workerStorage, useWorker } = initWorker(storageAdapter, isTest, shouldLog);
   let didDiscardPersistedState = false;
-  let unavailableReadWriteFingerprint: string | null = null;
+  let currentReadWasUnavailable = false;
   let shouldPreserveUnreadSnapshot = false;
   const recordPersistedStateDiscard = (reason?: PersistedStateDiscardReason): void => {
     didDiscardPersistedState = true;
     if (reason === 'unavailable-read') {
-      unavailableReadWriteFingerprint = null;
+      currentReadWasUnavailable = true;
       shouldPreserveUnreadSnapshot = true;
     }
   };
@@ -106,9 +116,19 @@ export const createPersistOptions = (
   const validatedPersistedStorage: PersistStorage<SerializedState> = {
     ...persistedStorage,
     getItem: async (name) => {
-      const envelope = await persistedStorage.getItem(name);
+      currentReadWasUnavailable = false;
+      const envelope = (await persistedStorage.getItem(name)) as unknown;
+      if (!currentReadWasUnavailable) {
+        shouldPreserveUnreadSnapshot = false;
+      }
       if (name !== FILE_EXPLORER_STORAGE_KEY || envelope === null || isPersistEnvelope(envelope)) {
-        return envelope;
+        return envelope as Awaited<ReturnType<PersistStorage<SerializedState>['getItem']>>;
+      }
+      if (isSerializedStateCandidate(envelope)) {
+        return {
+          state: envelope,
+          version: FILE_EXPLORER_STORAGE_VERSION,
+        };
       }
 
       recordPersistedStateDiscard();
@@ -119,20 +139,11 @@ export const createPersistOptions = (
       return null;
     },
     setItem: async (name, value) => {
-      // Zustand persists even when only the ephemeral recovery notice changes.
-      // Preserve the unread snapshot across those identical writes, but allow a
-      // later intentional state change (and therefore a different snapshot).
       if (name === FILE_EXPLORER_STORAGE_KEY && shouldPreserveUnreadSnapshot) {
-        const writeFingerprint = JSON.stringify(value);
-        if (unavailableReadWriteFingerprint === null) {
-          unavailableReadWriteFingerprint = writeFingerprint;
-          return;
+        if (shouldLog) {
+          logger.debug('Skipping persistence write while prior snapshot remains unread', { name });
         }
-        if (writeFingerprint === unavailableReadWriteFingerprint) {
-          return;
-        }
-        shouldPreserveUnreadSnapshot = false;
-        unavailableReadWriteFingerprint = null;
+        return;
       }
       await persistedStorage.setItem(name, value);
     },

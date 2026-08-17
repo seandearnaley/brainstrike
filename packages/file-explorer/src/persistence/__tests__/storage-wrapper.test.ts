@@ -6,6 +6,7 @@ import type { WorkerStorage } from '../worker-storage';
 
 // Mock the logger
 const mockLogger = vi.hoisted(() => ({
+  debug: vi.fn(),
   error: vi.fn(),
 }));
 
@@ -39,17 +40,19 @@ describe('StorageWrapper', () => {
       setItem: vi.fn(),
     };
 
+    mockLogger.debug.mockClear();
     mockLogger.error.mockClear();
   });
 
   describe('getItem with shouldLog=true', () => {
-    it('reports adapter read failures and keeps them fail-visible', async () => {
+    it('reports repeated adapter read failures and returns a recoverable miss', async () => {
       const onDiscard = vi.fn();
       const wrapper = createStorageWrapper(errorStorage, false, null, true, onDiscard);
 
-      await expect(wrapper.getItem('test-key')).rejects.toThrow('Get error');
+      await expect(wrapper.getItem('test-key')).resolves.toBeNull();
 
       expect(onDiscard).toHaveBeenCalledOnce();
+      expect(errorStorage.getItem).toHaveBeenCalledTimes(2);
     });
 
     it('reports a failed main-thread retry after a worker read failure', async () => {
@@ -63,9 +66,10 @@ describe('StorageWrapper', () => {
         onDiscard
       );
 
-      await expect(wrapper.getItem('test-key')).rejects.toThrow('Get error');
+      await expect(wrapper.getItem('test-key')).resolves.toBeNull();
 
       expect(onDiscard).toHaveBeenCalledOnce();
+      expect(errorStorage.getItem).toHaveBeenCalledTimes(2);
     });
 
     it('should log errors when storage fails and shouldLog=true', async () => {
@@ -73,7 +77,7 @@ describe('StorageWrapper', () => {
 
       const result = wrapper.getItem('test-key');
 
-      await expect(result).rejects.toThrow('Get error');
+      await expect(result).resolves.toBeNull();
       expect(mockLogger.error).toHaveBeenCalledWith('Error getting item from storage', {
         errorName: 'Error',
         name: 'test-key',
@@ -85,7 +89,7 @@ describe('StorageWrapper', () => {
 
       const result = wrapper.getItem('test-key');
 
-      await expect(result).rejects.toThrow('Get error');
+      await expect(result).resolves.toBeNull();
       expect(mockLogger.error).not.toHaveBeenCalled();
     });
 
@@ -331,7 +335,7 @@ describe('StorageWrapper', () => {
     it('should handle shouldLog=true correctly in all error scenarios', async () => {
       const wrapper = createStorageWrapper(errorStorage, false, null, true);
 
-      await expect(wrapper.getItem('test')).rejects.toThrow('Get error');
+      await expect(wrapper.getItem('test')).resolves.toBeNull();
       const setResult = await wrapper.setItem('test', 'value');
       const removeResult = await wrapper.removeItem('test');
 
@@ -356,7 +360,7 @@ describe('StorageWrapper', () => {
     it('should handle shouldLog=false correctly in all error scenarios', async () => {
       const wrapper = createStorageWrapper(errorStorage, false, null, false);
 
-      await expect(wrapper.getItem('test')).rejects.toThrow('Get error');
+      await expect(wrapper.getItem('test')).resolves.toBeNull();
       const setResult = await wrapper.setItem('test', 'value');
       const removeResult = await wrapper.removeItem('test');
 
@@ -371,7 +375,7 @@ describe('StorageWrapper', () => {
     it('should use exact error messages for each operation', async () => {
       const wrapper = createStorageWrapper(errorStorage, false, null, true);
 
-      await expect(wrapper.getItem('test')).rejects.toThrow('Get error');
+      await expect(wrapper.getItem('test')).resolves.toBeNull();
       expect(mockLogger.error).toHaveBeenCalledWith('Error getting item from storage', {
         errorName: 'Error',
         name: 'test',
@@ -408,7 +412,7 @@ describe('StorageWrapper', () => {
 
       const wrapper = createStorageWrapper(customErrorStorage, false, null, true);
 
-      await expect(wrapper.getItem('test')).rejects.toThrow('Specific test error');
+      await expect(wrapper.getItem('test')).resolves.toBeNull();
       expect(mockLogger.error).toHaveBeenCalledWith('Error getting item from storage', {
         errorName: 'Error',
         name: 'test',

@@ -1,4 +1,4 @@
-import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { MemoryStorageAdapter, type StorageAdapter } from '@brainstrike/storage';
 import { describe, expect, it, vi } from 'vitest';
 import { createFileExplorerStore } from '../../store';
 import { FILE_EXPLORER_STORAGE_KEY, FILE_EXPLORER_STORAGE_VERSION } from '../persistence-constants';
@@ -12,7 +12,7 @@ const validSerializedState = {
   selectedFilePaths: [],
 };
 
-async function createHydratedStore(storage: MemoryStorageAdapter) {
+async function createHydratedStore(storage: StorageAdapter) {
   const store = createFileExplorerStore(storage);
   await vi.waitFor(() => expect(store.persist.hasHydrated()).toBe(true));
   return store;
@@ -37,7 +37,7 @@ describe('persisted explorer recovery notice', () => {
     const backingStorage = new MemoryStorageAdapter();
     await seedPersistedState(backingStorage, validSerializedState);
     const originalSnapshot = await backingStorage.getItem(FILE_EXPLORER_STORAGE_KEY);
-    let failNextRead = true;
+    let remainingReadFailures = 2;
     const setItem = vi.fn(async (key: string, value: string) => {
       await backingStorage.setItem(key, value);
     });
@@ -45,8 +45,8 @@ describe('persisted explorer recovery notice', () => {
       clear: () => backingStorage.clear(),
       getAllKeys: () => backingStorage.getAllKeys(),
       getItem: async (key: string) => {
-        if (failNextRead) {
-          failNextRead = false;
+        if (remainingReadFailures > 0) {
+          remainingReadFailures -= 1;
           throw new Error('Storage temporarily unavailable');
         }
         return await backingStorage.getItem(key);
@@ -60,7 +60,7 @@ describe('persisted explorer recovery notice', () => {
       expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded')
     );
 
-    expect(store.persist.hasHydrated()).toBe(false);
+    expect(store.persist.hasHydrated()).toBe(true);
     expect(setItem).not.toHaveBeenCalled();
     expect(await unavailableStorage.getItem(FILE_EXPLORER_STORAGE_KEY)).toBe(originalSnapshot);
 
@@ -68,7 +68,38 @@ describe('persisted explorer recovery notice', () => {
     await vi.waitFor(() => expect(setItem).not.toHaveBeenCalled());
 
     store.getState().setQuickFilter('intentional-change');
+    await vi.waitFor(() => expect(setItem).not.toHaveBeenCalled());
+    expect(await unavailableStorage.getItem(FILE_EXPLORER_STORAGE_KEY)).toBe(originalSnapshot);
+
+    await store.persist.rehydrate();
+    expect(store.getState().quickFilter).toBe('restored-filter');
+    store.getState().setQuickFilter('post-rehydrate-change');
     await vi.waitFor(() => expect(setItem).toHaveBeenCalledOnce());
+  });
+
+  it('retries one transient read and hydrates the original snapshot', async () => {
+    const backingStorage = new MemoryStorageAdapter();
+    await seedPersistedState(backingStorage, validSerializedState);
+    let getItemCalls = 0;
+    const transientStorage = {
+      clear: () => backingStorage.clear(),
+      getAllKeys: () => backingStorage.getAllKeys(),
+      getItem: async (key: string) => {
+        getItemCalls += 1;
+        if (getItemCalls === 1) {
+          throw new Error('Storage temporarily unavailable');
+        }
+        return await backingStorage.getItem(key);
+      },
+      removeItem: (key: string) => backingStorage.removeItem(key),
+      setItem: (key: string, value: string) => backingStorage.setItem(key, value),
+    };
+
+    const store = await createHydratedStore(transientStorage);
+
+    expect(getItemCalls).toBe(2);
+    expect(store.getState().quickFilter).toBe('restored-filter');
+    expect(store.getState().persistenceRecoveryNotice).toBeNull();
   });
 
   it('recovers a corrupt-shaped payload to empty state and records one discard notice', async () => {
@@ -122,6 +153,51 @@ describe('persisted explorer recovery notice', () => {
     expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
   });
 
+  it('silently resets a deliberately unsupported older version', async () => {
+    const storage = new MemoryStorageAdapter();
+    await seedPersistedState(storage, validSerializedState, FILE_EXPLORER_STORAGE_VERSION - 1);
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().quickFilter).not.toBe('restored-filter');
+    expect(store.getState().persistenceRecoveryNotice).toBeNull();
+  });
+
+  it('rejects a nonnumeric envelope version', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.setItem(
+      FILE_EXPLORER_STORAGE_KEY,
+      JSON.stringify({ state: validSerializedState, version: '999' })
+    );
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().quickFilter).not.toBe('restored-filter');
+    expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
+  });
+
+  it('hydrates a bare current serialized state through the compatibility path', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.setItem(FILE_EXPLORER_STORAGE_KEY, JSON.stringify(validSerializedState));
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().quickFilter).toBe('restored-filter');
+    expect(store.getState().persistenceRecoveryNotice).toBeNull();
+  });
+
+  it('rejects a null envelope state consistently', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.setItem(
+      FILE_EXPLORER_STORAGE_KEY,
+      JSON.stringify({ state: null, version: FILE_EXPLORER_STORAGE_VERSION })
+    );
+
+    const store = await createHydratedStore(storage);
+
+    expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
+  });
+
   it('records a discard notice when invalid JSON is removed during recovery', async () => {
     const storage = new MemoryStorageAdapter();
     await storage.setItem(
@@ -156,18 +232,22 @@ describe('persisted explorer recovery notice', () => {
     expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
   });
 
-  it('reports malformed nested folder selection containers', async () => {
+  it('reports malformed nested folder selection containers while preserving valid folders', async () => {
     const storage = new MemoryStorageAdapter();
     await seedPersistedState(storage, {
       ...validSerializedState,
       folderStates: {
-        'folder-1': { selectedFilePaths: 'not-an-array' },
+        malformed: { selectedFilePaths: 'not-an-array' },
+        valid: { selectedFilePaths: ['src/valid.ts'] },
       },
     });
 
     const store = await createHydratedStore(storage);
 
-    expect(store.getState().folderStates).toEqual({});
+    expect(store.getState().folderStates['malformed']).toBeUndefined();
+    expect(store.getState().folderStates['valid']?.selectedFilePaths).toEqual(
+      new Set(['src/valid.ts'])
+    );
     expect(store.getState().persistenceRecoveryNotice).toBe('persisted-state-discarded');
   });
 

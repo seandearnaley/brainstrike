@@ -112,12 +112,22 @@ async function getItemWithStorageOnly(
 ): Promise<unknown> {
   try {
     return await getItemFromStorage(storageAdapter, name, shouldLog, onDiscard);
-  } catch (error) {
-    onDiscard?.('unavailable-read');
+  } catch (firstError) {
     if (shouldLog) {
-      logger.error('Error getting item from storage', getErrorMetadata(error, name));
+      logger.debug(
+        'Retrying storage read after adapter failure',
+        getErrorMetadata(firstError, name)
+      );
     }
-    throw error;
+    try {
+      return await getItemFromStorage(storageAdapter, name, shouldLog, onDiscard);
+    } catch (finalError) {
+      onDiscard?.('unavailable-read');
+      if (shouldLog) {
+        logger.error('Error getting item from storage', getErrorMetadata(finalError, name));
+      }
+      return null;
+    }
   }
 }
 
