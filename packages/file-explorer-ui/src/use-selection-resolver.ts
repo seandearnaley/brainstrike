@@ -1,4 +1,4 @@
-import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
+import { type DbHandle, useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import {
   buildQuerySelectionManifest,
   createErroredQuerySelectionManifest,
@@ -24,17 +24,38 @@ export interface SelectionResolverState {
 }
 
 const EMPTY_RELATIVE_PATHS: string[] = [];
+export const QUERY_SELECTION_LOADING_PROMOTION_MS = 100;
+const inFlightSnapshotLoads = new WeakMap<DbHandle, Map<string, Promise<string[]>>>();
+
+function loadQuerySelectionSnapshotDeduped(db: DbHandle, snapshotId: string): Promise<string[]> {
+  let loadsForDatabase = inFlightSnapshotLoads.get(db);
+  if (!loadsForDatabase) {
+    loadsForDatabase = new Map<string, Promise<string[]>>();
+    inFlightSnapshotLoads.set(db, loadsForDatabase);
+  }
+
+  const existingLoad = loadsForDatabase.get(snapshotId);
+  if (existingLoad) {
+    return existingLoad;
+  }
+
+  const load = loadQuerySelectionSnapshot(db, snapshotId);
+  loadsForDatabase.set(snapshotId, load);
+  const removeSettledLoad = () => {
+    if (loadsForDatabase.get(snapshotId) === load) {
+      loadsForDatabase.delete(snapshotId);
+    }
+  };
+  void load.then(removeSettledLoad, removeSettledLoad);
+  return load;
+}
 
 function buildMaterializedFallbackPaths(args: {
   descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
   materializedPaths: Set<string> | null;
 }): string[] {
   const { descriptor, materializedPaths } = args;
-  if (!materializedPaths || materializedPaths.size === 0) {
-    return EMPTY_RELATIVE_PATHS;
-  }
-
-  const nextPaths = new Set(materializedPaths);
+  const nextPaths = new Set(materializedPaths ?? EMPTY_RELATIVE_PATHS);
   for (const excludedPath of descriptor.excludedPaths) {
     nextPaths.delete(excludedPath);
   }
@@ -135,7 +156,7 @@ function resolveImmediateQueryManifest(args: {
 function matchesDescriptorManifest(args: {
   descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>;
   manifest: SelectionResolverStoreState['querySelectionManifest'];
-  status?: 'loading' | 'ready';
+  status?: 'error' | 'loading' | 'ready';
 }): boolean {
   const { descriptor, manifest, status } = args;
   if (!manifest) {
@@ -150,6 +171,18 @@ function matchesDescriptorManifest(args: {
   }
 
   return status ? manifest.status === status : true;
+}
+
+function isCurrentQueryDescriptor(
+  state: SelectionResolverStoreState,
+  descriptor: NonNullable<SelectionResolverStoreState['selectionModel']['queryDescriptor']>
+): boolean {
+  const currentDescriptor = state.selectionModel.queryDescriptor;
+  return (
+    state.selectionModel.mode === 'query' &&
+    currentDescriptor?.manifestFingerprint === descriptor.manifestFingerprint &&
+    currentDescriptor.manifestSnapshotId === descriptor.manifestSnapshotId
+  );
 }
 
 function ensureLoadingManifest(args: {
@@ -224,21 +257,22 @@ export function useSelectionResolver(): SelectionResolverState {
         descriptor,
         manifest: latestManifest,
       }) &&
-      (latestManifestStatus === 'ready' || latestManifestStatus === 'loading')
+      (latestManifestStatus === 'ready' || (latestManifestStatus === 'loading' && !db))
     ) {
       return;
     }
 
     if (!descriptor.manifestSnapshotId) {
-      if (!latestManifest) {
-        setManifest(
-          buildQuerySelectionManifest({
-            filePaths: [],
-            fingerprint: descriptor.manifestFingerprint,
-            snapshotId: null,
-          })
-        );
-      }
+      setManifest(
+        buildQuerySelectionManifest({
+          filePaths: buildMaterializedFallbackPaths({
+            descriptor,
+            materializedPaths: latestState.selectionModel.materializedPaths,
+          }),
+          fingerprint: descriptor.manifestFingerprint,
+          snapshotId: null,
+        })
+      );
       return;
     }
 
@@ -251,15 +285,48 @@ export function useSelectionResolver(): SelectionResolverState {
       return;
     }
 
-    ensureLoadingManifest({
-      descriptor,
-      latestManifest,
-      setManifest,
-    });
+    const loadingPromotionTimer = setTimeout(() => {
+      if (token !== loadTokenRef.current) {
+        return;
+      }
+      const currentState = store.getState();
+      if (!isCurrentQueryDescriptor(currentState, descriptor)) {
+        return;
+      }
 
-    void loadQuerySelectionSnapshot(db, descriptor.manifestSnapshotId)
+      const currentManifest = currentState.querySelectionManifest;
+      if (
+        matchesDescriptorManifest({
+          descriptor,
+          manifest: currentManifest,
+        }) &&
+        (currentManifest?.status === 'loading' || currentManifest?.status === 'ready')
+      ) {
+        return;
+      }
+
+      ensureLoadingManifest({
+        descriptor,
+        latestManifest: currentManifest,
+        setManifest,
+      });
+    }, QUERY_SELECTION_LOADING_PROMOTION_MS);
+
+    void loadQuerySelectionSnapshotDeduped(db, descriptor.manifestSnapshotId)
       .then((filePaths) => {
+        clearTimeout(loadingPromotionTimer);
         if (token !== loadTokenRef.current) {
+          return;
+        }
+        const currentState = store.getState();
+        if (
+          !isCurrentQueryDescriptor(currentState, descriptor) ||
+          matchesDescriptorManifest({
+            descriptor,
+            manifest: currentState.querySelectionManifest,
+            status: 'ready',
+          })
+        ) {
           return;
         }
         setManifest(
@@ -271,12 +338,27 @@ export function useSelectionResolver(): SelectionResolverState {
         );
       })
       .catch((error: unknown) => {
+        clearTimeout(loadingPromotionTimer);
         if (token !== loadTokenRef.current) {
+          return;
+        }
+        const currentState = store.getState();
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const currentManifest = currentState.querySelectionManifest;
+        if (
+          !isCurrentQueryDescriptor(currentState, descriptor) ||
+          (matchesDescriptorManifest({
+            descriptor,
+            manifest: currentManifest,
+            status: 'error',
+          }) &&
+            currentManifest?.errorMessage === errorMessage)
+        ) {
           return;
         }
         setManifest(
           createErroredQuerySelectionManifest({
-            errorMessage: error instanceof Error ? error.message : String(error),
+            errorMessage,
             fingerprint: descriptor.manifestFingerprint,
             snapshotId: descriptor.manifestSnapshotId,
           })
@@ -284,12 +366,12 @@ export function useSelectionResolver(): SelectionResolverState {
       });
 
     return () => {
+      clearTimeout(loadingPromotionTimer);
       loadTokenRef.current += 1;
     };
   }, [
     db,
     selectionModel.mode,
-    selectionModel.queryDescriptor,
     selectionModel.queryDescriptor?.manifestFingerprint,
     selectionModel.queryDescriptor?.manifestSnapshotId,
     setManifest,
