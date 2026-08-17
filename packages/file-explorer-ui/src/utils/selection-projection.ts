@@ -201,10 +201,23 @@ function getMaterializedDirectoryCounts(
     return cached;
   }
 
-  // Strong entries are owned by useSelectionResolver's unresolved-selection
-  // lifecycle. Projection callers currently render below that resolver, so a
-  // first render may admit before its acquire effect runs; future callers
-  // outside that provider must not populate this tier without owning cleanup.
+  if (materializedStructuralCacheConsumers === 0) {
+    materializedDirectoryCountBuilds += 1;
+    const unownedCounts = buildMaterializedDirectoryCounts(materializedPaths);
+    materializedDirectoryCountCache.set(materializedPaths, unownedCounts);
+    return unownedCounts;
+  }
+
+  // Strong entries are owned by useSelectionResolver's unresolved-query
+  // lifecycle. Unowned callers retain only their identity-keyed WeakMap entry.
+  const minimumCountWeight = materializedPaths.size * CACHE_ENTRY_WEIGHT;
+  if (minimumCountWeight > materializedStructuralCacheMaxWeight) {
+    materializedStructuralPrecheckRejections += 1;
+    const counts = buildMaterializedDirectoryCounts(materializedPaths);
+    materializedDirectoryCountCache.set(materializedPaths, counts);
+    return counts;
+  }
+
   const signature = getMaterializedPathSetSignature(materializedPaths);
   const minimumRetainedWeight =
     materializedPaths.size * CACHE_ENTRY_WEIGHT + signature.totalPathLength;

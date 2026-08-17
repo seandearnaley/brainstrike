@@ -4,11 +4,11 @@ import type {
   SelectionQueryDescriptor,
 } from '@brainstrike/types';
 import { createEmptySelectionModel } from '@brainstrike/types';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   __getSelectionProjectionCacheStatsForTests,
-  __resetSelectionProjectionCachesForTests,
+  acquireSelectionProjectionStructuralCache,
   getDirectorySelectedCount,
   getQuerySelectionMatchingCount,
   getSelectionCount,
@@ -16,6 +16,7 @@ import {
   isQuerySelectionPathSelected,
   isSelectionPathSelected,
   materializeCompositeKeysForSelectionModel,
+  __resetSelectionProjectionCachesForTests as resetSelectionProjectionCaches,
 } from '../selection-projection';
 
 function createDescriptor(
@@ -61,13 +62,47 @@ function createSelectionModel(overrides: Partial<SelectionModel> = {}): Selectio
   };
 }
 
+let releaseStructuralCacheOwner: (() => void) | null = null;
+
+function resetSelectionProjectionCachesWithOwner(
+  limits?: Parameters<typeof resetSelectionProjectionCaches>[0]
+): void {
+  releaseStructuralCacheOwner?.();
+  resetSelectionProjectionCaches(limits);
+  releaseStructuralCacheOwner = acquireSelectionProjectionStructuralCache();
+}
+
 describe('selection-projection', () => {
   beforeEach(() => {
-    __resetSelectionProjectionCachesForTests();
+    resetSelectionProjectionCachesWithOwner();
+  });
+
+  afterEach(() => {
+    releaseStructuralCacheOwner?.();
+    releaseStructuralCacheOwner = null;
+    resetSelectionProjectionCaches();
+  });
+
+  it('does not strongly retain projections without a live resolver owner', () => {
+    releaseStructuralCacheOwner?.();
+    releaseStructuralCacheOwner = null;
+    resetSelectionProjectionCaches();
+    const descriptor = createDescriptor();
+    const materializedPaths = new Set(['/src/index.ts']);
+
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/src', materializedPaths);
+    getDirectorySelectedCount(descriptor, null, 'folder-1', '/src', new Set(materializedPaths));
+
+    const cacheStats = __getSelectionProjectionCacheStatsForTests();
+    expect(cacheStats).toMatchObject({
+      materializedStructuralEntries: 0,
+      materializedStructuralHits: 0,
+    });
+    expect(cacheStats.materializedDirectoryCountBuilds).toBeGreaterThan(0);
   });
 
   it('reuses materialized directory counts across structurally equal hydrated sets', () => {
-    __resetSelectionProjectionCachesForTests();
+    resetSelectionProjectionCachesWithOwner();
     const descriptor = createDescriptor();
     const firstMaterializedPaths = new Set([
       '/src/index.ts',
@@ -109,7 +144,7 @@ describe('selection-projection', () => {
 
     expect(__getSelectionProjectionCacheStatsForTests().materializedStructuralEntries).toBe(1);
 
-    __resetSelectionProjectionCachesForTests();
+    resetSelectionProjectionCachesWithOwner();
 
     expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
       materializedStructuralEntries: 0,
@@ -118,7 +153,7 @@ describe('selection-projection', () => {
   });
 
   it('separates paths that differ only in their middle segment', () => {
-    __resetSelectionProjectionCachesForTests();
+    resetSelectionProjectionCachesWithOwner();
     const descriptor = createDescriptor();
     const firstMaterializedPaths = new Set(['/common/a/file.ts']);
     const collidingMaterializedPaths = new Set(['/common/b/file.ts']);
@@ -227,7 +262,7 @@ describe('selection-projection', () => {
   });
 
   it('evicts cumulative weight before reaching the entry-count limit', () => {
-    __resetSelectionProjectionCachesForTests({
+    resetSelectionProjectionCachesWithOwner({
       maxMaterializedStructuralEntries: 4,
       maxMaterializedStructuralWeight: 300,
     });
@@ -257,12 +292,12 @@ describe('selection-projection', () => {
   });
 
   it('skips individually oversized structural entries', () => {
-    __resetSelectionProjectionCachesForTests({
+    resetSelectionProjectionCachesWithOwner({
       maxMaterializedStructuralEntries: 4,
       maxMaterializedStructuralWeight: 40,
     });
     const descriptor = createDescriptor();
-    const oversizedPaths = new Set(['/oversized.ts']);
+    const oversizedPaths = new Set(['/oversized-a.ts', '/oversized-b.ts']);
 
     getDirectorySelectedCount(descriptor, null, 'folder-1', '/', oversizedPaths);
     getDirectorySelectedCount(descriptor, null, 'folder-1', '/', new Set(oversizedPaths));
