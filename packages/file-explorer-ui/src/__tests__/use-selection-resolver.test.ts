@@ -1,6 +1,12 @@
 import { renderHook, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSelectionResolver } from '../use-selection-resolver';
+import {
+  __getSelectionProjectionCacheStatsForTests,
+  __resetSelectionProjectionCachesForTests,
+  getDirectorySelectedCount,
+} from '../utils/selection-projection';
 
 const useOptionalPGliteDatabaseMock = vi.fn();
 const useFileExplorerStoreContextMock = vi.fn();
@@ -30,6 +36,132 @@ describe('useSelectionResolver', () => {
     useOptionalPGliteDatabaseMock.mockReset();
     useFileExplorerStoreContextMock.mockReset();
     loadQuerySelectionSnapshotMock.mockReset();
+    __resetSelectionProjectionCachesForTests();
+  });
+
+  it('retains the shared structural cache until the last resolver consumer unmounts', () => {
+    const state = {
+      currentFolderId: 'folder-1',
+      querySelectionManifest: {
+        directoryCounts: new Map<string, number>(),
+        errorMessage: null,
+        filePaths: [] as string[],
+        fingerprint: 'fp-1',
+        pathSet: new Set<string>(),
+        snapshotId: 'snapshot-1',
+        status: 'loading' as const,
+      },
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: new Set(['/src/index.ts']),
+        mode: 'query' as const,
+        queryDescriptor: {
+          coveredDirectoryPaths: ['/src'],
+          excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
+          totalSelectedCount: 2,
+          useRegex: false,
+        },
+      },
+      setQuerySelectionManifest: vi.fn(),
+    };
+    const store = { getState: () => state };
+    useOptionalPGliteDatabaseMock.mockReturnValue(null);
+    useFileExplorerStoreContextMock.mockReturnValue(store);
+
+    const firstResolver = renderHook(() => useSelectionResolver());
+    const secondResolver = renderHook(() => useSelectionResolver());
+    getDirectorySelectedCount(
+      state.selectionModel.queryDescriptor,
+      null,
+      'folder-1',
+      '/src',
+      new Set(['/src/index.ts'])
+    );
+
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      activeStructuralCacheConsumers: 2,
+      materializedStructuralEntries: 1,
+    });
+
+    state.selectionModel.queryDescriptor = {
+      ...state.selectionModel.queryDescriptor,
+      totalSelectedCount: 3,
+    };
+    firstResolver.rerender();
+    secondResolver.rerender();
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      activeStructuralCacheConsumers: 2,
+      materializedStructuralEntries: 1,
+    });
+
+    firstResolver.unmount();
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      activeStructuralCacheConsumers: 1,
+      materializedStructuralEntries: 1,
+    });
+
+    secondResolver.unmount();
+    expect(__getSelectionProjectionCacheStatsForTests()).toMatchObject({
+      activeStructuralCacheConsumers: 0,
+      materializedStructuralEntries: 0,
+    });
+  });
+
+  it('keeps one cache owner across the StrictMode effect replay', () => {
+    const state = {
+      currentFolderId: 'folder-1',
+      querySelectionManifest: {
+        directoryCounts: new Map<string, number>(),
+        errorMessage: null,
+        filePaths: [] as string[],
+        fingerprint: 'fp-1',
+        pathSet: new Set<string>(),
+        snapshotId: 'snapshot-1',
+        status: 'loading' as const,
+      },
+      selectedFilePaths: new Set<string>(),
+      selectionModel: {
+        explicitPaths: new Set<string>(),
+        materializedAt: null,
+        materializedPaths: new Set(['/src/index.ts']),
+        mode: 'query' as const,
+        queryDescriptor: {
+          coveredDirectoryPaths: ['/src'],
+          excludedPaths: [],
+          excludeFilters: [],
+          folderId: 'folder-1',
+          includedPaths: [],
+          includeFilters: ['**/*.ts'],
+          kind: 'recursive-select-all' as const,
+          manifestFingerprint: 'fp-1',
+          manifestSnapshotId: 'snapshot-1',
+          rootPath: null,
+          totalSelectedCount: 2,
+          useRegex: false,
+        },
+      },
+      setQuerySelectionManifest: vi.fn(),
+    };
+    const store = { getState: () => state };
+    useOptionalPGliteDatabaseMock.mockReturnValue(null);
+    useFileExplorerStoreContextMock.mockReturnValue(store);
+
+    const resolver = renderHook(() => useSelectionResolver(), { wrapper: StrictMode });
+
+    expect(__getSelectionProjectionCacheStatsForTests().activeStructuralCacheConsumers).toBe(1);
+
+    resolver.unmount();
+    expect(__getSelectionProjectionCacheStatsForTests().activeStructuralCacheConsumers).toBe(0);
   });
 
   it('dedupes loading manifest transitions across multiple resolver consumers', () => {

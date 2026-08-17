@@ -307,6 +307,26 @@ Windowing and performance:
   FSA) roots still cross-match by design — the accepted phase-4 limitation.
 - The store's `setExpandedPaths` ADOPTS the caller's set (no defensive clone);
   every caller hands over a freshly built set and must not mutate it after.
+- Query-selection checkbox projection keeps stable descriptor/materialized-set
+  identities on WeakMap fast paths. Hydration can recreate an equal
+  `materializedPaths` Set, so `selection-projection.ts` also keeps a bounded
+  structural tier for its derived ancestor-count map: four LRU entries and an
+  8,000,000-unit retained-weight ceiling. Its coarse order-independent key is
+  only a lookup bucket; exact Set membership is verified before reuse, so a
+  key collision can cost a rebuild but can never return another selection's
+  counts. The tier snapshots paths only for verification and never becomes a
+  canonical selection source. Signature construction carries total path length
+  into weight accounting so the hot path never rescans selection paths merely
+  to estimate retention. A deterministic minimum-weight precheck rejects
+  structurally uncacheable oversized selections before lookup, exact-set
+  verification, full weight estimation, or snapshot creation. Unresolved
+  resolver consumers acquire shared ownership of this MODULE-GLOBAL tier;
+  structural admission requires a live owner, while unowned callers retain only
+  WeakMap identity entries. Ownership is keyed to unresolved query mode rather
+  than descriptor or folder identity, so hydration churn does not clear valid
+  entries. Only the final live consumer release clears strong entries. Do not
+  make the tier unbounded, clear another live consumer's entries, or use it to
+  replace `selectionModel.materializedPaths`.
 - Any new tree interaction (selection, sort, collapse, keyboard behavior) must include tests in both shared UI package and consuming feature package when behavior diverges.
 - Consumers with per-row hidden checkboxes may set `reserveCheckboxSpace` on the tree column so empty/group rows stay aligned with selectable rows without rendering a misleading disabled checkbox. Checkbox-only multi-select surfaces set `selectOnRowClick={false}` so row chrome moves focus without mutating selection.
 - Keyboard events from interactive cell descendants (buttons, links, form
