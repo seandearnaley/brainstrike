@@ -10,9 +10,6 @@ const useOptionalPGliteDatabaseMock = vi.fn();
 const useFileExplorerStoreContextMock = vi.fn();
 const loadQuerySelectionSnapshotMock = vi.fn();
 
-vi.mock('@brainstrike/db', () => ({
-  useOptionalPGliteDatabase: () => useOptionalPGliteDatabaseMock(),
-}));
 vi.mock('@brainstrike/db/react', () => ({
   useOptionalPGliteDatabase: () => useOptionalPGliteDatabaseMock(),
 }));
@@ -97,7 +94,7 @@ describe('useSelectionResolver', () => {
     expect(state.setQuerySelectionManifest).toHaveBeenCalledTimes(1);
   });
 
-  it('starts the snapshot read when the database becomes available and cancels cold-start promotion', async () => {
+  it('starts the snapshot read when the database becomes available without restarting cold-start promotion', async () => {
     vi.useFakeTimers();
     const state = {
       currentFolderId: 'folder-1',
@@ -145,7 +142,8 @@ describe('useSelectionResolver', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(QUERY_SELECTION_LOADING_PROMOTION_MS / 2);
     });
-    expect(state.setQuerySelectionManifest).not.toHaveBeenCalled();
+    expect(state.setQuerySelectionManifest).toHaveBeenCalledTimes(1);
+    expect(state.querySelectionManifest).toEqual(expect.objectContaining({ status: 'loading' }));
   });
 
   it('keeps no-snapshot overrides outside the materialized manifest base', () => {

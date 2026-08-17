@@ -85,7 +85,12 @@ Windowing and performance:
   error publication revalidates the canonical manifest fingerprint plus
   snapshot id; unresolved selections use the persisted materialized-path
   fallback, while ready manifests retain only the materialized base and apply
-  included/excluded descriptor overrides during resolution.
+  included/excluded descriptor overrides during resolution. Consumers that
+  need effective counts or paths—including forest budgeting and folder-state
+  snapshots—must resolve the descriptor plus manifest rather than reading raw
+  `manifest.filePaths`. A terminal read error remains visible until the
+  descriptor or database lifecycle changes; the resolver does not silently
+  retry or coerce the failed snapshot.
 - Forest-mode scale contracts (PR #1734 audit; pinned by
   `forest-tree-actions-context.test.tsx`, `forest-section-filtering.test.tsx`,
   and the `filteredPathSet`-skip tests in

@@ -78,7 +78,7 @@ function buildMaterializedBasePaths(materializedPaths: Set<string> | null): stri
   if (!materializedPaths || materializedPaths.size === 0) {
     return EMPTY_RELATIVE_PATHS;
   }
-  return Array.from(materializedPaths).sort(defaultCollator.compare);
+  return Array.from(materializedPaths);
 }
 
 function buildExactMaterializedManifest(args: {
@@ -137,6 +137,38 @@ interface SelectionResolverStoreState {
   setQuerySelectionManifest: (
     manifest: ReturnType<typeof buildQuerySelectionManifest> | null
   ) => void;
+}
+
+interface LoadingPromotionStart {
+  fingerprint: string | null;
+  snapshotId: string;
+  startedAt: number;
+}
+
+function getLoadingPromotionDelay(args: {
+  fingerprint: string | null;
+  startRef: { current: LoadingPromotionStart | null };
+  snapshotId: string;
+}): number {
+  const { fingerprint, snapshotId, startRef } = args;
+  if (startRef.current?.fingerprint !== fingerprint || startRef.current.snapshotId !== snapshotId) {
+    startRef.current = { fingerprint, snapshotId, startedAt: Date.now() };
+  }
+  return Math.max(
+    0,
+    QUERY_SELECTION_LOADING_PROMOTION_MS - (Date.now() - startRef.current.startedAt)
+  );
+}
+
+function clearLoadingPromotionStart(args: {
+  fingerprint: string | null;
+  startRef: { current: LoadingPromotionStart | null };
+  snapshotId: string;
+}): void {
+  const { fingerprint, snapshotId, startRef } = args;
+  if (startRef.current?.fingerprint === fingerprint && startRef.current.snapshotId === snapshotId) {
+    startRef.current = null;
+  }
 }
 
 function resolveImmediateQueryManifest(args: {
@@ -236,19 +268,24 @@ export function useSelectionResolver(): SelectionResolverState {
       shallow
     );
   const loadTokenRef = useRef(0);
+  const loadingPromotionStartRef = useRef<LoadingPromotionStart | null>(null);
 
   useEffect(() => {
     loadTokenRef.current += 1;
     const token = loadTokenRef.current;
     const latestState = store.getState();
     if (latestState.selectionModel.mode !== 'query') {
+      loadingPromotionStartRef.current = null;
       return;
     }
 
     const descriptor = latestState.selectionModel.queryDescriptor;
     if (!descriptor) {
+      loadingPromotionStartRef.current = null;
       return;
     }
+
+    const snapshotId = descriptor.manifestSnapshotId;
 
     const latestManifest = latestState.querySelectionManifest;
     if (
@@ -259,6 +296,7 @@ export function useSelectionResolver(): SelectionResolverState {
         setManifest,
       })
     ) {
+      loadingPromotionStartRef.current = null;
       return;
     }
 
@@ -270,10 +308,14 @@ export function useSelectionResolver(): SelectionResolverState {
       }) &&
       (latestManifestStatus === 'ready' || (latestManifestStatus === 'loading' && !db))
     ) {
+      if (latestManifestStatus === 'ready') {
+        loadingPromotionStartRef.current = null;
+      }
       return;
     }
 
-    if (!descriptor.manifestSnapshotId) {
+    if (!snapshotId) {
+      loadingPromotionStartRef.current = null;
       setManifest(
         buildQuerySelectionManifest({
           filePaths: buildMaterializedBasePaths(latestState.selectionModel.materializedPaths),
@@ -283,6 +325,12 @@ export function useSelectionResolver(): SelectionResolverState {
       );
       return;
     }
+
+    const loadingPromotionDelay = getLoadingPromotionDelay({
+      fingerprint: descriptor.manifestFingerprint,
+      snapshotId,
+      startRef: loadingPromotionStartRef,
+    });
 
     const loadingPromotionTimer = setTimeout(() => {
       if (token !== loadTokenRef.current) {
@@ -309,7 +357,7 @@ export function useSelectionResolver(): SelectionResolverState {
         latestManifest: currentManifest,
         setManifest,
       });
-    }, QUERY_SELECTION_LOADING_PROMOTION_MS);
+    }, loadingPromotionDelay);
     const cancelPendingLoad = () => {
       clearTimeout(loadingPromotionTimer);
       loadTokenRef.current += 1;
@@ -319,9 +367,14 @@ export function useSelectionResolver(): SelectionResolverState {
       return cancelPendingLoad;
     }
 
-    void loadQuerySelectionSnapshotDeduped(db, descriptor.manifestSnapshotId)
+    void loadQuerySelectionSnapshotDeduped(db, snapshotId)
       .then((filePaths) => {
         clearTimeout(loadingPromotionTimer);
+        clearLoadingPromotionStart({
+          fingerprint: descriptor.manifestFingerprint,
+          snapshotId,
+          startRef: loadingPromotionStartRef,
+        });
         if (token !== loadTokenRef.current) {
           return;
         }
@@ -346,6 +399,11 @@ export function useSelectionResolver(): SelectionResolverState {
       })
       .catch((error: unknown) => {
         clearTimeout(loadingPromotionTimer);
+        clearLoadingPromotionStart({
+          fingerprint: descriptor.manifestFingerprint,
+          snapshotId,
+          startRef: loadingPromotionStartRef,
+        });
         if (token !== loadTokenRef.current) {
           return;
         }
