@@ -68,7 +68,17 @@ function runGenerator(recordGroups, { tag = 'v0.1.0', sourceCommit = SOURCE_COMM
     try {
       execFileSync(
         process.execPath,
-        [script, '--tag', tag, '--source-commit', sourceCommit, '--records-dir', recordsDir, '--out', outPath],
+        [
+          script,
+          '--tag',
+          tag,
+          '--source-commit',
+          sourceCommit,
+          '--records-dir',
+          recordsDir,
+          '--out',
+          outPath,
+        ],
         { encoding: 'utf8' }
       );
       return { manifest: JSON.parse(fs.readFileSync(outPath, 'utf8')), status: 0, stderr: '' };
